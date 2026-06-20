@@ -1,0 +1,241 @@
+"""Tier-0 deterministic validation for the agentic-forge plugin.
+
+Tier 0 is the always-blocking, LLM-free gate: standard compliance, frontmatter
+sanity, body length, reference resolution, and the presence of a valid evals.json
+contract. It is intentionally cheap so it can run on every save and every PR.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from . import evals as evals_mod
+from . import naming
+from .frontmatter import FrontmatterError, parse
+
+DESCRIPTION_MAX_LEN = 1024
+COMPATIBILITY_MAX_LEN = 500
+BODY_MAX_LINES = 500
+
+# Agent Skills standard frontmatter fields.
+STANDARD_FIELDS = {
+    "name",
+    "description",
+    "license",
+    "compatibility",
+    "metadata",
+    "allowed-tools",
+}
+
+# Documented Claude Code extensions to the standard.
+CLAUDE_CODE_FIELDS = {
+    "when_to_use",
+    "argument-hint",
+    "arguments",
+    "disable-model-invocation",
+    "user-invocable",
+    "disallowed-tools",
+    "model",
+    "effort",
+    "context",
+    "agent",
+    "hooks",
+    "paths",
+    "shell",
+}
+
+KNOWN_FIELDS = STANDARD_FIELDS | CLAUDE_CODE_FIELDS
+
+# Local references we expect to resolve on disk.
+_LOCAL_REF = re.compile(r"(?:\]\(|\$\{CLAUDE_SKILL_DIR\}/)((?:references|assets|scripts)/[^)\s]+)")
+
+
+@dataclass
+class Issue:
+    severity: str  # "error" | "warning"
+    location: str
+    message: str
+
+    def __str__(self) -> str:
+        return f"[{self.severity.upper()}] {self.location}: {self.message}"
+
+
+@dataclass
+class Report:
+    issues: list[Issue] = field(default_factory=list)
+
+    def error(self, location: str, message: str) -> None:
+        self.issues.append(Issue("error", location, message))
+
+    def warning(self, location: str, message: str) -> None:
+        self.issues.append(Issue("warning", location, message))
+
+    def extend(self, other: Report) -> None:
+        self.issues.extend(other.issues)
+
+    @property
+    def errors(self) -> list[Issue]:
+        return [i for i in self.issues if i.severity == "error"]
+
+    @property
+    def warnings(self) -> list[Issue]:
+        return [i for i in self.issues if i.severity == "warning"]
+
+    @property
+    def ok(self) -> bool:
+        return not self.errors
+
+    def render(self) -> str:
+        if not self.issues:
+            return "Tier-0: OK (no issues)"
+        lines = [str(i) for i in self.issues]
+        lines.append(f"\n{len(self.errors)} error(s), {len(self.warnings)} warning(s)")
+        return "\n".join(lines)
+
+
+def validate_skill(skill_dir: Path) -> Report:
+    """Run Tier-0 checks on a single skill directory."""
+    report = Report()
+    rel = skill_dir.name
+    skill_md = skill_dir / "SKILL.md"
+
+    if not skill_md.is_file():
+        report.error(rel, "missing SKILL.md")
+        return report
+
+    text = skill_md.read_text(encoding="utf-8")
+    try:
+        fm, body = parse(text)
+    except FrontmatterError as exc:
+        report.error(f"{rel}/SKILL.md", str(exc))
+        return report
+
+    # name (optional in CC; defaults to dir name). The directory name always becomes
+    # the command name, so it must obey the standard's naming rules.
+    for err in naming.validate_name(skill_dir.name):
+        report.error(f"{rel}/SKILL.md", f"directory name: {err}")
+    if "name" in fm:
+        for err in naming.validate_name(str(fm["name"]), dir_name=skill_dir.name):
+            report.error(f"{rel}/SKILL.md", f"name: {err}")
+
+    # description (required by the standard).
+    desc = fm.get("description")
+    if not desc or not str(desc).strip():
+        report.error(f"{rel}/SKILL.md", "description is required and must be non-empty")
+    elif len(str(desc)) > DESCRIPTION_MAX_LEN:
+        report.error(
+            f"{rel}/SKILL.md",
+            f"description exceeds {DESCRIPTION_MAX_LEN} characters (got {len(str(desc))})",
+        )
+
+    # compatibility (optional).
+    compat = fm.get("compatibility")
+    if compat is not None and len(str(compat)) > COMPATIBILITY_MAX_LEN:
+        report.error(f"{rel}/SKILL.md", f"compatibility exceeds {COMPATIBILITY_MAX_LEN} characters")
+
+    # metadata (optional): map of string -> string.
+    meta = fm.get("metadata")
+    if meta is not None:
+        if not isinstance(meta, dict):
+            report.error(f"{rel}/SKILL.md", "metadata must be a mapping")
+        else:
+            for key, value in meta.items():
+                if not isinstance(value, str):
+                    report.warning(
+                        f"{rel}/SKILL.md", f"metadata.{key} should be a string value"
+                    )
+
+    # unknown fields (typo guard).
+    for key in fm:
+        if key not in KNOWN_FIELDS:
+            report.warning(f"{rel}/SKILL.md", f"unknown frontmatter field '{key}'")
+
+    # body length.
+    line_count = body.count("\n") + 1 if body else 0
+    if line_count > BODY_MAX_LINES:
+        report.error(
+            f"{rel}/SKILL.md",
+            f"body is {line_count} lines; keep under {BODY_MAX_LINES} (move detail to references/)",
+        )
+
+    # local references must resolve.
+    for match in _LOCAL_REF.finditer(text):
+        ref = match.group(1)
+        if not (skill_dir / ref).exists():
+            report.error(f"{rel}/SKILL.md", f"referenced file does not exist: {ref}")
+
+    # evals.json contract is mandatory.
+    _validate_evals_file(skill_dir, rel, report)
+
+    return report
+
+
+def _validate_evals_file(skill_dir: Path, rel: str, report: Report) -> None:
+    evals_path = skill_dir / "evals" / "evals.json"
+    if not evals_path.is_file():
+        report.error(rel, "missing evals/evals.json (required readiness contract)")
+        return
+    try:
+        data = evals_mod.load_evals(evals_path)
+    except evals_mod.EvalsError as exc:
+        report.error(f"{rel}/evals/evals.json", str(exc))
+        return
+    for err in evals_mod.validate_evals(data):
+        report.error(f"{rel}/evals/evals.json", err)
+
+
+def validate_agent(agent_md: Path) -> Report:
+    """Light Tier-0 checks for a subagent definition file."""
+    report = Report()
+    rel = f"agents/{agent_md.name}"
+    try:
+        fm, _ = parse(agent_md.read_text(encoding="utf-8"))
+    except FrontmatterError as exc:
+        report.error(rel, str(exc))
+        return report
+    if not fm.get("description"):
+        report.error(rel, "agent description is required")
+    name = fm.get("name")
+    if name:
+        for err in naming.validate_name(str(name)):
+            report.error(rel, f"name: {err}")
+    return report
+
+
+def validate_manifest(plugin_dir: Path) -> Report:
+    report = Report()
+    manifest = plugin_dir / ".claude-plugin" / "plugin.json"
+    if not manifest.is_file():
+        report.error("plugin", "missing .claude-plugin/plugin.json")
+        return report
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        report.error("plugin/.claude-plugin/plugin.json", f"invalid JSON: {exc}")
+        return report
+    for key in ("name", "version"):
+        if key not in data:
+            report.error("plugin/.claude-plugin/plugin.json", f"missing required key '{key}'")
+    return report
+
+
+def validate_plugin(plugin_dir: Path) -> Report:
+    """Validate the whole plugin: manifest, skills, agents."""
+    report = Report()
+    report.extend(validate_manifest(plugin_dir))
+
+    skills_dir = plugin_dir / "skills"
+    if skills_dir.is_dir():
+        for child in sorted(skills_dir.iterdir()):
+            if child.is_dir():
+                report.extend(validate_skill(child))
+
+    agents_dir = plugin_dir / "agents"
+    if agents_dir.is_dir():
+        for child in sorted(agents_dir.glob("*.md")):
+            report.extend(validate_agent(child))
+
+    return report

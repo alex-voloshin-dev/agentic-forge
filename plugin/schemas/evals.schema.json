@@ -1,0 +1,95 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://agentic-forge/schemas/evals.schema.json",
+  "title": "agentic-forge component contract (evals.json)",
+  "description": "Machine-readable readiness contract for a single component. The presence of numeric thresholds is the definition of done.",
+  "type": "object",
+  "required": ["component", "thresholds"],
+  "additionalProperties": true,
+  "properties": {
+    "component": {
+      "type": "object",
+      "required": ["id", "type", "purpose"],
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "type": "string",
+          "enum": ["skill", "agent", "hook", "script", "workflow", "rule", "kb-template"]
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "thresholds": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": true,
+      "properties": {
+        "tier1_trigger": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "recall": { "type": "number", "minimum": 0, "maximum": 1 },
+            "specificity": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
+        "tier2_quality": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "min_pass_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+            "runs": { "type": "integer", "minimum": 1 },
+            "max_overhead_tokens": { "type": "integer", "minimum": 0 },
+            "max_overhead_seconds": { "type": "number", "minimum": 0 }
+          }
+        },
+        "tier3_e2e": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "scenario_pass_rate": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        }
+      }
+    },
+    "triggers": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "should_trigger": { "type": "array", "items": { "type": "string" } },
+        "should_not_trigger": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "prompt"],
+        "additionalProperties": true,
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "prompt": { "type": "string", "minLength": 1 },
+          "input_files": { "type": "array", "items": { "type": "string" } },
+          "assertions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["description"],
+              "additionalProperties": true,
+              "properties": {
+                "description": { "type": "string", "minLength": 1 },
+                "check": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

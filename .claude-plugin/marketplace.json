@@ -1,0 +1,15 @@
+{
+  "name": "agentic-forge",
+  "owner": {
+    "name": "Alex Voloshin",
+    "email": "avav25@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "agentic-forge",
+      "source": "./plugin",
+      "description": "Skill-centric, eval-driven Claude Code plugin for the full software lifecycle: research, product, architecture, UI/UX, planning, development, QA, deployment. Standard-compliant (agentskills.io), every component gated by tests and numeric eval thresholds.",
+      "version": "0.0.1"
+    }
+  ]
+}

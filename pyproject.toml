@@ -1,0 +1,36 @@
+[project]
+name = "agentic-forge"
+version = "0.0.1"
+description = "Tooling library and validators for the agentic-forge Claude Code plugin."
+requires-python = ">=3.11"
+dependencies = [
+    "pyyaml>=6.0",
+    "jsonschema>=4.21",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "types-pyyaml",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["plugin/lib"]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["plugin/lib", "dev", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.11"
+mypy_path = "plugin/lib"
+strict = true
+warn_unused_ignores = true

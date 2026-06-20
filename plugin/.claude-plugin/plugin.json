@@ -1,0 +1,30 @@
+{
+  "name": "agentic-forge",
+  "version": "0.0.1",
+  "description": "Skill-centric, eval-driven Claude Code plugin for the full software lifecycle. Workflow skills auto-load by description; subagents, worktrees, review loops and Ralph loops run natively. Every component is standard-compliant (agentskills.io) and gated by tests plus numeric eval thresholds.",
+  "author": {
+    "name": "Alex Voloshin",
+    "email": "avav25@gmail.com"
+  },
+  "license": "MIT",
+  "keywords": [
+    "sdlc",
+    "skills",
+    "agent-skills",
+    "eval-driven",
+    "subagents",
+    "workflow",
+    "research",
+    "product",
+    "architecture",
+    "ui-ux",
+    "planning",
+    "development",
+    "qa",
+    "deployment",
+    "knowledge-base",
+    "router",
+    "ralph",
+    "worktree"
+  ]
+}

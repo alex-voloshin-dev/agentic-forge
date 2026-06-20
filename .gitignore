@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Eval run artifacts (generated; not source of truth)
+**/evals/runs/
+**/grading.json
+**/benchmark.json
+eval-report.html
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
