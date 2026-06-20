@@ -1,9 +1,10 @@
 # Eval harness (hybrid on skill-creator)
 
-agentic-forge does not reimplement the eval engine. It uses the official
-[`skill-creator`](https://github.com/anthropics/skills/tree/main/skills/skill-creator)
-loop to run and grade skills, and adds a thin **policy layer** that turns the engine's
-output into a pass/fail decision against our numeric thresholds.
+agentic-forge does not reimplement the eval engine. It uses the official **skill-creator**
+plugin (install: `/plugin install skill-creator@claude-plugins-official`; source:
+[anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/skill-creator))
+to run and grade skills, and adds a thin **policy layer** that turns the engine's output
+into a pass/fail decision against our numeric thresholds.
 
 ## Division of labour
 
@@ -29,21 +30,20 @@ This keeps one source of truth while staying compatible with the upstream engine
 
 ## The eval pyramid (definition of done)
 
-1. **Tier 0 — static** (always blocks): `dev/validate.py`, `pytest`, `ruff`, `mypy`.
-2. **Tier 1 — trigger**: `should_trigger` recall and `should_not_trigger` specificity,
-   gated by `thresholds.tier1_trigger`.
-3. **Tier 2 — quality**: LLM-judged pass-rate over N>=5 runs, gated on the lower bound
-   (`mean - stddev`) by `thresholds.tier2_quality`, plus token/time overhead budgets.
-4. **Tier 3 — E2E**: workflow scenarios (added with the workflow layer).
+The canonical definition lives in
+[docs/architecture/overview.md](../../docs/architecture/overview.md#the-eval-pyramid-cross-cutting).
+In short: Tier 0 static (always blocks) → Tier 1 trigger → Tier 2 quality (LLM judge,
+N≥5, lower-bound gate, overhead budget) → Tier 3 E2E. This file covers how the harness
+implements Tiers 1–2.
 
 ## Flow
 
 ```
-skill-creator runs ──> grading.json (per run)
+skill-creator runs ──> grading.json + timing.json (per run)
                          │
-        benchmark.summarize(with_skill, without_skill)
+   benchmark.summarize(with_skill, without_skill, *_timing=…)
                          │
-                    benchmark.json
+            benchmark.json (pass-rate + token/time delta)
                          │
    gate.evaluate(evals.json, benchmark=..., trigger_measured=...)
                          │

@@ -54,9 +54,14 @@ hooks import from this package.
 A CLI that walks `plugin/skills/*` and `plugin/agents/*.md` and runs `validation.py`. For
 each skill it checks: directory/name rules, required non-empty `description` (≤1024), body
 ≤500 lines, that local `references/`, `assets/`, `scripts/` links resolve, and that a valid
-`evals/evals.json` exists. Errors fail the gate (exit 1); warnings (e.g. unknown
-frontmatter field) never fail. Standard fields and documented Claude Code extension fields
-are both recognized; anything else warns as a possible typo.
+`evals/evals.json` (with `component.type: skill`) exists. Each agent is gated the same way:
+a sibling contract at `plugin/agents/evals/<name>.evals.json` with `component.type: agent`
+is required. Errors fail the gate (exit 1); warnings (e.g. unknown frontmatter field) never
+fail. Standard fields and documented Claude Code extension fields are both recognized;
+anything else warns as a possible typo.
+
+Coverage and types are part of Tier 0 too, enforced in CI: `pytest --cov=agentic_forge
+--cov-fail-under=80`, `ruff`, and `mypy` (see [ci.yml](../../.github/workflows/ci.yml)).
 
 Run it:
 
@@ -71,11 +76,13 @@ agentic-forge does not run or grade LLM evals itself — the official `skill-cre
 does that (isolated subagent runs, assertion grading to `grading.json`, timing capture).
 The meta-core adds the **policy layer**:
 
-- `benchmark.summarize(with_skill, without_skill)` turns a list of `grading.json` mappings
-  into the aggregate `benchmark.json` shape, including the with/without delta.
+- `benchmark.summarize(with_skill, without_skill, with_skill_timing=…, without_skill_timing=…)`
+  turns `grading.json` (and optional `timing.json`) lists into the aggregate `benchmark.json`
+  shape, including the with/without pass-rate delta and the token/time overhead delta.
 - `gate.tier2_quality(benchmark, thresholds)` passes only when the pass-rate **lower
-  bound** `mean − stddev` over the required number of runs meets `min_pass_rate`, within
-  any token/time overhead budget. Gating on the lower bound absorbs LLM run-to-run noise.
+  bound** `mean − stddev` over the required number of runs meets `min_pass_rate`, and the
+  token/time overhead delta (when timing is supplied) stays within budget. Gating on the
+  lower bound absorbs LLM run-to-run noise.
 - `gate.trigger_metrics(...)` + `gate.tier1_trigger(...)` score auto-loading: recall over
   should-trigger prompts, specificity over should-not-trigger prompts.
 
@@ -97,12 +104,17 @@ contracts, so Tier-0 enforces "evals exist and are well-formed" before any body 
 
 ## `skill-factory` (the meta-skill)
 
-A router-pattern skill: a lean `SKILL.md` (~64 lines) plus references per component type
+A router-pattern skill: a lean `SKILL.md` (well under the 500-line cap) plus references per component type
 (`skill.md`, `agent.md`, `script.md`) and the `eval-loop.md` guide, with templates in
 `assets/`. It encodes the standing process — **contract → evals → implementation → gate** —
 and refuses to write a component body before its `evals/evals.json` exists. v1 builds
-skills, subagents, and Python scripts. Its own evals are hand-written (bootstrap), and the
-plugin-integrity test dogfoods that the whole plugin passes its own Tier-0 gate.
+skills, subagents, and Python scripts.
+
+Its own `evals/evals.json` is hand-written (the bootstrap exception — every other component
+gets its evals via `skill-factory`). It declares the standard Tier-1/Tier-2 thresholds and
+is gated like any skill once the skill-creator loop is run against it; today it is enforced
+at Tier 0, and the plugin-integrity test dogfoods that the whole plugin passes its own
+Tier-0 gate.
 
 ## CI
 

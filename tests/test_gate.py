@@ -82,6 +82,26 @@ def test_tier2_no_benchmark() -> None:
 
 # --- evaluate orchestration ---
 
+def test_tier2_fail_time_overhead() -> None:
+    bm = _benchmark(0.95, 0.0, 5, delta={"time_seconds": 120.0})
+    res = gate.tier2_quality(bm, {"tier2_quality": {"max_overhead_seconds": 30}})
+    assert not res.passed
+    assert any("time overhead" in r for r in res.reasons)
+
+
+def test_gate_result_str() -> None:
+    passing = gate.GateResult("tier2_quality", True)
+    failing = gate.GateResult("tier1_trigger", False, ["recall 0.5 < required 0.9"])
+    assert "PASS" in str(passing)
+    assert "FAIL" in str(failing) and "recall" in str(failing)
+
+
+def test_evaluate_skips_tiers_without_data() -> None:
+    evals_json = {"thresholds": {"tier2_quality": {"min_pass_rate": 0.8}}}
+    # No benchmark and no trigger data -> no tiers evaluated.
+    assert gate.evaluate(evals_json) == []
+
+
 def test_evaluate_runs_applicable_tiers() -> None:
     evals_json = {
         "thresholds": {

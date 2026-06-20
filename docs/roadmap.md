@@ -17,7 +17,7 @@ architecture before we invest in breadth.
 | Stage | Name | Status |
 | --- | --- | --- |
 | 0 | Meta-core (L0) | **Done** |
-| 1 | Engine foundations (L1, minimal) | Next |
+| 1 | Engine foundations (L1, minimal) | Designed — see [engine.md](architecture/engine.md) |
 | 2 | SDLC spine vertical slice (L2) | Planned |
 | 3 | Knowledge base (L3) | Planned |
 | 4 | Quality & operations domains | Planned |
@@ -50,23 +50,20 @@ Scope (in): a small set of subagent roles and the patterns that bind them — fi
 handoff between phases, a bounded review loop, and worktree isolation. Scope (out): Ralph
 loops, fan-out research at scale, full role catalog (deferred to later stages).
 
-Open design questions (resolve before building):
-- **Which subagent roles are primitive?** Candidates: `researcher`, `architect`,
-  `planner`, `implementer`, `reviewer`, `grader`. Decide the minimal set for the slice.
-- **Handoff contract format.** What does each phase write for the next to read (PRD, ADR,
-  plan, diff summary)? Markdown artifacts in the repo vs structured JSON. Trade-off:
-  human-readability and KB-fit vs machine-parse reliability.
-- **Where do handoff artifacts live?** In the target repo (committed, KB-linked) vs a
-  scratch area. Likely the repo so they become knowledge.
-- **Review loop budget and convergence.** Max iterations and the "good enough" signal.
-- **Agent eval method.** How we grade a role on a fixed task set (reuse skill-creator's
-  subagent runs vs a dedicated thin harness).
+Design questions: **resolved** in [architecture/engine.md](architecture/engine.md) and
+[ADR 0009](architecture/decisions/0009-engine-roles-and-handoff.md). Summary: dedicated
+roles `reviewer`, `grader`, `implementer`, `architect` (research/planning reuse built-in
+`Explore`/`Plan`); handoff via Markdown + YAML frontmatter in `docs/sdlc/<slug>/`; review
+loop bounded at N=3 with an approve signal; agent eval via skill-creator runs + our gate.
+The validator already enforces agent eval contracts (done during the review).
 
-Components produced: `plugin/agents/*.md` (minimal roles), pattern references, agent eval
-contracts.
+Components produced: four `plugin/agents/*.md` roles + their eval contracts at
+`plugin/agents/evals/`, `lib/agentic_forge/handoff.py` + artifact header schemas, and
+pattern references (review loop, worktree, handoff).
 
 Exit criteria: each role has an `evals.json` (`component.type: agent`) and meets Tier-2 on
-its task set; patterns documented; Tier-0 green.
+its task set; `handoff.py` + schemas implemented and unit-tested; patterns documented;
+Tier-0 green.
 
 Risks: over-building roles before a real workflow needs them. Mitigation: build strictly
 what Stage 2 consumes.
@@ -80,7 +77,9 @@ Goal: one continuous path from idea to reviewed code, proving the architecture e
 Dependencies: Stage 1; benefits from Stage 3 but should not block on it.
 
 Scope: router skills `research-brief → product-spec → tech-design → work-plan → develop →
-code-review`, each delegating to Stage 1 roles, handing off artifacts phase to phase.
+code-review`, handing off artifacts phase to phase. Delegation targets are the exact Stage 1
+set: built-in `Explore` (research) and `Plan` (planning), and dedicated `architect`,
+`implementer`, `reviewer`, `grader`. No new roles are introduced here.
 
 Open design questions (resolve before building):
 - **Phase boundaries and artifacts.** Exact output of each phase and how the next consumes
@@ -109,7 +108,9 @@ loose. Mitigation: design the trigger taxonomy and artifact schemas up front.
 Goal: an Obsidian-format vault the plugin deploys in the target repo, maintains, and reads
 to enrich workflow context.
 
-Dependencies: Stage 0; most valuable once Stage 2 produces artifacts to capture.
+Dependencies: vault scaffolding, recall skill, and templates depend only on Stage 0 and can
+be built independently. The **write path** (workflows writing artifacts/notes into the
+vault) depends on Stage 2 existing. Treat these as two separable task groups.
 
 Open design questions (resolve before building):
 - **Vault location & structure.** `knowledge/` vs `.claude/knowledge/`; maps-of-content

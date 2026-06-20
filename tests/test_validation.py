@@ -32,7 +32,10 @@ def test_name_dir_mismatch(make_skill) -> None:
 def test_missing_evals(make_skill) -> None:
     skill = make_skill(evals=None)
     report = validate_skill(skill)
-    assert any("evals/evals.json" in i.message for i in report.errors)
+    assert any(
+        "evals/evals.json" in i.location and "eval contract" in i.message
+        for i in report.errors
+    )
 
 
 def test_body_too_long(make_skill) -> None:
@@ -67,3 +70,48 @@ def test_invalid_evals_content(make_skill) -> None:
     skill = make_skill(evals={"component": {"id": "x"}})  # missing type/purpose + thresholds
     report = validate_skill(skill)
     assert any("evals/evals.json" in i.location for i in report.errors)
+
+
+def test_bad_dir_name(make_skill) -> None:
+    skill = make_skill(name="Bad", frontmatter="description: d")
+    report = validate_skill(skill)
+    assert any("directory name" in i.message for i in report.errors)
+
+
+def test_description_too_long(make_skill) -> None:
+    long_desc = "x" * 1100
+    skill = make_skill(frontmatter=f"name: demo\ndescription: {long_desc}")
+    report = validate_skill(skill)
+    assert any("description exceeds" in i.message for i in report.errors)
+
+
+def test_compatibility_too_long(make_skill) -> None:
+    skill = make_skill(
+        frontmatter="name: demo\ndescription: d\ncompatibility: " + "y" * 600
+    )
+    report = validate_skill(skill)
+    assert any("compatibility exceeds" in i.message for i in report.errors)
+
+
+def test_metadata_not_mapping(make_skill) -> None:
+    skill = make_skill(frontmatter="name: demo\ndescription: d\nmetadata: notamap")
+    report = validate_skill(skill)
+    assert any("metadata must be a mapping" in i.message for i in report.errors)
+
+
+def test_metadata_nonstring_value_warns(make_skill) -> None:
+    skill = make_skill(frontmatter="name: demo\ndescription: d\nmetadata:\n  version: 1")
+    report = validate_skill(skill)
+    assert any("should be a string" in i.message for i in report.warnings)
+
+
+def test_skill_wrong_component_type(make_skill) -> None:
+    bad = {
+        "skill_name": "demo",
+        "evals": [{"id": 1, "prompt": "do", "assertions": ["ok"]}],
+        "component": {"id": "demo", "type": "agent", "purpose": "p"},
+        "thresholds": {"tier2_quality": {"min_pass_rate": 0.8, "runs": 5}},
+    }
+    skill = make_skill(evals=bad)
+    report = validate_skill(skill)
+    assert any("component.type must be 'skill'" in i.message for i in report.errors)

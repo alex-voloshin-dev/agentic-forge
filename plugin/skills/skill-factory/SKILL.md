@@ -29,6 +29,9 @@ Default to a skill. Reach for a subagent only when isolation, a different model,
 restricted toolset is needed. Reach for a script only when the work is deterministic
 and better verified by tests than by an LLM.
 
+For each type: read the author guide in `references/` for the rules, then copy the matching
+file in `assets/` as the starting scaffold to fill in. Guides explain; templates are filled.
+
 ## The build process (always)
 
 **A. Contract.** State, in one place: purpose (why it exists), inputs/outputs,

@@ -19,4 +19,5 @@ When <situation>. Not for <out-of-scope>.
 
 ## Additional resources
 
-- For <detail>, see [references/REPLACE.md](references/REPLACE.md)
+Move detail into a `references/` file and link it here once it exists, for example a
+`references/<topic>.md`. (Placeholder — replace or delete this section.)

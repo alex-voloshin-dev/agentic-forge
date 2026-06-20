@@ -168,40 +168,56 @@ def validate_skill(skill_dir: Path) -> Report:
             report.error(f"{rel}/SKILL.md", f"referenced file does not exist: {ref}")
 
     # evals.json contract is mandatory.
-    _validate_evals_file(skill_dir, rel, report)
+    _check_evals(skill_dir / "evals" / "evals.json", f"{rel}/evals/evals.json", report, "skill")
 
     return report
 
 
-def _validate_evals_file(skill_dir: Path, rel: str, report: Report) -> None:
-    evals_path = skill_dir / "evals" / "evals.json"
+def _check_evals(evals_path: Path, loc: str, report: Report, expected_type: str) -> None:
+    """Require a present, schema-valid evals contract whose component.type matches."""
     if not evals_path.is_file():
-        report.error(rel, "missing evals/evals.json (required readiness contract)")
+        report.error(loc, "missing required eval contract (readiness contract)")
         return
     try:
         data = evals_mod.load_evals(evals_path)
     except evals_mod.EvalsError as exc:
-        report.error(f"{rel}/evals/evals.json", str(exc))
+        report.error(loc, str(exc))
         return
-    for err in evals_mod.validate_evals(data):
-        report.error(f"{rel}/evals/evals.json", err)
+    errors = evals_mod.validate_evals(data)
+    for err in errors:
+        report.error(loc, err)
+    if not errors:
+        actual = (data.get("component") or {}).get("type")
+        if actual != expected_type:
+            report.error(loc, f"component.type must be '{expected_type}', got '{actual}'")
 
 
 def validate_agent(agent_md: Path) -> Report:
-    """Light Tier-0 checks for a subagent definition file."""
+    """Tier-0 checks for a subagent definition file and its eval contract."""
     report = Report()
+    name = agent_md.stem
     rel = f"agents/{agent_md.name}"
+
+    for err in naming.validate_name(name):
+        report.error(rel, f"file name: {err}")
+
     try:
         fm, _ = parse(agent_md.read_text(encoding="utf-8"))
     except FrontmatterError as exc:
         report.error(rel, str(exc))
         return report
+
     if not fm.get("description"):
         report.error(rel, "agent description is required")
-    name = fm.get("name")
-    if name:
-        for err in naming.validate_name(str(name)):
+    fm_name = fm.get("name")
+    if fm_name:
+        for err in naming.validate_name(str(fm_name), dir_name=name):
             report.error(rel, f"name: {err}")
+
+    # Agents are gated like skills: a sibling eval contract is mandatory.
+    evals_path = agent_md.parent / "evals" / f"{name}.evals.json"
+    _check_evals(evals_path, f"agents/evals/{name}.evals.json", report, "agent")
+
     return report
 
 

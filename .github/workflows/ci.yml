@@ -18,8 +18,8 @@ jobs:
         run: pip install -e ".[dev]"
       - name: Validate plugin (skills-ref-style + contracts)
         run: python dev/validate.py
-      - name: Unit tests
-        run: pytest -q
+      - name: Unit tests (with coverage gate)
+        run: pytest -q --cov=agentic_forge --cov-report=term-missing --cov-fail-under=80
       - name: Lint
         run: ruff check .
       - name: Types

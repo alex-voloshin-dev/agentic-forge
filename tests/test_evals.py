@@ -55,6 +55,16 @@ def test_eval_id_must_be_integer() -> None:
     assert evals_mod.validate_evals(data) != []
 
 
+def test_load_evals_not_object(tmp_path) -> None:
+    p = tmp_path / "evals.json"
+    p.write_text("[1, 2, 3]", encoding="utf-8")
+    try:
+        evals_mod.load_evals(p)
+    except evals_mod.EvalsError:
+        return
+    raise AssertionError("expected EvalsError")
+
+
 def test_load_evals_bad_json(tmp_path) -> None:
     p = tmp_path / "evals.json"
     p.write_text("{not json", encoding="utf-8")

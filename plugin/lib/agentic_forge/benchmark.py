@@ -37,23 +37,53 @@ def _stats(values: list[float]) -> dict[str, float | int]:
     return {"mean": mean, "stddev": stddev, "n": len(values)}
 
 
+def _mean_tokens(timing: list[dict[str, Any]]) -> float:
+    values = [float(t.get("total_tokens", 0)) for t in timing]
+    return statistics.fmean(values) if values else 0.0
+
+
+def _mean_seconds(timing: list[dict[str, Any]]) -> float:
+    values = [float(t.get("duration_ms", 0)) / 1000.0 for t in timing]
+    return statistics.fmean(values) if values else 0.0
+
+
 def summarize(
     with_skill: list[dict[str, Any]],
     without_skill: list[dict[str, Any]] | None = None,
+    *,
+    with_skill_timing: list[dict[str, Any]] | None = None,
+    without_skill_timing: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Build a benchmark.json-shaped mapping from grading.json lists."""
+    """Build a benchmark.json-shaped mapping from grading.json (and optional timing.json) lists.
+
+    Pass `*_timing` lists of `{total_tokens, duration_ms}` to populate token/time means and
+    the with-vs-without overhead delta that `gate.tier2_quality` checks.
+    """
     ws = _stats([pass_rate_of(g) for g in with_skill])
-    run_summary: dict[str, Any] = {
-        "with_skill": {
-            "pass_rate": {"mean": ws["mean"], "stddev": ws["stddev"]},
-            "n": ws["n"],
-        }
+    ws_summary: dict[str, Any] = {
+        "pass_rate": {"mean": ws["mean"], "stddev": ws["stddev"]},
+        "n": ws["n"],
     }
+    if with_skill_timing is not None:
+        ws_summary["tokens"] = _mean_tokens(with_skill_timing)
+        ws_summary["time_seconds"] = _mean_seconds(with_skill_timing)
+
+    run_summary: dict[str, Any] = {"with_skill": ws_summary}
+
     if without_skill is not None:
         wo = _stats([pass_rate_of(g) for g in without_skill])
-        run_summary["without_skill"] = {
+        wo_summary: dict[str, Any] = {
             "pass_rate": {"mean": wo["mean"], "stddev": wo["stddev"]},
             "n": wo["n"],
         }
-        run_summary["delta"] = {"pass_rate": ws["mean"] - wo["mean"]}
+        delta: dict[str, float] = {"pass_rate": ws["mean"] - wo["mean"]}
+        if without_skill_timing is not None:
+            wo_summary["tokens"] = _mean_tokens(without_skill_timing)
+            wo_summary["time_seconds"] = _mean_seconds(without_skill_timing)
+        if with_skill_timing is not None and without_skill_timing is not None:
+            delta["tokens"] = ws_summary["tokens"] - wo_summary["tokens"]
+            delta["time_seconds"] = ws_summary["time_seconds"] - wo_summary["time_seconds"]
+        run_summary["without_skill"] = wo_summary
+        run_summary["delta"] = delta
+
     return {"run_summary": run_summary}

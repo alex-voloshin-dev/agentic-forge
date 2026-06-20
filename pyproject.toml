@@ -11,6 +11,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "pytest-cov>=5.0",
     "ruff>=0.5",
     "mypy>=1.10",
     "types-pyyaml",
@@ -35,3 +36,9 @@ python_version = "3.11"
 mypy_path = "plugin/lib"
 strict = true
 warn_unused_ignores = true
+
+[tool.coverage.run]
+source = ["agentic_forge"]
+# Note: on some bind-mounted filesystems coverage cannot delete its parallel data
+# files. If you hit "Operation not permitted", set COVERAGE_FILE to a local path,
+# e.g. COVERAGE_FILE=/tmp/.coverage pytest --cov=agentic_forge.

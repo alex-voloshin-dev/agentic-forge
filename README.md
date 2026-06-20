@@ -16,7 +16,7 @@ Claude Code loads automatically when they are relevant. It is built on three com
 ## Status
 
 Layer 0 (meta-core) is complete and green. Workflow domains are next — see the
-[roadmap](docs/roadmap.md).
+[roadmap](docs/roadmap.md). The knowledge base is Layer 3 (not part of meta-core yet).
 
 - [x] Repository skeleton, manifests, tooling
 - [x] Tier-0 deterministic validator + tests

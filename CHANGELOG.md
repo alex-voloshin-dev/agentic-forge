@@ -34,6 +34,38 @@ versioning once it has a public surface.
 - **Documentation** under `docs/`: product vision, architecture overview, meta-core guide,
   eight ADRs, and this staged roadmap.
 
+### Added — Stage 1 design
+
+- **Engine design doc** `docs/architecture/engine.md`: role contracts (`reviewer`,
+  `grader`, `implementer`, `architect`), markdown+frontmatter handoff artifact model and
+  schemas, bounded review loop (N=3, approve signal), and agent-eval approach.
+- **ADR 0009** recording the engine roles, handoff format, review loop, and agent eval.
+
+### Added — handoff
+
+- **`docs/handoff-to-cli.md`** — checklist and starter prompt for continuing implementation
+  (Stage 1+) in the Claude Code CLI, where the plugin runs and the eval loop executes.
+
+### Changed / Fixed — documentation review
+
+- **Overhead gating made real:** `benchmark.summarize` now computes token/time overhead
+  deltas from optional `timing.json` input, which `gate.tier2_quality` already checks
+  (previously the gate could never apply overhead budgets). Added tests.
+- **Agents now gated like skills:** `validate_agent` requires a sibling eval contract at
+  `plugin/agents/evals/<name>.evals.json` with `component.type: agent`; skill contracts must
+  declare `component.type: skill`. Added tests for agents, the manifest, and validator
+  branches.
+- **Coverage enforced:** `pytest-cov` added; CI runs `--cov=agentic_forge --cov-fail-under=80`
+  (current coverage ~96%). Aligned the coverage claim across `CLAUDE.md`, overview, and
+  meta-core docs.
+- **Reduced duplication:** the eval-pyramid definition is now canonical in
+  `docs/architecture/overview.md`; `plugin/eval/README.md` points to it instead of restating.
+- **Citation fix:** `skill-creator` references updated to the official
+  `claude-plugins-official` plugin and install command.
+- **Plan consistency:** roadmap Stage 1 design questions marked resolved (engine.md/ADR 0009);
+  Stage 2 role set pinned to the four roles + built-in Explore/Plan; Stage 3 split into
+  vault-infra (Stage 0+) vs write-path (needs Stage 2). README notes the KB is Layer 3.
+
 ### Notes
 
 - Decision records for the choices above live in `docs/architecture/decisions/`.
