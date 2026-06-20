@@ -15,14 +15,23 @@ Claude Code loads automatically when they are relevant. It is built on three com
 
 ## Status
 
-Early scaffolding. Layer 0 (meta-core) is under construction:
+Layer 0 (meta-core) is complete and green. Workflow domains are next — see the
+[roadmap](docs/roadmap.md).
 
 - [x] Repository skeleton, manifests, tooling
-- [ ] Tier-0 deterministic validator + tests
-- [ ] eval/contract schemas
-- [ ] hybrid eval-harness (on `skill-creator`)
-- [ ] `skill-factory` meta-skill
-- [ ] dogfood + CI
+- [x] Tier-0 deterministic validator + tests
+- [x] eval/contract schemas
+- [x] hybrid eval-harness (on `skill-creator`)
+- [x] `skill-factory` meta-skill
+- [x] dogfood + CI
+
+## Documentation
+
+Full docs live in [`docs/`](docs/README.md): [product vision](docs/product/vision.md),
+[architecture](docs/architecture/overview.md),
+[meta-core guide](docs/architecture/meta-core.md),
+[decision records](docs/architecture/decisions/README.md), and the
+[roadmap](docs/roadmap.md). Change history is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Develop
 

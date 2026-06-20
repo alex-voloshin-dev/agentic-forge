@@ -68,7 +68,23 @@ plugin/
   schemas/                  # JSON Schema for evals.json + contract
 tests/                      # pytest for lib + hooks + harness
 dev/validate.py             # Tier-0 gate (CLI)
+docs/                       # product vision, architecture, ADRs, roadmap
+CHANGELOG.md                # what changed, by milestone
 ```
+
+## Documentation discipline
+
+Document as you build, not after. Any change that adds, changes, or removes functionality
+MUST, in the same unit of work:
+
+1. Add a `CHANGELOG.md` entry (Added / Changed / Fixed / Removed).
+2. Update the affected docs under `docs/` (vision, architecture, meta-core, roadmap).
+3. Record any significant decision as an ADR in `docs/architecture/decisions/`.
+4. Explain how the functionality works — not just that it exists.
+
+Docs live in `docs/` and are the source of truth for intent and design; `CLAUDE.md` is the
+rulebook. Plan and design a stage in `docs/` (goal, analysis, alternatives, exit criteria)
+before implementing it.
 
 ## Editing rules
 
