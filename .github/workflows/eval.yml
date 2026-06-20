@@ -1,0 +1,28 @@
+name: eval (Tier 1-2)
+
+# LLM-judged tiers are cost-gated: run on demand or when a PR is labelled "eval".
+# They require ANTHROPIC_API_KEY and the skill-creator loop, so they are kept out of
+# the always-on Tier-0 gate.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+
+jobs:
+  quality:
+    name: Tier 1-2 (trigger + quality)
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'eval'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Placeholder
+        run: |
+          echo "Wire skill-creator runs here, aggregate with agentic_forge.benchmark,"
+          echo "and gate with agentic_forge.gate against each component's thresholds."
+          echo "Requires ANTHROPIC_API_KEY (secrets) and the skill-creator plugin."

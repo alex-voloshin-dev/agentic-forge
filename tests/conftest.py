@@ -6,6 +6,15 @@ from pathlib import Path
 import pytest
 
 VALID_EVALS = {
+    "skill_name": "demo",
+    "evals": [
+        {
+            "id": 1,
+            "prompt": "Run the demo task on my project.",
+            "expected_output": "The demo task completes and reports a summary.",
+            "assertions": ["The output reports a summary"],
+        }
+    ],
     "component": {"id": "demo", "type": "skill", "purpose": "Demo skill for tests."},
     "thresholds": {"tier2_quality": {"min_pass_rate": 0.8, "runs": 5}},
     "triggers": {"should_trigger": ["do the demo"], "should_not_trigger": ["unrelated"]},

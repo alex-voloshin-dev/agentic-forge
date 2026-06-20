@@ -1,0 +1,37 @@
+{
+  "skill_name": "REPLACE-component-name",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "REPLACE with a realistic user message that should exercise the component.",
+      "expected_output": "REPLACE with a human-readable description of what success looks like.",
+      "files": [],
+      "assertions": [
+        "REPLACE with a specific, verifiable statement about the output"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "REPLACE with a differently-phrased prompt (casual or precise).",
+      "expected_output": "REPLACE.",
+      "assertions": ["REPLACE"]
+    }
+  ],
+  "component": {
+    "id": "REPLACE-component-name",
+    "type": "skill",
+    "purpose": "REPLACE with one sentence: why this component exists."
+  },
+  "thresholds": {
+    "tier1_trigger": { "recall": 0.9, "specificity": 0.9 },
+    "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }
+  },
+  "triggers": {
+    "should_trigger": [
+      "REPLACE with a prompt that SHOULD auto-load this skill"
+    ],
+    "should_not_trigger": [
+      "REPLACE with a related prompt that should NOT load this skill"
+    ]
+  }
+}

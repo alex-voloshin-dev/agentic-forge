@@ -2,28 +2,44 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://agentic-forge/schemas/evals.schema.json",
   "title": "agentic-forge component contract (evals.json)",
-  "description": "Machine-readable readiness contract for a single component. The presence of numeric thresholds is the definition of done.",
+  "description": "A SUPERSET of the official skill-creator evals.json. skill-creator reads 'skill_name' and 'evals'; agentic-forge additionally reads 'component', 'thresholds', and 'triggers'. Extra keys are ignored by skill-creator, so a single file serves both.",
   "type": "object",
-  "required": ["component", "thresholds"],
+  "required": ["skill_name", "evals", "component", "thresholds"],
   "additionalProperties": true,
   "properties": {
+    "skill_name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Official skill-creator field: the skill under test."
+    },
+    "evals": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Official skill-creator test cases.",
+      "items": {
+        "type": "object",
+        "required": ["id", "prompt"],
+        "additionalProperties": true,
+        "properties": {
+          "id": { "type": "integer", "minimum": 1 },
+          "prompt": { "type": "string", "minLength": 1 },
+          "expected_output": { "type": "string" },
+          "files": { "type": "array", "items": { "type": "string" } },
+          "assertions": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+        }
+      }
+    },
     "component": {
       "type": "object",
       "required": ["id", "type", "purpose"],
       "additionalProperties": true,
       "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1
-        },
+        "id": { "type": "string", "minLength": 1 },
         "type": {
           "type": "string",
           "enum": ["skill", "agent", "hook", "script", "workflow", "rule", "kb-template"]
         },
-        "purpose": {
-          "type": "string",
-          "minLength": 1
-        }
+        "purpose": { "type": "string", "minLength": 1 }
       }
     },
     "thresholds": {
@@ -64,31 +80,6 @@
       "properties": {
         "should_trigger": { "type": "array", "items": { "type": "string" } },
         "should_not_trigger": { "type": "array", "items": { "type": "string" } }
-      }
-    },
-    "cases": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["id", "prompt"],
-        "additionalProperties": true,
-        "properties": {
-          "id": { "type": "string", "minLength": 1 },
-          "prompt": { "type": "string", "minLength": 1 },
-          "input_files": { "type": "array", "items": { "type": "string" } },
-          "assertions": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "required": ["description"],
-              "additionalProperties": true,
-              "properties": {
-                "description": { "type": "string", "minLength": 1 },
-                "check": { "type": "string" }
-              }
-            }
-          }
-        }
       }
     }
   }

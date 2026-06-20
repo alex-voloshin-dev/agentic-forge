@@ -1,0 +1,62 @@
+{
+  "skill_name": "skill-factory",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Create a new skill called changelog-writer that turns merged PRs since the last tag into a release changelog.",
+      "expected_output": "A standard-compliant skill directory with SKILL.md (valid frontmatter, sharp description), and an evals/evals.json authored before the body, with thresholds and trigger sets. Tier 0 passes.",
+      "files": [],
+      "assertions": [
+        "A SKILL.md is created with required name and description frontmatter",
+        "The skill directory name matches the frontmatter name",
+        "An evals/evals.json exists and validates against the project schema",
+        "evals.json contains both thresholds and triggers sections",
+        "python dev/validate.py reports no errors for the new skill"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "We need a subagent that grades eval outputs against assertions. Scaffold it the agentic-forge way.",
+      "expected_output": "A subagent file under plugin/agents/ with a narrowed toolset and an explicit return contract, plus an agent-type evals.json with tier2 thresholds. The build follows contract -> evals -> implementation order.",
+      "assertions": [
+        "An agent markdown file is created under plugin/agents/",
+        "The agent frontmatter declares a narrowed tools list",
+        "An evals contract with component.type 'agent' and tier2_quality thresholds is created",
+        "The evals contract is created before the agent body is finalized"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Add a Python helper that parses a SKILL.md and returns its frontmatter, and make it testable.",
+      "expected_output": "A Python module placed in plugin/lib/agentic_forge/ (shared) or a skill scripts/ dir, with pytest coverage, an exit-code-friendly design where applicable, passing ruff and mypy.",
+      "assertions": [
+        "A Python module is created in plugin/lib/agentic_forge/ or a skill scripts/ directory",
+        "Corresponding pytest tests are added under tests/",
+        "ruff check and mypy pass on the new code",
+        "The script is documented by a script-type evals.json"
+      ]
+    }
+  ],
+  "component": {
+    "id": "skill-factory",
+    "type": "skill",
+    "purpose": "Create agentic-forge components (skill, agent, script) contract-first and evals-first, standard-compliant and gated by the eval pyramid."
+  },
+  "thresholds": {
+    "tier1_trigger": { "recall": 0.9, "specificity": 0.9 },
+    "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }
+  },
+  "triggers": {
+    "should_trigger": [
+      "Create a new skill for generating release notes",
+      "Scaffold an agent that reviews diffs for security issues",
+      "Add a component to this plugin following our rules",
+      "Build a workflow skill the agentic-forge way"
+    ],
+    "should_not_trigger": [
+      "Run the deploy workflow to production",
+      "Summarize the changes in my current branch",
+      "Explain what a subagent is"
+    ]
+  }
+}

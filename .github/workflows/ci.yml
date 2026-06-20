@@ -1,0 +1,26 @@
+name: gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tier0:
+    name: Tier 0 (static gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Validate plugin (skills-ref-style + contracts)
+        run: python dev/validate.py
+      - name: Unit tests
+        run: pytest -q
+      - name: Lint
+        run: ruff check .
+      - name: Types
+        run: mypy plugin/lib dev
