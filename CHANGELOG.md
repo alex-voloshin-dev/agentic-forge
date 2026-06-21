@@ -137,6 +137,18 @@ surfacing on a failed call.
   stddev 0.042, lower bound 0.927 (n=5) on the planted-defect fixtures (catches the planted
   contradiction/gap/bug/risk with no false positives on clean zones).
 
+### Added — Stage 2 thin slice (step 3b: code-review workflow)
+
+- **`code-review` workflow skill** `plugin/skills/code-review/` — the review phase: the
+  [multi-aspect review](plugin/patterns/multi-aspect-review.md) pattern wired as a skill —
+  fans out reviewers by aspect (correctness/reuse via `reviewer`, security via
+  `security-engineer`, integration/API, style/lint via the real tools), verifies, aggregates
+  into one approve/changes verdict (any blocker/major ⇒ changes), and writes a `review.md`
+  handoff. Code is its target; docs/design and deep audits go to `deep-review` (per ADR 0013 /
+  the user's split). **Tier-0 + Tier-1 recall 1.000 / specificity 1.000** (majority-of-3
+  router sim — distinct from `deep-review`/`simplify` and the spine neighbours); review quality
+  is the `reviewer`/`security-engineer` roles' Tier-2 (PASS).
+
 ### Added — Stage 2 thin slice (step 3a: architecture workflow)
 
 - **`architecture` workflow skill** `plugin/skills/architecture/` — the `tech-design` phase:

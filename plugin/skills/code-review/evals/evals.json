@@ -1,0 +1,64 @@
+{
+  "skill_name": "code-review",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Code-review this diff and give a verdict with findings; record review.md.",
+      "expected_output": "A 'changes' verdict with a finding flagging the unvalidated user-supplied index (location, severity, fix), aggregated across aspects, written as a review.md handoff.",
+      "files": ["eval/fixtures/reviewer/case1.diff"],
+      "assertions": [
+        "The output states an explicit verdict of 'approve' or 'changes'",
+        "The verdict is 'changes' for the unvalidated index access",
+        "A finding names the missing bounds/validation with a location, a severity, and a fix",
+        "Findings are organized by aspect (e.g. correctness, security) and aggregated into one verdict",
+        "A review.md handoff (type/target/iteration/verdict/findings) is produced; no code is modified"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Code-review this small, correct rename diff before merge.",
+      "expected_output": "An 'approve' verdict with no blocking findings (at most nits).",
+      "files": ["eval/fixtures/reviewer/case2.diff"],
+      "assertions": [
+        "The verdict is 'approve' for the correct, low-risk change",
+        "No blocker- or major-severity finding is invented on the correct diff",
+        "The review does not modify any files"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Review this code for security issues as part of the change review.",
+      "expected_output": "A finding flagging the SQL injection (location, severity, parameterized-query fix), contributing to a 'changes' verdict.",
+      "files": ["eval/fixtures/security-engineer/case1-sqli.py"],
+      "assertions": [
+        "The security aspect flags the SQL injection with a location and a fix",
+        "The injection finding drives the verdict to 'changes'",
+        "Evidence cites the offending line"
+      ]
+    }
+  ],
+  "component": {
+    "id": "code-review",
+    "type": "skill",
+    "purpose": "Phase workflow: multi-aspect review of a code change (correctness, security, integration/API, style/lint) into one approve/changes verdict + a review.md handoff. Delegates to the reviewer and security-engineer roles; gated at Tier-1 (routing), with review quality covered by those roles' Tier-2."
+  },
+  "thresholds": {
+    "tier1_trigger": { "recall": 0.9, "specificity": 0.9 }
+  },
+  "triggers": {
+    "should_trigger": [
+      "Review this diff for bugs and security before I merge",
+      "Code review my changes on the feature branch",
+      "Review the change from the develop phase and record review.md",
+      "Review my pull request for correctness, security, and style",
+      "Run a code review on this branch's diff"
+    ],
+    "should_not_trigger": [
+      "Do a thorough adversarial audit of these architecture docs",
+      "Deep-review this design for missing alternatives and risks",
+      "Design the technical architecture for the search feature",
+      "Implement the search indexer in Python",
+      "Write a PRD for the new feature"
+    ]
+  }
+}
