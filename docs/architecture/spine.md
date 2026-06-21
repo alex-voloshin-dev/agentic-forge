@@ -107,15 +107,16 @@ by-stack step. Prove the slice end to end, record Tier-1/2/3, then add
 - Tier-3 E2E green on the fixture repo with all phase checkpoints.
 - Tier-0 green throughout; docs + CHANGELOG updated per change.
 
-## Implementation tasks (after approval)
+## Implementation tasks
 
-1. Patterns: `fan-out-fan-in.md`, `multi-aspect-review.md`. Fixture Python target-repo.
-2. Thin-slice roles (evals-first): `software-engineer`/`python-engineer`, `security-engineer`,
-   `qa-engineer`.
-3. Thin-slice workflows (evals-first): `architecture`, `develop`, `code-review`.
-4. Tier-3 scenario runner for the slice; prove end to end; record numbers.
-5. Complete spine: `research`, `product`, `plan`; extend the scenario to all phases.
-6. By-stack mechanism + non-Python stacks.
+1. ~~Patterns: `fan-out-fan-in.md`, `multi-aspect-review.md`. Fixture Python target-repo.~~ Done.
+2. ~~Thin-slice roles (evals-first): `software-engineer`, `security-engineer`, `qa-engineer`.~~
+   Done (stack engineers deferred to by-stack — ADR 0014).
+3. ~~Thin-slice workflows (evals-first): `architecture`, `develop`, `code-review`.~~ Done.
+4. ~~Tier-3 scenario runner for the slice; prove end to end.~~ Done (Tier-3 PASS).
+5. ~~Complete spine: `research`, `product`, `plan`.~~ Done — all six phase skills built + gated.
+6. **Next:** extend the Tier-3 scenario to all six phases; then the by-stack mechanism +
+   non-Python stacks.
 
 ## Defaults to confirm or override
 

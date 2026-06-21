@@ -18,7 +18,7 @@ architecture before we invest in breadth.
 | --- | --- | --- |
 | 0 | Meta-core (L0) | **Done** |
 | 1 | Engine foundations (L1, minimal) | **Done** — see [engine.md](architecture/engine.md) |
-| 2 | SDLC spine vertical slice (L2) | In progress — thin slice (architecture→develop→code-review) proven E2E |
+| 2 | SDLC spine vertical slice (L2) | In progress — all 6 phase skills built; thin-slice E2E proven |
 | 3 | Knowledge base (L3) | Planned |
 | 4 | Quality & operations domains | Planned |
 | 5 | Product & marketing domains | Planned |
@@ -82,12 +82,14 @@ what Stage 2 consumes.
 
 ## Stage 2 — SDLC spine vertical slice
 
-Status: **thin slice built and proven end-to-end.** The `architecture → develop → code-review`
-workflow skills (+ the `software-engineer`/`security-engineer`/`qa-engineer` roles,
-`engineering-standards` skill, and fan-out/multi-aspect-review patterns) are gated at Tier-0 +
-Tier-1, and the Tier-3 spine E2E carried a feature from PRD to reviewed, tested code on a
-fixture repo (see CHANGELOG). **Remaining:** the `research`, `product`, and `plan` phases, then
-the by-stack multi-language mechanism.
+Status: **all six phase skills built and gated.** `research → product → architecture → plan →
+develop → code-review` are each a workflow skill passing Tier-0 + Tier-1 (≥ 0.9 recall/
+specificity via majority-of-N router sims), joined by schema-validated handoff artifacts, atop
+the `software-engineer`/`security-engineer`/`qa-engineer` roles, the `engineering-standards`
+skill, and the fan-out/multi-aspect-review patterns. The thin slice
+(architecture→develop→code-review) is **proven end-to-end** (Tier-3: PRD → reviewed, tested
+code on a fixture repo — see CHANGELOG). **Remaining:** the full six-phase E2E and the by-stack
+multi-language mechanism.
 
 Goal: one continuous path from idea to reviewed code, proving the architecture end to end.
 
