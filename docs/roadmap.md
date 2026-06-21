@@ -18,7 +18,7 @@ architecture before we invest in breadth.
 | --- | --- | --- |
 | 0 | Meta-core (L0) | **Done** |
 | 1 | Engine foundations (L1, minimal) | **Done** — see [engine.md](architecture/engine.md) |
-| 2 | SDLC spine vertical slice (L2) | Planned |
+| 2 | SDLC spine vertical slice (L2) | In progress — thin slice (architecture→develop→code-review) proven E2E |
 | 3 | Knowledge base (L3) | Planned |
 | 4 | Quality & operations domains | Planned |
 | 5 | Product & marketing domains | Planned |
@@ -81,6 +81,13 @@ what Stage 2 consumes.
 ---
 
 ## Stage 2 — SDLC spine vertical slice
+
+Status: **thin slice built and proven end-to-end.** The `architecture → develop → code-review`
+workflow skills (+ the `software-engineer`/`security-engineer`/`qa-engineer` roles,
+`engineering-standards` skill, and fan-out/multi-aspect-review patterns) are gated at Tier-0 +
+Tier-1, and the Tier-3 spine E2E carried a feature from PRD to reviewed, tested code on a
+fixture repo (see CHANGELOG). **Remaining:** the `research`, `product`, and `plan` phases, then
+the by-stack multi-language mechanism.
 
 Goal: one continuous path from idea to reviewed code, proving the architecture end to end.
 
