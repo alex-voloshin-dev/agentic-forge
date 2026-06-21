@@ -133,6 +133,20 @@ def test_wrong_field_type_reports_location() -> None:
     assert any(e.startswith("sources:") for e in errors)
 
 
+def test_tech_design_accepts_structured_list_items() -> None:
+    # Real artifacts carry structured entries (a decision/component/risk as an object), not just
+    # bare strings — the schema must accept both.
+    header = {
+        "type": "tech-design",
+        "feature": "search",
+        "status": "draft",
+        "decisions": [{"id": "ADR-001", "title": "Use an inverted index", "adr": "adr-001.md"}],
+        "components": [{"name": "indexer", "change": "build it"}],
+        "risks": [{"risk": "staleness", "mitigation": "ttl"}],
+    }
+    assert validate_header(header) == []
+
+
 def test_prd_empty_goals_rejected() -> None:
     header = {**VALID_HEADERS["prd"], "goals": []}
     errors = validate_header(header)

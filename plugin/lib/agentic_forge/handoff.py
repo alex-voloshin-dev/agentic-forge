@@ -36,12 +36,12 @@ VERDICTS = ["approve", "changes"]
 SEVERITIES = ["blocker", "major", "minor", "nit"]
 
 _DRAFT7 = "http://json-schema.org/draft-07/schema#"
-_STRING_ARRAY: dict[str, Any] = {"type": "array", "items": {"type": "string"}}
-_NONEMPTY_STRING_ARRAY: dict[str, Any] = {
-    "type": "array",
-    "minItems": 1,
-    "items": {"type": "string"},
-}
+# A list entry may be a bare string OR a structured object — real artifacts carry both (a
+# decision as {id, title, adr}, a component as {name, change}, a risk as {risk, mitigation}),
+# which is richer than a bare string and just as valid.
+_ENTRY: dict[str, Any] = {"type": ["string", "object"]}
+_LIST: dict[str, Any] = {"type": "array", "items": _ENTRY}
+_NONEMPTY_LIST: dict[str, Any] = {"type": "array", "minItems": 1, "items": _ENTRY}
 
 # A plan task: an id plus optional dependency ids and a title.
 _TASKS: dict[str, Any] = {
@@ -102,25 +102,25 @@ SCHEMAS: dict[str, dict[str, Any]] = {
     "research-brief": _feature_schema(
         "research-brief",
         required_extra=[],
-        properties_extra={"date": {"type": "string"}, "sources": _STRING_ARRAY},
+        properties_extra={"date": {"type": "string"}, "sources": _LIST},
     ),
     "prd": _feature_schema(
         "prd",
         required_extra=["goals", "acceptance"],
         properties_extra={
-            "goals": _NONEMPTY_STRING_ARRAY,
-            "non_goals": _STRING_ARRAY,
-            "metrics": _STRING_ARRAY,
-            "acceptance": _NONEMPTY_STRING_ARRAY,
+            "goals": _NONEMPTY_LIST,
+            "non_goals": _LIST,
+            "metrics": _LIST,
+            "acceptance": _NONEMPTY_LIST,
         },
     ),
     "tech-design": _feature_schema(
         "tech-design",
         required_extra=["decisions", "components"],
         properties_extra={
-            "decisions": _NONEMPTY_STRING_ARRAY,
-            "components": _NONEMPTY_STRING_ARRAY,
-            "risks": _STRING_ARRAY,
+            "decisions": _NONEMPTY_LIST,
+            "components": _NONEMPTY_LIST,
+            "risks": _LIST,
         },
     ),
     "plan": _feature_schema(
@@ -128,8 +128,8 @@ SCHEMAS: dict[str, dict[str, Any]] = {
         required_extra=["tasks"],
         properties_extra={
             "tasks": _TASKS,
-            "checkpoints": _STRING_ARRAY,
-            "deferred": _STRING_ARRAY,
+            "checkpoints": _LIST,
+            "deferred": _LIST,
         },
     ),
     "review": {

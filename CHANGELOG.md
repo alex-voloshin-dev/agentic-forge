@@ -137,6 +137,27 @@ surfacing on a failed call.
   stddev 0.042, lower bound 0.927 (n=5) on the planted-defect fixtures (catches the planted
   contradiction/gap/bug/risk with no false positives on clean zones).
 
+### Verified — Stage 2 thin-slice E2E (Tier-3, 2026-06-21)
+
+The real `--runner claude` scenario (Opus 4.8, subscription) carried `task-priorities` through
+`architecture → develop → code-review` on an isolated taskstore copy. **All three phases pass**
+their checkpoints: `architecture` produced a schema-valid `tech-design.md` + 2 ADRs;
+`develop` implemented priorities with the repo's **pytest suite green**; `code-review` emitted a
+valid `review.md` with an `approve` verdict. The thin slice is proven end-to-end — one
+continuous path from a PRD to reviewed, tested code.
+
+The run **caught a real bug** (the point of Tier-3): the architect produced *structured* list
+entries (a decision as `{id, title, adr}`, a component as `{name, change}`, a risk as
+`{risk, mitigation}`) — richer and more useful than bare strings — but the handoff `tech-design`
+schema required arrays of strings, so the otherwise-correct artifact failed validation.
+
+### Fixed — handoff schema accepts structured list entries
+
+- `lib/agentic_forge/handoff.py`: list fields (`decisions`, `components`, `risks`, `goals`,
+  `acceptance`, `non_goals`, `metrics`, `sources`, `checkpoints`, `deferred`) now accept entries
+  that are **a string or a structured object**, matching how real artifacts are written. Bare
+  strings still validate; tests added; `handoff` coverage stays 100%.
+
 ### Added — Stage 2 thin slice (step 4: Tier-3 E2E runner)
 
 - **Tier-3 spine E2E runner** `plugin/lib/agentic_forge/spine_e2e.py` + CLI
