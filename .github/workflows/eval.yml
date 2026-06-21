@@ -12,7 +12,7 @@ on:
       model:
         description: "Model id for the eval runs"
         required: false
-        default: "claude-sonnet-4-6"
+        default: "claude-opus-4-8"
   pull_request:
     types: [labeled]
 
@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      EVAL_MODEL: ${{ github.event.inputs.model || 'claude-sonnet-4-6' }}
+      EVAL_MODEL: ${{ github.event.inputs.model || 'claude-opus-4-8' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

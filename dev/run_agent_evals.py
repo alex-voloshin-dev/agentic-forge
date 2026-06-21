@@ -67,7 +67,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--plugin", type=Path, default=_REPO_ROOT / "plugin")
     parser.add_argument("--role", action="append", dest="roles", choices=agent_eval.ROLES)
     parser.add_argument("--runner", choices=["dry", "api", "claude"], default="dry")
-    parser.add_argument("--model", default="claude-sonnet-4-6")
+    parser.add_argument("--model", default="claude-opus-4-8")
     parser.add_argument("--runs", type=int, default=None)
     parser.add_argument("--workdir", type=Path, default=None)
     parser.add_argument(
