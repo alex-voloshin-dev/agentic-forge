@@ -1,7 +1,9 @@
-# Stage 1 — Engine foundations (design)
+# Stage 1 — Engine foundations
 
-Status: Designed (pre-implementation). This document is the worked-through design for
-Stage 1; implementation follows only after review.
+Status: Implemented. This document is the worked-through design for Stage 1; the engine
+roles, the handoff helper, and the pattern references described below are now built and
+Tier-0 green. Implementation choices made on top of this design are recorded in
+[ADR 0010](decisions/0010-handoff-schemas-and-pattern-references.md).
 
 ## Decisions
 
@@ -51,26 +53,39 @@ Phases communicate by writing artifacts the next phase reads — auditable and d
 | `plan.md` | `work-plan` (Plan) | `type, feature, status, tasks[] (id, deps), checkpoints[], deferred[]` |
 | `review.md` | `code-review` (reviewer) | `type, target, iteration, verdict, findings[]` |
 
-A shared helper (`plugin/lib/agentic_forge/handoff.py`, added at implementation) will load
-and validate these headers against small per-type schemas, reusing `frontmatter.py`.
+The shared helper `plugin/lib/agentic_forge/handoff.py` loads and validates these headers
+against small per-type JSON Schemas, reusing `frontmatter.py`. It exposes `load_artifact` /
+`parse_artifact` (raise `HandoffError`), `validate_header` (returns a list of problems), and
+`schema_for`, plus the `status`, `verdict`, and `severity` vocabularies. See
+[ADR 0010](decisions/0010-handoff-schemas-and-pattern-references.md) for the schema rules.
 
 ## Patterns delivered
 
-- **File-based handoff** — the artifacts above; each phase reads predecessor frontmatter
-  for structured fields and the body for detail.
-- **Bounded review loop** — writer (skill or role) → `reviewer` → revise, capped at `N = 3`,
-  exiting on `approve`. The orchestrating workflow skill owns the loop and the budget.
-- **Worktree isolation** — `implementer` runs against a git worktree created by the
-  `develop` workflow, so parallel/iterative work does not touch the main checkout.
+Each pattern is documented as an on-demand reference under `plugin/patterns/`, so Stage 2
+skills link to it rather than restating it:
+
+- **File-based handoff** ([patterns/handoff.md](../../plugin/patterns/handoff.md)) — the
+  artifacts above; each phase reads predecessor frontmatter for structured fields and the
+  body for detail.
+- **Bounded review loop** ([patterns/review-loop.md](../../plugin/patterns/review-loop.md)) —
+  writer (skill or role) → `reviewer` → revise, capped at `N = 3`, exiting on `approve`. The
+  orchestrating workflow skill owns the loop and the budget.
+- **Worktree isolation** ([patterns/worktree.md](../../plugin/patterns/worktree.md)) —
+  `implementer` runs against a git worktree created by the `develop` workflow, so
+  parallel/iterative work does not touch the main checkout.
 
 Deferred to later stages: fan-out/fan-in research at scale, Ralph loops.
 
 ## Agent evaluation
 
 Each role ships an eval contract at `plugin/agents/evals/<name>.evals.json` (the superset
-schema with `component.type: agent`). Fixtures define representative tasks and assertions;
-runs use the skill-creator subagent loop; `benchmark.summarize` aggregates and
-`gate.tier2_quality` decides. Thresholds start at `min_pass_rate 0.8`, `runs 5`.
+schema with `component.type: agent`). Fixtures live in `plugin/eval/fixtures/<role>/`
+(referenced from each case's `files`); runs use the dedicated agent eval runner
+(`agentic_forge.agent_eval`, CLI `dev/run_agent_evals.py`), then `benchmark.summarize`
+aggregates and `gate.tier2_quality` decides. Thresholds start at `min_pass_rate 0.8`,
+`runs 5`. See [ADR 0011](decisions/0011-agent-eval-runner.md) and the
+[eval runbook](../eval-runbook.md) — skill-creator stays the engine for skills, while agents
+use this runner over the same `benchmark` + `gate` policy layer.
 
 The Tier-0 validator **already** requires an eval contract for every agent at
 `plugin/agents/evals/<name>.evals.json` with `component.type: agent` (implemented during the
@@ -84,14 +99,23 @@ documentation review), so agents are gated like skills from the start.
 - Validator requires agent eval contracts (done during review); Tier-0 green.
 - Patterns documented as references usable by Stage 2 skills.
 
-## Implementation tasks (next, after review)
+## Implementation tasks (done)
 
-1. Author the four role files + agent eval contracts (via `skill-factory`).
-2. Add `lib/agentic_forge/handoff.py` + artifact header schemas + pytest.
+1. ~~Author the four role files + agent eval contracts (via `skill-factory`).~~ Done —
+   `plugin/agents/{reviewer,grader,implementer,architect}.md` with narrowed tools and
+   explicit return contracts, each gated by `plugin/agents/evals/<name>.evals.json`
+   (`component.type: agent`).
+2. ~~Add `lib/agentic_forge/handoff.py` + artifact header schemas + pytest.~~ Done —
+   per-type JSON Schemas + helper, unit-tested at 100% (`tests/test_handoff.py`).
 3. ~~Extend the validator to require agent eval contracts.~~ Done during the review.
-4. Write pattern references (review loop, worktree, handoff) for Stage 2 to consume.
+4. ~~Write pattern references (review loop, worktree, handoff) for Stage 2 to consume.~~ Done
+   — `plugin/patterns/{handoff,review-loop,worktree}.md`.
 
-## Defaults to confirm or override
+Tier-2 quality has been run for all four roles via the agent eval runner on a Claude
+subscription (Opus 4.8) — all pass the `min_pass_rate 0.8` / `runs 5` gate (lower bound
+≥ 0.885); numbers recorded in the CHANGELOG.
+
+## Defaults (confirmed)
 
 - Artifact directory: `docs/sdlc/<feature-slug>/`.
 - Review-loop cap: `N = 3`.

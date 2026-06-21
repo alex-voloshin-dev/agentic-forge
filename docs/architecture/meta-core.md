@@ -27,6 +27,7 @@ plugin/
     SKILL.md  references/  assets/  evals/evals.json
   lib/agentic_forge/                  # shared, importable, tested
     naming.py frontmatter.py evals.py validation.py benchmark.py gate.py
+    handoff.py agent_eval.py          # L1/eval-harness additions
   schemas/evals.schema.json           # the component contract schema (superset)
   eval/README.md                      # harness architecture
 dev/validate.py                       # Tier-0 gate CLI
@@ -45,6 +46,8 @@ pyproject.toml                        # uv / pytest / ruff / mypy config
 | `validation.py` | Tier-0 checks for skills, agents, and the manifest; aggregate into a `Report`. |
 | `benchmark.py` | Aggregate per-run `grading.json` pass rates into a `benchmark.json` shape (mean/stddev/n, delta). |
 | `gate.py` | Apply thresholds: `trigger_metrics`, `tier1_trigger`, `tier2_quality`, `evaluate`. Pure functions. |
+| `handoff.py` | Load + validate SDLC handoff artifacts (Markdown + frontmatter) against per-type header schemas (L1). |
+| `agent_eval.py` | Tier-2 quality runner for subagent roles, over a pluggable model seam (eval-harness; see ADR 0011). |
 
 Everything here is dependency-light (pyyaml, jsonschema) and unit-tested. Skill scripts and
 hooks import from this package.

@@ -15,3 +15,5 @@ edit.
 | [0007](0007-python-only-scripts.md) | Python-only, tested scripts | Accepted |
 | [0008](0008-evals-first-enforcement.md) | Enforce evals-first via instructions + Tier-0 | Accepted |
 | [0009](0009-engine-roles-and-handoff.md) | Engine roles, markdown handoff, bounded review loop | Accepted |
+| [0010](0010-handoff-schemas-and-pattern-references.md) | Handoff header schemas + pattern-reference location | Accepted |
+| [0011](0011-agent-eval-runner.md) | Dedicated agent eval runner with a pluggable model seam | Accepted |

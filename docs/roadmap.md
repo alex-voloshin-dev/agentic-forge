@@ -17,7 +17,7 @@ architecture before we invest in breadth.
 | Stage | Name | Status |
 | --- | --- | --- |
 | 0 | Meta-core (L0) | **Done** |
-| 1 | Engine foundations (L1, minimal) | Designed — see [engine.md](architecture/engine.md) |
+| 1 | Engine foundations (L1, minimal) | **Done** — see [engine.md](architecture/engine.md) |
 | 2 | SDLC spine vertical slice (L2) | Planned |
 | 3 | Knowledge base (L3) | Planned |
 | 4 | Quality & operations domains | Planned |
@@ -40,6 +40,15 @@ its own Tier-0, plugin-integrity test in place.
 ---
 
 ## Stage 1 — Engine foundations (minimal)
+
+Status: **Done.** Delivered the four roles (`reviewer`, `grader`, `implementer`,
+`architect`) with narrowed tools, return contracts, and agent eval contracts under
+`plugin/agents/evals/`; `lib/agentic_forge/handoff.py` with per-type header schemas (unit
+tested at 100%); and the pattern references in `plugin/patterns/` (handoff, review loop,
+worktree). Tier-0 is green. The agent Tier-2 quality runner is in place
+(`dev/run_agent_evals.py`, wired into `eval.yml`). Tier-2 has been **executed** on a Claude
+subscription (Opus 4.8): all four roles pass (lower bound ≥ 0.885; `grader` 0.954, the others
+1.000) — see the CHANGELOG and [eval-runbook.md](eval-runbook.md).
 
 Goal: the reusable execution machinery the first workflow slice needs — not every pattern,
 only what Stage 2 consumes.

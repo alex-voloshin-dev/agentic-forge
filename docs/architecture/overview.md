@@ -29,7 +29,7 @@ actually experience.
 | Layer | Responsibility | Status |
 | --- | --- | --- |
 | L0 Meta-core | `skill-factory`, eval-harness, `lib/`, Tier-0 validator. Builds everything else. | **Built** |
-| L1 Engine | Subagent roles + native patterns (router, fan-out/fan-in, review loop, Ralph, worktree, file handoff). | Planned |
+| L1 Engine | Subagent roles + native patterns (router, fan-out/fan-in, review loop, Ralph, worktree, file handoff). | **Built (minimal)** — roles + handoff + review-loop/worktree/handoff patterns; fan-out & Ralph deferred. |
 | L2 Workflow skills | One router skill per domain; depth via references and sub-skills. | Planned |
 | L3 Knowledge base | Obsidian-format vault the plugin deploys, maintains, and reads for context. | Planned |
 | L4 Guardrails | Hooks for security, the test/eval gate, logging, subagent budgets. | Planned |
