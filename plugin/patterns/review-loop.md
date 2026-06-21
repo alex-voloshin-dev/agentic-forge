@@ -8,8 +8,9 @@ and it **exits early** on approval so it does not waste iterations.
 
 - **Writer** — the skill or role that produced the work: the `implementer` for code, the
   `architect` for a design, or a workflow skill for an artifact.
-- **Reviewer** — the [`reviewer`](../agents/reviewer.md) role, run in a fork so it judges in
-  a clean context. It returns a `verdict` (`approve` | `changes`) and structured `findings`.
+- **Reviewer** — the [`reviewer`](../agents/reviewer.md) role, invoked in a forked subagent
+  by the orchestrator so it judges in a clean context. It returns a `verdict` (`approve` |
+  `changes`) and structured `findings`.
 - **Orchestrator** — the workflow skill that owns the loop, the iteration budget, and the
   decision of what to do when the budget runs out.
 
@@ -19,15 +20,17 @@ Default budget: **N = 3** iterations. Stop early on `approve`.
 
 ```
 iteration = 1
+approved = False
 while iteration <= N:
-    review = reviewer(target, criteria)            # fork: returns verdict + findings
+    review = reviewer(target, criteria)            # forked subagent: verdict + findings
     write review.md (type: review, target, iteration, verdict, findings[])
     if review.verdict == "approve":
+        approved = True
         break
     writer.revise(review.findings)                 # address blockers/majors first
     iteration += 1
-else:
-    escalate(target, last_review.findings)         # budget exhausted, see below
+if not approved:
+    escalate(last_review.findings)                 # budget exhausted — see "exit" below
 ```
 
 Each round writes a `review.md` handoff artifact (see [handoff.md](handoff.md)) with the
@@ -37,9 +40,9 @@ Each round writes a `review.md` handoff artifact (see [handoff.md](handoff.md)) 
 
 - **Approve** is the success signal. The reviewer returns `approve` only when no `blocker`
   or `major` findings remain; `minor`/`nit` findings may be left as follow-ups.
-- **Budget exhausted** (still `changes` after N): do **not** silently ship. Surface the
-  remaining findings to the caller (or the user) and stop. Persisting the last `review.md`
-  makes the unresolved items explicit.
+- **Budget exhausted** (still `changes` after N): do **not** silently ship. "Escalate" =
+  persist the final `review.md` (verdict `changes`) and return it to the orchestrating skill,
+  which surfaces the unresolved findings to the user and stops — it never auto-merges.
 - Address findings worst-first (blocker → major → minor → nit). A revision that only fixes
   nits while a blocker stands will not converge.
 

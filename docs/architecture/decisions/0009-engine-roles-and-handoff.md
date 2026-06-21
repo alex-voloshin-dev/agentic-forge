@@ -1,6 +1,8 @@
 # 0009 — Engine roles, markdown handoff, bounded review loop
 
-Status: Accepted
+Status: Accepted — the agent-eval decision below is narrowed by
+[ADR 0011](0011-agent-eval-runner.md): agents use a dedicated runner, not skill-creator
+(which also aligns this with ADR 0005's "small harnesses for agents/scripts").
 
 ## Context
 
@@ -17,6 +19,8 @@ agents are evaluated.
 - The review loop is bounded at `N = 3` iterations, exiting early on a `reviewer` `approve`.
 - Agents are evaluated with the skill-creator subagent-run loop plus our gate
   (`component.type: agent`), thresholds starting at `min_pass_rate 0.8`, `runs 5`.
+  _(Narrowed by [ADR 0011](0011-agent-eval-runner.md): agents use a dedicated runner, not
+  skill-creator.)_
 
 ## Alternatives considered
 
@@ -27,6 +31,8 @@ agents are evaluated.
 - **Quality-threshold review convergence:** viable but costlier (grade every iteration);
   deferred in favor of the simpler approve-signal loop.
 - **Dedicated agent-eval harness:** rejected — reuse the skill-creator engine (ADR 0005).
+  _(Reversed by [ADR 0011](0011-agent-eval-runner.md): skill-creator is skill-shaped, so
+  agents got a thin dedicated runner — which is what ADR 0005 itself anticipated.)_
 
 ## Consequences
 

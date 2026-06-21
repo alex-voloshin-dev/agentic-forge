@@ -29,8 +29,8 @@ plugin/
     naming.py frontmatter.py evals.py validation.py benchmark.py gate.py
     handoff.py agent_eval.py          # L1/eval-harness additions
   schemas/evals.schema.json           # the component contract schema (superset)
-  eval/README.md                      # harness architecture
-dev/validate.py                       # Tier-0 gate CLI
+  eval/{README.md, fixtures/}         # harness architecture + agent eval fixtures (L1)
+dev/{validate.py, run_agent_evals.py} # Tier-0 gate + agent Tier-2 runner (CLI)
 tests/                                # pytest for lib + harness + plugin integrity
 pyproject.toml                        # uv / pytest / ruff / mypy config
 .github/workflows/{ci.yml,eval.yml}   # Tier-0 always; Tier-1/2 cost-gated
@@ -122,11 +122,16 @@ Tier-0 gate.
 ## CI
 
 - `ci.yml` runs the Tier-0 gate on every push/PR: `validate`, `pytest`, `ruff`, `mypy`.
-- `eval.yml` runs Tier-1/2 on demand or when a PR is labelled `eval` (needs an API key and
-  skill-creator), keeping expensive LLM evals off the always-on path.
+- `eval.yml` runs Tier-1/2 on demand or when a PR is labelled `eval`. The agent Tier-2 runs
+  on a Claude **subscription** token (`CLAUDE_CODE_OAUTH_TOKEN`) via the `claude` CLI and
+  deliberately leaves `ANTHROPIC_API_KEY` unset (it would override the subscription); the
+  skill path uses skill-creator, and the optional `--runner api` path uses
+  `ANTHROPIC_API_KEY`. This keeps expensive LLM evals off the always-on path.
 
 ## How to extend
 
-Use `skill-factory`: describe the component, let it write the contract and evals first,
-then implement and run the gate. The plugin-integrity test guarantees nothing merges that
-breaks Tier-0.
+Use `skill-factory`: load the plugin in a Claude Code session (`claude --plugin-dir
+plugin`), then describe the component — `skill-factory` auto-loads and writes the contract
+and evals first, before you implement and run the gate (see
+[handoff-to-cli.md](../handoff-to-cli.md) §4). The plugin-integrity test guarantees nothing
+merges that breaks Tier-0.

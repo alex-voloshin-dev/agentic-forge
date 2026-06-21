@@ -16,6 +16,9 @@ Make skills the primary unit and keep a **small** set of always-on, model-invoca
 `user-invocable: false` sub-skills (progressive disclosure). Agents are executors skills
 delegate to; hooks are guardrails. Users do not call agents directly.
 
+_(Correction — see Consequences: the listing-budget lever is `references/`, **not**
+`user-invocable: false`, which keeps a skill's description in the listing.)_
+
 ## Alternatives considered
 
 - **Flat catalog of many auto-loaded skills.** Rejected: overflows the listing budget and
@@ -28,3 +31,8 @@ delegate to; hooks are guardrails. Users do not call agents directly.
 - One router skill per domain; sub-skills and references carry detail.
 - Routing quality is itself an eval target (Tier 1), and listing-budget headroom is a
   tracked health metric.
+- **Correction (post-acceptance):** the budget lever is `references/` (loaded on demand,
+  never in the listing) plus a small always-on set — *not* `user-invocable: false`, which
+  keeps a skill model-invocable with its description still in the listing.
+  `disable-model-invocation: true` is what drops a skill from the listing (manual `/name`
+  only). Per the Claude Code skills docs; CLAUDE.md principle 2 and the overview reflect this.

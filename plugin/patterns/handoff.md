@@ -19,14 +19,18 @@ slug is a short kebab-case name for the feature (e.g. `search`, `oauth-login`).
 
 | Artifact | Produced by | Key header fields |
 | --- | --- | --- |
-| `research-brief.md` | research phase (built-in `Explore`) | `type, feature, status, date, sources[]` |
-| `prd.md` | `product-spec` | `type, feature, status, goals[], non_goals[], metrics[], acceptance[]` |
-| `tech-design.md` + `adr-*.md` | `architect` | `type, feature, status, decisions[], components[], risks[]` |
-| `plan.md` | work-planning (built-in `Plan`) | `type, feature, status, tasks[] (id, deps), checkpoints[], deferred[]` |
-| `review.md` | `reviewer` | `type, target, iteration, verdict, findings[]` |
+| `research-brief.md` | `research-brief` skill → built-in `Explore` | `type, feature, status, date, sources[]` |
+| `prd.md` | `product-spec` skill | `type, feature, status, goals[], non_goals[], metrics[], acceptance[]` |
+| `tech-design.md` + `adr-*.md` | `tech-design` skill → `architect` | `type, feature, status, decisions[], components[], risks[]` |
+| `plan.md` | `work-plan` skill → built-in `Plan` | `type, feature, status, tasks[] (id, deps), checkpoints[], deferred[]` |
+| `review.md` | `code-review` skill → `reviewer` | `type, target, iteration, verdict, findings[]` |
 
 `status` is one of `draft | in-review | approved | final | superseded`. `verdict` is
 `approve | changes`. Finding `severity` is `blocker | major | minor | nit`.
+
+This table is the **canonical** handoff-artifact contract — other docs (e.g. engine.md) link
+here rather than restate it. Each producer is a thin Stage 2 workflow skill that delegates to
+the named built-in agent (`Explore`/`Plan`) or engine role.
 
 ## Producing an artifact
 

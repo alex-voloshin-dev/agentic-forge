@@ -8,15 +8,16 @@ Claude Code loads automatically when they are relevant. It is built on three com
 
 - **Standard-compliant.** Every skill follows the [Agent Skills](https://agentskills.io)
   open standard and validates with `skills-ref`.
-- **Native to Claude Code.** Subagents, plan mode, git worktrees, review loops, and Ralph
-  loops are used directly — not reimplemented.
+- **Native to Claude Code.** Subagents, plan mode, git worktrees, and review loops are used
+  directly — not reimplemented (fan-out/fan-in and Ralph loops are planned).
 - **Eval-driven.** No component ships without a contract and a numeric eval gate. See
   [`CLAUDE.md`](./CLAUDE.md) for the full rulebook.
 
 ## Status
 
-Layer 0 (meta-core) is complete and green. Workflow domains are next — see the
-[roadmap](docs/roadmap.md). The knowledge base is Layer 3 (not part of meta-core yet).
+Layer 0 (meta-core) is complete and green, and Layer 1 (engine: roles, handoff, patterns)
+is built (minimal — fan-out/fan-in and Ralph deferred); the four engine roles pass Tier-2. Workflow domains (Stage 2) are next — see the
+[roadmap](docs/roadmap.md). The knowledge base is Layer 3 (not built yet).
 
 - [x] Repository skeleton, manifests, tooling
 - [x] Tier-0 deterministic validator + tests
@@ -24,6 +25,8 @@ Layer 0 (meta-core) is complete and green. Workflow domains are next — see the
 - [x] hybrid eval-harness (on `skill-creator`)
 - [x] `skill-factory` meta-skill
 - [x] dogfood + CI
+- [x] Layer 1 engine (minimal) — roles, handoff helper, patterns
+- [x] agent Tier-2 eval runner (subscription / CI)
 
 ## Documentation
 

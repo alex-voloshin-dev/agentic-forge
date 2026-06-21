@@ -139,7 +139,7 @@ surfacing on a failed call.
   declare `component.type: skill`. Added tests for agents, the manifest, and validator
   branches.
 - **Coverage enforced:** `pytest-cov` added; CI runs `--cov=agentic_forge --cov-fail-under=80`
-  (current coverage ~96%). Aligned the coverage claim across `CLAUDE.md`, overview, and
+  (coverage ~96% at that milestone). Aligned the coverage claim across `CLAUDE.md`, overview, and
   meta-core docs.
 - **Reduced duplication:** the eval-pyramid definition is now canonical in
   `docs/architecture/overview.md`; `plugin/eval/README.md` points to it instead of restating.

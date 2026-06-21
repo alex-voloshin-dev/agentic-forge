@@ -45,6 +45,8 @@ Claude Code merged custom commands into skills, so the unit set is deliberately 
 - **Hook** — deterministic event enforcement (Python). Guardrails, not logic.
 - **Script** — deterministic, unit-tested Python. Shared code in `plugin/lib/`,
   skill-specific in `skills/<name>/scripts/`.
+- **Pattern reference** — an on-demand Markdown guide to an engine pattern (review loop,
+  worktree, handoff) that workflow skills link to. Lives in `plugin/patterns/`.
 - **Knowledge note** — Obsidian markdown in the target repo's vault.
 - **Eval contract** — `evals/evals.json` per component; the readiness source of truth.
 
@@ -52,18 +54,23 @@ Skill-centric means skills are the spine; everything else is something a skill u
 
 ## Native patterns we rely on
 
-These are Claude Code capabilities, used directly rather than reimplemented:
+These are Claude Code capabilities we use directly rather than reimplement. Ones not yet
+built are marked **(deferred)** — designed-for but not part of the current engine:
 
 - **Progressive disclosure** — name+description in the listing; body on activation;
   references on demand. The basis of router discipline.
 - **Router** — a small set of always-on entry skills with sharp descriptions; depth pushed
-  into `references/` and `user-invocable: false` sub-skills. Required because the skill
-  listing has a context budget (~1% of the model window) and overflow drops descriptions.
+  into `references/` (loaded on demand, so it never sits in the listing). Required because the
+  skill listing has a context budget (~1% of the model window) and overflow drops
+  descriptions. (`user-invocable: false` only hides a skill from the user's `/` menu — its
+  description still counts against the budget; `disable-model-invocation: true` removes a
+  skill from the listing.)
 - **Forked skills / subagents** — `context: fork` + `agent` runs a skill in isolation; the
-  `Task` tool spawns subagents for fan-out/fan-in.
+  `Task` tool spawns subagents for fan-out/fan-in **(fan-out/fan-in deferred)**.
 - **Review loop** — writer → reviewer → revise, always with an iteration budget and a
   "converged-enough" criterion.
-- **Ralph loop** — bounded autonomous iteration for long-running tasks.
+- **Ralph loop (deferred)** — a bounded, self-restarting agent loop for long autonomous
+  tasks (the agent re-runs itself until a stop condition is met).
 - **Git worktree isolation** — parallel work on isolated checkouts.
 - **File-based handoff** — phase A writes a contract artifact (PRD, ADR, plan) that phase B
   reads. Auditable and decoupled; the backbone of the SDLC spine.
@@ -77,7 +84,9 @@ Quality is enforced the same way at every layer:
   length, reference resolution, `pytest`, `ruff`, `mypy`, script coverage ≥ 80%.
 - **Tier 1 — trigger**: should-trigger recall ≥ 0.9, should-not-trigger specificity ≥ 0.9.
 - **Tier 2 — quality** (LLM judge, N ≥ 5): pass-rate lower bound (mean − σ) ≥ 0.8, within
-  token/time overhead budgets, not worse than the previous version.
+  token/time overhead budgets, not worse than the previous version. For subagent **roles**,
+  only the lower-bound pass-rate applies — there is no with/without baseline, trigger surface,
+  or overhead delta to compare (see [ADR 0011](decisions/0011-agent-eval-runner.md)).
 - **Tier 3 — E2E**: workflow scenarios with checkpoints (added with L2).
 
 See [meta-core.md](meta-core.md) for how the harness implements this, and

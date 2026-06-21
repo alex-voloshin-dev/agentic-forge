@@ -1,7 +1,8 @@
 # The eval loop
 
-agentic-forge uses the official `skill-creator` loop as the engine and adds a
-deterministic threshold gate. See `plugin/eval/README.md` for the architecture.
+agentic-forge uses the official `skill-creator` loop as the engine for **skills** and adds a
+deterministic threshold gate. (Subagents are evaluated by a dedicated runner instead — see
+`plugin/eval/README.md` and ADR 0011.)
 
 ## 1. Write the contract (evals/evals.json)
 

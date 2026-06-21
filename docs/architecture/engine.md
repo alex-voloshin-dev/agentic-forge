@@ -14,8 +14,9 @@ Tier-0 green. Implementation choices made on top of this design are recorded in
   human-readable, Obsidian-linkable, and machine-parseable on the key fields.
 - **Review loop:** bounded — at most `N` iterations (default `N = 3`), stop early when the
   reviewer returns `approve`.
-- **Agent eval:** the skill-creator subagent-run loop plus our gate (`component.type:
-  agent`).
+- **Agent eval:** a dedicated runner (`agent_eval.py`) over our gate (`component.type:
+  agent`) — skill-creator is skill-shaped, so it is not reused for agents. See
+  [ADR 0011](decisions/0011-agent-eval-runner.md).
 
 These are recorded in [ADR 0009](decisions/0009-engine-roles-and-handoff.md).
 
@@ -45,13 +46,9 @@ Phases communicate by writing artifacts the next phase reads — auditable and d
 - **Shape:** Markdown body (for humans and Claude) with a YAML frontmatter header carrying
   the fields the next phase parses.
 
-| Artifact | Produced by | Frontmatter (key fields) |
-| --- | --- | --- |
-| `research-brief.md` | `research-brief` (Explore) | `type, feature, date, status, sources[]` |
-| `prd.md` | `product-spec` | `type, feature, status, goals[], non_goals[], metrics[], acceptance[]` |
-| `tech-design.md` + `adr-*.md` | `tech-design` (architect) | `type, feature, status, decisions[], components[], risks[]` |
-| `plan.md` | `work-plan` (Plan) | `type, feature, status, tasks[] (id, deps), checkpoints[], deferred[]` |
-| `review.md` | `code-review` (reviewer) | `type, target, iteration, verdict, findings[]` |
+The artifact types, their producers, and key header fields are specified canonically in
+[patterns/handoff.md](../../plugin/patterns/handoff.md) (and enforced by the per-type schemas
+in `handoff.py`). This document does not restate that table, to avoid drift.
 
 The shared helper `plugin/lib/agentic_forge/handoff.py` loads and validates these headers
 against small per-type JSON Schemas, reusing `frontmatter.py`. It exposes `load_artifact` /

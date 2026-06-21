@@ -63,15 +63,16 @@ case runs in a fresh temp workdir — independent measurement with no state leak
 ## Run it
 
 Prerequisites: the `claude` CLI on `PATH` (`npm install -g @anthropic-ai/claude-code`) and
-the auth above. Install Python deps: `pip install -e ".[dev]"`.
+the auth above. Install Python deps: `pip install -e ".[dev]"` (enough for the `dry`/`claude`
+runners; `--runner api` additionally needs the `eval` extra: `pip install -e ".[dev,eval]"`).
 
 ```bash
 # Verify wiring only — no credentials, no model calls (also runs in CI on every eval job):
 python dev/run_agent_evals.py --runner dry
 
-# Real Tier-2 on your subscription, all roles:
+# Real Tier-2 on your subscription, all roles (recorded results used Opus 4.8):
 export CLAUDE_CODE_OAUTH_TOKEN=...        # and keep ANTHROPIC_API_KEY unset
-python dev/run_agent_evals.py --runner claude --model claude-sonnet-4-6
+python dev/run_agent_evals.py --runner claude --model claude-opus-4-8
 
 # Write roles in isolation (fresh temp workdir per case; best for implementer/architect):
 python dev/run_agent_evals.py --role implementer --role architect --runner claude --isolate
@@ -100,14 +101,16 @@ Tier-2 numbers are run artifacts, not contract fields, so they are not committed
 `evals.json`. After a run, record the achieved `mean`/`stddev`/`lower_bound`/`n` per role in
 the CHANGELOG entry (or a milestone note) next to the thresholds, per the eval-loop guide
 ("record the final numbers"). If a role misses the bar, improve its prompt/return contract
-and re-run.
+and re-run. Tier-2 numbers are model-dependent — record which model produced them (current
+baseline: `claude-opus-4-8`).
 
 ## Caveats
 
 - If `ANTHROPIC_API_KEY` is set, the `claude` CLI uses it before the subscription token —
   unset it for subscription billing.
 - Level 1 (`--runner api`) cannot verify assertions that require real execution (e.g. "the
-  tests are run and reported as passing"); use level 2 (`--runner claude`) for those.
+  tests are run and reported as passing") and under-credits write roles whose proof lands on
+  disk; for `implementer`/`architect` use level 2 (`--runner claude`).
 - The `claude` runner's `--allowedTools` are taken from the role's frontmatter; adjust the
   flags in `dev/run_agent_evals.py` if your CLI version expects a different format.
 - Results vary run to run; the gate intentionally uses the lower bound over `n ≥ 5` runs to

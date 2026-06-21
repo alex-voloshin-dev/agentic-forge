@@ -21,8 +21,11 @@ This file is the project constitution. Every contributor (human or agent) MUST f
 
 2. **Router discipline.** The skill listing has a hard context budget (~1% of the model
    window); descriptions of rarely used skills get dropped. So we keep a SMALL set of
-   always-on entry/router skills with sharp descriptions, and push depth into
-   `references/` and `user-invocable: false` sub-skills (progressive disclosure).
+   always-on entry/router skills with sharp descriptions, and push depth into `references/`
+   (loaded on demand, so it never sits in the listing). Note: `user-invocable: false` does
+   *not* save listing budget — it only hides a skill from the user's `/` menu while keeping
+   it model-invocable with its description still in the listing; `disable-model-invocation:
+   true` is what drops a skill from the listing (manual `/name` only).
 
 3. **Eval-driven, contract-first.** No component is built before its contract and its
    eval set exist. Order is always: (a) contract (purpose, triggers, inputs/outputs),
@@ -61,13 +64,14 @@ This file is the project constitution. Every contributor (human or agent) MUST f
 plugin/
   .claude-plugin/plugin.json
   skills/<name>/{SKILL.md, references/, assets/, scripts/, evals/evals.json}
-  agents/<name>.md
-  hooks/{hooks.json, scripts/*.py}
+  agents/<name>.md          # + agents/evals/<name>.evals.json (agent contracts)
+  patterns/                 # engine pattern references (handoff, review loop, worktree)
+  hooks/{hooks.json, scripts/*.py}        # L4 (planned)
   lib/agentic_forge/        # shared, importable, tested
-  eval/{runner, rubrics/, fixtures/}
+  eval/{README.md, fixtures/}             # harness docs + agent eval fixtures
   schemas/                  # JSON Schema for evals.json + contract
 tests/                      # pytest for lib + hooks + harness
-dev/validate.py             # Tier-0 gate (CLI)
+dev/{validate.py, run_agent_evals.py}   # Tier-0 gate + agent Tier-2 runner (CLI)
 docs/                       # product vision, architecture, ADRs, roadmap
 CHANGELOG.md                # what changed, by milestone
 ```

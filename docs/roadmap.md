@@ -63,7 +63,8 @@ Design questions: **resolved** in [architecture/engine.md](architecture/engine.m
 [ADR 0009](architecture/decisions/0009-engine-roles-and-handoff.md). Summary: dedicated
 roles `reviewer`, `grader`, `implementer`, `architect` (research/planning reuse built-in
 `Explore`/`Plan`); handoff via Markdown + YAML frontmatter in `docs/sdlc/<slug>/`; review
-loop bounded at N=3 with an approve signal; agent eval via skill-creator runs + our gate.
+loop bounded at N=3 with an approve signal; agent eval via the dedicated runner
+(`agent_eval.py`) + our gate (ADR 0011).
 The validator already enforces agent eval contracts (done during the review).
 
 Components produced: four `plugin/agents/*.md` roles + their eval contracts at

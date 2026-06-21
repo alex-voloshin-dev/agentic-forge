@@ -1,5 +1,9 @@
 # Handoff to Claude Code CLI
 
+> **Status: completed (historical).** The L0→CLI handoff is done and Stage 1 has shipped
+> (engine roles, handoff helper, patterns; the four roles pass Tier-2). Kept as a record of
+> the handoff; for current work see the [roadmap](roadmap.md).
+
 This repo's design, planning, and documentation were done in Cowork. Implementation from
 Stage 1 onward should continue in the **Claude Code CLI**, where the plugin actually runs:
 skills auto-load, subagents/forking and worktrees work, hooks fire, and the `skill-creator`
@@ -32,7 +36,7 @@ ruff check .
 mypy plugin/lib dev
 ```
 
-Expected: validator clean, tests pass, coverage ~96%, ruff/mypy clean.
+Expected: validator clean, tests pass, coverage ≥ 80% (currently ~97.6%), ruff/mypy clean.
 
 ## 4. Wire up the eval engine and load the plugin
 
@@ -54,6 +58,9 @@ Confirm `skill-factory` is available: ask "What skills are available?" or type `
 for `agentic-forge:skill-factory`.
 
 ## 5. Continue with Stage 1
+
+**Done — Stage 1 has shipped.** The starter prompt below is the historical kickoff; for the
+next stage see [roadmap.md](roadmap.md).
 
 Everything needed is already on disk and portable: `CLAUDE.md` (the rules),
 `docs/architecture/engine.md` (the Stage 1 design), `docs/roadmap.md` (the plan),
