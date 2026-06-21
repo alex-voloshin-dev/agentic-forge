@@ -10,10 +10,17 @@ venv/
 dist/
 build/
 
+# Coverage / test data (generated)
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
 # Eval run artifacts (generated; not source of truth)
 **/evals/runs/
 **/grading.json
 **/benchmark.json
+**/timing.json
 eval-report.html
 
 # OS / editor
