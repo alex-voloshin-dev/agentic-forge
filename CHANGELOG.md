@@ -137,6 +137,19 @@ surfacing on a failed call.
   stddev 0.042, lower bound 0.927 (n=5) on the planted-defect fixtures (catches the planted
   contradiction/gap/bug/risk with no false positives on clean zones).
 
+### Added — Stage 2 spine (step 5c: plan phase — spine complete)
+
+- **`plan` workflow skill** `plugin/skills/plan/` — the planning phase: turn `tech-design.md`
+  into a dependency-ordered work plan (tasks with `deps`, checkpoints, deferred), delegating
+  sequencing to the built-in `Plan` agent, and write a `plan.md` handoff for `develop`.
+  **Tier-0 + Tier-1 recall 1.000 / specificity 1.000** (majority-of-3). Quality via the plan
+  schema + the Plan agent.
+- **The six-phase SDLC spine is now built**: `research → product → architecture → plan →
+  develop → code-review`, each a gated workflow skill (Tier-0 + Tier-1 ≥ 0.9), joined by
+  schema-validated handoff artifacts. The thin slice (architecture→develop→code-review) is
+  proven end-to-end (Tier-3); the full six-phase E2E and the by-stack multi-language mechanism
+  remain.
+
 ### Added — Stage 2 spine (step 5b: product phase)
 
 - **`product` workflow skill** `plugin/skills/product/` — the product phase: turn

@@ -1,0 +1,63 @@
+{
+  "skill_name": "plan",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Turn the tech design into a dependency-ordered work plan with checkpoints.",
+      "expected_output": "A plan.md (frontmatter tasks[] with id+deps, checkpoints[], deferred[]) covering the design's components, written under docs/sdlc/<feature>/. No code.",
+      "files": ["eval/fixtures/spine/tech-design.md"],
+      "assertions": [
+        "A plan.md handoff is produced with a tasks list (each task has an id)",
+        "Dependencies between tasks are expressed (deps) and ordered without cycles",
+        "Checkpoints (verifiable milestones) are listed",
+        "The tasks cover the tech-design's components",
+        "Only a plan is produced — no code and no new design decisions"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Break the work for this feature into tasks and sequence them.",
+      "expected_output": "An ordered task breakdown with dependencies.",
+      "files": ["eval/fixtures/spine/tech-design.md"],
+      "assertions": [
+        "The work is decomposed into discrete tasks",
+        "The tasks are sequenced by dependency",
+        "The output is a plan, not a design or implementation"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "What is the build order for task priorities, and what is deferred?",
+      "expected_output": "A dependency order plus an explicit deferred list.",
+      "assertions": [
+        "A build order (dependency-ordered) is given",
+        "Deferred / out-of-scope items are stated explicitly",
+        "Checkpoints or a definition of done are included"
+      ]
+    }
+  ],
+  "component": {
+    "id": "plan",
+    "type": "skill",
+    "purpose": "Phase workflow: turn a tech-design into a dependency-ordered work plan (tasks with deps, checkpoints, deferred) as a plan.md handoff for develop. Delegates sequencing to the built-in Plan agent; gated at Tier-1 (routing); quality via the plan schema + the Plan agent."
+  },
+  "thresholds": {
+    "tier1_trigger": { "recall": 0.9, "specificity": 0.9 }
+  },
+  "triggers": {
+    "should_trigger": [
+      "Break the technical design into a dependency-ordered task plan",
+      "Create an implementation plan with checkpoints for the feature",
+      "Plan and sequence the work for X",
+      "Turn the tech design into a work plan",
+      "What is the build order? Make a work plan."
+    ],
+    "should_not_trigger": [
+      "Design the technical architecture for the feature",
+      "Write a PRD with goals and acceptance criteria",
+      "Implement the feature in a worktree",
+      "Research the options and prior art for X",
+      "Review my diff for bugs and security"
+    ]
+  }
+}
