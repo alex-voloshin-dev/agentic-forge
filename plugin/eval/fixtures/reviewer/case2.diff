@@ -1,0 +1,13 @@
+diff --git a/lib/calc.py b/lib/calc.py
+index aaaaaaa..bbbbbbb 100644
+--- a/lib/calc.py
++++ b/lib/calc.py
+@@ -1,5 +1,5 @@
+ def total(xs):
+-    s = 0
++    running = 0
+     for x in xs:
+-        s += x
+-    return s
++        running += x
++    return running

@@ -1,0 +1,18 @@
+diff --git a/lib/users.py b/lib/users.py
+index 1111111..2222222 100644
+--- a/lib/users.py
++++ b/lib/users.py
+@@ -1,2 +1,6 @@
+ USERS = ["alice", "bob", "carol"]
++
++
++def get_user(users, idx):
++    return users[idx]
+diff --git a/api/handler.py b/api/handler.py
+index 3333333..4444444 100644
+--- a/api/handler.py
++++ b/api/handler.py
+@@ -3,3 +3,5 @@ from lib.users import USERS, get_user
+ def handle(request):
+     idx = int(request.query["i"])  # user-supplied, unvalidated
++    return get_user(USERS, idx)

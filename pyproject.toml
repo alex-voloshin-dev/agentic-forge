@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "agentic-forge"
 version = "0.0.1"
@@ -17,6 +21,19 @@ dev = [
     "types-pyyaml",
     "types-jsonschema",
 ]
+# Only needed for the optional per-token path (dev/run_agent_evals.py --runner api). The
+# recommended --runner claude uses the `claude` CLI (subscription auth) and needs no SDK.
+# Kept out of the default/dev install so the Tier-0 gate stays dependency-light.
+eval = [
+    "anthropic>=0.39",
+]
+
+# The importable package lives at plugin/lib/agentic_forge (not a flat top-level dir),
+# so tell setuptools exactly what to package and where the root is. This makes
+# `pip install -e .` work and avoids flat-layout auto-discovery picking up dev/ and plugin/.
+[tool.setuptools]
+package-dir = { "" = "plugin/lib" }
+packages = ["agentic_forge"]
 
 [tool.pytest.ini_options]
 pythonpath = ["plugin/lib"]
@@ -36,6 +53,12 @@ python_version = "3.11"
 mypy_path = "plugin/lib"
 strict = true
 warn_unused_ignores = true
+
+# The Anthropic SDK is an optional (eval-only) dependency and ships no stubs; don't fail
+# Tier-0 type-checking when it is absent.
+[[tool.mypy.overrides]]
+module = ["anthropic"]
+ignore_missing_imports = true
 
 [tool.coverage.run]
 source = ["agentic_forge"]
