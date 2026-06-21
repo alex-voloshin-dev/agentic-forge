@@ -66,7 +66,10 @@ built are marked **(deferred)** — designed-for but not part of the current eng
   description still counts against the budget; `disable-model-invocation: true` removes a
   skill from the listing.)
 - **Forked skills / subagents** — `context: fork` + `agent` runs a skill in isolation; the
-  `Task` tool spawns subagents for fan-out/fan-in **(fan-out/fan-in deferred)**.
+  `Task` tool spawns subagents for fan-out/fan-in.
+- **Fan-out / fan-in** — partition work into independent units, run one subagent each in
+  parallel, then synthesize one result (the backbone of Stage 2 phase-workflows;
+  `patterns/fan-out-fan-in.md`, specialised by `patterns/multi-aspect-review.md`).
 - **Review loop** — writer → reviewer → revise, always with an iteration budget and a
   "converged-enough" criterion.
 - **Adversarial fan-out review** — decompose a review into lenses, fan out independent

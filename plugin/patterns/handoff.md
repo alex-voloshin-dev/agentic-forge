@@ -28,9 +28,15 @@ slug is a short kebab-case name for the feature (e.g. `search`, `oauth-login`).
 `status` is one of `draft | in-review | approved | final | superseded`. `verdict` is
 `approve | changes`. Finding `severity` is `blocker | major | minor | nit`.
 
+Each `findings[]` element (the canonical review-finding shape) has: `severity`, `location`,
+`issue` (what's wrong — some review docs label this the `description`), and `suggestion` (the
+suggested fix). Verify-based reviews (deep-review, adversarial, multi-aspect) additionally
+carry `evidence` (proof the finding is real). Those alternate spellings are synonyms; this is
+the one set of fields they all map to.
+
 This table is the **canonical** handoff-artifact contract — other docs (e.g. engine.md) link
-here rather than restate it. Each producer is a thin Stage 2 workflow skill that delegates to
-the named built-in agent (`Explore`/`Plan`) or engine role.
+here rather than restate it. Each producer is a Stage 2 workflow skill that delegates to the
+named built-in agent (`Explore`/`Plan`) or engine role(s).
 
 ## Producing an artifact
 

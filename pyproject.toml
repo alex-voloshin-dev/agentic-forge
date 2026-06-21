@@ -44,6 +44,9 @@ addopts = "-q"
 line-length = 100
 target-version = "py311"
 src = ["plugin/lib", "dev", "tests"]
+# Eval fixtures are test DATA, not project source (they may hold intentionally imperfect code
+# for a reviewer to find, or a target repo with its own conventions). Don't lint them.
+extend-exclude = ["plugin/eval/fixtures"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

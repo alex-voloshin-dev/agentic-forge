@@ -137,6 +137,18 @@ surfacing on a failed call.
   stddev 0.042, lower bound 0.927 (n=5) on the planted-defect fixtures (catches the planted
   contradiction/gap/bug/risk with no false positives on clean zones).
 
+### Added — Stage 2 thin slice (step 1: patterns + fixture)
+
+- **Pattern references** `plugin/patterns/fan-out-fan-in.md` (partition → parallel subagents →
+  synthesize; the backbone of phase-workflows) and `plugin/patterns/multi-aspect-review.md`
+  (code review fanned out by aspect — correctness / security / integration+API / lint — into
+  one verdict; the review gate inside `develop` and the engine of the `code-review` phase).
+- **Fixture target-repo** `plugin/eval/fixtures/spine/target-repo/` — a small, real Python
+  library (`taskstore`) with tests and a `FEATURE_REQUEST.md` (task priorities), the external
+  target the SDLC-spine E2E scenario carries a feature through on an isolated copy.
+- **Tooling:** ruff now excludes `plugin/eval/fixtures` (fixtures are test data, not source).
+- `docs/architecture/overview.md`: fan-out/fan-in promoted from deferred to a built pattern.
+
 ### Added — Stage 2 design
 
 - **SDLC spine design** `docs/architecture/spine.md` + **ADR 0013** (supersedes ADR 0012):

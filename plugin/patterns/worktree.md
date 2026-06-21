@@ -18,17 +18,23 @@ Skip it for read-only work (research, review, design) — those need no writable
 The orchestrating `develop` workflow owns the worktree's lifecycle:
 
 ```bash
+# Base branch you are branching from (works whether it is main, master, or anything else).
+BASE="$(git symbolic-ref --short HEAD)"
+
 # Create: a new branch + directory off the current HEAD.
 git worktree add ../wt-<feature-slug> -b feature/<feature-slug>
 
 # ... the implementer works inside ../wt-<feature-slug>, runs tests there ...
 
 # Review the isolated change (see review-loop.md).
-git -C ../wt-<feature-slug> diff main...HEAD
+git -C ../wt-<feature-slug> diff "$BASE"...HEAD
 
 # Merge back when approved, then clean up.
 git worktree remove ../wt-<feature-slug>
 ```
+
+If the target is not yet under git (e.g. a freshly copied fixture repo), the orchestrator
+first runs `git init` and an initial commit, so the worktree and the `diff` base exist.
 
 Branch naming: `feature/<feature-slug>` mirrors the artifact slug under
 `docs/sdlc/<feature-slug>/`, so code, branch, and handoff artifacts line up.
@@ -52,8 +58,9 @@ and delete the branch.
 
 A plain branch switch mutates the single working directory and disrupts whatever else is in
 progress. A worktree gives a **physically separate directory**, so the main checkout stays
-usable and multiple changes can proceed at once — the basis for parallel implementation in
-later stages.
+usable and multiple changes can proceed at once. For fan-out by component, create **one
+worktree per unit** — the same lifecycle repeated — so parallel implementers never collide
+(see [fan-out-fan-in.md](fan-out-fan-in.md)).
 
 See also: [handoff.md](handoff.md) (the implementer reads `plan.md`) and
 [review-loop.md](review-loop.md) (the worktree diff is what the reviewer critiques).
