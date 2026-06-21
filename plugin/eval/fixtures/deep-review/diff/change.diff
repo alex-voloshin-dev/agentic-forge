@@ -1,0 +1,20 @@
+diff --git a/lib/stats.py b/lib/stats.py
+index 1111111..2222222 100644
+--- a/lib/stats.py
++++ b/lib/stats.py
+@@ -1,2 +1,14 @@
+ """Numeric helpers."""
++
++
++def average(nums):
++    total = 0
++    for n in nums:
++        total += n
++    return total / len(nums)
++
++
++def total(nums):
++    s = 0
++    for n in nums:
++        s += n
++    return s

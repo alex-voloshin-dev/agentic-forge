@@ -117,6 +117,21 @@ read-only file-aware grading with a raised turn budget (the earlier architect fa
 the grader hitting `max-turns`, **not** a rate limit); retries/backoff and stdout+stderr
 surfacing on a failed call.
 
+### Added — deep-review skill (adversarial review)
+
+- **`deep-review` skill** `plugin/skills/deep-review/` — a general, adversarial fan-out review
+  for any target (docs, design/architecture, a code diff/PR, or the working tree): decompose
+  into target-appropriate lenses, fan out independent reviewers, **verify each finding against
+  the source**, and synthesize one deduplicated, prioritized report with fixes (optionally
+  apply + re-gate). Router `SKILL.md` + `references/lenses.md` (lens catalog) + an evals-first
+  contract (Tier-1 triggers, Tier-2 thresholds) with planted-defect fixtures under
+  `plugin/eval/fixtures/deep-review/` (catch-rate + false-positive controls).
+- **Pattern** `plugin/patterns/adversarial-review.md` — the reusable method
+  (decompose → fan-out → verify → dedupe → synthesize → optional apply + re-gate); composes
+  with the `reviewer` role, the review loop, and handoff, and mirrors `deep-research`'s
+  harness. Stage 2 `code-review` can delegate to it.
+- Systematizes the multi-agent review process used in this session so it is repeatable.
+
 ### Added — handoff
 
 - **`docs/handoff-to-cli.md`** — checklist and starter prompt for continuing implementation

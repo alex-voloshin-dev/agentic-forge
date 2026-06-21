@@ -69,6 +69,9 @@ built are marked **(deferred)** — designed-for but not part of the current eng
   `Task` tool spawns subagents for fan-out/fan-in **(fan-out/fan-in deferred)**.
 - **Review loop** — writer → reviewer → revise, always with an iteration budget and a
   "converged-enough" criterion.
+- **Adversarial fan-out review** — decompose a review into lenses, fan out independent
+  reviewers, verify each finding against the source, then synthesize one report (the
+  `deep-review` skill / `patterns/adversarial-review.md`).
 - **Ralph loop (deferred)** — a bounded, self-restarting agent loop for long autonomous
   tasks (the agent re-runs itself until a stop condition is met).
 - **Git worktree isolation** — parallel work on isolated checkouts.

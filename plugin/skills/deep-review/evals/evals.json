@@ -1,0 +1,67 @@
+{
+  "skill_name": "deep-review",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Do a thorough adversarial review of these architecture docs for contradictions, gaps, and stale claims.",
+      "expected_output": "A prioritized findings report: the planted contradiction and gap found with location and a concrete fix, the consistent section left alone, each finding backed by evidence.",
+      "files": ["eval/fixtures/deep-review/docs/overview.md", "eval/fixtures/deep-review/docs/config.md"],
+      "assertions": [
+        "The output is a structured findings list (each: severity, location, description, suggested fix)",
+        "It finds the cache-default contradiction (overview says enabled by default, config says off by default)",
+        "It flags that 'Gatekeeper' is referenced but never defined (a gap)",
+        "It does NOT flag the per-tenant rate limit, which is consistent across both files (no false positive)",
+        "Each reported finding cites evidence from the source rather than speculating"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Deep review of this diff — find correctness bugs and simplification opportunities; be adversarial.",
+      "expected_output": "Findings with the planted divide-by-zero bug (location + fix) and the sum() simplification, prioritized; no invented blocker on the correct loop.",
+      "files": ["eval/fixtures/deep-review/diff/change.diff"],
+      "assertions": [
+        "It finds the divide-by-zero bug in average() on an empty list, with a location and a concrete fix",
+        "It flags that total() reimplements the built-in sum() (a simplification)",
+        "It does not invent a blocker-severity issue on the otherwise-correct code",
+        "Findings are prioritized by severity"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Review this design/ADR adversarially for missing alternatives and unstated risks.",
+      "expected_output": "Findings flagging the unweighed alternative and the duplicate-delivery risk, with actionable fixes; sound aspects acknowledged; verified findings distinguished from uncertain ones.",
+      "files": ["eval/fixtures/deep-review/design/tech-design.md"],
+      "assertions": [
+        "It flags that no alternative delivery mechanism was weighed against the Redis queue",
+        "It flags the at-least-once / duplicate-notification risk that the design omits from its risks",
+        "Each finding has a severity and an actionable suggestion",
+        "It distinguishes verified findings from anything uncertain"
+      ]
+    }
+  ],
+  "component": {
+    "id": "deep-review",
+    "type": "skill",
+    "purpose": "Adversarial fan-out review of a target (docs, design, code/diff, or working tree): decompose into lenses, fan out independent reviewers, verify each finding against the source, and synthesize one deduplicated, prioritized report with concrete fixes."
+  },
+  "thresholds": {
+    "tier1_trigger": { "recall": 0.9, "specificity": 0.9 },
+    "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }
+  },
+  "triggers": {
+    "should_trigger": [
+      "Do a thorough adversarial review of these docs",
+      "Find everything wrong with this design",
+      "Deep review of my PR for bugs, gaps, and contradictions",
+      "Audit the architecture docs for inconsistencies and stale claims",
+      "Give me a rigorous second-opinion review of this change"
+    ],
+    "should_not_trigger": [
+      "Fix the failing test",
+      "Run the app and screenshot it",
+      "What does this function do?",
+      "Write a function to parse dates",
+      "Quick lint of this one-line change"
+    ]
+  }
+}
