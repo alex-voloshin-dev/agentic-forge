@@ -137,6 +137,20 @@ surfacing on a failed call.
   stddev 0.042, lower bound 0.927 (n=5) on the planted-defect fixtures (catches the planted
   contradiction/gap/bug/risk with no false positives on clean zones).
 
+### Added — Stage 2 design
+
+- **SDLC spine design** `docs/architecture/spine.md` + **ADR 0013** (supersedes ADR 0012):
+  the spine is a **chain of phase-workflows** — `research, product, architecture, plan,
+  develop, code-review` — each a multi-stage skill that gathers inputs, **fans out subagents**
+  by direction/component, synthesizes, and analyses; joined only by handoff artifacts.
+  Fan-out/fan-in becomes a **core** pattern. Built **fresh** with the ancestor `ai-skills`
+  repo as reference; an **expanded specialist agent roster** (stack engineers, architects,
+  security/qa/…, each gated; supersedes ADR 0009's Stage-1 "no new roles"); phase-workflows
+  are model-driven fan-out (SKILL.md procedure + `lib/` glue), not the harness Workflow tool;
+  trigger taxonomy by owned artifact; E2E on a Python fixture target-repo; **thin slice
+  `architecture → develop → code-review` first**, multi-language (by-stack) after.
+  Pre-implementation. ADR 0012 (thin routers) retained as superseded.
+
 ### Added — handoff
 
 - **`docs/handoff-to-cli.md`** — checklist and starter prompt for continuing implementation

@@ -14,6 +14,8 @@ documentation discipline in the root `CLAUDE.md`).
     validator, library, harness, gate, `skill-factory`, CI.
   - [Engine (Layer 1)](architecture/engine.md) — Stage 1 (implemented): roles,
     handoff artifacts, review loop, agent eval.
+  - [SDLC spine (Layer 2)](architecture/spine.md) — Stage 2 design: six thin router skills
+    from idea to reviewed code (pre-implementation).
   - [Decision records](architecture/decisions/README.md) — the ADRs behind every major
     choice.
 - **Plan**

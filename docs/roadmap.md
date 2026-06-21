@@ -91,19 +91,17 @@ code-review`, handing off artifacts phase to phase. Delegation targets are the e
 set: built-in `Explore` (research) and `Plan` (planning), and dedicated `architect`,
 `implementer`, `reviewer`, `grader`. No new roles are introduced here.
 
-Open design questions (resolve before building):
-- **Phase boundaries and artifacts.** Exact output of each phase and how the next consumes
-  it (e.g. `product-spec` emits a PRD that `tech-design` turns into ADRs that `work-plan`
-  turns into a dependency-ordered plan with checkpoints).
-- **Router vs sub-skill split per domain.** What stays in the entry skill vs references.
-- **How much is one skill vs a forked subagent.** Use `context: fork` where isolation helps
-  (research, review) and inline where conversation context matters.
-- **Trigger sets per skill.** should/should-not prompts that keep routing sharp and
-  non-overlapping across the six skills.
-- **E2E scenario (Tier 3).** One realistic feature carried through all phases as the
-  acceptance scenario.
+Design questions: **resolved** in [architecture/spine.md](architecture/spine.md) and
+[ADR 0013](architecture/decisions/0013-spine-workflow-chain.md) (supersedes 0012). Summary:
+the spine is a **chain of phase-workflows** (each fans out subagents and synthesizes), named
+`research, product, architecture, plan, develop, code-review`, joined only by handoff
+artifacts; **fan-out/fan-in is core**; built fresh with `ai-skills` as reference; an expanded
+specialist agent roster (gated per addition); trigger taxonomy by owned artifact (should-not
+seeded from neighbours); E2E on a Python fixture target-repo; **build the thin slice
+`architecture → develop → code-review` first**, multi-language (by-stack) after.
 
-Components produced: six workflow skills with references, evals, and shared trigger taxonomy.
+Components produced: six workflow skills, new specialist roles, fan-out/multi-aspect-review
+patterns, evals, and shared trigger taxonomy.
 
 Exit criteria: each skill meets Tier-1 (recall/specificity ≥ 0.9) and Tier-2 (≥ 0.8 lower
 bound); the E2E scenario passes Tier-3 with all phase checkpoints green.

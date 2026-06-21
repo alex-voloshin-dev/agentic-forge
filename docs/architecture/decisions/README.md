@@ -17,3 +17,5 @@ edit.
 | [0009](0009-engine-roles-and-handoff.md) | Engine roles, markdown handoff, bounded review loop | Accepted (agent-eval narrowed by 0011) |
 | [0010](0010-handoff-schemas-and-pattern-references.md) | Handoff header schemas + pattern-reference location | Accepted |
 | [0011](0011-agent-eval-runner.md) | Dedicated agent eval runner with a pluggable model seam | Accepted |
+| [0012](0012-sdlc-spine.md) | Stage 2 SDLC spine: six thin router skills | Superseded by 0013 |
+| [0013](0013-spine-workflow-chain.md) | Stage 2 SDLC spine as a chain of phase-workflows | Accepted (design) |
