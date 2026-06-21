@@ -1,0 +1,50 @@
+{
+  "skill_name": "grader",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Grade the work under test against its three assertions and emit grading.json.",
+      "expected_output": "A grading.json with one result per assertion (text, passed, evidence) and a summary pass_rate of 2/3, marking the empty-list assertion as failed with evidence.",
+      "files": ["eval/fixtures/grader/case1.md"],
+      "assertions": [
+        "The output is valid grading.json with an assertion_results array",
+        "Each result has a text, a boolean passed, and an evidence string",
+        "The empty-list assertion is marked passed:false with evidence referencing the crash (ZeroDivisionError on the empty input)",
+        "The 'prints a total' and 'sorts ascending' assertions are marked passed:true",
+        "summary.pass_rate equals 2/3 and is consistent with the per-assertion results",
+        "The grader does not modify the work under test"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Grade the work under test against its two assertions, which the output clearly satisfies.",
+      "expected_output": "grading.json with both assertions passed:true, each with evidence, and summary.pass_rate of 1.0.",
+      "files": ["eval/fixtures/grader/case2.md"],
+      "assertions": [
+        "Both assertions are marked passed:true, each citing evidence drawn from the output",
+        "summary.pass_rate equals 1.0",
+        "The grader does not invent a failure for the clearly-correct output"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Grade the work under test against its assertion, which it only partially satisfies (only one of two required inputs is validated).",
+      "expected_output": "An explicit pass/fail decision with evidence quoting the output, made impartially without rewriting the output.",
+      "files": ["eval/fixtures/grader/case3.md"],
+      "assertions": [
+        "The result makes an explicit passed:true/false decision rather than hedging",
+        "The decision is passed:false (no partial credit / benefit of the doubt for the partly-met assertion)",
+        "The evidence names the specific missing check ('age') rather than giving a vague reason",
+        "The grader does not edit or improve the output under test"
+      ]
+    }
+  ],
+  "component": {
+    "id": "grader",
+    "type": "agent",
+    "purpose": "Grade outputs against eval assertions impartially and emit grading.json (per-assertion text/passed/evidence plus a summary); it never edits the work under test."
+  },
+  "thresholds": {
+    "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "skill_name": "reviewer",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Review this diff that adds a `get_user(users, idx)` helper which returns `users[idx]` with no bounds check, called with a user-supplied index. Decide whether to approve.",
+      "expected_output": "A verdict of 'changes' with a finding that flags the missing bounds/validation check, its location, a severity, and a suggested fix. No files are modified.",
+      "files": ["eval/fixtures/reviewer/case1.diff"],
+      "assertions": [
+        "The output states an explicit verdict of either 'approve' or 'changes'",
+        "The verdict is 'changes' for the unchecked index access",
+        "A finding pinpoints the missing bounds/range check on the user-controlled index, with a file or line location",
+        "Each finding includes a severity and a concrete suggested fix that actually adds validation (not merely catching IndexError)",
+        "The review identifies the negative-index silent-wrap hazard, not only the out-of-range IndexError",
+        "The reviewer does not modify any files (read-only critique)"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Review a small, correct diff that renames a local variable and updates every reference consistently. Decide whether to approve.",
+      "expected_output": "A verdict of 'approve' with no blocking findings (at most nits).",
+      "files": ["eval/fixtures/reviewer/case2.diff"],
+      "assertions": [
+        "The output states an explicit verdict",
+        "The verdict is 'approve' for the correct, low-risk change",
+        "No blocker- or major-severity findings are raised",
+        "The review does not fabricate a defect in the correct rename; any remark is limited to nit/minor severity"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Review the design artifact tech-design.md, which proposes a read-through cache but never mentions invalidation. Critique it.",
+      "expected_output": "Structured findings (severity, location, suggested fix) flagging the missing cache-invalidation strategy, and a verdict reflecting that changes are needed.",
+      "files": ["eval/fixtures/reviewer/case3-tech-design.md"],
+      "assertions": [
+        "The output is parseable as a verdict plus a list of findings",
+        "A finding specifically calls out the missing cache-invalidation/staleness strategy (not a generic 'add tests' or 'add docs' remark)",
+        "Findings carry a severity and a location pointing into the artifact",
+        "The verdict reflects that changes are required"
+      ]
+    }
+  ],
+  "component": {
+    "id": "reviewer",
+    "type": "agent",
+    "purpose": "Critique a code diff or design artifact in isolation and return an approve/changes verdict with structured findings (severity, location, suggested fix)."
+  },
+  "thresholds": {
+    "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }
+  }
+}

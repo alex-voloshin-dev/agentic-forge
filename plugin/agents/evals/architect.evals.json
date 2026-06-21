@@ -1,0 +1,48 @@
+{
+  "skill_name": "architect",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "From prd.md, produce a technical design for the search feature: a tech-design.md plus at least one ADR.",
+      "expected_output": "A tech-design artifact whose frontmatter carries decisions, components, and risks, plus at least one ADR with context, decision, alternatives, and consequences. No application code is written.",
+      "files": ["eval/fixtures/architect/prd.md"],
+      "assertions": [
+        "A tech-design artifact is produced with frontmatter listing decisions, components, and risks",
+        "At least one ADR is produced with Context, Decision, Alternatives considered, and Consequences",
+        "At least one ADR records a genuinely rejected alternative with the rationale for rejecting it (not a strawman)",
+        "Every PRD goal is traceable to a named component or an explicit decision",
+        "Only design documents are written; no application code is created"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Using case2-context.md, decide between server-side and client-side rendering for the new results page and record the decision.",
+      "expected_output": "An ADR that weighs both options, states the chosen one with a rationale, and notes the consequences.",
+      "files": ["eval/fixtures/architect/case2-context.md"],
+      "assertions": [
+        "The ADR records both alternatives that were considered",
+        "A single option is chosen with a rationale that engages the stated constraints (SEO indexability and mobile first-contentful-paint), not generic pros and cons",
+        "The consequences/trade-offs of the chosen option are stated"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Using case3-context.md, design the data layer under the stated constraint that no new external datastore may be added.",
+      "expected_output": "A design that honors the no-new-datastore constraint, with risks calling out the trade-offs, committed as an artifact under docs/sdlc/<feature>/.",
+      "files": ["eval/fixtures/architect/case3-context.md"],
+      "assertions": [
+        "The design honors the stated constraint: indexing and querying are mapped onto the existing relational database, with no new external datastore introduced",
+        "The relevance-quality and/or latency-at-scale risk created by the constraint is explicitly called out",
+        "The output is written as an artifact under docs/sdlc/<feature>/"
+      ]
+    }
+  ],
+  "component": {
+    "id": "architect",
+    "type": "agent",
+    "purpose": "Produce a technical design (ADRs plus a tech-design artifact) from requirements, weighing alternatives; it writes design documents only, never code."
+  },
+  "thresholds": {
+    "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }
+  }
+}

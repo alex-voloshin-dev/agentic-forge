@@ -1,0 +1,217 @@
+"""Load and validate SDLC handoff artifacts (Markdown + YAML frontmatter).
+
+Each phase of the SDLC spine writes an artifact that the next phase reads. The body is for
+humans and Claude; the YAML frontmatter header carries the structured fields the next phase
+parses. This module loads those artifacts (reusing :mod:`frontmatter`) and validates the
+header against a small per-type JSON Schema, so a downstream phase can rely on the key
+fields being present and well-typed.
+
+Artifact types and their producers (see docs/architecture/engine.md):
+
+- ``research-brief`` — Explore-based research phase.
+- ``prd`` — product-spec phase.
+- ``tech-design`` — architect role.
+- ``plan`` — Plan-based work-planning phase.
+- ``review`` — reviewer role (the unit the bounded review loop branches on).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import jsonschema
+
+from .frontmatter import FrontmatterError, parse
+
+# Recommended status vocabulary for feature artifacts. The workflow owns these transitions;
+# constraining them lets a downstream phase branch on status reliably.
+STATUSES = ["draft", "in-review", "approved", "final", "superseded"]
+
+# Review verdict vocabulary. `approve` is the early-exit signal for the bounded review loop.
+VERDICTS = ["approve", "changes"]
+
+# Finding severities, ordered most to least serious. `blocker`/`major` block an `approve`.
+SEVERITIES = ["blocker", "major", "minor", "nit"]
+
+_DRAFT7 = "http://json-schema.org/draft-07/schema#"
+_STRING_ARRAY: dict[str, Any] = {"type": "array", "items": {"type": "string"}}
+_NONEMPTY_STRING_ARRAY: dict[str, Any] = {
+    "type": "array",
+    "minItems": 1,
+    "items": {"type": "string"},
+}
+
+# A plan task: an id plus optional dependency ids and a title.
+_TASKS: dict[str, Any] = {
+    "type": "array",
+    "minItems": 1,
+    "items": {
+        "type": "object",
+        "required": ["id"],
+        "additionalProperties": True,
+        "properties": {
+            "id": {"type": ["string", "integer"]},
+            "deps": {"type": "array", "items": {"type": ["string", "integer"]}},
+            "title": {"type": "string"},
+        },
+    },
+}
+
+# A review finding: a severity and a location, with an optional suggested fix.
+_FINDINGS: dict[str, Any] = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "required": ["severity", "location"],
+        "additionalProperties": True,
+        "properties": {
+            "severity": {"enum": SEVERITIES},
+            "location": {"type": "string"},
+            "issue": {"type": "string"},
+            "suggestion": {"type": "string"},
+        },
+    },
+}
+
+
+def _feature_schema(
+    type_id: str,
+    *,
+    required_extra: list[str],
+    properties_extra: dict[str, Any],
+) -> dict[str, Any]:
+    """Build a header schema for a feature-scoped artifact (type + feature + status)."""
+    properties: dict[str, Any] = {
+        "type": {"const": type_id},
+        "feature": {"type": "string", "minLength": 1},
+        "status": {"enum": STATUSES},
+    }
+    properties.update(properties_extra)
+    return {
+        "$schema": _DRAFT7,
+        "type": "object",
+        "required": ["type", "feature", "status", *required_extra],
+        "additionalProperties": True,
+        "properties": properties,
+    }
+
+
+SCHEMAS: dict[str, dict[str, Any]] = {
+    "research-brief": _feature_schema(
+        "research-brief",
+        required_extra=[],
+        properties_extra={"date": {"type": "string"}, "sources": _STRING_ARRAY},
+    ),
+    "prd": _feature_schema(
+        "prd",
+        required_extra=["goals", "acceptance"],
+        properties_extra={
+            "goals": _NONEMPTY_STRING_ARRAY,
+            "non_goals": _STRING_ARRAY,
+            "metrics": _STRING_ARRAY,
+            "acceptance": _NONEMPTY_STRING_ARRAY,
+        },
+    ),
+    "tech-design": _feature_schema(
+        "tech-design",
+        required_extra=["decisions", "components"],
+        properties_extra={
+            "decisions": _NONEMPTY_STRING_ARRAY,
+            "components": _NONEMPTY_STRING_ARRAY,
+            "risks": _STRING_ARRAY,
+        },
+    ),
+    "plan": _feature_schema(
+        "plan",
+        required_extra=["tasks"],
+        properties_extra={
+            "tasks": _TASKS,
+            "checkpoints": _STRING_ARRAY,
+            "deferred": _STRING_ARRAY,
+        },
+    ),
+    "review": {
+        "$schema": _DRAFT7,
+        "type": "object",
+        "required": ["type", "target", "iteration", "verdict"],
+        "additionalProperties": True,
+        "properties": {
+            "type": {"const": "review"},
+            "target": {"type": "string", "minLength": 1},
+            "iteration": {"type": "integer", "minimum": 1},
+            "verdict": {"enum": VERDICTS},
+            "findings": _FINDINGS,
+        },
+    },
+}
+
+ARTIFACT_TYPES: tuple[str, ...] = tuple(SCHEMAS)
+
+
+class HandoffError(ValueError):
+    """Raised when a handoff artifact cannot be read, parsed, or validated."""
+
+
+@dataclass
+class Artifact:
+    """A parsed, validated handoff artifact."""
+
+    type: str
+    header: dict[str, Any]
+    body: str
+
+
+def schema_for(artifact_type: str) -> dict[str, Any]:
+    """Return the JSON Schema for an artifact type, or raise HandoffError if unknown."""
+    try:
+        return SCHEMAS[artifact_type]
+    except KeyError:
+        raise HandoffError(
+            f"unknown artifact type {artifact_type!r}; expected one of {sorted(SCHEMAS)}"
+        ) from None
+
+
+def validate_header(
+    header: dict[str, Any], *, expected_type: str | None = None
+) -> list[str]:
+    """Return a list of header-validation messages. Empty list means valid.
+
+    The type validated against is ``expected_type`` when given, otherwise the header's own
+    ``type`` field. Each schema pins ``type`` with ``const``, so a header whose declared
+    type disagrees with ``expected_type`` fails with a clear message.
+    """
+    target_type = expected_type if expected_type is not None else header.get("type")
+    if not target_type:
+        return ["header is missing the required 'type' field"]
+    if target_type not in SCHEMAS:
+        return [f"unknown artifact type {target_type!r}; expected one of {sorted(SCHEMAS)}"]
+
+    validator = jsonschema.Draft7Validator(SCHEMAS[target_type])
+    errors = []
+    for err in sorted(validator.iter_errors(header), key=lambda e: list(e.path)):
+        location = "/".join(str(p) for p in err.path) or "<root>"
+        errors.append(f"{location}: {err.message}")
+    return errors
+
+
+def parse_artifact(text: str, *, expected_type: str | None = None) -> Artifact:
+    """Parse artifact text into a validated Artifact, or raise HandoffError."""
+    try:
+        header, body = parse(text)
+    except FrontmatterError as exc:
+        raise HandoffError(str(exc)) from exc
+    errors = validate_header(header, expected_type=expected_type)
+    if errors:
+        raise HandoffError("; ".join(errors))
+    return Artifact(type=str(header["type"]), header=header, body=body)
+
+
+def load_artifact(path: Path | str, *, expected_type: str | None = None) -> Artifact:
+    """Load and validate a handoff artifact from a file, or raise HandoffError."""
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except OSError as exc:
+        raise HandoffError(f"cannot read {path}: {exc}") from exc
+    return parse_artifact(text, expected_type=expected_type)
