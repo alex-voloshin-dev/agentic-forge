@@ -131,6 +131,11 @@ surfacing on a failed call.
   with the `reviewer` role, the review loop, and handoff, and mirrors `deep-research`'s
   harness. Stage 2 `code-review` can delegate to it.
 - Systematizes the multi-agent review process used in this session so it is repeatable.
+- **Gated (2026-06-20, Opus 4.8 via subscription):** Tier-0 green; **Tier-1** recall 1.000 /
+  specificity 1.000 — after sharpening the description, which the trigger eval caught
+  over-firing on a quick one-line lint (now routed to `code-review`); **Tier-2** mean 0.969,
+  stddev 0.042, lower bound 0.927 (n=5) on the planted-defect fixtures (catches the planted
+  contradiction/gap/bug/risk with no false positives on clean zones).
 
 ### Added — handoff
 

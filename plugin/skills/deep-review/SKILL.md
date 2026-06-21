@@ -1,6 +1,6 @@
 ---
 name: deep-review
-description: Thorough, adversarial review of a target — docs, design/architecture, a code diff or PR, or the working tree — by fanning out independent reviewers across target-appropriate lenses, verifying every finding against the source, and synthesizing one deduplicated, prioritized report with concrete fixes (optionally applying them and re-running the gate). Use when you want a deep, rigorous, or adversarial review, an audit for contradictions/gaps/bugs/risks, or a second opinion on a non-trivial change. Not for a quick single-pass lint of a tiny diff, running the app, or writing code.
+description: Deep, multi-perspective review of a NON-TRIVIAL target — a doc set, a design or architecture, a sizeable code change or PR, or the whole working tree — by fanning out independent reviewers across target-appropriate lenses, verifying every finding against the source, and synthesizing one deduplicated, prioritized report with concrete fixes (optionally applying them and re-running the gate). Use for a deep, rigorous, or adversarial review, an audit for contradictions/gaps/bugs/risks, or a second opinion where thoroughness matters. For a quick lint of a small or single-file diff use the lighter code-review skill instead; not for running the app or writing code.
 allowed-tools: Read, Grep, Glob, Bash, Edit, Write, Task
 ---
 
