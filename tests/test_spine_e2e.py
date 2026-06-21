@@ -1,0 +1,224 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from agentic_forge import spine_e2e
+from agentic_forge.spine_e2e import (
+    PHASES,
+    Checkpoint,
+    PhaseResult,
+    all_passed,
+    check_architecture,
+    check_code_review,
+    check_develop,
+    check_wiring,
+    prepare_workspace,
+    repo_tests_pass,
+    run_e2e,
+    skill_body,
+)
+
+PLUGIN = Path(__file__).resolve().parents[1] / "plugin"
+
+TECH_DESIGN = """---
+type: tech-design
+feature: task-priorities
+status: approved
+decisions:
+  - Ordered priority enum mapped to a sort rank
+components:
+  - Task
+  - TaskStore.add
+risks:
+  - Reordering list() could surprise callers
+---
+# Tech design
+"""
+
+REVIEW_MD = """---
+type: review
+target: taskstore.py
+iteration: 1
+verdict: approve
+findings: []
+---
+# Review
+LGTM.
+"""
+
+ADR = "# ADR 1\n## Context\nc\n## Decision\nd\n## Alternatives considered\na\n## Consequences\nq\n"
+
+PRIORITY_TASKSTORE = '''"""taskstore with priority."""
+from __future__ import annotations
+from dataclasses import dataclass, field
+from itertools import count
+
+_RANK = {"low": 0, "normal": 1, "high": 2}
+
+
+@dataclass
+class Task:
+    id: int
+    title: str
+    priority: str = "normal"
+    done: bool = False
+
+
+@dataclass
+class TaskStore:
+    _tasks: list = field(default_factory=list)
+    _ids: count = field(default_factory=lambda: count(1))
+
+    def add(self, title, priority="normal"):
+        if not title or not title.strip():
+            raise ValueError("title must be non-empty")
+        if priority not in _RANK:
+            raise ValueError("invalid priority")
+        t = Task(id=next(self._ids), title=title.strip(), priority=priority)
+        self._tasks.append(t)
+        return t.id
+
+    def complete(self, task_id):
+        for t in self._tasks:
+            if t.id == task_id:
+                t.done = True
+                return
+        raise KeyError(task_id)
+
+    def list(self, include_done=False):
+        items = [t for t in self._tasks if include_done or not t.done]
+        return sorted(items, key=lambda t: -_RANK[t.priority])
+'''
+
+
+def _good_phase(system: str, user: str, repo: Path) -> str:
+    """Stub Runner: materialize correct artifacts for whichever phase the prompt describes."""
+    sdlc = repo / "docs" / "sdlc" / "task-priorities"
+    if "tech-design.md (frontmatter" in user:
+        (sdlc / "tech-design.md").write_text(TECH_DESIGN, encoding="utf-8")
+        (sdlc / "adr-001-priority.md").write_text(ADR, encoding="utf-8")
+    elif "Implement the feature in taskstore.py" in user:
+        (repo / "taskstore.py").write_text(PRIORITY_TASKSTORE, encoding="utf-8")
+    elif "Write a verdict" in user:
+        (sdlc / "review.md").write_text(REVIEW_MD, encoding="utf-8")
+    return "done"
+
+
+def _noop_phase(system: str, user: str, repo: Path) -> str:
+    return "did nothing"
+
+
+# --- prepare_workspace -------------------------------------------------------
+
+
+def test_prepare_workspace_copies_and_git_inits(tmp_path: Path) -> None:
+    repo = prepare_workspace(PLUGIN, tmp_path)
+    assert (repo / "taskstore.py").is_file()
+    assert (repo / "docs" / "sdlc" / "task-priorities" / "prd.md").is_file()
+    assert (repo / "docs" / "sdlc" / "task-priorities" / "plan.md").is_file()
+    assert (repo / ".git").is_dir()
+
+
+# --- checkpoints -------------------------------------------------------------
+
+
+def test_check_architecture_pass_and_fail(tmp_path: Path) -> None:
+    repo = prepare_workspace(PLUGIN, tmp_path)
+    assert not PhaseResult("a", check_architecture(repo)).passed  # nothing produced yet
+    sdlc = repo / "docs" / "sdlc" / "task-priorities"
+    (sdlc / "tech-design.md").write_text(TECH_DESIGN, encoding="utf-8")
+    (sdlc / "adr-001.md").write_text(ADR, encoding="utf-8")
+    assert all(c.passed for c in check_architecture(repo))
+
+
+def test_check_develop_pass_and_fail(tmp_path: Path) -> None:
+    repo = prepare_workspace(PLUGIN, tmp_path)
+    # baseline has no priority -> fail; tests still run
+    cps = check_develop(repo)
+    assert not cps[0].passed  # no 'priority' yet
+    (repo / "taskstore.py").write_text(PRIORITY_TASKSTORE, encoding="utf-8")
+    cps = check_develop(repo)
+    assert all(c.passed for c in cps)  # priority present + existing suite passes
+
+
+def test_check_develop_failing_suite(tmp_path: Path) -> None:
+    repo = prepare_workspace(PLUGIN, tmp_path)
+    # Has the priority marker but is broken Python -> import fails -> suite fails.
+    broken = "def add(priority='x'):\n    return (  # broken\n"
+    (repo / "taskstore.py").write_text(broken, encoding="utf-8")
+    cps = check_develop(repo)
+    assert cps[0].passed  # priority= marker present
+    assert not cps[1].passed  # suite is broken
+
+
+def test_check_develop_skip_tests(tmp_path: Path) -> None:
+    repo = prepare_workspace(PLUGIN, tmp_path)
+    cps = check_develop(repo, run_tests=False)
+    assert [c.name for c in cps] == ["priority implemented in taskstore"]
+
+
+def test_repo_tests_pass_true(tmp_path: Path) -> None:
+    repo = prepare_workspace(PLUGIN, tmp_path)
+    assert repo_tests_pass(repo) is True
+
+
+def test_check_code_review_missing_invalid_and_valid(tmp_path: Path) -> None:
+    repo = prepare_workspace(PLUGIN, tmp_path)
+    sdlc = repo / "docs" / "sdlc" / "task-priorities"
+    assert not check_code_review(repo)[0].passed  # missing
+    (sdlc / "review.md").write_text("not an artifact", encoding="utf-8")
+    assert not check_code_review(repo)[0].passed  # invalid
+    (sdlc / "review.md").write_text(REVIEW_MD, encoding="utf-8")
+    cps = check_code_review(repo)
+    assert len(cps) == 2 and all(c.passed for c in cps)  # valid + verdict
+
+
+# --- run_e2e ----------------------------------------------------------------
+
+
+def test_run_e2e_all_pass_with_good_stub(tmp_path: Path) -> None:
+    results = run_e2e(PLUGIN, run_phase=_good_phase, workspace=tmp_path)
+    assert [r.phase for r in results] == list(PHASES)
+    assert all_passed(results), [str(c) for r in results for c in r.checkpoints]
+
+
+def test_run_e2e_fails_with_noop_stub(tmp_path: Path) -> None:
+    results = run_e2e(PLUGIN, run_phase=_noop_phase, workspace=tmp_path)
+    assert not all_passed(results)
+
+
+# --- helpers / wiring --------------------------------------------------------
+
+
+def test_skill_body_strips_frontmatter() -> None:
+    body = skill_body(PLUGIN, "architecture")
+    assert "Architecture" in body and "name:" not in body.splitlines()[0]
+
+
+def test_check_wiring_clean() -> None:
+    assert check_wiring(PLUGIN) == []
+
+
+def test_check_wiring_reports_missing(tmp_path: Path) -> None:
+    problems = check_wiring(tmp_path)
+    assert any("missing skill" in p for p in problems)
+    assert any("missing fixture" in p for p in problems)
+
+
+def test_all_passed_empty_is_false() -> None:
+    assert all_passed([]) is False
+    assert PhaseResult("x", []).passed is False
+
+
+def test_checkpoint_str() -> None:
+    assert "[ok ]" in str(Checkpoint("a", True))
+    assert "[FAIL]" in str(Checkpoint("b", False, "why"))
+    assert "why" in str(Checkpoint("b", False, "why"))
+
+
+def test_phase_prompts_cover_all_phases() -> None:
+    # _phase_prompt is exercised via run_e2e, but assert each phase has distinct guidance.
+    prompts = {ph: spine_e2e._phase_prompt(ph) for ph in PHASES}
+    assert "tech-design.md (frontmatter" in prompts["architecture"]
+    assert "Implement the feature in taskstore.py" in prompts["develop"]
+    assert "Write a verdict" in prompts["code-review"]

@@ -137,6 +137,19 @@ surfacing on a failed call.
   stddev 0.042, lower bound 0.927 (n=5) on the planted-defect fixtures (catches the planted
   contradiction/gap/bug/risk with no false positives on clean zones).
 
+### Added — Stage 2 thin slice (step 4: Tier-3 E2E runner)
+
+- **Tier-3 spine E2E runner** `plugin/lib/agentic_forge/spine_e2e.py` + CLI
+  `dev/run_spine_e2e.py`: carries the `task-priorities` feature through
+  `architecture → develop → code-review` on an **isolated copy** of the taskstore fixture repo
+  (`git init`'d), checking per-phase checkpoints — tech-design + ADR validate against the
+  handoff schemas, the implemented code carries a real priority marker and the repo's **test
+  suite passes**, and `review.md` validates with a verdict. The model call is the same seam as
+  the agent runner (`--runner dry` for wiring, `--runner claude` for the real run on the
+  subscription). Unit-tested at 100% via a correct-output stub + real git/pytest; dry-run clean.
+- **PRD fixture** `plugin/eval/fixtures/spine/prd.md` (task-priorities) — the `architecture`
+  phase's input, schema-validated.
+
 ### Added — Stage 2 thin slice (step 3c: develop flagship workflow)
 
 - **`develop` workflow skill** `plugin/skills/develop/` — the implementation phase / flagship:
