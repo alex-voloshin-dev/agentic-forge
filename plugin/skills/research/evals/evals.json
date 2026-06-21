@@ -1,0 +1,62 @@
+{
+  "skill_name": "research",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Research how task apps handle priorities before we spec the feature — write a research brief.",
+      "expected_output": "A research-brief.md (frontmatter type/feature/status/date/sources[]) that fans out research tracks, synthesizes findings with cited sources, and ends with conclusions + recommendations.",
+      "files": [],
+      "assertions": [
+        "A research-brief.md handoff is produced with frontmatter listing sources",
+        "Findings are synthesized across tracks (not a single undifferentiated dump)",
+        "Claims are backed by cited sources",
+        "The brief ends with conclusions and recommendations for the next phase"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Investigate the options and prior art for adding full-text search; compare approaches and recommend one.",
+      "expected_output": "A research brief comparing the main options with evidence, ending in a recommendation.",
+      "files": [],
+      "assertions": [
+        "Several distinct options/approaches are compared",
+        "Each option is supported by evidence/sources",
+        "A recommendation is made with rationale"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Explore the landscape for our notifications idea across product and engineering angles.",
+      "expected_output": "A brief covering more than one research direction (e.g. product + engineering), synthesized.",
+      "assertions": [
+        "More than one research direction is covered (e.g. product and engineering)",
+        "The directions are synthesized into one coherent brief",
+        "The output is a research brief, not a PRD or a design"
+      ]
+    }
+  ],
+  "component": {
+    "id": "research",
+    "type": "skill",
+    "purpose": "Phase workflow: investigate a feature before it is specified — fan out parallel research tracks (delegating codebase exploration to Explore and external research to deep-research), synthesize, and produce a research-brief.md with cited sources and recommendations. Gated at Tier-1 (routing); depth quality comes from the delegated deep-research skill + the brief schema."
+  },
+  "thresholds": {
+    "tier1_trigger": { "recall": 0.9, "specificity": 0.9 }
+  },
+  "triggers": {
+    "should_trigger": [
+      "Research how other task apps handle priorities before we spec it",
+      "Investigate the options and prior art for adding full-text search",
+      "Explore the landscape for our notifications idea and write a research brief",
+      "Compare approaches for X and recommend one before we design it",
+      "What are the options for X? Research and produce a brief."
+    ],
+    "should_not_trigger": [
+      "Write a PRD with goals and acceptance criteria for the feature",
+      "Design the technical architecture for the feature",
+      "Implement the feature in a worktree",
+      "Break the design into a dependency-ordered task plan",
+      "Review my diff for bugs and security"
+    ]
+  }
+}

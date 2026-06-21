@@ -137,6 +137,17 @@ surfacing on a failed call.
   stddev 0.042, lower bound 0.927 (n=5) on the planted-defect fixtures (catches the planted
   contradiction/gap/bug/risk with no false positives on clean zones).
 
+### Added — Stage 2 spine (step 5a: research phase)
+
+- **`research` workflow skill** `plugin/skills/research/` — the first spine phase: investigate a
+  feature before it is specified by fanning out research tracks (delegating codebase exploration
+  to the built-in `Explore` and external research to `deep-research`), synthesizing, and
+  producing a `research-brief.md` handoff (cited sources + recommendation) that feeds `product`.
+  **Tier-0 + Tier-1 recall 1.000 / specificity 1.000** (majority-of-3 router sim; distinct from
+  `deep-research` (standalone report) and the spine neighbours after sharpening the description
+  to own "compare/recommend before spec or design"). Depth quality comes from the delegated
+  `deep-research` + the brief schema.
+
 ### Verified — Stage 2 thin-slice E2E (Tier-3, 2026-06-21)
 
 The real `--runner claude` scenario (Opus 4.8, subscription) carried `task-priorities` through
