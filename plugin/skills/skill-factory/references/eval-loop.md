@@ -32,7 +32,10 @@ All must be clean before spending tokens on quality evals.
 ## 3. Tier 1 — trigger
 
 Run each `should_trigger` and `should_not_trigger` prompt in a fresh session and record
-whether the skill activated. Compute metrics and gate:
+whether the skill activated. Routing is stochastic, so **sample each prompt N times (e.g. 3)
+and take the majority** before scoring it a hit/miss — the same absorb-the-noise principle as
+Tier-2's N runs; a single sample can flip a borderline prompt and fail the gate spuriously.
+Compute metrics and gate:
 
 - `agentic_forge.gate.trigger_metrics(should_trigger_hits, should_not_trigger_hits)`
 - `agentic_forge.gate.tier1_trigger(measured, thresholds)`

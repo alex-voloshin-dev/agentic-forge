@@ -15,6 +15,11 @@ target; one reviewer per lens, prompted adversarially, returning structured find
 - **Tests & coverage** — missing/weak tests, tests that assert nothing, untested edge cases,
   tests weakened to pass.
 - **Contract & API** — breaking changes, signature/behavior drift, back-compat.
+- **Robustness at seams** — code parsing external / LLM / tool output: does it handle
+  malformed input (prose-wrapped JSON, stray tokens, empty)? brittle greedy regex vs balanced
+  parsing; retry/fallback on a bad response.
+- **Safety defaults** — are protective behaviors enforced, not opt-in? (a sandbox/isolation
+  that only holds when a flag is passed is a latent hazard).
 
 ## Docs
 
@@ -25,6 +30,8 @@ target; one reviewer per lens, prompted adversarially, returning structured find
 - **Completeness & gaps** — undefined terms, concepts introduced but never explained or used,
   missing reading paths, dangling cross-references.
 - **Clarity & ambiguity** — wording open to two readings; over-promising vs what exists.
+- **Currency** — is a living doc stale against the latest ADR/decision? field-name or
+  vocabulary drift across docs that describe the same thing.
 
 ## Design / architecture / ADR
 
@@ -45,7 +52,22 @@ Use the code lenses scoped to the diff, plus:
 - **Docs/tests in lockstep** — were the docs and tests updated with the change (per the
   project's documentation/test discipline)?
 
+## Eval / test harness
+
+When the artifact is an eval, a fixture, or a test harness:
+
+- **Fixtures actually run** — imports resolve; test files are discoverable (`test_*.py`); the
+  planted defect is really present and the "clean" case is really clean.
+- **Isolation / no-leak** — a write role or tool operates only in its sandbox and never mutates
+  the real repo; verify (e.g. by checksum) rather than assume.
+- **Determinism / reproducibility** — independent of run order and shared state; the recorded
+  numbers are reproducible.
+- **No degenerate pass** — assertions can't be satisfied by empty or garbage output (pair each
+  negative assertion with a positive one).
+
 ## Cross-cutting (any target)
 
 - **Completeness critic** — "what's missing — a lens not run, a claim unverified, a file not
   read?" Its answer becomes the next round.
+- **Living catalog** — when a review surfaces a new failure mode, add it here as a lens so
+  future reviews catch it, rather than only fixing the instance.

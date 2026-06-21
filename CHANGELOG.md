@@ -137,6 +137,22 @@ surfacing on a failed call.
   stddev 0.042, lower bound 0.927 (n=5) on the planted-defect fixtures (catches the planted
   contradiction/gap/bug/risk with no false positives on clean zones).
 
+### Added — Stage 2 thin slice (step 3a: architecture workflow)
+
+- **`architecture` workflow skill** `plugin/skills/architecture/` — the `tech-design` phase:
+  turns an approved PRD into `tech-design.md` + `adr-*.md` under `docs/sdlc/<feature>/`,
+  weighing alternatives and tracing goals to components. Delegates the design to the
+  `architect` role; owns the workflow + handoff validation. **Tier-0 + Tier-1
+  recall 1.000 / specificity 1.000** (majority-of-3 router sim, non-overlapping vs
+  product/plan/develop/research); design quality is the `architect` role's Tier-2 (PASS).
+- **Review-lens enrichment** `plugin/skills/deep-review/references/lenses.md` — added dimensions
+  surfaced by this session's self-reviews: eval/test-harness validity (fixtures run, isolation
+  /no-leak, determinism, no degenerate-pass), robustness at seams (parsing external/LLM
+  output), safety defaults (enforced vs opt-in), doc currency vs ADRs, and a "living catalog"
+  rule (grow the lenses from new failure modes).
+- **Tier-1 methodology**: sample each trigger prompt N times and take the majority (absorb
+  router stochasticity), documented in the eval-loop guide.
+
 ### Added — Stage 2 thin slice (step 2: roles + standards)
 
 - **Engine roles for the thin slice.** Renamed `implementer` → **`software-engineer`** (the

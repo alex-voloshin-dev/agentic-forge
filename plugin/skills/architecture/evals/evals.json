@@ -1,0 +1,64 @@
+{
+  "skill_name": "architecture",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Design the technical architecture for the search feature described in prd.md.",
+      "expected_output": "A tech-design.md (frontmatter: decisions, components, risks) plus at least one ADR (context, decision, alternatives, consequences) under docs/sdlc/<feature>/, mapping every PRD goal to a component or decision. No application code.",
+      "files": ["eval/fixtures/architect/prd.md"],
+      "assertions": [
+        "A tech-design artifact is produced with frontmatter listing decisions, components, and risks",
+        "At least one ADR is produced with Context, Decision, Alternatives considered, and Consequences",
+        "At least one ADR records a genuinely rejected alternative with the rationale (not a strawman)",
+        "Every PRD goal is traceable to a named component or an explicit decision",
+        "Only design documents are written; no application code is created"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "We have an approved PRD — how should we build this technically? Produce the tech design and ADRs.",
+      "expected_output": "Same: a tech-design artifact + ADR(s) weighing real alternatives, with risks.",
+      "files": ["eval/fixtures/architect/prd.md"],
+      "assertions": [
+        "The output is a technical design with components and key decisions, not product requirements",
+        "Each significant decision is recorded as an ADR weighing alternatives",
+        "Risks / trade-offs are stated"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Write an ADR for the search data layer under the constraint that no new external datastore may be added.",
+      "expected_output": "An ADR honoring the constraint, weighing alternatives, and naming the trade-offs it creates.",
+      "files": ["eval/fixtures/architect/case3-context.md"],
+      "assertions": [
+        "The ADR honors the stated constraint (no new external datastore)",
+        "Alternatives are weighed and one is chosen with a rationale",
+        "The risk/trade-off created by the constraint is called out"
+      ]
+    }
+  ],
+  "component": {
+    "id": "architecture",
+    "type": "skill",
+    "purpose": "Phase workflow: turn an approved PRD into a technical design (tech-design.md + ADRs) under docs/sdlc/<feature>/, weighing alternatives and tracing goals to components. Delegates the design to the architect role; gated at Tier-1 (routing), with design quality covered by the architect role's Tier-2."
+  },
+  "thresholds": {
+    "tier1_trigger": { "recall": 0.9, "specificity": 0.9 }
+  },
+  "triggers": {
+    "should_trigger": [
+      "Design the technical architecture for the search feature",
+      "How should we build the notifications system — what components and tech?",
+      "Turn this PRD into a technical design with ADRs",
+      "Write an ADR for the rendering approach",
+      "Produce the tech design for the new billing module"
+    ],
+    "should_not_trigger": [
+      "Write a PRD for the search feature",
+      "Define the goals and acceptance criteria for the new feature",
+      "Break the search design into a dependency-ordered task plan",
+      "Implement the search indexer in Python",
+      "Research how other products approach full-text search"
+    ]
+  }
+}
