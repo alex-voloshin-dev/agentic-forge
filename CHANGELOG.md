@@ -137,6 +137,27 @@ surfacing on a failed call.
   stddev 0.042, lower bound 0.927 (n=5) on the planted-defect fixtures (catches the planted
   contradiction/gap/bug/risk with no false positives on clean zones).
 
+### Added — Stage 2 thin slice (step 3c: develop flagship workflow)
+
+- **`develop` workflow skill** `plugin/skills/develop/` — the implementation phase / flagship:
+  read `plan.md`+`tech-design.md`, set up a git worktree (single, sequential v1), implement the
+  step via the `software-engineer` role, **gate it with a multi-aspect review** (develop
+  produces the staged worktree diff and hands it to `reviewer`+`security-engineer`+lint),
+  bounded loop-back (N=3, with a stated terminal state), then `qa-engineer` hardens the suite,
+  and finally hand off + **remove the worktree**. **Tier-0 + Tier-1 recall 1.000 /
+  specificity 1.000** (majority-of-3); end-to-end quality is the Tier-3 spine scenario.
+- **Spine fixtures** `plugin/eval/fixtures/spine/{plan.md,tech-design.md}` (task-priorities),
+  validated against the handoff schemas — develop's inputs (the thin slice skips the plan phase).
+- **Flagship self-review caught real defects** (two adversarial reviewers), all fixed before
+  commit: the review gate fed an **empty diff** (`BASE...HEAD` is empty for an uncommitted
+  worktree → now stage + `diff --staged`, including new files); the reviewer couldn't read a
+  worktree via `git -C` (now develop supplies the diff text); the flagship eval referenced a
+  non-existent `plan.md`; **unbounded QA loop** and **missing N=3 terminal state**; **worktree
+  cleanup** never invoked; and doc-currency drift (patterns/spine still described the deferred
+  parallel-impl model and a per-skill Tier-2 that the slice delegates to roles + Tier-3).
+- Reconciled the patterns (`worktree`, `multi-aspect-review`, `fan-out-fan-in`) and
+  `spine.md`'s eval model to the single-worktree v1 + delegate-quality reality.
+
 ### Added — Stage 2 thin slice (step 3b: code-review workflow)
 
 - **`code-review` workflow skill** `plugin/skills/code-review/` — the review phase: the

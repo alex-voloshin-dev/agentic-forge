@@ -20,8 +20,9 @@ data-safety aspect). The style aspect runs the project's real tools (ruff/mypy/e
 treats their output as evidence, not opinion.
 
 The specialist executors (`software-engineer`, `security-engineer`, stack engineers) are the
-**planned, gated** Stage 2 roster (see spine.md / ADR 0013); until a role ships, that aspect
-falls back to the generic `reviewer` with an aspect-specific prompt.
+gated Stage 2 roster (see [../../docs/architecture/spine.md](../../docs/architecture/spine.md)
+and [ADR 0014](../../docs/architecture/decisions/0014-software-engineer-base-role.md)); until a
+role ships, that aspect falls back to the generic `reviewer` with an aspect-specific prompt.
 
 ## The method
 
@@ -39,8 +40,8 @@ falls back to the generic `reviewer` with an aspect-specific prompt.
 ## In the `develop` workflow
 
 This pattern is the **review gate** between implementation and QA: a `changes` verdict
-**loops back** to the implementation fan-out (bounded by [review-loop.md](review-loop.md));
-`approve` proceeds to QA. The standalone `code-review` phase runs the same method on a diff and
+**loops back** to implementation (bounded by [review-loop.md](review-loop.md)); `approve`
+proceeds to QA. The standalone `code-review` phase runs the same method on a diff and
 emits `review.md` for the spine.
 
 ## Composition

@@ -18,18 +18,18 @@ Skip it for read-only work (research, review, design) — those need no writable
 The orchestrating `develop` workflow owns the worktree's lifecycle:
 
 ```bash
-# Base branch you are branching from (works whether it is main, master, or anything else).
-BASE="$(git symbolic-ref --short HEAD)"
-
 # Create: a new branch + directory off the current HEAD.
 git worktree add ../wt-<feature-slug> -b feature/<feature-slug>
 
 # ... the software-engineer works inside ../wt-<feature-slug>, runs tests there ...
 
-# Review the isolated change (see review-loop.md).
-git -C ../wt-<feature-slug> diff "$BASE"...HEAD
+# Review the isolated change (see review-loop.md). The change is uncommitted in the worktree's
+# working tree, so stage it (to include NEW files) and diff the staged set — a commit-based
+# `BASE...HEAD` diff would be empty until something is committed.
+git -C ../wt-<feature-slug> add -A
+git -C ../wt-<feature-slug> diff --staged
 
-# Merge back when approved, then clean up.
+# Merge back when approved, then clean up (always — even on failure).
 git worktree remove ../wt-<feature-slug>
 ```
 
@@ -60,7 +60,8 @@ A plain branch switch mutates the single working directory and disrupts whatever
 progress. A worktree gives a **physically separate directory**, so the main checkout stays
 usable and multiple changes can proceed at once. For fan-out by component, create **one
 worktree per unit** — the same lifecycle repeated — so parallel software-engineers never collide
-(see [fan-out-fan-in.md](fan-out-fan-in.md)).
+(see [fan-out-fan-in.md](fan-out-fan-in.md)). *(Deferred: `develop` v1 uses a single worktree
+with sequential implementation; this is the parallel mode for later.)*
 
 See also: [handoff.md](handoff.md) (the software-engineer reads `plan.md`) and
 [review-loop.md](review-loop.md) (the worktree diff is what the reviewer critiques).

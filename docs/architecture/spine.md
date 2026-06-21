@@ -78,8 +78,10 @@ non-code review stay with `deep-review`.
 
 ## Eval model
 
-- **Each workflow skill:** Tier-1 (trigger recall/specificity ≥ 0.9) + Tier-2 (output quality
-  lower bound ≥ 0.8) on fixtures.
+- **Each workflow skill:** Tier-1 (trigger recall/specificity ≥ 0.9, via majority-of-N router
+  sampling). A skill that delegates to gated roles inherits its **quality** from those roles'
+  Tier-2 (≥ 0.8) rather than re-running a separate Tier-2; the end-to-end quality is the Tier-3
+  scenario. A skill with substantial own logic still ships a `tier2_quality` gate.
 - **Each new specialist role:** Tier-2 via the agent eval runner.
 - **The spine:** Tier-3 E2E on a **fixture target-repo** (Python), one feature through the
   phases in an isolated copy/worktree, with per-phase checkpoints (artifact exists + validates;
@@ -98,7 +100,8 @@ by-stack step. Prove the slice end to end, record Tier-1/2/3, then add
 
 ## Exit criteria
 
-- Six workflow skills: Tier-1 ≥ 0.9 recall/specificity, Tier-2 ≥ 0.8 lower bound.
+- Six workflow skills: Tier-1 ≥ 0.9 recall/specificity; quality via the delegated roles'
+  Tier-2 (≥ 0.8) and the Tier-3 scenario.
 - New specialist roles each pass Tier-2.
 - Fan-out/fan-in + multi-aspect-review patterns documented and used.
 - Tier-3 E2E green on the fixture repo with all phase checkpoints.

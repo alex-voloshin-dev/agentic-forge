@@ -21,8 +21,8 @@ as the spine's review step. Not for reviewing docs/design (use `deep-review`), w
 
 Follow [multi-aspect-review.md](../../patterns/multi-aspect-review.md):
 
-1. **Scope** the change — `git diff` for the branch/PR, or the diff under review — and pick the
-   aspects that apply.
+1. **Scope** the change — `git diff` for the branch/PR, or the diff under review (when invoked
+   by `develop`, the worktree diff is supplied to you) — and pick the aspects that apply.
 2. **Fan out** one reviewer per aspect (independent, structured findings —
    `severity`, `location`, `issue`, `suggestion`, `evidence`; see
    [patterns/fan-out-fan-in.md](../../patterns/fan-out-fan-in.md)):

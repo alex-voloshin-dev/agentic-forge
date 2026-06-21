@@ -1,0 +1,64 @@
+{
+  "skill_name": "develop",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Implement the task-priorities feature in the taskstore repo per the plan, with tests.",
+      "expected_output": "A worktree change adding priorities to taskstore (add/list), new + existing tests green, a multi-aspect review verdict, and a change summary — implemented by the software-engineer role and QA'd, never touching the main checkout.",
+      "files": ["eval/fixtures/spine/plan.md", "eval/fixtures/spine/tech-design.md", "eval/fixtures/spine/target-repo/taskstore.py", "eval/fixtures/spine/target-repo/test_taskstore.py"],
+      "assertions": [
+        "The change is made in a git worktree, not the main checkout",
+        "The feature is implemented per the request (priority on add; list sorted by priority; existing behavior preserved)",
+        "New tests are added and the full suite (existing + new) is run and reported green",
+        "A multi-aspect review is run and a verdict is produced before QA sign-off",
+        "The summary lists files touched, tests, and any assumptions"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Develop plan step T2 — add the query API component — in a worktree.",
+      "expected_output": "A scoped implementation of the named step in a worktree, reviewed and tested, with a structured change summary.",
+      "files": [],
+      "assertions": [
+        "Only the named plan step is implemented (scoped; no unrelated work)",
+        "The change is reviewed (multi-aspect) and the tests pass before hand-off",
+        "Work stays within the worktree; the main checkout is untouched"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Implement the failing-test fix from the plan and make the suite green.",
+      "expected_output": "An implementation fix (not a test weakening) that turns the suite green, reviewed, with a root-cause summary.",
+      "files": [],
+      "assertions": [
+        "The implementation is fixed (no test is weakened, skipped, or deleted to pass)",
+        "The suite is run and reported green after the fix",
+        "A review gate runs before the change is considered done"
+      ]
+    }
+  ],
+  "component": {
+    "id": "develop",
+    "type": "skill",
+    "purpose": "Phase workflow: implement a plan step in an isolated worktree — software-engineer writes code+tests, a multi-aspect review gates it (loop back on changes), then qa-engineer hardens the suite. Gated at Tier-1 (routing); end-to-end quality is proven by the Tier-3 spine scenario, with component quality from the delegated roles' Tier-2."
+  },
+  "thresholds": {
+    "tier1_trigger": { "recall": 0.9, "specificity": 0.9 }
+  },
+  "triggers": {
+    "should_trigger": [
+      "Implement the next step of the plan",
+      "Build the task-priorities feature from the plan",
+      "Write the code for the planned change and get the tests green",
+      "Develop the search indexer per the work plan",
+      "Implement plan task T2 in a worktree"
+    ],
+    "should_not_trigger": [
+      "Design the technical architecture for the search feature",
+      "Break the technical design into a dependency-ordered task plan",
+      "Review my diff for bugs and security",
+      "Write a PRD for the new feature",
+      "Research how other products approach full-text search"
+    ]
+  }
+}
