@@ -4,8 +4,10 @@
   "description": "Skill-centric, eval-driven Claude Code plugin for the full software lifecycle. Workflow skills auto-load by description; subagents, worktrees, review loops and Ralph loops run natively. Every component is standard-compliant (agentskills.io) and gated by tests plus numeric eval thresholds.",
   "author": {
     "name": "Alex Voloshin",
-    "email": "avav25@gmail.com"
+    "email": "alex@voloshin.net",
+    "url": "https://voloshin.net"
   },
+  "homepage": "https://voloshin.net",
   "license": "MIT",
   "keywords": [
     "sdlc",

@@ -2,7 +2,8 @@
   "name": "agentic-forge",
   "owner": {
     "name": "Alex Voloshin",
-    "email": "avav25@gmail.com"
+    "email": "alex@voloshin.net",
+    "url": "https://voloshin.net"
   },
   "plugins": [
     {
