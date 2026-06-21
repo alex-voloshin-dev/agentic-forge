@@ -137,6 +137,16 @@ surfacing on a failed call.
   stddev 0.042, lower bound 0.927 (n=5) on the planted-defect fixtures (catches the planted
   contradiction/gap/bug/risk with no false positives on clean zones).
 
+### Added — Stage 2 spine (step 5b: product phase)
+
+- **`product` workflow skill** `plugin/skills/product/` — the product phase: turn
+  `research-brief.md` into a PRD — assess the current product, define goals/non-goals/metrics/
+  acceptance and user stories, and produce a `prd.md` handoff for `architecture`, eliciting
+  ambiguities from the user rather than inventing them. **Tier-0 + Tier-1 recall 1.000 /
+  specificity 1.000** (majority-of-3; clean separation of *what & why* (product) from *what
+  exists* (research) and *how* (architecture)). Adds a schema-validated `research-brief.md`
+  fixture (product's input). Quality via the prd schema + traceability to the brief.
+
 ### Added — Stage 2 spine (step 5a: research phase)
 
 - **`research` workflow skill** `plugin/skills/research/` — the first spine phase: investigate a

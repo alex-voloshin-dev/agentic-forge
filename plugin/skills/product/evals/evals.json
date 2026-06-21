@@ -1,0 +1,63 @@
+{
+  "skill_name": "product",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Turn the research brief into a PRD for the task-priorities feature.",
+      "expected_output": "A prd.md (frontmatter goals/non_goals/metrics/acceptance) with user stories, traceable to the research brief, under docs/sdlc/<feature>/. No technical design or code.",
+      "files": ["eval/fixtures/spine/research-brief.md"],
+      "assertions": [
+        "A prd.md handoff is produced with frontmatter listing goals and acceptance criteria",
+        "Non-goals and success metrics are stated",
+        "User stories are written for the change",
+        "The requirements trace back to the research brief's findings/recommendation",
+        "Only product requirements are produced — no technical design or code"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Define the goals, non-goals, and acceptance criteria for the new feature.",
+      "expected_output": "A product spec stating goals, non-goals, metrics, and testable acceptance criteria.",
+      "files": ["eval/fixtures/spine/research-brief.md"],
+      "assertions": [
+        "Goals and explicit non-goals are stated",
+        "Acceptance criteria are concrete and testable",
+        "The output is a product spec, not an architecture or a task plan"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Write the user stories and acceptance criteria for task priorities.",
+      "expected_output": "User stories with acceptance criteria mapping to the feature's goals.",
+      "assertions": [
+        "User stories are written from the user's perspective",
+        "Each story has acceptance criteria",
+        "The stories cover the feature's goals"
+      ]
+    }
+  ],
+  "component": {
+    "id": "product",
+    "type": "skill",
+    "purpose": "Phase workflow: turn a research-brief into product requirements — assess the current product, define goals/non-goals/metrics/acceptance and user stories, and produce a prd.md handoff. Gated at Tier-1 (routing); quality via the prd schema + traceability to the brief."
+  },
+  "thresholds": {
+    "tier1_trigger": { "recall": 0.9, "specificity": 0.9 }
+  },
+  "triggers": {
+    "should_trigger": [
+      "Write a PRD for the task-priorities feature",
+      "Define the goals and acceptance criteria for the new feature",
+      "Turn the research brief into a product spec",
+      "Specify the requirements and user stories for X",
+      "Produce the product requirements for the feature"
+    ],
+    "should_not_trigger": [
+      "Research the options and prior art for X before we spec it",
+      "Design the technical architecture for the feature",
+      "Break the design into a dependency-ordered task plan",
+      "Implement the feature in a worktree",
+      "Review my diff for bugs and security"
+    ]
+  }
+}
