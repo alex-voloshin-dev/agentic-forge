@@ -1,0 +1,48 @@
+{
+  "skill_name": "security-engineer",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Security-review this code change. Report security findings only.",
+      "expected_output": "A finding that flags the SQL injection (user input concatenated into the query), with location, severity, and a parameterized-query fix.",
+      "files": ["eval/fixtures/security-engineer/case1-sqli.py"],
+      "assertions": [
+        "A finding identifies the SQL injection where user input is concatenated into the query",
+        "The finding gives a file/line location and a blocker- or major-level severity",
+        "The suggested fix uses parameterized queries / bound parameters (not string escaping)",
+        "The reviewer does not modify any files (read-only security review)"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Security-review this code change. Report security findings only.",
+      "expected_output": "Findings for the command injection via os.system on user input and the secret written to logs, each with severity, location, and a fix.",
+      "files": ["eval/fixtures/security-engineer/case2-cmdi.py"],
+      "assertions": [
+        "A finding flags the command injection (untrusted input passed to os.system/shell)",
+        "A finding flags the secret/credential being logged",
+        "Each finding has a severity, a location, and an actionable fix",
+        "Evidence quotes the offending line"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Security-review this code change. Report security findings only.",
+      "expected_output": "A clean verdict: the query is parameterized and input is validated, so no security finding is raised (at most informational notes).",
+      "files": ["eval/fixtures/security-engineer/case3-clean.py"],
+      "assertions": [
+        "The review reaches an explicit clean/approve verdict (it does not pass by staying silent or returning nothing)",
+        "No blocker- or major-severity security finding is raised on this parameterized, validated code",
+        "The reviewer does not invent a vulnerability that is not present (no false positive)"
+      ]
+    }
+  ],
+  "component": {
+    "id": "security-engineer",
+    "type": "agent",
+    "purpose": "Review a code change for the security aspect (injection, authz/authn, secrets, unsafe defaults, supply chain) and return structured findings; it never edits the code under review."
+  },
+  "thresholds": {
+    "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }
+  }
+}

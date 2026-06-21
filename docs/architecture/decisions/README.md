@@ -19,3 +19,4 @@ edit.
 | [0011](0011-agent-eval-runner.md) | Dedicated agent eval runner with a pluggable model seam | Accepted |
 | [0012](0012-sdlc-spine.md) | Stage 2 SDLC spine: six thin router skills | Superseded by 0013 |
 | [0013](0013-spine-workflow-chain.md) | Stage 2 SDLC spine as a chain of phase-workflows | Accepted (design) |
+| [0014](0014-software-engineer-base-role.md) | One software-engineer base role + stack skills, not per-stack agents | Accepted |

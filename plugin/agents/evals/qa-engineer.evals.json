@@ -1,0 +1,48 @@
+{
+  "skill_name": "qa-engineer",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "This function has no tests. Add a test suite that covers its edge cases and run it.",
+      "expected_output": "Tests covering the boundary cases (pct=0, pct=100, and an invalid/negative pct), a note on the missing input validation, and a report that the tests were run.",
+      "files": ["eval/fixtures/qa-engineer/case1-discount.py"],
+      "assertions": [
+        "Tests are added for the boundary cases (0% and 100% discount)",
+        "An edge/invalid case (e.g. negative or >100 percentage) is called out as untested or unguarded",
+        "The tests are run and their pass/fail result is reported",
+        "The summary lists the tests added"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "The existing test only covers the happy path. Strengthen the suite and run it.",
+      "expected_output": "New tests for the empty-list and even-length cases added alongside the existing test (not replacing it), with a run report.",
+      "files": ["eval/fixtures/qa-engineer/case2_median.py", "eval/fixtures/qa-engineer/test_case2_median.py"],
+      "assertions": [
+        "A test is added for the empty-input case",
+        "A test is added for the even-length case (median of two middle values)",
+        "The existing happy-path test is preserved, not weakened or deleted",
+        "The tests are run and the result is reported"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Spec: clamp(value, lo, hi) must return a value within [lo, hi]. Write a test that verifies the spec and report whether the implementation meets it.",
+      "expected_output": "A test asserting clamping at and beyond both bounds; running it reveals the implementation fails the upper-bound case, which is reported (the QA role tests and reports, it does not fix).",
+      "files": ["eval/fixtures/qa-engineer/case3-clamp.py"],
+      "assertions": [
+        "A test asserts behavior at and beyond both the lower and upper bounds",
+        "Running the test reveals the upper-bound defect, which is reported as a failure",
+        "The role reports the defect rather than silently editing the implementation to pass"
+      ]
+    }
+  ],
+  "component": {
+    "id": "qa-engineer",
+    "type": "agent",
+    "purpose": "Design, write, and run tests for a change (existing + new unit tests and end-to-end coverage), report coverage gaps and results; it strengthens the suite and never weakens a test to make it pass."
+  },
+  "thresholds": {
+    "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }
+  }
+}

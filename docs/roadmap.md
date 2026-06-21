@@ -41,7 +41,7 @@ its own Tier-0, plugin-integrity test in place.
 
 ## Stage 1 — Engine foundations (minimal)
 
-Status: **Done.** Delivered the four roles (`reviewer`, `grader`, `implementer`,
+Status: **Done.** Delivered the four roles (`reviewer`, `grader`, `software-engineer`,
 `architect`) with narrowed tools, return contracts, and agent eval contracts under
 `plugin/agents/evals/`; `lib/agentic_forge/handoff.py` with per-type header schemas (unit
 tested at 100%); and the pattern references in `plugin/patterns/` (handoff, review loop,
@@ -61,7 +61,7 @@ loops, fan-out research at scale, full role catalog (deferred to later stages).
 
 Design questions: **resolved** in [architecture/engine.md](architecture/engine.md) and
 [ADR 0009](architecture/decisions/0009-engine-roles-and-handoff.md). Summary: dedicated
-roles `reviewer`, `grader`, `implementer`, `architect` (research/planning reuse built-in
+roles `reviewer`, `grader`, `software-engineer`, `architect` (research/planning reuse built-in
 `Explore`/`Plan`); handoff via Markdown + YAML frontmatter in `docs/sdlc/<slug>/`; review
 loop bounded at N=3 with an approve signal; agent eval via the dedicated runner
 (`agent_eval.py`) + our gate (ADR 0011).
@@ -86,10 +86,12 @@ Goal: one continuous path from idea to reviewed code, proving the architecture e
 
 Dependencies: Stage 1; benefits from Stage 3 but should not block on it.
 
-Scope: router skills `research-brief → product-spec → tech-design → work-plan → develop →
-code-review`, handing off artifacts phase to phase. Delegation targets are the exact Stage 1
-set: built-in `Explore` (research) and `Plan` (planning), and dedicated `architect`,
-`implementer`, `reviewer`, `grader`. No new roles are introduced here.
+Scope: workflow skills `research → product → architecture → plan → develop → code-review`,
+handing off artifacts phase to phase. Delegation targets are the Stage 1 set plus Stage 2
+additions: built-in `Explore`/`Plan`, dedicated `architect`, `software-engineer` (renamed from
+`software-engineer`), `reviewer`, `grader`, and the new `security-engineer` / `qa-engineer` — added
+per shipping phase and gated (see ADR 0013/0014). Stack specialization is via skills, not
+per-stack agents.
 
 Design questions: **resolved** in [architecture/spine.md](architecture/spine.md) and
 [ADR 0013](architecture/decisions/0013-spine-workflow-chain.md) (supersedes 0012). Summary:

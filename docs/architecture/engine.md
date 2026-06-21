@@ -7,7 +7,7 @@ Tier-0 green. Implementation choices made on top of this design are recorded in
 
 ## Decisions
 
-- **Dedicated roles:** `reviewer`, `grader`, `implementer`, `architect`. Research uses the
+- **Dedicated roles:** `reviewer`, `grader`, `software-engineer`, `architect`. Research uses the
   built-in `Explore` agent; planning uses the built-in `Plan` agent; generic delegation
   uses `general-purpose`.
 - **Handoff format:** Markdown + YAML frontmatter, committed to the target repo so it is
@@ -29,11 +29,11 @@ them via `context: fork` + `agent: <name>` or the `Task` tool; users never call 
 | --- | --- | --- | --- |
 | `reviewer` | Critique a diff or a design artifact in isolation | `Read, Grep, Glob, Bash(git diff:*)` | Verdict `approve`/`changes` + findings (severity, location, suggested fix) |
 | `grader` | Grade eval assertions impartially against outputs | `Read, Grep, Glob` | `grading.json` (`text`/`passed`/`evidence` + summary); never edits the work |
-| `implementer` | Write code in an isolated worktree | `Read, Write, Edit, Bash, Grep, Glob` | Summary of changes, files touched, tests added |
+| `software-engineer` | Write code in an isolated worktree | `Read, Write, Edit, Bash, Grep, Glob` | Summary of changes, files touched, tests added |
 | `architect` | Produce technical design from requirements | `Read, Grep, Glob, Write` (docs only) | ADR(s) + component design artifact |
 
 Why these and not more: `reviewer` and `grader` are needed almost everywhere (review loop,
-self-review, Tier-2 grading) and benefit from a clean context. `implementer` needs a full
+self-review, Tier-2 grading) and benefit from a clean context. `software-engineer` needs a full
 write toolset and worktree isolation. `architect` benefits from a design-focused prompt.
 Researcher/planner are well covered by `Explore`/`Plan`, so we do not duplicate them.
 
@@ -68,7 +68,7 @@ skills link to it rather than restating it:
   writer (skill or role) → `reviewer` → revise, capped at `N = 3`, exiting on `approve`. The
   orchestrating workflow skill owns the loop and the budget.
 - **Worktree isolation** ([patterns/worktree.md](../../plugin/patterns/worktree.md)) —
-  `implementer` runs against a git worktree created by the `develop` workflow, so
+  `software-engineer` runs against a git worktree created by the `develop` workflow, so
   parallel/iterative work does not touch the main checkout.
 
 Deferred to later stages: fan-out/fan-in research at scale, Ralph loops.
@@ -99,7 +99,7 @@ documentation review), so agents are gated like skills from the start.
 ## Implementation tasks (done)
 
 1. ~~Author the four role files + agent eval contracts (via `skill-factory`).~~ Done —
-   `plugin/agents/{reviewer,grader,implementer,architect}.md` with narrowed tools and
+   `plugin/agents/{reviewer,grader,software-engineer,architect}.md` with narrowed tools and
    explicit return contracts, each gated by `plugin/agents/evals/<name>.evals.json`
    (`component.type: agent`).
 2. ~~Add `lib/agentic_forge/handoff.py` + artifact header schemas + pytest.~~ Done —

@@ -25,7 +25,14 @@ SKILL_FACTORY_FILES = [
 ]
 
 # Stage 1 engine deliverables.
-ENGINE_ROLES = ["reviewer", "grader", "implementer", "architect"]
+ENGINE_ROLES = [
+    "reviewer",
+    "grader",
+    "software-engineer",
+    "architect",
+    "security-engineer",
+    "qa-engineer",
+]
 ENGINE_PATTERNS = ["handoff.md", "review-loop.md", "worktree.md"]
 
 

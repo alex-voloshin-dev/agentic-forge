@@ -1,0 +1,36 @@
+{
+  "skill_name": "engineering-standards",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "With the engineering standards loaded, implement a small behaviour change in a target repo module.",
+      "expected_output": "A scoped change that mirrors the repo's conventions, ships tests covering the behaviour and its boundary cases, and leaves the lint/type/test gate green.",
+      "files": [],
+      "assertions": [
+        "The change is scoped to the task with no unrelated edits",
+        "Tests are added or updated for the behaviour, including a boundary/error case",
+        "No existing test is weakened, skipped, or deleted",
+        "Errors are handled or propagated with context (no silent failures)"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "With the standards loaded, add a database query that takes a user-supplied value.",
+      "expected_output": "A parameterised query with input validated at the boundary; no secrets logged; safe defaults.",
+      "files": [],
+      "assertions": [
+        "The query is parameterised (no string-built SQL)",
+        "User input is validated at the trust boundary",
+        "No secret or credential is written to logs"
+      ]
+    }
+  ],
+  "component": {
+    "id": "engineering-standards",
+    "type": "skill",
+    "purpose": "The engineering standards the software-engineer (and reviewers/QA) apply in target repos; a lean, loaded-on-demand knowledge skill exercised through the software-engineer's Tier-2."
+  },
+  "thresholds": {
+    "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }
+  }
+}

@@ -27,8 +27,8 @@ falls back to the generic `reviewer` with an aspect-specific prompt.
 
 1. **Scope** the diff and pick the aspects that apply.
 2. **Fan out** one reviewer per aspect (independent, structured findings: `severity`,
-   `location`, `evidence`, `suggested fix` — the canonical shape in [handoff.md](handoff.md))
-   — see fan-out/fan-in.
+   `location`, `issue`, `suggestion`, `evidence` — the canonical shape in
+   [handoff.md](handoff.md)) — see fan-out/fan-in.
 3. **Verify** each finding against the source (open the file, re-run the tool/test). Drop or
    downgrade what doesn't hold.
 4. **Synthesize one verdict.** Aggregate across aspects: **any `blocker` or `major` from any

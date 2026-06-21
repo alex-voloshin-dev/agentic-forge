@@ -1,10 +1,10 @@
-"""Failing test for case 2 (must pass after the implementer's fix; do not weaken it)."""
+"""Failing test for case 2 (must pass after the engineer's fix; do not weaken it)."""
 
 from __future__ import annotations
 
 import datetime
 
-from parser import parse_date
+from case2_parser import parse_date
 
 
 def test_parse_date_slash() -> None:

@@ -13,7 +13,9 @@ from agentic_forge.agent_eval import (
     build_role_prompt,
     check_wiring,
     grade_output,
+    is_write_role,
     load_fixtures,
+    materialize_fixtures,
     parse_grading,
     run_role,
 )
@@ -74,8 +76,41 @@ def test_parse_grading_fenced() -> None:
 
 
 def test_parse_grading_no_json_raises() -> None:
-    with pytest.raises(ValueError, match="no JSON object"):
+    with pytest.raises(ValueError, match="no valid JSON object"):
         parse_grading("no json here")
+
+
+def test_parse_grading_brace_and_escape_in_string() -> None:
+    # Braces inside a JSON string (and an escaped quote) must not break extraction.
+    obj = parse_grading('{"evidence": "a \\" } { quote", "passed": true}')
+    assert obj["passed"] is True
+    assert "}" in obj["evidence"]
+
+
+def test_parse_grading_skips_unbalanced_leading_brace() -> None:
+    # A stray unbalanced '{' before the real object must be skipped, not corrupt parsing.
+    obj = parse_grading('noise {oops not json\n\n{"passed": true}')
+    assert obj["passed"] is True
+
+
+def test_parse_grading_skips_invalid_then_takes_valid() -> None:
+    # A balanced-but-invalid object is skipped (json.loads fails); the next valid one is used.
+    obj = parse_grading('{not: valid json} {"passed": true}')
+    assert obj["passed"] is True
+
+
+def test_grade_output_retries_on_unparseable_then_succeeds() -> None:
+    calls = {"n": 0}
+
+    def flaky_grader(system: str, prompt: str, workdir: Path) -> str:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return "sorry — here is prose, not json"
+        return json.dumps({"assertion_results": [{"text": "a", "passed": True, "evidence": "x"}]})
+
+    graded = grade_output(["a"], "out", "g", flaky_grader, Path("."))
+    assert calls["n"] == 2
+    assert graded["summary"] == {"total": 1, "passed": 1, "pass_rate": 1.0}
 
 
 # --- load_fixtures -------------------------------------------------------------------
@@ -89,7 +124,23 @@ def test_load_fixtures_reads_and_labels(tmp_path: Path) -> None:
     (tmp_path / "eval").mkdir()
     (tmp_path / "eval" / "f.txt").write_text("hello", encoding="utf-8")
     out = load_fixtures(tmp_path, ["eval/f.txt"])
-    assert "--- FILE: eval/f.txt ---" in out and "hello" in out
+    assert "--- FILE: f.txt ---" in out and "hello" in out
+    assert "eval/f.txt" not in out  # repo-relative path must not leak into the prompt
+
+
+def test_materialize_fixtures_copies_by_basename(tmp_path: Path) -> None:
+    (tmp_path / "eval").mkdir()
+    (tmp_path / "eval" / "f.txt").write_text("hello", encoding="utf-8")
+    wd = tmp_path / "wd"
+    wd.mkdir()
+    materialize_fixtures(tmp_path, ["eval/f.txt"], wd)
+    assert (wd / "f.txt").read_text(encoding="utf-8") == "hello"
+    assert not (wd / "eval").exists()  # flattened to basename, no repo structure
+
+
+def test_build_role_prompt_in_workdir_wording() -> None:
+    p = build_role_prompt({"prompt": "do"}, "--- FILE: x ---\nbody", in_workdir=True)
+    assert "working directory" in p
 
 
 # --- grade_output --------------------------------------------------------------------
@@ -229,6 +280,29 @@ def test_run_role_isolate_uses_fresh_workdir() -> None:
         run_grader_fn=make_grader(True),
         runs=1,
         isolate=True,
+    )
+    assert report.runs == 1
+    assert report.gradings[0]["summary"]["pass_rate"] == 1.0
+
+
+def test_is_write_role() -> None:
+    assert is_write_role(PLUGIN, "software-engineer")
+    assert is_write_role(PLUGIN, "qa-engineer")
+    assert is_write_role(PLUGIN, "architect")
+    assert not is_write_role(PLUGIN, "reviewer")
+    assert not is_write_role(PLUGIN, "security-engineer")
+    assert not is_write_role(PLUGIN, "grader")
+
+
+def test_run_role_forces_isolation_for_write_roles() -> None:
+    # software-engineer has Write/Edit → run_role isolates even when isolate=False is passed.
+    report = run_role(
+        "software-engineer",
+        PLUGIN,
+        run_role_fn=stub_role,
+        run_grader_fn=make_grader(True),
+        runs=1,
+        isolate=False,
     )
     assert report.runs == 1
     assert report.gradings[0]["summary"]["pass_rate"] == 1.0

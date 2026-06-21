@@ -33,7 +33,7 @@ maps to a component or an explicit decision.
 ## Boundaries
 
 - Documents only — never write or modify application code. Hand implementation to the
-  implementer.
+  software-engineer.
 - Record alternatives and rationale, not just conclusions; a decision without its discarded
   options is not an ADR.
 - Honor stated constraints; if a constraint forces a trade-off, surface it as a risk.

@@ -137,6 +137,42 @@ surfacing on a failed call.
   stddev 0.042, lower bound 0.927 (n=5) on the planted-defect fixtures (catches the planted
   contradiction/gap/bug/risk with no false positives on clean zones).
 
+### Added — Stage 2 thin slice (step 2: roles + standards)
+
+- **Engine roles for the thin slice.** Renamed `implementer` → **`software-engineer`** (the
+  base engineering role, language/framework-agnostic; loads the standards + stack skills by
+  context — ADR 0014). Added two new gated quality roles: **`security-engineer`** (security
+  lens of a review; read-only) and **`qa-engineer`** (designs/writes/runs tests; never weakens
+  a test or edits implementation). Each ships an agent eval contract + planted-defect fixtures.
+- **`engineering-standards` skill** `plugin/skills/engineering-standards/` — a lean,
+  off-listing (`disable-model-invocation: true`) knowledge skill of the standards we apply in
+  target repos; loaded by `software-engineer`, exercised through its Tier-2.
+- **Eval-runner hardening** (`agent_eval`): write roles now **run in a forced per-case
+  sandbox** — fixtures are materialized into a temp workdir by basename and prompts carry no
+  repo-relative paths, so a write role can never reach or mutate the real repo. `parse_grading`
+  is now robust to prose/code-fence wrapping and stray braces (balanced-brace extraction), with
+  a one-shot grader retry. Both fixes came out of the step-2 self-review (see below). Unit
+  tests at 100% coverage.
+- **ADR 0014** — one `software-engineer` base role + stack skills (not per-stack agents);
+  updates spine.md roster and the living docs (the `implementer` rename).
+
+### Verified — Stage 2 thin-slice roles Tier-2 (2026-06-21)
+
+Tier-2 on a Claude subscription (Opus 4.8), per-case sandbox isolation. All pass; isolation
+verified leak-free by fixture checksum (unchanged before/after).
+
+| Role | mean | stddev | lower_bound | n | Gate |
+| --- | --- | --- | --- | --- | --- |
+| software-engineer | 1.000 | 0.000 | 1.000 | 5 | PASS |
+| security-engineer | 1.000 | 0.000 | 1.000 | 5 | PASS |
+| qa-engineer | 1.000 | 0.000 | 1.000 | 5 | PASS |
+
+**Self-review caught real defects** (two independent adversarial reviewers, per the
+review-each-step discipline), all fixed before this result: a sandbox leak (a write role had
+mutated a real fixture in an earlier run), two fixture bugs (a broken import and hyphenated
+test files that bare `pytest` didn't discover), the opt-in isolation gap (now enforced for
+write roles), a degenerate-pass security assertion, and the grader-JSON parse fragility.
+
 ### Added — Stage 2 thin slice (step 1: patterns + fixture)
 
 - **Pattern references** `plugin/patterns/fan-out-fan-in.md` (partition → parallel subagents →

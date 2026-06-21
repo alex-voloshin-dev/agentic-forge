@@ -27,7 +27,14 @@ from . import benchmark, gate
 from .evals import load_evals
 from .frontmatter import parse as parse_frontmatter
 
-ROLES: tuple[str, ...] = ("reviewer", "grader", "implementer", "architect")
+ROLES: tuple[str, ...] = (
+    "reviewer",
+    "grader",
+    "software-engineer",
+    "architect",
+    "security-engineer",
+    "qa-engineer",
+)
 DEFAULT_RUNS = 5
 
 # Seam: given (system_prompt, user_prompt, workdir) return the model/agent's text output.
@@ -41,7 +48,41 @@ GRADING_INSTRUCTIONS = (
     '"summary":{"total":0,"passed":0,"pass_rate":0.0}}'
 )
 
-_JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
+def _json_candidates(text: str) -> list[str]:
+    """Yield JSON-object candidate substrings from a possibly prose/fence-wrapped reply.
+
+    Prefers fenced ```json blocks, then balanced ``{...}`` spans (braces inside strings are
+    ignored). This is robust where a greedy ``\\{.*\\}`` regex was not — a stray brace or
+    surrounding prose can no longer corrupt the extracted object.
+    """
+    candidates: list[str] = [
+        m.group(1) for m in re.finditer(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    ]
+    for i, ch in enumerate(text):
+        if ch != "{":
+            continue
+        depth = 0
+        in_str = False
+        esc = False
+        for j in range(i, len(text)):
+            c = text[j]
+            if in_str:
+                if esc:
+                    esc = False
+                elif c == "\\":
+                    esc = True
+                elif c == '"':
+                    in_str = False
+            elif c == '"':
+                in_str = True
+            elif c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    candidates.append(text[i : j + 1])
+                    break
+    return candidates
 
 
 @dataclass
@@ -79,19 +120,54 @@ def _read_body(md_path: Path) -> str:
     return body.strip()
 
 
+def is_write_role(plugin_dir: Path, role: str) -> bool:
+    """True if the role's frontmatter grants Write/Edit.
+
+    Such roles can mutate files, so they MUST run isolated (a fresh per-case workdir) — never
+    against the real repo. run_role enforces this regardless of the caller's ``isolate`` flag.
+    """
+    fm, _ = parse_frontmatter((plugin_dir / "agents" / f"{role}.md").read_text(encoding="utf-8"))
+    tools = str(fm.get("tools", ""))
+    return "Write" in tools or "Edit" in tools
+
+
 def load_fixtures(plugin_dir: Path, files: list[str]) -> str:
-    """Concatenate the case's context files into a labeled block."""
+    """Concatenate the case's context files into a labeled block.
+
+    Files are labeled by **basename**, not their repo-relative path, so a prompt never hands a
+    role a path it could resolve back to the real repository (see materialize_fixtures).
+    """
     blocks = []
     for rel in files:
         path = plugin_dir / rel
-        blocks.append(f"--- FILE: {rel} ---\n{path.read_text(encoding='utf-8')}")
+        blocks.append(f"--- FILE: {Path(rel).name} ---\n{path.read_text(encoding='utf-8')}")
     return "\n\n".join(blocks)
 
 
-def build_role_prompt(case: dict[str, Any], fixture_text: str) -> str:
+def materialize_fixtures(plugin_dir: Path, files: list[str], workdir: Path) -> None:
+    """Copy a case's fixture files into the sandbox workdir (by basename).
+
+    An isolated role then works on these copies in its own working directory and can never
+    reach — or mutate — the real fixture files in the repo. This is the isolation guarantee for
+    write roles (software-engineer, architect, qa-engineer).
+    """
+    for rel in files:
+        (workdir / Path(rel).name).write_text(
+            (plugin_dir / rel).read_text(encoding="utf-8"), encoding="utf-8"
+        )
+
+
+def build_role_prompt(
+    case: dict[str, Any], fixture_text: str, *, in_workdir: bool = False
+) -> str:
     parts = [str(case["prompt"])]
     if fixture_text:
-        parts.append("\nContext files:\n" + fixture_text)
+        header = (
+            "\nThese files are in your working directory — do the task there:\n"
+            if in_workdir
+            else "\nContext files:\n"
+        )
+        parts.append(header + fixture_text)
     return "\n".join(parts)
 
 
@@ -101,20 +177,30 @@ def build_grading_prompt(assertions: list[str], output: str) -> str:
 
 
 def parse_grading(text: str) -> dict[str, Any]:
-    """Extract the JSON grading object from a grader's (possibly prose-wrapped) reply."""
-    match = _JSON_RE.search(text)
-    if not match:
-        raise ValueError("no JSON object found in grader output")
-    data: dict[str, Any] = json.loads(match.group(0))
-    return data
+    """Extract the JSON grading object from a grader's (possibly prose/fence-wrapped) reply."""
+    for cand in _json_candidates(text):
+        try:
+            data = json.loads(cand)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict):
+            return data
+    raise ValueError("no valid JSON object found in grader output")
 
 
 def grade_output(
     assertions: list[str], output: str, grader_body: str, run_grader: Runner, workdir: Path
 ) -> dict[str, Any]:
     """Grade one output against its assertions and return a normalized grading.json mapping."""
-    raw = run_grader(grader_body, build_grading_prompt(assertions, output), workdir)
-    data = parse_grading(raw)
+    prompt = build_grading_prompt(assertions, output)
+    raw = run_grader(grader_body, prompt, workdir)
+    try:
+        data = parse_grading(raw)
+    except ValueError:
+        # One retry with a stronger instruction — graders occasionally wrap JSON in prose.
+        stricter = prompt + "\n\nReturn ONLY the JSON object — no prose, no code fences."
+        raw = run_grader(grader_body, stricter, workdir)
+        data = parse_grading(raw)
     results = data.get("assertion_results") or []
     total = len(assertions)
     passed = sum(1 for r in results if r.get("passed") is True)
@@ -164,13 +250,16 @@ def run_role(
 ) -> RoleReport:
     """Run a role's Tier-2 eval: N runs over its cases, graded, aggregated, and gated.
 
-    ``isolate`` gives each case execution a fresh temp workdir (removed afterwards), so write
-    roles (implementer/architect) cannot see another run's files — required for independent
-    measurement. Read roles don't need it.
+    ``isolate`` gives each case execution a fresh temp workdir (removed afterwards), so a run
+    cannot see another run's files. It is **forced on for write roles** (software-engineer,
+    architect, qa-engineer — anything with Write/Edit) so they can never mutate the real repo,
+    regardless of the caller's flag. Read roles don't need it.
     """
     contract = load_evals(plugin_dir / "agents" / "evals" / f"{role}.evals.json")
     role_body = _read_body(plugin_dir / "agents" / f"{role}.md")
     grader_body = _read_body(plugin_dir / "agents" / "grader.md")
+    if not isolate and is_write_role(plugin_dir, role):
+        isolate = True  # safety: a write role must never run against the real repo
     thresholds = contract.get("thresholds") or {}
     n = runs or (thresholds.get("tier2_quality") or {}).get("runs") or DEFAULT_RUNS
     cases = contract.get("evals") or []
@@ -182,8 +271,13 @@ def run_role(
         for case in cases:
             work = Path(tempfile.mkdtemp(prefix="af-eval-")) if isolate else default_work
             try:
-                fixture_text = load_fixtures(plugin_dir, case.get("files") or [])
-                output = run_role_fn(role_body, build_role_prompt(case, fixture_text), work)
+                case_files = case.get("files") or []
+                fixture_text = load_fixtures(plugin_dir, case_files)
+                if isolate:
+                    materialize_fixtures(plugin_dir, case_files, work)
+                output = run_role_fn(
+                    role_body, build_role_prompt(case, fixture_text, in_workdir=isolate), work
+                )
                 graded = grade_output(
                     case.get("assertions") or [], output, grader_body, run_grader_fn, work
                 )
@@ -242,7 +336,7 @@ def claude_cli_runner(
     Uses whatever auth the `claude` CLI is configured with — a Claude subscription via
     CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`), or ANTHROPIC_API_KEY (which takes
     precedence if set, billing per token). Tools run for real in ``workdir``, so
-    implementer/architect get level-2 fidelity. ``allowed_tools`` semantics: ``None`` omits
+    software-engineer/architect get level-2 fidelity. ``allowed_tools`` semantics: ``None`` omits
     the flag (CLI default tools); ``""`` passes an empty allowlist that **disables** tools
     (use for grading, which must not call tools); a list grants exactly those. Retries with
     backoff on a failed/timed-out call so a long multi-call run survives transient errors;

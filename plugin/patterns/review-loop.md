@@ -6,7 +6,7 @@ and it **exits early** on approval so it does not waste iterations.
 
 ## Participants
 
-- **Writer** — the skill or role that produced the work: the `implementer` for code, the
+- **Writer** — the skill or role that produced the work: the `software-engineer` for code, the
   `architect` for a design, or a workflow skill for an artifact.
 - **Reviewer** — the [`reviewer`](../agents/reviewer.md) role, invoked in a forked subagent
   by the orchestrator so it judges in a clean context. It returns a `verdict` (`approve` |

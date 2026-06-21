@@ -1,7 +1,7 @@
 # Eval runbook — Tier-2 quality for the engine roles
 
 This explains how to run the Tier-2 (LLM-judged quality) evals for the four engine roles
-(`reviewer`, `grader`, `implementer`, `architect`) and read the result. The orchestration is
+(`reviewer`, `grader`, `software-engineer`, `architect`) and read the result. The orchestration is
 `plugin/lib/agentic_forge/agent_eval.py`; the CLI is `dev/run_agent_evals.py`; the wiring in
 CI is `.github/workflows/eval.yml`. Rationale: [ADR 0011](architecture/decisions/0011-agent-eval-runner.md).
 
@@ -52,13 +52,17 @@ The model/agent invocation is a seam, so there are two production runners:
 
 | `--runner` | How the role runs | Auth | Fidelity |
 | --- | --- | --- | --- |
-| `claude` (recommended) | headless `claude -p` with the role's tools in a workdir | Claude subscription (or API key) via the CLI | Level 2 — real tool use; `implementer`/`architect` actually read/write/run |
+| `claude` (recommended) | headless `claude -p` with the role's tools in a workdir | Claude subscription (or API key) via the CLI | Level 2 — real tool use; `software-engineer`/`architect` actually read/write/run |
 | `api` | one Anthropic Messages call per task (no tools) | `ANTHROPIC_API_KEY` only | Level 1 — judges the role's *output*; no real file edits or test execution |
 
 With `--runner claude`, grading also goes through the CLI but with **read-only** tools, so the
 grader can verify on-disk artifacts (level-2) without ever modifying them; the whole run stays
-on your subscription. For write roles (`implementer`/`architect`), pass `--isolate` so each
-case runs in a fresh temp workdir — independent measurement with no state leaking between runs.
+on your subscription. **Write roles** (anything with `Write`/`Edit` — `software-engineer`,
+`architect`, `qa-engineer`) are **always run in a per-case sandbox**: `run_role` forces
+isolation for them regardless of `--isolate`, materializing fixtures into a fresh temp workdir
+by basename (no repo-relative paths), so a write role can never reach or mutate the real repo.
+`--isolate` opts read roles into the same sandboxing. Grading is robust to prose/fenced
+grader replies and retries once on an unparseable response.
 
 ## Run it
 
@@ -74,8 +78,8 @@ python dev/run_agent_evals.py --runner dry
 export CLAUDE_CODE_OAUTH_TOKEN=...        # and keep ANTHROPIC_API_KEY unset
 python dev/run_agent_evals.py --runner claude --model claude-opus-4-8
 
-# Write roles in isolation (fresh temp workdir per case; best for implementer/architect):
-python dev/run_agent_evals.py --role implementer --role architect --runner claude --isolate
+# Write roles in isolation (fresh temp workdir per case; best for software-engineer/architect):
+python dev/run_agent_evals.py --role software-engineer --role architect --runner claude --isolate
 ```
 
 Exit code is 0 only if every selected role's gate passes. Each role prints a line like
@@ -110,7 +114,7 @@ baseline: `claude-opus-4-8`).
   unset it for subscription billing.
 - Level 1 (`--runner api`) cannot verify assertions that require real execution (e.g. "the
   tests are run and reported as passing") and under-credits write roles whose proof lands on
-  disk; for `implementer`/`architect` use level 2 (`--runner claude`).
+  disk; for `software-engineer`/`architect` use level 2 (`--runner claude`).
 - The `claude` runner's `--allowedTools` are taken from the role's frontmatter; adjust the
   flags in `dev/run_agent_evals.py` if your CLI version expects a different format.
 - Results vary run to run; the gate intentionally uses the lower bound over `n ≥ 5` runs to

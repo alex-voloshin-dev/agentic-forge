@@ -1,15 +1,15 @@
 {
-  "skill_name": "implementer",
+  "skill_name": "software-engineer",
   "evals": [
     {
       "id": 1,
       "prompt": "Implement task T1 from case1-task.md: add a `slugify(text)` helper to lib/text.py that lowercases, trims, and hyphenates whitespace, with a unit test.",
       "expected_output": "A code change adding slugify plus a passing unit test, and a summary listing files touched and tests added.",
-      "files": ["eval/fixtures/implementer/case1-task.md"],
+      "files": ["eval/fixtures/software-engineer/case1-task.md"],
       "assertions": [
         "The slugify function is written to the indicated module",
         "slugify lowercases, trims, AND collapses runs of internal whitespace to a single hyphen (the full spec, not just replacing single spaces)",
-        "A unit test is added that exercises a non-trivial input (e.g. mixed case with multiple internal spaces), not only a trivial one",
+        "A unit test is added that exercises a non-trivial input (e.g., mixed case with multiple internal spaces), not only a trivial one",
         "The tests are run and reported as passing",
         "The summary lists the files touched and the tests added"
       ]
@@ -18,7 +18,7 @@
       "id": 2,
       "prompt": "The test in case2-test.py fails because the parser in case2-parser.py rejects ISO-8601 dates. Fix the implementation so the test passes.",
       "expected_output": "An implementation fix (not a test edit) that makes the failing test pass, with a summary of the root cause and files changed.",
-      "files": ["eval/fixtures/implementer/case2-parser.py", "eval/fixtures/implementer/case2-test.py"],
+      "files": ["eval/fixtures/software-engineer/case2_parser.py", "eval/fixtures/software-engineer/test_case2_parser.py"],
       "assertions": [
         "The failing ISO-8601 test passes after the change",
         "The pre-existing slash-format test still passes (the fix does not break the original format)",
@@ -30,7 +30,7 @@
       "id": 3,
       "prompt": "Implement task T4 from case3-client.py ('add retry to the HTTP client'), but the plan does not specify the backoff policy. Proceed.",
       "expected_output": "A scoped implementation that surfaces the backoff assumption explicitly and stays within the task, returning a structured change summary.",
-      "files": ["eval/fixtures/implementer/case3-client.py"],
+      "files": ["eval/fixtures/software-engineer/case3-client.py"],
       "assertions": [
         "Retry is added around the transient-failure path and is bounded (a finite number of attempts, not an unbounded loop)",
         "The change stays within the scope of the retry task (no unrelated refactoring)",
@@ -40,9 +40,9 @@
     }
   ],
   "component": {
-    "id": "implementer",
+    "id": "software-engineer",
     "type": "agent",
-    "purpose": "Implement a scoped code change in an isolated git worktree and report files touched, tests added, and a summary of the change."
+    "purpose": "The base engineering role: implement a scoped code change in an isolated git worktree, adapting to the project's stack via the relevant stack skill, and report files touched, tests added, and a summary."
   },
   "thresholds": {
     "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }

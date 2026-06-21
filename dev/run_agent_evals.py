@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Tier-2 quality eval runner for the engine roles (reviewer/grader/implementer/architect).
+"""Tier-2 quality eval runner for the engine roles (reviewer, grader, software-engineer,
+architect, security-engineer, qa-engineer).
 
 Usage:
     python dev/run_agent_evals.py --runner dry            # verify wiring, no model calls

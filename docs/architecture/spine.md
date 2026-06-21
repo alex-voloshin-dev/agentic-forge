@@ -30,7 +30,7 @@ and content. Reference map per phase below.
 | 2 | `product` | digest research → assess current product → plan → user stories → define changes → PRD by template | product areas / user-story sets | `research-brief.md` → `prd.md` | `feature-design`, `product-manager` |
 | 3 | `architecture` | digest PRD → study system → weigh options → component design → ADRs → risks | design decisions / subsystems | `prd.md` → `tech-design.md` + `adr-*.md` | `architecture*`, `system/solution-architect` |
 | 4 | `plan` | digest design → decompose tasks → dependency order → checkpoints → deferred | work streams | `tech-design.md` → `plan.md` | `plan` |
-| 5 | `develop` | pick plan step → git infra (worktree) → **fan-out impl by component** → **multi-aspect review fan-out** (code / security / integration+API / lint) → loop-back on failure → **QA** (existing + new unit + e2e) | components/services, then review aspects | `plan.md` (+`tech-design`) → code in worktree | `develop`, `feature-dev`, `team-*`, `qa`, `worktree-isolation` |
+| 5 | `develop` | pick plan step → git infra (worktree) → **implement the step's components (sequential, one worktree in v1)** → **multi-aspect review fan-out** (code / security / integration+API / lint) → loop-back on failure → **QA** (existing + new unit + e2e) | review aspects (impl parallelism deferred) | `plan.md` (+`tech-design`) → code in worktree | `develop`, `feature-dev`, `qa`, `worktree-isolation` |
 | 6 | `code-review` | scope the diff → fan-out reviewers by code aspect → verify → synthesize verdict → `review.md` | code review aspects | diff (+`plan.md`) → `review.md` | `code-review`, `security-audit` |
 
 Artifact shapes are the canonical contract in
@@ -38,15 +38,16 @@ Artifact shapes are the canonical contract in
 
 ## Specialist agent roster (expanded)
 
-The fan-out by component and by review-aspect needs **specialist executors**, so Stage 2
-expands the role set beyond the Stage-1 four (this supersedes ADR 0009's "no new roles", which
-was Stage-1-scoped — see ADR 0013). Roles are added **only as a phase that ships needs them**,
-each gated like any agent (`component.type: agent`, Tier-2). Planned roster (adapted from
-`ai-skills`, re-gated): stack engineers (`software-engineer` + `python-engineer`, later
-`frontend-/db-/data-/ml-/mobile-/java-engineer`), architects (`system-/solution-/cloud-architect`),
-and quality roles (`security-engineer`, `qa-engineer`, `sre-engineer`, `devops-engineer`). The
-existing `architect`/`implementer`/`reviewer`/`grader` stay as the generic base; specialists
-are the fan-out targets.
+Stage 2 expands the role set beyond the Stage-1 four (this supersedes ADR 0009's "no new
+roles", which was Stage-1-scoped — see ADR 0013). Per
+[ADR 0014](decisions/0014-software-engineer-base-role.md): `implementer` is renamed to
+**`software-engineer`** (the base engineering role), and **stack specialization lives in
+skills, not per-stack agents** — `software-engineer` loads the lean `engineering-standards`
+skill plus the relevant stack skill (the by-stack step) by context. New **quality
+specialists** are real agents, added only as a shipping phase needs them and gated
+(`component.type: agent`, Tier-2): `security-engineer` and `qa-engineer` now; others (e.g.
+`sre-`/`devops-engineer`) later. Current roster: base `software-engineer`; design `architect`;
+quality `reviewer`, `grader`, `security-engineer`, `qa-engineer`.
 
 ## How a phase-workflow is implemented
 
@@ -88,10 +89,11 @@ non-code review stay with `deep-review`.
 ## Thin slice first
 
 Build order (your choice): **`architecture → develop → code-review`** as workflows, on the
-Python fixture repo. `develop` is the flagship (git infra → impl fan-out → multi-aspect review
-fan-out → QA) and exercises the riskiest machinery. Minimum new roles for the slice:
-`software-engineer`/`python-engineer` (impl fan-out) and `security-engineer`/`qa-engineer`
-(review + QA), atop the existing four. Prove the slice end to end, record Tier-1/2/3, then add
+Python fixture repo. `develop` is the flagship (git infra → implement the step in a single
+worktree → multi-aspect review fan-out → QA) and exercises the riskiest machinery. Minimum new
+roles for the slice: `security-engineer` and `qa-engineer` (review + QA); implementation uses
+the renamed `software-engineer` (was `implementer`). Stack engineers stay deferred to the
+by-stack step. Prove the slice end to end, record Tier-1/2/3, then add
 `research`, `product`, `plan`, and the by-stack mechanism.
 
 ## Exit criteria
