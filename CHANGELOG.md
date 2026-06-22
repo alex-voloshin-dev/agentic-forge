@@ -237,6 +237,19 @@ The same review found docs that lagged the built code; brought them current:
   `skill-factory` are readiness contracts run via the harness / manual LLM-judge (an automated
   skill-Tier-2 CLI is a roadmap item), not gates this CLI enforces.
 
+### Added — by-stack (multi-language), step 2: python-patterns pack
+
+- **`plugin/skills/python-patterns/`** — the first stack reference pack: an off-listing
+  (`disable-model-invocation: true`) knowledge skill, modelled on `engineering-standards`,
+  carrying only Python-specific conventions on top of the standards — the toolchain (prefer the
+  repo's declared commands; `pytest` / `ruff` / `mypy` defaults), idioms (typing, dataclasses,
+  pathlib, EAFP, context managers), testing discipline (parametrize, fixtures, `tmp_path`,
+  determinism, boundary + error cases), layout, and the high-value Python pitfalls (mutable
+  defaults, bare `except`, late-binding closures, `is` vs `==`, secrets in logs).
+- **`evals/evals.json`** — declares a `tier2_quality` readiness contract (no `tier1_trigger`;
+  the pack is loaded on demand, not auto-triggered), exercised through the `software-engineer`'s
+  Tier-2 like `engineering-standards`. Body 66 lines; passes Tier-0.
+
 ### Added — by-stack (multi-language), step 1: deterministic detection
 
 The spine becomes stack-parametric (ADR 0015), starting with the detection layer:

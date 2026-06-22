@@ -1,0 +1,38 @@
+{
+  "skill_name": "python-patterns",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "With python-patterns loaded, implement a small behaviour change in a Python module in a target repo (e.g. add a parameter with validation).",
+      "expected_output": "A scoped, fully type-hinted change that mirrors the repo's conventions, adds pytest tests covering the behaviour plus a boundary and an error case, and leaves ruff/mypy/pytest green using the repo's own commands where declared.",
+      "files": [],
+      "assertions": [
+        "Public functions are type-annotated and the change is mypy-clean (no new # type: ignore)",
+        "pytest tests are added covering the happy path plus a boundary and an error case",
+        "No mutable default argument and no bare/silent except (errors raised with context)",
+        "Filesystem/paths use pathlib and tests use tmp_path, not the repo or CWD",
+        "No existing test is weakened, skipped, or deleted; ruff is clean"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "With python-patterns loaded, add code that reads an external resource (file or network) and parses user-supplied input.",
+      "expected_output": "Resource access via a context manager, the narrowest exception handled or re-raised with context, deterministic tests that inject/stub the resource, and no secret written to logs.",
+      "files": [],
+      "assertions": [
+        "The resource is acquired with a context manager (with-block)",
+        "A specific exception type is caught or propagated with context, never a bare except",
+        "Tests are deterministic (no real network/clock/random; dependency injected or stubbed)",
+        "No secret or credential is logged or interpolated into log output"
+      ]
+    }
+  ],
+  "component": {
+    "id": "python-patterns",
+    "type": "skill",
+    "purpose": "The Python stack conventions and toolchain the software-engineer/qa-engineer (and the code-review lint aspect) apply when the detected stack is Python; a lean, loaded-on-demand knowledge pack exercised through the software-engineer's Tier-2."
+  },
+  "thresholds": {
+    "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }
+  }
+}
