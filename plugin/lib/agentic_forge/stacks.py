@@ -125,6 +125,7 @@ STACKS: dict[str, StackSpec] = {
         toolchain=Toolchain(
             test="cargo test", lint="cargo clippy", typecheck="cargo check", format="cargo fmt"
         ),
+        pack="rust-patterns",
         specificity=2,
     ),
     "jvm": StackSpec(

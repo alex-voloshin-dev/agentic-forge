@@ -237,6 +237,26 @@ The same review found docs that lagged the built code; brought them current:
   `skill-factory` are readiness contracts run via the harness / manual LLM-judge (an automated
   skill-Tier-2 CLI is a roadmap item), not gates this CLI enforces.
 
+### Added — by-stack: rust-patterns (fourth stack pack)
+
+- **`plugin/skills/rust-patterns/`** — the fourth `*-patterns` reference pack (off-listing,
+  `disable-model-invocation`), modelled on the prior packs: the Cargo toolchain (prefer the
+  repo's Makefile/justfile/CI; `cargo test`, `cargo check`/`build`, `cargo clippy -- -D warnings`,
+  `cargo fmt` defaults), idioms (borrow over clone, `&str`/`&[T]` params; `Result` + `?` with
+  `thiserror`/`anyhow`; `Option` over sentinels; make illegal states unrepresentable; iterators;
+  fearless concurrency via `Send`/`Sync` + `Arc<Mutex<…>>`), testing (`#[cfg(test)]` units,
+  `tests/` integration, doc-tests, `Err`/boundary cases), and high-value pitfalls (`unwrap`/
+  `expect` panics, `.clone()` to dodge the borrow checker, undocumented `unsafe`, blocking in
+  async / lock held across `.await`, integer overflow debug-vs-release, `Rc`/`RefCell` cycles).
+- **Registry wiring:** `stacks.STACKS["rust"].pack = "rust-patterns"`; extended
+  `test_shipped_packs`, parametrized the end-to-end pack assertion over python/typescript/go/rust,
+  and re-pointed the no-pack format test at a still-packless stack (ruby). No workflow-skill
+  change needed.
+- **`evals/evals.json`** — `tier2_quality` readiness contract (no `tier1_trigger`), exercised
+  through the `software-engineer`'s Tier-2. Body 65 lines; Tier-0 green.
+- **Docs:** spine.md and roadmap mark python/typescript/go/rust packs shipped (further packs
+  incremental).
+
 ### Added — by-stack: go-patterns (third stack pack)
 
 - **`plugin/skills/go-patterns/`** — the third `*-patterns` reference pack (off-listing,

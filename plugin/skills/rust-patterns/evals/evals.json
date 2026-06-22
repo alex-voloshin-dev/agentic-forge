@@ -1,0 +1,38 @@
+{
+  "skill_name": "rust-patterns",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "With rust-patterns loaded, implement a small behaviour change in a Rust crate in a target repo (e.g. add a function that parses input and can fail).",
+      "expected_output": "A scoped change that returns Result with the ? operator and a real error type (thiserror/anyhow), borrows rather than cloning, adds tests covering the behaviour plus a boundary and an Err case, and leaves cargo clippy -- -D warnings and cargo fmt clean using the repo's own commands.",
+      "files": [],
+      "assertions": [
+        "Failure is returned as Result<_, E> using `?` and a real error type, not unwrap()/expect() or panic",
+        "Parameters borrow (&str/&[T]) rather than taking owned String/Vec or cloning to satisfy the borrow checker",
+        "Tests cover the happy path plus a boundary and an Err case (table or rstest)",
+        "cargo clippy -- -D warnings is clean and cargo fmt is applied",
+        "No existing test is weakened, skipped, or deleted; no new unsafe without a documented invariant"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "With rust-patterns loaded, add concurrent or async code that shares state across tasks.",
+      "expected_output": "Shared state behind Arc<Mutex<...>> (or a channel), no lock held across an .await, no blocking call on the async runtime, and deterministic tests; errors propagated as Result.",
+      "files": [],
+      "assertions": [
+        "Shared state is guarded (Arc<Mutex<...>> or a channel); the design compiles under Send/Sync",
+        "No lock guard is held across an .await point and no blocking call runs on the async runtime",
+        "Tests are deterministic (no real network/clock) and cover an error path",
+        "No unwrap()/expect() on the concurrent path without a documented invariant"
+      ]
+    }
+  ],
+  "component": {
+    "id": "rust-patterns",
+    "type": "skill",
+    "purpose": "The Rust stack conventions and toolchain the software-engineer/qa-engineer (and the code-review lint aspect) apply when the detected stack is Rust; a lean, loaded-on-demand knowledge pack exercised through the software-engineer's Tier-2."
+  },
+  "thresholds": {
+    "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }
+  }
+}

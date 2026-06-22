@@ -68,8 +68,20 @@ def test_single_manifest_stacks(
     assert primary(_repo(tmp_path, {manifest: content})).stack_id == expected
 
 
-def test_go_profile_carries_pack(tmp_path: Path) -> None:
-    assert primary(_repo(tmp_path, {"go.mod": "module x\n"})).pack == "go-patterns"
+@pytest.mark.parametrize(
+    ("manifest", "content", "expected_pack"),
+    [
+        ("pyproject.toml", "", "python-patterns"),
+        ("tsconfig.json", "{}", "typescript-patterns"),
+        ("go.mod", "module x\n", "go-patterns"),
+        ("Cargo.toml", "[package]\n", "rust-patterns"),
+    ],
+)
+def test_profile_carries_pack(
+    tmp_path: Path, manifest: str, content: str, expected_pack: str
+) -> None:
+    # End-to-end: a detected stack with a shipped pack surfaces it on the profile.
+    assert primary(_repo(tmp_path, {manifest: content})).pack == expected_pack
 
 
 def test_jvm_from_gradle(tmp_path: Path) -> None:
@@ -186,8 +198,8 @@ def test_format_profile_python(tmp_path: Path) -> None:
 
 
 def test_format_profile_unknown_and_no_pack(tmp_path: Path) -> None:
-    # rust still ships no pack -> the "no pack" fallback wording renders.
-    assert "no pack" in format_profile(primary(_repo(tmp_path, {"Cargo.toml": "[package]\n"})))
+    # ruby ships no pack today -> the "no pack" fallback wording renders.
+    assert "no pack" in format_profile(primary(_repo(tmp_path, {"Gemfile": "source 'x'\n"})))
     unknown_line = format_profile(UNKNOWN)
     assert "Unknown" in unknown_line and "—" in unknown_line
 
@@ -201,6 +213,7 @@ def test_shipped_packs() -> None:
         "python": "python-patterns",
         "typescript": "typescript-patterns",
         "go": "go-patterns",
+        "rust": "rust-patterns",
     }
 
 
