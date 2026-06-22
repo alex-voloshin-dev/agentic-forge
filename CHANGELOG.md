@@ -237,6 +237,23 @@ The same review found docs that lagged the built code; brought them current:
   `skill-factory` are readiness contracts run via the harness / manual LLM-judge (an automated
   skill-Tier-2 CLI is a roadmap item), not gates this CLI enforces.
 
+### Added — by-stack (multi-language), step 1: deterministic detection
+
+The spine becomes stack-parametric (ADR 0015), starting with the detection layer:
+
+- **`plugin/lib/agentic_forge/stacks.py`** — `detect(repo)` / `primary(repo)` identify a target
+  repo's stack(s) from an explicit `stack:` hint (CLAUDE.md / AGENTS.md, with aliases) or
+  manifest signatures (`pyproject.toml` → python, `tsconfig.json`/`package.json` →
+  typescript/javascript, `go.mod` → go, `Cargo.toml` → rust, `*.csproj` → dotnet, …), ranked by
+  specificity (TypeScript supersedes a bare `package.json`); an empty repo yields the `unknown`
+  profile. A `StackProfile` carries `stack_id`, `display`, the `*-patterns` `pack` (or `None`),
+  a conventional `toolchain` (test/lint/typecheck/format), and the manifest evidence;
+  `format_profile` renders a one-line summary for workflows to log. The `STACKS` registry is
+  data — adding a language is one entry.
+- **`tests/test_stacks.py`** — manifest detection per stack, hint precedence + aliases +
+  fall-through, TS/JS suppression, monorepo ranking, unknown, and registry invariants;
+  `stacks.py` at 100% line coverage, ruff + mypy clean.
+
 ### Verified — full six-phase spine E2E (Tier-3, 2026-06-21)
 
 The real `--runner claude` scenario (Opus 4.8) carried `task-priorities` through **all six
