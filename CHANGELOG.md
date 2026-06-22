@@ -255,6 +255,10 @@ The same review found docs that lagged the built code; brought them current:
   through the `software-engineer`'s Tier-2 like `python-patterns`. Body 64 lines; Tier-0 green.
 - **Docs:** spine.md and roadmap mark `python-patterns` + `typescript-patterns` shipped (further
   packs incremental). Bare JavaScript (no `tsconfig.json`) stays detection-only for now.
+- **Independently adversarial-reviewed** (deep TS-expertise agent; no blockers/majors, gate
+  green) and refined from its findings: list both `bun.lock` (Bun ≥ 1.2's default text lockfile)
+  and the legacy `bun.lockb`; add `prettier`-formatted to the Definition of done (parity with
+  `python-patterns`).
 
 ### Changed — deep-review lens catalog enriched (from this session's reviews)
 

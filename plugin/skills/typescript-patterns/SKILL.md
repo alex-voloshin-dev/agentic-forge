@@ -16,8 +16,9 @@ work to. (Mechanism: ADR 0015, by-stack detection + reference packs.)
 
 **Prefer the repo's own scripts** — read `package.json` `scripts` (`test` / `lint` / `build` /
 `typecheck`) and run *those*. Use the package manager the **lockfile** implies:
-`package-lock.json` → `npm`, `pnpm-lock.yaml` → `pnpm`, `yarn.lock` → `yarn`, `bun.lockb` →
-`bun` (`<pm> run <script>`, `<pm> install`). Registry defaults are the fallback:
+`package-lock.json` → `npm`, `pnpm-lock.yaml` → `pnpm`, `yarn.lock` → `yarn`,
+`bun.lock`/`bun.lockb` → `bun` (`<pm> run <script>`, `<pm> install`). Registry defaults are the
+fallback:
 
 | Job | Conventional command | Gate |
 | --- | --- | --- |
@@ -59,6 +60,7 @@ pass — fix the cause or justify the suppression in the diff.
 
 ## Definition of done (TypeScript)
 
-`tsc --noEmit` clean under `strict` (no new `@ts-ignore`), eslint clean (no new disables), tests
-green with the new boundary/error cases, no `any`/unsafe cast introduced, public API typed and
-exported — using the repo's own scripts and package manager where declared.
+`tsc --noEmit` clean under `strict` (no new `@ts-ignore`), eslint clean (no new disables),
+prettier-formatted, tests green with the new boundary/error cases, no `any`/unsafe cast
+introduced, public API typed and exported — using the repo's own scripts and package manager
+where declared.
