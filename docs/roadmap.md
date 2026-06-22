@@ -92,8 +92,11 @@ schema-valid, code passing the repo suite, review approved; see CHANGELOG). The 
 mechanism is built** (ADR 0015): deterministic `stacks.detect`, a `*-patterns` pack for **every
 registered stack** (python, typescript, javascript, go, rust, jvm, dotnet, ruby, php), and
 `develop`/`code-review`/roles consuming the stack profile; the E2E fixture is detected as Python.
-**Remaining:** a real Tier-1 runner on live descriptions (and a `*-patterns` pack for any new
-stack later added to the registry).
+The **Tier-1 trigger runner on live descriptions is built** (ADR 0016): `dev/run_tier1_evals.py`
+gates the eight on-listing router skills' recall/specificity ≥ 0.9 against the real listing,
+replacing the earlier router sim and the CI TODO. **Remaining:** an automated skill-Tier-2 CLI
+(the `*-patterns` / `engineering-standards` readiness contracts are manual today), and a
+`*-patterns` pack for any new stack later added to the registry.
 
 Goal: one continuous path from idea to reviewed code, proving the architecture end to end.
 

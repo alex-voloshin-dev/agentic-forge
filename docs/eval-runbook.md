@@ -26,7 +26,8 @@ identical to skills'.
 ### Scope: this CLI runs *agent* Tier-2 only
 
 `run_agent_evals.py` gates the six **roles**. Skills are gated by Tier-0 (`dev/validate.py`)
-and Tier-1 (trigger recall/specificity); the spine phase-workflow skills carry no skill-level
+and Tier-1 (trigger recall/specificity — automated by `dev/run_tier1_evals.py`, see below); the
+spine phase-workflow skills carry no skill-level
 Tier-2 because their quality is exercised end-to-end by the Tier-3 spine E2E plus the agent
 Tier-2 of the roles they fork. A few judgment-heavy or loaded-on-demand skills (`deep-review`,
 `skill-factory`, and the knowledge packs `engineering-standards` / `*-patterns` such as
@@ -38,6 +39,18 @@ harness) before release. The roadmap item that would make it automatic is wiring
 eval cases into the `software-engineer`'s Tier-2** (a Python case whose assertions check
 `python-patterns`-idiomatic output, etc.). Treat these thresholds as the quality bar to clear
 before release, not as a gate this CLI enforces.
+
+### Skill Tier-1 — `dev/run_tier1_evals.py` (live descriptions)
+
+Tier-1 **is** automated, by a sibling CLI. `run_tier1_evals.py` builds the **live** always-on
+listing (every model-invocable skill's `name` + `description`; off-listing `*-patterns` /
+`engineering-standards` excluded) and, for each on-listing router skill that declares
+`tier1_trigger`, asks the router — the model classifying against that listing — which skill
+auto-loads for each trigger prompt. Grading is **deterministic**: a `should_trigger` prompt must
+select the skill (recall), a `should_not_trigger` prompt must not (specificity); sampled
+**majority-of-N**, gated at ≥ 0.9 via `gate.trigger_metrics` + `gate.tier1_trigger` (ADR 0016).
+It reuses the same transports — `--runner dry|claude|api` (the `claude` router call runs with
+tools disabled and one turn); `dry` verifies the listing/trigger wiring with no auth.
 
 ## Authentication — use your Claude subscription (recommended)
 

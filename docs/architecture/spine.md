@@ -96,8 +96,9 @@ non-code review stay with `deep-review`.
 
 ## Eval model
 
-- **Each workflow skill:** Tier-1 (trigger recall/specificity ≥ 0.9, via majority-of-N router
-  sampling). A skill that delegates to gated roles inherits its **quality** from those roles'
+- **Each workflow skill:** Tier-1 (trigger recall/specificity ≥ 0.9), measured on the **live
+  skill listing** by `dev/run_tier1_evals.py` with majority-of-N router sampling (ADR 0016). A
+  skill that delegates to gated roles inherits its **quality** from those roles'
   Tier-2 (≥ 0.8) rather than re-running a separate Tier-2; the end-to-end quality is the Tier-3
   scenario. A skill with substantial own logic still ships a `tier2_quality` gate.
 - **Each new specialist role:** Tier-2 via the agent eval runner.
@@ -134,8 +135,12 @@ by-stack step. Prove the slice end to end, record Tier-1/2/3, then add
 4. ~~Tier-3 scenario runner for the slice; prove end to end.~~ Done (Tier-3 PASS).
 5. ~~Complete spine: `research`, `product`, `plan`.~~ Done — all six phase skills built + gated.
 6. ~~Extend the Tier-3 scenario to all six phases.~~ Done — full six-phase E2E proven.
-7. **Next:** the by-stack mechanism + non-Python stacks; a real Tier-1 runner on live
-   skill descriptions (current Tier-1 is a majority-of-N router sim).
+7. ~~The by-stack mechanism + non-Python stacks.~~ Done — a `*-patterns` pack for every
+   registered stack (ADR 0015).
+8. ~~A real Tier-1 runner on live skill descriptions.~~ Done — `dev/run_tier1_evals.py` /
+   `lib/agentic_forge/tier1_runner.py` (ADR 0016); replaces the earlier majority-of-N router sim.
+9. **Next:** an automated skill-Tier-2 CLI (the `*-patterns` / `engineering-standards` readiness
+   contracts are manual today — see the eval-runbook).
 
 ## Defaults to confirm or override
 

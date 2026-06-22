@@ -237,6 +237,27 @@ The same review found docs that lagged the built code; brought them current:
   `skill-factory` are readiness contracts run via the harness / manual LLM-judge (an automated
   skill-Tier-2 CLI is a roadmap item), not gates this CLI enforces.
 
+### Added — Tier-1 trigger runner on live skill descriptions (ADR 0016)
+
+Skill Tier-1 is now automated (it was a CI TODO no-op and an ad-hoc "router sim"):
+
+- **`plugin/lib/agentic_forge/tier1_runner.py`** — builds the **live** always-on listing (every
+  model-invocable skill's `name` + `description`; off-listing `*-patterns` /
+  `engineering-standards` excluded) and classifies each on-listing router skill's trigger prompts
+  against it. Grading is **deterministic** (a `should_trigger` prompt must select the skill =
+  recall; a `should_not_trigger` must not = specificity), sampled **majority-of-N**, gated ≥ 0.9
+  through the shared `gate.trigger_metrics` + `gate.tier1_trigger` — giving those previously
+  test-only pure functions a production caller. Reuses the `agent_eval` transport seam (tools
+  off, one turn); no second transport. 100% line + branch coverage.
+- **`dev/run_tier1_evals.py`** — CLI mirroring `run_agent_evals` (`--runner dry|claude|api`,
+  `--skill`, `--model`, `--runs`); `dry` verifies the listing/trigger wiring with no auth.
+- **CI:** `eval.yml`'s skill-Tier-1/2 TODO step is replaced by a real dry + cost-gated
+  subscription Tier-1 run; skill Tier-2 stays a documented manual step.
+- **Docs:** ADR 0016 (+ index); an eval-runbook "Skill Tier-1" section; spine.md and roadmap mark
+  the live runner built (replacing the router-sim wording). Scope: the eight on-listing router
+  skills (research/product/architecture/plan/develop/code-review/deep-review/skill-factory);
+  off-listing packs are Tier-1-exempt by design.
+
 ### Changed — deep-review pass (docs currency + completeness audit)
 
 A four-reviewer deep review (docs / lib+gates / skills / completeness). Three lost their final

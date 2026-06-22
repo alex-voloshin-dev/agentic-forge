@@ -49,9 +49,16 @@ jobs:
         if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}
         run: python dev/run_agent_evals.py --runner claude --model "$EVAL_MODEL"
 
-      # Skill Tier-1/Tier-2 still flow through the skill-creator loop (skills only). Wire it
-      # here, aggregate with agentic_forge.benchmark, and gate with agentic_forge.gate.
-      - name: Skill Tier-1/2 (skill-creator) — TODO
-        run: |
-          echo "Wire skill-creator runs for skills here, then benchmark + gate."
-          echo "Agents are covered by the agent Tier-2 steps above (see docs/eval-runbook.md)."
+      - name: Skill Tier-1 wiring (dry-run, no auth)
+        run: python dev/run_tier1_evals.py --runner dry
+
+      # Real Tier-1 for the on-listing router skills via the Claude subscription: classifies each
+      # skill's trigger prompts against the LIVE listing, majority-of-N, and gates
+      # recall/specificity >= 0.9 with agentic_forge.gate (ADR 0016). Skipped without the token.
+      - name: Skill Tier-1 trigger (subscription via claude)
+        if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+        run: python dev/run_tier1_evals.py --runner claude --model "$EVAL_MODEL"
+
+      # Skill Tier-2 (the *-patterns / engineering-standards readiness contracts) has no
+      # automated CLI yet — run it via a manual LLM-judge / the skill-creator harness for now
+      # (see the eval-runbook "Scope" note).
