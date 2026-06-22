@@ -257,6 +257,12 @@ Skill Tier-1 is now automated (it was a CI TODO no-op and an ad-hoc "router sim"
   the live runner built (replacing the router-sim wording). Scope: the eight on-listing router
   skills (research/product/architecture/plan/develop/code-review/deep-review/skill-factory);
   off-listing packs are Tier-1-exempt by design.
+- **Independently adversarial-reviewed** (no blockers; the gate's grading semantics, listing
+  fidelity, and wiring verified correct; 100% line+branch). Applied its findings: `check_wiring`
+  now flags a `tier1_trigger` block missing a recall/specificity value (a `{}` threshold would
+  otherwise pass vacuously — recall 0 yet PASS), and `run_tier1` refuses a mis-wired plugin
+  (defense-in-depth, not only the dry CLI); docstrings note the terse-answer-format assumption
+  and odd-`runs`; the CLI warns on an unknown `--skill`.
 
 ### Changed — deep-review pass (docs currency + completeness audit)
 

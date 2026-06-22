@@ -245,3 +245,30 @@ def test_check_wiring_flags_tier1_skill_absent_from_listing(tmp_path: Path) -> N
         '"triggers":{"should_trigger":["x"],"should_not_trigger":["y"]}}',
     )
     assert any("not in the live listing" in p for p in check_wiring(tmp_path))
+
+
+# A tier1_trigger block with no recall/specificity values would pass vacuously (gate skips a
+# None target) — guard against that latent false-pass in both the dry check and the live run.
+_INCOMPLETE_THRESHOLD = (
+    '{"skill_name":"research","evals":[],'
+    '"component":{"id":"research","type":"skill","purpose":"p"},'
+    '"thresholds":{"tier1_trigger":{}},'
+    '"triggers":{"should_trigger":["a"],"should_not_trigger":["b"]}}'
+)
+
+
+def test_check_wiring_flags_incomplete_threshold(tmp_path: Path) -> None:
+    _write_skill(tmp_path, "research", "name: research\ndescription: d", _INCOMPLETE_THRESHOLD)
+    problems = check_wiring(tmp_path)
+    assert any("recall/specificity threshold" in p for p in problems)
+    assert not any("no should_trigger" in p for p in problems)  # otherwise clean
+
+
+def test_run_tier1_refuses_miswired_plugin(tmp_path: Path) -> None:
+    _write_skill(tmp_path, "research", "name: research\ndescription: d", _INCOMPLETE_THRESHOLD)
+
+    def run(system: str, prompt: str, workdir: Path) -> str:  # pragma: no cover - never called
+        return "research"
+
+    with pytest.raises(ValueError, match="wiring problems"):
+        run_tier1(tmp_path, run, runs=1, workdir=tmp_path)

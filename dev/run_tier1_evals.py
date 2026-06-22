@@ -52,6 +52,15 @@ def main(argv: list[str]) -> int:
 
     plugin_dir: Path = args.plugin.resolve()
 
+    if args.skills:
+        known = {t.name for t in tier1_runner.load_triggers(plugin_dir)}
+        for skill in args.skills:
+            if skill not in known:
+                print(
+                    f"warning: --skill {skill!r} is not a Tier-1 skill (known: {sorted(known)})",
+                    file=sys.stderr,
+                )
+
     if args.runner == "dry":
         problems = tier1_runner.check_wiring(plugin_dir)
         for problem in problems:

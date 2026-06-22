@@ -141,7 +141,8 @@ def parse_selection(reply: str, names: list[str]) -> str:
 
     Scans left to right and returns the first token that is a known skill name or the word
     ``none`` — so "research", "`research`", and "the research skill" all map to ``research``,
-    and an empty/unknown reply maps to ``none`` (a non-trigger).
+    and an empty/unknown reply maps to ``none`` (a non-trigger). This assumes the terse answer
+    format (one name or ``none``); on free-form multi-skill prose the first mention wins.
     """
     known = {n.lower(): n for n in names}
     for token in re.findall(r"[a-z0-9-]+", reply.lower()):
@@ -155,7 +156,10 @@ def parse_selection(reply: str, names: list[str]) -> str:
 def majority_selection(
     run_fn: Runner, system: str, prompt: str, names: list[str], runs: int, workdir: Path
 ) -> str:
-    """The modal router choice for ``prompt`` over ``runs`` calls (absorbs stochasticity)."""
+    """The modal router choice for ``prompt`` over ``runs`` calls (absorbs stochasticity).
+
+    Use an odd ``runs`` (default 5) so the top choice has no two-way tie.
+    """
     picks = [parse_selection(run_fn(system, prompt, workdir), names) for _ in range(runs)]
     return Counter(picks).most_common(1)[0][0]
 
@@ -227,9 +231,17 @@ def run_tier1(
     runs: int = DEFAULT_RUNS,
     workdir: Path | None = None,
 ) -> list[Tier1Report]:
-    """Run Tier-1 for the on-listing skills (optionally a subset) against the live listing."""
+    """Run Tier-1 for the on-listing skills (optionally a subset) against the live listing.
+
+    Refuses to run a mis-wired plugin (empty listing, blank description, off-listing tier1
+    skill, missing trigger prompts, or an incomplete threshold) so the library guarantee does
+    not depend on the caller having run ``check_wiring`` / the dry CLI first.
+    """
     if runs <= 0:
         raise ValueError(f"runs must be >= 1, got {runs}")
+    problems = check_wiring(plugin_dir)
+    if problems:
+        raise ValueError("Tier-1 wiring problems: " + "; ".join(problems))
     cards = load_listing(plugin_dir)
     names = [c.name for c in cards]
     system = build_router_system(cards)
@@ -259,6 +271,14 @@ def check_wiring(plugin_dir: Path) -> list[str]:
             problems.append(f"{trig.name}: no should_trigger prompts")
         if not trig.should_not_trigger:
             problems.append(f"{trig.name}: no should_not_trigger prompts")
+        # A tier1_trigger block with no recall/specificity value would pass vacuously
+        # (gate.tier1_trigger skips a None target), so a skill the router never picks could
+        # merge green. Require both numeric thresholds.
+        t1 = trig.thresholds.get("tier1_trigger") or {}
+        if t1.get("recall") is None or t1.get("specificity") is None:
+            problems.append(
+                f"{trig.name}: tier1_trigger present but missing a recall/specificity threshold"
+            )
     return problems
 
 
