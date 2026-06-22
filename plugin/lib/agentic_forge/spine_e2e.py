@@ -27,7 +27,7 @@ FEATURE_SLUG = "task-priorities"
 FIXTURE_REPO = "eval/fixtures/spine/target-repo"
 PRD = "eval/fixtures/spine/prd.md"
 PLAN = "eval/fixtures/spine/plan.md"
-PHASES = ("architecture", "develop", "code-review")
+PHASES = ("research", "product", "architecture", "plan", "develop", "code-review")
 
 
 @dataclass
@@ -56,14 +56,22 @@ def _git(repo: Path, *args: str) -> None:
     subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True)
 
 
-def prepare_workspace(plugin_dir: Path, dest: Path) -> Path:
-    """Copy the fixture repo into ``dest/repo``, seed the PRD + plan, and git-init it."""
+def prepare_workspace(plugin_dir: Path, dest: Path, *, seed: tuple[str, ...] = ()) -> Path:
+    """Copy the fixture repo into ``dest/repo`` and git-init it.
+
+    The full six-phase run seeds nothing — `research` starts from the repo's `FEATURE_REQUEST.md`
+    and each phase produces the artifact the next consumes. ``seed`` optionally pre-places
+    fixture artifacts (by basename) under ``docs/sdlc/<slug>/`` to start a partial run.
+    """
     repo = dest / "repo"
     shutil.copytree(plugin_dir / FIXTURE_REPO, repo)
-    sdlc = repo / "docs" / "sdlc" / FEATURE_SLUG
-    sdlc.mkdir(parents=True, exist_ok=True)
-    (sdlc / "prd.md").write_text((plugin_dir / PRD).read_text(encoding="utf-8"), encoding="utf-8")
-    (sdlc / "plan.md").write_text((plugin_dir / PLAN).read_text(encoding="utf-8"), encoding="utf-8")
+    if seed:
+        sdlc = repo / "docs" / "sdlc" / FEATURE_SLUG
+        sdlc.mkdir(parents=True, exist_ok=True)
+        for rel in seed:
+            (sdlc / Path(rel).name).write_text(
+                (plugin_dir / rel).read_text(encoding="utf-8"), encoding="utf-8"
+            )
     _git(repo, "init", "-q", "-b", "main")
     _git(repo, "add", "-A")
     _git(
@@ -125,8 +133,29 @@ def check_code_review(repo: Path) -> list[Checkpoint]:
     return cps
 
 
+def _artifact_checkpoint(repo: Path, filename: str, artifact_type: str) -> Checkpoint:
+    path = repo / "docs" / "sdlc" / FEATURE_SLUG / filename
+    ok = path.is_file() and _valid(path, artifact_type)
+    return Checkpoint(f"{filename} exists and validates", ok)
+
+
+def check_research(repo: Path) -> list[Checkpoint]:
+    return [_artifact_checkpoint(repo, "research-brief.md", "research-brief")]
+
+
+def check_product(repo: Path) -> list[Checkpoint]:
+    return [_artifact_checkpoint(repo, "prd.md", "prd")]
+
+
+def check_plan(repo: Path) -> list[Checkpoint]:
+    return [_artifact_checkpoint(repo, "plan.md", "plan")]
+
+
 CHECKS = {
+    "research": check_research,
+    "product": check_product,
     "architecture": check_architecture,
+    "plan": check_plan,
     "develop": check_develop,
     "code-review": check_code_review,
 }
@@ -140,25 +169,42 @@ def skill_body(plugin_dir: Path, name: str) -> str:
 
 def _phase_prompt(phase: str) -> str:
     sdlc = f"docs/sdlc/{FEATURE_SLUG}/"
-    if phase == "architecture":
-        return (
-            f"Your working directory is a checkout of the target repo. Read {sdlc}prd.md and the "
-            f"code, and produce the technical design: write {sdlc}tech-design.md (frontmatter "
-            "decisions/components/risks) and at least one adr-*.md (Context/Decision/Alternatives/"
+    prompts = {
+        "research": (
+            f"Your working directory is a checkout of the target repo. Read FEATURE_REQUEST.md and "
+            f"the code, research the feature (prior art / options / feasibility), and write "
+            f"{sdlc}research-brief.md (frontmatter type: research-brief, feature, status, date, "
+            "sources[]) with synthesized findings and a recommendation. No code changes."
+        ),
+        "product": (
+            f"Read {sdlc}research-brief.md and the code. Write the product spec to {sdlc}prd.md "
+            "(frontmatter type: prd, feature, status, goals[], non_goals[], metrics[], "
+            "acceptance[]) with user stories. Requirements only — no design or code."
+        ),
+        "architecture": (
+            f"Read {sdlc}prd.md and the code, and produce the technical design: write "
+            f"{sdlc}tech-design.md (frontmatter type: tech-design, feature, status, decisions, "
+            "components, risks) and at least one adr-*.md (Context/Decision/Alternatives/"
             "Consequences) in that directory. Design only — no code changes."
-        )
-    if phase == "develop":
-        return (
+        ),
+        "plan": (
+            f"Read {sdlc}tech-design.md. Write the work plan to {sdlc}plan.md (frontmatter "
+            "type: plan, feature, status, tasks[] with id+deps, checkpoints[], deferred[]). "
+            "A plan only — no code."
+        ),
+        "develop": (
             f"Read {sdlc}plan.md and {sdlc}tech-design.md. Implement the feature in taskstore.py "
             "(priority on add(); list() sorted by priority; preserve existing behavior) and add "
             "tests to test_taskstore.py. Run `python -m pytest -q` and make the whole suite green. "
             "Stay within this working directory."
-        )
-    return (
-        f"Review the change to taskstore.py / test_taskstore.py (run `git diff`). Write a verdict "
-        f"to {sdlc}review.md with frontmatter: type: review, target, iteration: 1, verdict "
-        "(approve|changes), findings[]. Do not modify the code."
-    )
+        ),
+        "code-review": (
+            f"Review the change to taskstore.py / test_taskstore.py (run `git diff`). Write a "
+            f"verdict to {sdlc}review.md with frontmatter: type: review, target, iteration: 1, "
+            "verdict (approve|changes), findings[]. Do not modify the code."
+        ),
+    }
+    return prompts[phase]
 
 
 def run_e2e(plugin_dir: Path, *, run_phase: Runner, workspace: Path) -> list[PhaseResult]:

@@ -137,6 +137,15 @@ surfacing on a failed call.
   stddev 0.042, lower bound 0.927 (n=5) on the planted-defect fixtures (catches the planted
   contradiction/gap/bug/risk with no false positives on clean zones).
 
+### Changed — Tier-3 E2E runner extended to the full six-phase spine
+
+- `spine_e2e` now runs the whole spine — `research → product → architecture → plan → develop →
+  code-review` — on an isolated taskstore copy, **starting from `FEATURE_REQUEST.md`** (no
+  seeding: each phase produces the handoff the next consumes), with per-phase checkpoints (each
+  artifact validates against its schema; develop's code passes the repo suite; review has a
+  verdict). `prepare_workspace` gains an optional `seed` for partial runs. 100% unit-tested
+  (correct-output stub + real git/pytest); dry-run clean.
+
 ### Added — Stage 2 spine (step 5c: plan phase — spine complete)
 
 - **`plan` workflow skill** `plugin/skills/plan/` — the planning phase: turn `tech-design.md`

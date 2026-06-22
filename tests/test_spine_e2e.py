@@ -11,6 +11,9 @@ from agentic_forge.spine_e2e import (
     check_architecture,
     check_code_review,
     check_develop,
+    check_plan,
+    check_product,
+    check_research,
     check_wiring,
     prepare_workspace,
     repo_tests_pass,
@@ -47,6 +50,50 @@ LGTM.
 """
 
 ADR = "# ADR 1\n## Context\nc\n## Decision\nd\n## Alternatives considered\na\n## Consequences\nq\n"
+
+RESEARCH_BRIEF = """---
+type: research-brief
+feature: task-priorities
+status: final
+date: "2026-06-21"
+sources:
+  - https://example.com/x
+---
+# Research brief
+findings + recommendation
+"""
+
+PRD_MD = """---
+type: prd
+feature: task-priorities
+status: approved
+goals:
+  - Assign a priority to a task
+non_goals:
+  - Per-user default priorities
+metrics:
+  - Tasks can be ordered by priority
+acceptance:
+  - add() accepts a priority, default normal
+---
+# PRD
+As a user, I want priorities.
+"""
+
+PLAN_MD = """---
+type: plan
+feature: task-priorities
+status: approved
+tasks:
+  - id: T1
+    title: Add priority
+checkpoints:
+  - tests green
+deferred:
+  - per-user defaults
+---
+# Plan
+"""
 
 PRIORITY_TASKSTORE = '''"""taskstore with priority."""
 from __future__ import annotations
@@ -94,9 +141,16 @@ class TaskStore:
 def _good_phase(system: str, user: str, repo: Path) -> str:
     """Stub Runner: materialize correct artifacts for whichever phase the prompt describes."""
     sdlc = repo / "docs" / "sdlc" / "task-priorities"
-    if "tech-design.md (frontmatter" in user:
+    sdlc.mkdir(parents=True, exist_ok=True)
+    if "research-brief.md (frontmatter" in user:
+        (sdlc / "research-brief.md").write_text(RESEARCH_BRIEF, encoding="utf-8")
+    elif "prd.md (frontmatter" in user:
+        (sdlc / "prd.md").write_text(PRD_MD, encoding="utf-8")
+    elif "tech-design.md (frontmatter" in user:
         (sdlc / "tech-design.md").write_text(TECH_DESIGN, encoding="utf-8")
         (sdlc / "adr-001-priority.md").write_text(ADR, encoding="utf-8")
+    elif "plan.md (frontmatter" in user:
+        (sdlc / "plan.md").write_text(PLAN_MD, encoding="utf-8")
     elif "Implement the feature in taskstore.py" in user:
         (repo / "taskstore.py").write_text(PRIORITY_TASKSTORE, encoding="utf-8")
     elif "Write a verdict" in user:
@@ -114,9 +168,29 @@ def _noop_phase(system: str, user: str, repo: Path) -> str:
 def test_prepare_workspace_copies_and_git_inits(tmp_path: Path) -> None:
     repo = prepare_workspace(PLUGIN, tmp_path)
     assert (repo / "taskstore.py").is_file()
-    assert (repo / "docs" / "sdlc" / "task-priorities" / "prd.md").is_file()
-    assert (repo / "docs" / "sdlc" / "task-priorities" / "plan.md").is_file()
+    assert (repo / "FEATURE_REQUEST.md").is_file()  # research's starting input
+    assert not (repo / "docs" / "sdlc" / "task-priorities" / "prd.md").exists()  # not seeded
     assert (repo / ".git").is_dir()
+
+
+def test_prepare_workspace_seed(tmp_path: Path) -> None:
+    repo = prepare_workspace(PLUGIN, tmp_path, seed=("eval/fixtures/spine/prd.md",))
+    assert (repo / "docs" / "sdlc" / "task-priorities" / "prd.md").is_file()
+
+
+def test_check_research_product_plan(tmp_path: Path) -> None:
+    repo = prepare_workspace(PLUGIN, tmp_path)
+    sdlc = repo / "docs" / "sdlc" / "task-priorities"
+    sdlc.mkdir(parents=True, exist_ok=True)
+    assert not check_research(repo)[0].passed
+    assert not check_product(repo)[0].passed
+    assert not check_plan(repo)[0].passed
+    (sdlc / "research-brief.md").write_text(RESEARCH_BRIEF, encoding="utf-8")
+    (sdlc / "prd.md").write_text(PRD_MD, encoding="utf-8")
+    (sdlc / "plan.md").write_text(PLAN_MD, encoding="utf-8")
+    assert check_research(repo)[0].passed
+    assert check_product(repo)[0].passed
+    assert check_plan(repo)[0].passed
 
 
 # --- checkpoints -------------------------------------------------------------
@@ -126,6 +200,7 @@ def test_check_architecture_pass_and_fail(tmp_path: Path) -> None:
     repo = prepare_workspace(PLUGIN, tmp_path)
     assert not PhaseResult("a", check_architecture(repo)).passed  # nothing produced yet
     sdlc = repo / "docs" / "sdlc" / "task-priorities"
+    sdlc.mkdir(parents=True, exist_ok=True)
     (sdlc / "tech-design.md").write_text(TECH_DESIGN, encoding="utf-8")
     (sdlc / "adr-001.md").write_text(ADR, encoding="utf-8")
     assert all(c.passed for c in check_architecture(repo))
@@ -165,7 +240,8 @@ def test_repo_tests_pass_true(tmp_path: Path) -> None:
 def test_check_code_review_missing_invalid_and_valid(tmp_path: Path) -> None:
     repo = prepare_workspace(PLUGIN, tmp_path)
     sdlc = repo / "docs" / "sdlc" / "task-priorities"
-    assert not check_code_review(repo)[0].passed  # missing
+    assert not check_code_review(repo)[0].passed  # missing (dir absent)
+    sdlc.mkdir(parents=True, exist_ok=True)
     (sdlc / "review.md").write_text("not an artifact", encoding="utf-8")
     assert not check_code_review(repo)[0].passed  # invalid
     (sdlc / "review.md").write_text(REVIEW_MD, encoding="utf-8")
@@ -219,6 +295,9 @@ def test_checkpoint_str() -> None:
 def test_phase_prompts_cover_all_phases() -> None:
     # _phase_prompt is exercised via run_e2e, but assert each phase has distinct guidance.
     prompts = {ph: spine_e2e._phase_prompt(ph) for ph in PHASES}
+    assert "research-brief.md (frontmatter" in prompts["research"]
+    assert "prd.md (frontmatter" in prompts["product"]
     assert "tech-design.md (frontmatter" in prompts["architecture"]
+    assert "plan.md (frontmatter" in prompts["plan"]
     assert "Implement the feature in taskstore.py" in prompts["develop"]
     assert "Write a verdict" in prompts["code-review"]
