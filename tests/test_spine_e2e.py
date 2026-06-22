@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agentic_forge import spine_e2e
+from agentic_forge import spine_e2e, stacks
 from agentic_forge.spine_e2e import (
     PHASES,
     Checkpoint,
@@ -183,6 +183,15 @@ def test_prepare_workspace_reusable(tmp_path: Path) -> None:
     prepare_workspace(PLUGIN, tmp_path)
     repo = prepare_workspace(PLUGIN, tmp_path)
     assert (repo / "taskstore.py").is_file()
+
+
+def test_prepared_workspace_detects_python(tmp_path: Path) -> None:
+    # By-stack (ADR 0015): the E2E target repo must be detected as the stack the spine
+    # implements, so develop/code-review load python-patterns + the right toolchain.
+    repo = prepare_workspace(PLUGIN, tmp_path)
+    profile = stacks.primary(repo)
+    assert profile.stack_id == "python"
+    assert profile.pack == "python-patterns"
 
 
 def test_check_research_product_plan(tmp_path: Path) -> None:

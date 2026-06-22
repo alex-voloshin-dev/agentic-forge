@@ -237,6 +237,18 @@ The same review found docs that lagged the built code; brought them current:
   `skill-factory` are readiness contracts run via the harness / manual LLM-judge (an automated
   skill-Tier-2 CLI is a roadmap item), not gates this CLI enforces.
 
+### Verified — by-stack (multi-language), step 4: detection closed on the E2E fixture
+
+- **Fixture target-repo gains a `pyproject.toml`** (`plugin/eval/fixtures/spine/target-repo/`)
+  so the SDLC-spine E2E target is a realistic Python project — and `stacks.detect` resolves it
+  to `python` → `python-patterns` (previously, with no manifest, it fell back to `unknown`).
+- **`tests/test_spine_e2e.py`** asserts the prepared workspace is detected as Python with the
+  `python-patterns` pack, closing the by-stack loop on the real E2E target. The in-workspace
+  `pytest` run stays green with the new manifest.
+- **Docs:** roadmap marks the by-stack mechanism built (further `*-patterns` packs incremental);
+  the eval-runbook scope note now lists the `*-patterns` packs among the skills that declare a
+  `tier2_quality` readiness contract exercised through the role's Tier-2.
+
 ### Changed — by-stack (multi-language), step 3: spine consumes stack detection
 
 The spine is now stack-parametric end to end — detection feeds the implement/review phases:
