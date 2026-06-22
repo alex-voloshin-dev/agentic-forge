@@ -23,6 +23,18 @@ Why agents have a dedicated runner (not skill-creator): skill-creator evaluates 
 roles. The runner reuses the same policy layer (`benchmark` + `gate`), so the gate is
 identical to skills'.
 
+### Scope: this CLI runs *agent* Tier-2 only
+
+`run_agent_evals.py` gates the six **roles**. Skills are gated by Tier-0 (`dev/validate.py`)
+and Tier-1 (trigger recall/specificity); the spine phase-workflow skills carry no skill-level
+Tier-2 because their quality is exercised end-to-end by the Tier-3 spine E2E plus the agent
+Tier-2 of the roles they fork. A few judgment-heavy skills (`deep-review`,
+`engineering-standards`, `skill-factory`) *do* declare a `tier2_quality` threshold in their
+`evals.json`: that is a **readiness contract**, run via the skill-creator eval harness or a
+manual LLM-judge pass — there is no automated skill-Tier-2 CLI yet (it is a roadmap item).
+Treat those thresholds as the quality bar to clear before release, not as a gate this CLI
+enforces.
+
 ## Authentication — use your Claude subscription (recommended)
 
 The `claude` runner shells out to the `claude` CLI, so it uses whatever auth the CLI is

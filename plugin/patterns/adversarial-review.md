@@ -20,7 +20,7 @@ opinion. For a quick single-file diff lint, a single `reviewer` pass is enough �
 2. **Fan out** one **fresh, independent** reviewer per lens — a forked `reviewer` role or a
    general-purpose subagent with *no* prior context (so it can't inherit the author's
    assumptions). Prompt each **adversarially** ("assume problems exist; hunt them") and make
-   it return a **structured** result: per finding — `severity`, `location`, `evidence`,
+   it return a **structured** result: per finding — `severity`, `location`, `issue`, `evidence`,
    `suggested fix`. Run them concurrently (Task fan-out; a Workflow when the user opted in).
 3. **Verify** every substantive finding against the source before accepting it. Reviewers
    produce false positives and hallucinations — confirm the claim is real (open the file,

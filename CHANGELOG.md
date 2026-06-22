@@ -222,6 +222,21 @@ The same review found docs that lagged the built code; brought them current:
   Stage-1 scope but forward-points to the two Stage-2 specialists. Spine E2E docstrings now say
   "all six phases" instead of the old three-phase thin slice.
 
+### Fixed — skill/pattern coherence (deep-review pass)
+
+- **`code-review` can run the tools it requires.** Its `allowed-tools` widened from
+  `Bash(git diff:*)` to `Bash`: the skill's style/lint aspect and its Verify step run the
+  project's real tools (ruff/mypy/eslint/pytest/…), which the `git diff`-only grant forbade.
+  Now consistent with `develop` and `deep-review`, and ready for multi-stack toolchains.
+- **Canonical finding shape is consistent.** Added the missing `issue` field to the structured
+  finding shape in `deep-review/SKILL.md`, `patterns/adversarial-review.md`, and
+  `deep-review/references/lenses.md` (`severity, location, issue, evidence, suggested fix`),
+  matching `code-review` and `patterns/handoff.md`.
+- **No Tier-2 gate theater.** Documented in the eval-runbook that the agent eval CLI gates
+  *roles* only; the `tier2_quality` thresholds declared by `deep-review`/`engineering-standards`/
+  `skill-factory` are readiness contracts run via the harness / manual LLM-judge (an automated
+  skill-Tier-2 CLI is a roadmap item), not gates this CLI enforces.
+
 ### Verified — full six-phase spine E2E (Tier-3, 2026-06-21)
 
 The real `--runner claude` scenario (Opus 4.8) carried `task-priorities` through **all six

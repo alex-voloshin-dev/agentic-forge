@@ -2,7 +2,7 @@
 
 Each lens is one focused angle for an independent reviewer. Pick the lenses that fit the
 target; one reviewer per lens, prompted adversarially, returning structured findings
-(`severity`, `location`, `evidence`, `suggested fix`). See the
+(`severity`, `location`, `issue`, `evidence`, `suggested fix`). See the
 [adversarial-review pattern](../../../patterns/adversarial-review.md).
 
 ## Code / diff / PR

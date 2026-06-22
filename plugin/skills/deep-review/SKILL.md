@@ -25,7 +25,7 @@ app, or writing code.
 2. **Fan out.** Spawn one **fresh, independent** reviewer per lens (the `reviewer` role via a
    forked subagent, or a general-purpose subagent) with *no* prior context, prompted
    **adversarially** ("assume problems exist; hunt them"). Require structured findings: each
-   with `severity` (`blocker | major | minor | nit`), `location`, `evidence`, `suggested fix`.
+   with `severity` (`blocker | major | minor | nit`), `location`, `issue`, `evidence`, `suggested fix`.
    Run them concurrently with the Task tool (or a Workflow if the user has opted into
    multi-agent orchestration). Scale the count to the ask.
 3. **Verify** every substantive finding against the source yourself before accepting it —
