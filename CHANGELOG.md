@@ -237,6 +237,34 @@ The same review found docs that lagged the built code; brought them current:
   `skill-factory` are readiness contracts run via the harness / manual LLM-judge (an automated
   skill-Tier-2 CLI is a roadmap item), not gates this CLI enforces.
 
+### Added — by-stack: javascript / jvm / dotnet / ruby / php packs (pack coverage complete)
+
+Five more `*-patterns` reference packs (off-listing, `disable-model-invocation`), completing pack
+coverage for **every registered stack**:
+
+- **`javascript-patterns`** — plain JS/Node: ESM, `const`/`let`, awaited async, `===`,
+  boundary validation, JSDoc + `// @ts-check`; pitfalls (floating promises, `==`/coercion, `var`
+  hoisting, prototype pollution).
+- **`jvm-patterns`** — Java/Kotlin: the Gradle/Maven wrapper, JUnit 5, `Optional`/null-safety,
+  records/data classes, try-with-resources/`use`; pitfalls (NPE, `==` vs `.equals`,
+  thread-safety, swallowed exceptions).
+- **`dotnet-patterns`** — C#: `dotnet build`/`test`/`format`, nullable reference types,
+  async-all-the-way (no `.Result`/`.Wait()`), records/pattern matching, `IDisposable`/`using`;
+  pitfalls (`async void`, blocking-on-async deadlock, multiple enumeration).
+- **`ruby-patterns`** — Bundler/RSpec/RuboCop, Enumerable/guard clauses/`&.`, specific error
+  classes, `frozen_string_literal`; pitfalls (bare `rescue`, monkey-patching, `nil`, N+1).
+- **`php-patterns`** — Composer/PHPUnit/PHPStan, `declare(strict_types=1)` + typed signatures,
+  PSR-12/PSR-4, prepared statements; pitfalls (SQL injection, loose `==`, unvalidated
+  superglobals).
+- **Registry + tests:** each `STACKS` entry now carries its pack; `test_shipped_packs` covers all
+  nine and `test_profile_carries_pack` is parametrized over every stack. The no-pack
+  `format_profile` case is now the `unknown` profile (every *registered* stack ships a pack;
+  detection-only stacks remain allowed by design).
+- **Docs:** spine.md and roadmap mark by-stack pack coverage complete; the
+  `engineering-standards`-only fallback now applies to unrecognized (`unknown`) repos.
+- Each pack ships a 2-case `tier2_quality` readiness contract (no `tier1_trigger`); bodies
+  51–55 lines; full Tier-0 green; `stacks.py` stays 100% line+branch.
+
 ### Added — by-stack: rust-patterns (fourth stack pack)
 
 - **`plugin/skills/rust-patterns/`** — the fourth `*-patterns` reference pack (off-listing,

@@ -78,10 +78,11 @@ stack-parametric. Mechanism (see [ADR 0015](decisions/0015-by-stack-detection-an
   `engineering-standards`, loaded on demand by `develop` / `code-review` and the
   `software-engineer` / `qa-engineer` roles for the detected stack.
 
-**Status:** detection ships for the common stacks; **`python-patterns`, `typescript-patterns`,
-`go-patterns`, and `rust-patterns` ship**. A detected stack with no pack falls back to
-`engineering-standards` + the profile's toolchain defaults (logged, not silent). Further packs
-(jvm, dotnet, …) ship one at a time.
+**Status:** detection ships for the common stacks, and **every registered stack now ships a
+`*-patterns` pack** — python, typescript, javascript, go, rust, jvm, dotnet, ruby, php. An
+**unrecognized** repo (`unknown`) falls back to `engineering-standards` only (logged, not
+silent); a future *detection-only* stack would fall back to standards + its toolchain defaults.
+New stacks get a pack as they are introduced.
 
 ## Trigger taxonomy
 

@@ -1,0 +1,38 @@
+{
+  "skill_name": "jvm-patterns",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "With jvm-patterns loaded, implement a small behaviour change in a Java or Kotlin module in a target repo (e.g. add a method that validates input and can fail).",
+      "expected_output": "A scoped change that avoids null (Optional / Kotlin null-safety, no !!), closes resources with try-with-resources/use, adds JUnit tests covering the behaviour plus a boundary and an exception case, and builds green via the repo's wrapper with the configured formatter/linter clean.",
+      "files": [],
+      "assertions": [
+        "Null is handled via Optional or Kotlin null-safety (no Kotlin !! and no obvious NPE risk)",
+        "Resources are closed with try-with-resources (Java) or use (Kotlin)",
+        "JUnit tests cover the happy path plus a boundary and an exception case",
+        "No exception is swallowed (no empty catch); the project builds via its wrapper",
+        "No existing test is weakened, skipped, or deleted"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "With jvm-patterns loaded, add code that shares state across threads.",
+      "expected_output": "Thread-safe shared state (immutability or proper synchronization), resources closed, and deterministic tests covering an error path.",
+      "files": [],
+      "assertions": [
+        "Shared state is thread-safe (immutable or properly synchronized/concurrent types)",
+        "Resources are released (try-with-resources / use); no leak",
+        "Tests are deterministic (no real network/clock) and cover an error/exception path",
+        "equals/hashCode stay consistent if value types are added or changed"
+      ]
+    }
+  ],
+  "component": {
+    "id": "jvm-patterns",
+    "type": "skill",
+    "purpose": "The JVM (Java/Kotlin) conventions and toolchain the software-engineer/qa-engineer (and the code-review lint aspect) apply when the detected stack is JVM; a lean, loaded-on-demand knowledge pack exercised through the software-engineer's Tier-2."
+  },
+  "thresholds": {
+    "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }
+  }
+}

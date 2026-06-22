@@ -1,0 +1,38 @@
+{
+  "skill_name": "php-patterns",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "With php-patterns loaded, implement a small behaviour change in a PHP class in a target repo (e.g. add a typed method that validates input and can fail).",
+      "expected_output": "A scoped change with declare(strict_types=1), full type declarations, strict comparisons, PSR-12 style, plus PHPUnit tests covering the behaviour with a boundary and an exception case; PHPStan/Psalm and the formatter clean using the repo's own composer scripts.",
+      "files": [],
+      "assertions": [
+        "declare(strict_types=1) is present and params/returns/properties are type-declared",
+        "Strict comparison (===) is used, not loose ==",
+        "PHPUnit tests cover the happy path plus a boundary and an exception case",
+        "PHPStan/Psalm is clean at the repo's level and PHP-CS-Fixer/PSR-12 is applied",
+        "No existing test is weakened, skipped, or deleted"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "With php-patterns loaded, add code that runs a database query using a user-supplied value.",
+      "expected_output": "A prepared statement with bound parameters (never string-built SQL), the input validated at the boundary, and deterministic tests; no secret logged.",
+      "files": [],
+      "assertions": [
+        "The query uses a prepared statement with bound parameters (no string-concatenated SQL)",
+        "User input (superglobals/external) is validated at the trust boundary",
+        "Tests are deterministic (no real network/DB; the boundary is stubbed)",
+        "No secret or credential is logged"
+      ]
+    }
+  ],
+  "component": {
+    "id": "php-patterns",
+    "type": "skill",
+    "purpose": "The PHP conventions and toolchain the software-engineer/qa-engineer (and the code-review lint aspect) apply when the detected stack is PHP; a lean, loaded-on-demand knowledge pack exercised through the software-engineer's Tier-2."
+  },
+  "thresholds": {
+    "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }
+  }
+}

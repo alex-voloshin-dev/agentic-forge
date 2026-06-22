@@ -73,8 +73,13 @@ def test_single_manifest_stacks(
     [
         ("pyproject.toml", "", "python-patterns"),
         ("tsconfig.json", "{}", "typescript-patterns"),
+        ("package.json", "{}", "javascript-patterns"),
         ("go.mod", "module x\n", "go-patterns"),
         ("Cargo.toml", "[package]\n", "rust-patterns"),
+        ("build.gradle.kts", "plugins {}\n", "jvm-patterns"),
+        ("App.csproj", "<Project/>", "dotnet-patterns"),
+        ("Gemfile", "source 'x'\n", "ruby-patterns"),
+        ("composer.json", "{}", "php-patterns"),
     ],
 )
 def test_profile_carries_pack(
@@ -197,23 +202,30 @@ def test_format_profile_python(tmp_path: Path) -> None:
     assert "Python" in line and "python-patterns" in line and "pytest" in line
 
 
-def test_format_profile_unknown_and_no_pack(tmp_path: Path) -> None:
-    # ruby ships no pack today -> the "no pack" fallback wording renders.
-    assert "no pack" in format_profile(primary(_repo(tmp_path, {"Gemfile": "source 'x'\n"})))
-    unknown_line = format_profile(UNKNOWN)
-    assert "Unknown" in unknown_line and "—" in unknown_line
+def test_format_profile_unknown_and_no_pack() -> None:
+    # Every registered stack now ships a pack, so the "no pack" fallback wording is the
+    # UNKNOWN profile's (engineering-standards only, no manifest evidence).
+    line = format_profile(UNKNOWN)
+    assert "Unknown" in line and "no pack" in line and "—" in line
 
 
 # --- registry invariants -----------------------------------------------------
 
 
 def test_shipped_packs() -> None:
+    # Every registered stack currently ships a `<id>-patterns` pack. Adding a *detection-only*
+    # stack later (pack=None) is allowed by design and simply won't appear here.
     packs = {sid: spec.pack for sid, spec in STACKS.items() if spec.pack}
     assert packs == {
         "python": "python-patterns",
         "typescript": "typescript-patterns",
+        "javascript": "javascript-patterns",
         "go": "go-patterns",
         "rust": "rust-patterns",
+        "jvm": "jvm-patterns",
+        "dotnet": "dotnet-patterns",
+        "ruby": "ruby-patterns",
+        "php": "php-patterns",
     }
 
 

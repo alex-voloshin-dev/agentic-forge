@@ -1,0 +1,38 @@
+{
+  "skill_name": "dotnet-patterns",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "With dotnet-patterns loaded, implement a small behaviour change in a C# project in a target repo (e.g. add a method that validates input and can fail).",
+      "expected_output": "A scoped change that honours nullable reference types (no ! suppression), disposes IDisposable via using, adds xUnit/NUnit tests covering the behaviour plus a boundary and an exception case, and leaves dotnet build clean with dotnet format applied.",
+      "files": [],
+      "assertions": [
+        "Nullable reference types are honoured (no `!` null-forgiving suppression to silence warnings)",
+        "IDisposable resources are disposed (using declaration/statement)",
+        "xUnit/NUnit tests cover the happy path plus a boundary and an exception case",
+        "dotnet build is clean and dotnet format is applied",
+        "No existing test is weakened, skipped, or deleted"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "With dotnet-patterns loaded, add asynchronous code that calls an external service.",
+      "expected_output": "Async all the way (no .Result/.Wait()), ConfigureAwait(false) in library code, a CancellationToken flowing through, and deterministic tests; no async void.",
+      "files": [],
+      "assertions": [
+        "Async all the way: no blocking on async via .Result or .Wait(), and no async void (except event handlers)",
+        "Library code uses ConfigureAwait(false) and a CancellationToken is accepted/propagated",
+        "Tests are deterministic (no real network/clock; the clock is faked if used)",
+        "IDisposable resources from the call are disposed"
+      ]
+    }
+  ],
+  "component": {
+    "id": "dotnet-patterns",
+    "type": "skill",
+    "purpose": "The .NET (C#) conventions and toolchain the software-engineer/qa-engineer (and the code-review lint aspect) apply when the detected stack is .NET; a lean, loaded-on-demand knowledge pack exercised through the software-engineer's Tier-2."
+  },
+  "thresholds": {
+    "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }
+  }
+}

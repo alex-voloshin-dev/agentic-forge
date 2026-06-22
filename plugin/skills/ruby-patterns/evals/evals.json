@@ -1,0 +1,38 @@
+{
+  "skill_name": "ruby-patterns",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "With ruby-patterns loaded, implement a small behaviour change in a Ruby module in a target repo (e.g. add a method that validates input and can fail).",
+      "expected_output": "A scoped, idiomatic change (Enumerable, guard clauses, safe navigation) that raises a specific error class, sets frozen_string_literal, adds RSpec/Minitest tests covering the behaviour plus a boundary and an error case, and leaves RuboCop clean using the repo's own commands.",
+      "files": [],
+      "assertions": [
+        "Failure raises a specific StandardError subclass (no bare rescue, no swallowed error)",
+        "Idiomatic Ruby: Enumerable/guard clauses and safe navigation (&.) where nil is possible",
+        "RSpec/Minitest tests cover the happy path plus a boundary and an error case",
+        "RuboCop is clean (no new rubocop:disable) and frozen_string_literal is set",
+        "No existing test is weakened, skipped, or deleted"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "With ruby-patterns loaded, add code that handles external input and can fail.",
+      "expected_output": "Narrow exception handling (a specific StandardError subclass), nil handled via &. or fetch with a default, deterministic tests, and no secret logged.",
+      "files": [],
+      "assertions": [
+        "rescue targets a narrow StandardError subclass (never bare rescue or rescue Exception)",
+        "nil is handled via safe navigation (&.) or fetch with a default, not assumed",
+        "Tests are deterministic (no real network/clock) and cover an error path",
+        "No secret or credential is logged"
+      ]
+    }
+  ],
+  "component": {
+    "id": "ruby-patterns",
+    "type": "skill",
+    "purpose": "The Ruby conventions and toolchain the software-engineer/qa-engineer (and the code-review lint aspect) apply when the detected stack is Ruby; a lean, loaded-on-demand knowledge pack exercised through the software-engineer's Tier-2."
+  },
+  "thresholds": {
+    "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }
+  }
+}

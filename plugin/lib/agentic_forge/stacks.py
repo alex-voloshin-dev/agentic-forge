@@ -103,6 +103,7 @@ STACKS: dict[str, StackSpec] = {
         display="JavaScript (Node)",
         manifests=("package.json",),
         toolchain=Toolchain(test="npm test", lint="npm run lint", format="prettier --write ."),
+        pack="javascript-patterns",
         specificity=1,
     ),
     "go": StackSpec(
@@ -133,6 +134,7 @@ STACKS: dict[str, StackSpec] = {
         display="JVM (Java/Kotlin)",
         manifests=("pom.xml", "build.gradle", "build.gradle.kts"),
         toolchain=Toolchain(test="mvn test"),
+        pack="jvm-patterns",
         specificity=2,
     ),
     "dotnet": StackSpec(
@@ -140,6 +142,7 @@ STACKS: dict[str, StackSpec] = {
         display=".NET",
         manifests=("*.csproj", "*.sln"),
         toolchain=Toolchain(test="dotnet test", typecheck="dotnet build", format="dotnet format"),
+        pack="dotnet-patterns",
         specificity=2,
     ),
     "ruby": StackSpec(
@@ -147,6 +150,7 @@ STACKS: dict[str, StackSpec] = {
         display="Ruby",
         manifests=("Gemfile",),
         toolchain=Toolchain(test="bundle exec rspec", lint="rubocop"),
+        pack="ruby-patterns",
         specificity=2,
     ),
     "php": StackSpec(
@@ -154,6 +158,7 @@ STACKS: dict[str, StackSpec] = {
         display="PHP",
         manifests=("composer.json",),
         toolchain=Toolchain(test="composer test"),
+        pack="php-patterns",
         specificity=1,
     ),
 }
