@@ -316,3 +316,58 @@ def test_run_role_uses_contract_runs_by_default() -> None:
         run_grader_fn=make_grader(True),
     )
     assert report.runs == 5  # from the contract's tier2_quality.runs
+
+
+# --- gate-integrity regressions (from the deep review) -------------------------------
+
+
+def test_grade_output_caps_passed_at_total() -> None:
+    # A grader returning MORE results than assertions must not push passed > total (no >1.0).
+    def over_grader(system: str, prompt: str, workdir: Path) -> str:
+        items = [{"text": str(i), "passed": True, "evidence": "x"} for i in range(3)]
+        return json.dumps({"assertion_results": items})
+
+    graded = grade_output(["a"], "out", "g", over_grader, Path("."))
+    assert graded["summary"] == {"total": 1, "passed": 1, "pass_rate": 1.0}
+
+
+def test_grade_output_missing_results_count_as_failed() -> None:
+    # Fewer results than assertions -> the missing ones are failures (total = assertion count).
+    def under_grader(system: str, prompt: str, workdir: Path) -> str:
+        return json.dumps({"assertion_results": [{"text": "a", "passed": True, "evidence": "x"}]})
+
+    graded = grade_output(["a", "b", "c"], "out", "g", under_grader, Path("."))
+    assert graded["summary"] == {"total": 3, "passed": 1, "pass_rate": 1 / 3}
+
+
+def test_grade_output_raises_when_both_attempts_unparseable() -> None:
+    def bad_grader(system: str, prompt: str, workdir: Path) -> str:
+        return "no json at all"
+
+    with pytest.raises(ValueError, match="no valid JSON"):
+        grade_output(["a"], "out", "g", bad_grader, Path("."))
+
+
+def test_run_role_rejects_nonpositive_runs() -> None:
+    for bad in (0, -3):
+        with pytest.raises(ValueError, match="runs must be"):
+            run_role(
+                "reviewer", PLUGIN, run_role_fn=stub_role, run_grader_fn=make_grader(True), runs=bad
+            )
+
+
+def test_check_wiring_duplicate_basenames(tmp_path: Path) -> None:
+    agents = tmp_path / "agents"
+    (agents / "evals").mkdir(parents=True)
+    (agents / "x.md").write_text("---\nname: x\ndescription: d\n---\nBody\n", encoding="utf-8")
+    for sub in ("a", "b"):
+        (tmp_path / sub).mkdir()
+        (tmp_path / sub / "f.py").write_text("1", encoding="utf-8")
+    contract = {
+        "skill_name": "x",
+        "evals": [{"id": 1, "prompt": "p", "files": ["a/f.py", "b/f.py"], "assertions": ["x"]}],
+        "component": {"id": "x", "type": "agent", "purpose": "p"},
+        "thresholds": {"tier2_quality": {"min_pass_rate": 0.8, "runs": 5}},
+    }
+    (agents / "evals" / "x.evals.json").write_text(json.dumps(contract), encoding="utf-8")
+    assert any("duplicate fixture basenames" in p for p in check_wiring("x", tmp_path))

@@ -15,17 +15,18 @@ from typing import Any
 def pass_rate_of(grading: dict[str, Any]) -> float:
     """Extract a 0..1 pass rate from a single grading.json mapping."""
     summary = grading.get("summary") or {}
-    if "pass_rate" in summary:
-        return float(summary["pass_rate"])
+    rate = summary.get("pass_rate")
+    if rate is not None:  # tolerate a null pass_rate (don't crash on float(None))
+        return float(rate)
     total = summary.get("total")
-    passed = summary.get("passed")
-    if total:
-        return float(passed or 0) / float(total)
+    if total is not None:  # an explicit total (incl. 0) is authoritative
+        passed = summary.get("passed") or 0
+        return (float(passed) / float(total)) if total else 0.0
     # Fall back to the assertion_results list.
     results = grading.get("assertion_results") or []
     if not results:
         return 0.0
-    hits = sum(1 for r in results if r.get("passed"))
+    hits = sum(1 for r in results if r.get("passed") is True)
     return hits / len(results)
 
 

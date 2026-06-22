@@ -180,6 +180,27 @@ surfacing on a failed call.
   to own "compare/recommend before spec or design"). Depth quality comes from the delegated
   `deep-research` + the brief schema.
 
+### Fixed — eval-gate + runner hardening (deep-review pass)
+
+A deep multi-agent review of the whole codebase found real defects in the eval gates/runner;
+all fixed with tests (lib coverage ~99%):
+
+- **Gate integrity (`agent_eval`):** `grade_output` capped `passed` at the assertion count and
+  `run_role` now aggregates over **expected assertion counts** (grade_output summaries), not
+  `len(grader results)` — a grader returning extra/duplicate results can no longer push
+  `pass_rate > 1.0` (inflating Tier-2), and omitted results now count as failures instead of
+  vanishing. `runs <= 0` is rejected (was silently coerced to the default / produced empty runs).
+- **Tier-0 false positive (`validation`):** markdown links with a `#anchor`/`?query` are
+  stripped before the existence check (anchored reference links no longer fail the always-on
+  gate). **New Tier-0 check:** every eval-case `files` fixture must exist (skill + agent
+  contracts) — referenced fixtures can no longer silently rot.
+- **Robustness:** `benchmark.pass_rate_of` tolerates a null `pass_rate` and an explicit
+  `total: 0` (no crash / no silent drop); `spine_e2e.prepare_workspace` can re-run against the
+  same `--workspace`; `check_wiring` flags duplicate fixture basenames (which the
+  basename-flattening would otherwise overwrite silently).
+- **Test gaps closed:** added `tests/test_dev_cli.py` (the `dev/` entry points + the
+  unknown-runner `ValueError`) and regression tests for every fix above.
+
 ### Verified — full six-phase spine E2E (Tier-3, 2026-06-21)
 
 The real `--runner claude` scenario (Opus 4.8) carried `task-priorities` through **all six

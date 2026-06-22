@@ -64,6 +64,8 @@ def prepare_workspace(plugin_dir: Path, dest: Path, *, seed: tuple[str, ...] = (
     fixture artifacts (by basename) under ``docs/sdlc/<slug>/`` to start a partial run.
     """
     repo = dest / "repo"
+    if repo.exists():  # allow re-running against the same --workspace (a natural debugging move)
+        shutil.rmtree(repo)
     shutil.copytree(plugin_dir / FIXTURE_REPO, repo)
     if seed:
         sdlc = repo / "docs" / "sdlc" / FEATURE_SLUG

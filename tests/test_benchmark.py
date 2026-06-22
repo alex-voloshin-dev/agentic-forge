@@ -7,6 +7,16 @@ def _grading(rate: float) -> dict:
     return {"summary": {"pass_rate": rate}}
 
 
+def test_pass_rate_of_null_pass_rate_does_not_crash() -> None:
+    # A grading.json with a null pass_rate must not crash float(None).
+    assert benchmark.pass_rate_of({"summary": {"pass_rate": None}}) == 0.0
+
+
+def test_pass_rate_of_total_zero() -> None:
+    # An explicit total of 0 yields 0.0 (no div-by-zero, no silent drop).
+    assert benchmark.pass_rate_of({"summary": {"passed": 5, "total": 0}}) == 0.0
+
+
 def test_pass_rate_from_summary() -> None:
     assert benchmark.pass_rate_of({"summary": {"pass_rate": 0.75}}) == 0.75
 

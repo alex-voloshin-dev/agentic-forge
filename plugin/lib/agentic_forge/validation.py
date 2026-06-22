@@ -163,18 +163,27 @@ def validate_skill(skill_dir: Path) -> Report:
 
     # local references must resolve.
     for match in _LOCAL_REF.finditer(text):
-        ref = match.group(1)
-        if not (skill_dir / ref).exists():
+        ref = match.group(1).split("#", 1)[0].split("?", 1)[0]  # drop #anchor / ?query
+        if ref and not (skill_dir / ref).exists():
             report.error(f"{rel}/SKILL.md", f"referenced file does not exist: {ref}")
 
-    # evals.json contract is mandatory.
-    _check_evals(skill_dir / "evals" / "evals.json", f"{rel}/evals/evals.json", report, "skill")
+    # evals.json contract is mandatory; its fixture files must exist (no silent rot).
+    _check_evals(
+        skill_dir / "evals" / "evals.json",
+        f"{rel}/evals/evals.json",
+        report,
+        "skill",
+        skill_dir.parent.parent,
+    )
 
     return report
 
 
-def _check_evals(evals_path: Path, loc: str, report: Report, expected_type: str) -> None:
-    """Require a present, schema-valid evals contract whose component.type matches."""
+def _check_evals(
+    evals_path: Path, loc: str, report: Report, expected_type: str, plugin_dir: Path
+) -> None:
+    """Require a present, schema-valid evals contract whose component.type matches and whose
+    eval-case fixture files all exist (so referenced fixtures can't silently rot)."""
     if not evals_path.is_file():
         report.error(loc, "missing required eval contract (readiness contract)")
         return
@@ -186,10 +195,15 @@ def _check_evals(evals_path: Path, loc: str, report: Report, expected_type: str)
     errors = evals_mod.validate_evals(data)
     for err in errors:
         report.error(loc, err)
-    if not errors:
-        actual = (data.get("component") or {}).get("type")
-        if actual != expected_type:
-            report.error(loc, f"component.type must be '{expected_type}', got '{actual}'")
+    if errors:
+        return
+    actual = (data.get("component") or {}).get("type")
+    if actual != expected_type:
+        report.error(loc, f"component.type must be '{expected_type}', got '{actual}'")
+    for case in data.get("evals") or []:
+        for rel_file in case.get("files") or []:
+            if not (plugin_dir / rel_file).is_file():
+                report.error(loc, f"eval case {case.get('id')}: missing fixture file {rel_file}")
 
 
 def validate_agent(agent_md: Path) -> Report:
@@ -216,7 +230,9 @@ def validate_agent(agent_md: Path) -> Report:
 
     # Agents are gated like skills: a sibling eval contract is mandatory.
     evals_path = agent_md.parent / "evals" / f"{name}.evals.json"
-    _check_evals(evals_path, f"agents/evals/{name}.evals.json", report, "agent")
+    _check_evals(
+        evals_path, f"agents/evals/{name}.evals.json", report, "agent", agent_md.parent.parent
+    )
 
     return report
 

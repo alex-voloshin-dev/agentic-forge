@@ -3,6 +3,28 @@ from __future__ import annotations
 from agentic_forge.validation import validate_skill
 
 
+def test_anchor_link_resolves(make_skill) -> None:
+    # A link with a #anchor / ?query must not be flagged when the target file exists.
+    skill = make_skill(
+        body="See [g](references/g.md#section).\n",
+        extra_files={"references/g.md": "# G\n"},
+    )
+    report = validate_skill(skill)
+    assert report.ok, report.render()
+
+
+def test_missing_eval_fixture_reported(make_skill) -> None:
+    case = {"id": 1, "prompt": "p", "files": ["eval/fixtures/nope.txt"], "assertions": ["x"]}
+    evals = {
+        "skill_name": "demo",
+        "evals": [case],
+        "component": {"id": "demo", "type": "skill", "purpose": "p"},
+        "thresholds": {"tier2_quality": {"min_pass_rate": 0.8, "runs": 5}},
+    }
+    report = validate_skill(make_skill(evals=evals))
+    assert any("missing fixture file" in i.message for i in report.errors)
+
+
 def test_valid_skill_passes(make_skill) -> None:
     skill = make_skill()
     report = validate_skill(skill)

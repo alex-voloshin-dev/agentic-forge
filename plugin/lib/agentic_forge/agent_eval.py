@@ -203,7 +203,10 @@ def grade_output(
         data = parse_grading(raw)
     results = data.get("assertion_results") or []
     total = len(assertions)
-    passed = sum(1 for r in results if r.get("passed") is True)
+    # Cap at the assertion count: a grader that returns extra/duplicate results must not push
+    # passed > total (pass_rate > 1.0 would inflate the Tier-2 gate). Missing results are
+    # implicitly failures because total is the assertion count, not len(results).
+    passed = min(sum(1 for r in results if r.get("passed") is True), total)
     data["assertion_results"] = results
     data["summary"] = {
         "total": total,
@@ -232,7 +235,12 @@ def check_wiring(role: str, plugin_dir: Path) -> list[str]:
         cid = case.get("id")
         if not (case.get("assertions") or []):
             problems.append(f"{role} case {cid}: no assertions")
-        for rel in case.get("files") or []:
+        files = case.get("files") or []
+        basenames = [Path(rel).name for rel in files]
+        if len(set(basenames)) != len(basenames):
+            # materialize_fixtures flattens to basename, so a collision would silently overwrite.
+            problems.append(f"{role} case {cid}: duplicate fixture basenames {basenames}")
+        for rel in files:
             if not (plugin_dir / rel).is_file():
                 problems.append(f"{role} case {cid}: missing fixture {rel}")
     return problems
@@ -261,13 +269,18 @@ def run_role(
     if not isolate and is_write_role(plugin_dir, role):
         isolate = True  # safety: a write role must never run against the real repo
     thresholds = contract.get("thresholds") or {}
-    n = runs or (thresholds.get("tier2_quality") or {}).get("runs") or DEFAULT_RUNS
+    if runs is not None and runs <= 0:
+        raise ValueError("runs must be a positive integer")
+    contract_runs = (thresholds.get("tier2_quality") or {}).get("runs") or DEFAULT_RUNS
+    n = runs if runs is not None else contract_runs
     cases = contract.get("evals") or []
     default_work = workdir or plugin_dir
 
     gradings: list[dict[str, Any]] = []
     for _ in range(n):
         run_results: list[dict[str, Any]] = []
+        run_total = 0
+        run_passed = 0
         for case in cases:
             work = Path(tempfile.mkdtemp(prefix="af-eval-")) if isolate else default_work
             try:
@@ -285,15 +298,17 @@ def run_role(
                 if isolate:
                     shutil.rmtree(work, ignore_errors=True)
             run_results.extend(graded["assertion_results"])
-        total = len(run_results)
-        passed = sum(1 for r in run_results if r.get("passed") is True)
+            # Aggregate over EXPECTED assertion counts (grade_output's summary), not len(results)
+            # — so a grader that omits or duplicates results can't skew the run's pass-rate.
+            run_total += graded["summary"]["total"]
+            run_passed += graded["summary"]["passed"]
         gradings.append(
             {
                 "assertion_results": run_results,
                 "summary": {
-                    "total": total,
-                    "passed": passed,
-                    "pass_rate": (passed / total) if total else 0.0,
+                    "total": run_total,
+                    "passed": run_passed,
+                    "pass_rate": (run_passed / run_total) if run_total else 0.0,
                 },
             }
         )

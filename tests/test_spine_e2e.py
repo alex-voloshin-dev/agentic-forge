@@ -178,6 +178,13 @@ def test_prepare_workspace_seed(tmp_path: Path) -> None:
     assert (repo / "docs" / "sdlc" / "task-priorities" / "prd.md").is_file()
 
 
+def test_prepare_workspace_reusable(tmp_path: Path) -> None:
+    # Re-running against the same dest must not crash (rmtree the prior repo first).
+    prepare_workspace(PLUGIN, tmp_path)
+    repo = prepare_workspace(PLUGIN, tmp_path)
+    assert (repo / "taskstore.py").is_file()
+
+
 def test_check_research_product_plan(tmp_path: Path) -> None:
     repo = prepare_workspace(PLUGIN, tmp_path)
     sdlc = repo / "docs" / "sdlc" / "task-priorities"
