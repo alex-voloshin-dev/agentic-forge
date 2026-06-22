@@ -73,7 +73,9 @@ skills link to it rather than restating it:
   `software-engineer` runs against a git worktree created by the `develop` workflow, so
   parallel/iterative work does not touch the main checkout.
 
-Deferred to later stages: fan-out/fan-in research at scale, Ralph loops.
+Deferred to later stages: Ralph loops, and research fan-out at scale (the fan-out/fan-in
+*pattern* itself shipped in Stage 2 — see [spine.md](spine.md) and
+[patterns/fan-out-fan-in.md](../../plugin/patterns/fan-out-fan-in.md)).
 
 ## Agent evaluation
 

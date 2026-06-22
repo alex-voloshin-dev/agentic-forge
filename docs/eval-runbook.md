@@ -31,11 +31,13 @@ Tier-2 because their quality is exercised end-to-end by the Tier-3 spine E2E plu
 Tier-2 of the roles they fork. A few judgment-heavy or loaded-on-demand skills (`deep-review`,
 `skill-factory`, and the knowledge packs `engineering-standards` / `*-patterns` such as
 `python-patterns`) *do* declare a `tier2_quality` threshold in their `evals.json`: that is a
-**readiness contract** — the knowledge packs are exercised through the `software-engineer`'s
-Tier-2; others run via the skill-creator eval harness or a
-manual LLM-judge pass — there is no automated skill-Tier-2 CLI yet (it is a roadmap item).
-Treat those thresholds as the quality bar to clear before release, not as a gate this CLI
-enforces.
+**readiness contract**, not a gate this CLI runs. There is **no automated execution path for it
+yet** — there is no skill-Tier-2 CLI, and the `software-engineer` eval cases do not currently
+exercise pack-specific idioms — so meet it with a manual LLM-judge pass (or the skill-creator
+harness) before release. The roadmap item that would make it automatic is wiring **pack-aware
+eval cases into the `software-engineer`'s Tier-2** (a Python case whose assertions check
+`python-patterns`-idiomatic output, etc.). Treat these thresholds as the quality bar to clear
+before release, not as a gate this CLI enforces.
 
 ## Authentication — use your Claude subscription (recommended)
 

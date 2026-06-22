@@ -237,6 +237,27 @@ The same review found docs that lagged the built code; brought them current:
   `skill-factory` are readiness contracts run via the harness / manual LLM-judge (an automated
   skill-Tier-2 CLI is a roadmap item), not gates this CLI enforces.
 
+### Changed — deep-review pass (docs currency + completeness audit)
+
+A four-reviewer deep review (docs / lib+gates / skills / completeness). Three lost their final
+synthesis to a transient API rate-limit, so docs/lib/skills were re-reviewed inline; the
+completeness + eval-pyramid audit completed — **no blockers/majors**, and it independently
+verified Tier-0 and agent-Tier-2 are real (272 tests, lib coverage 99%). Applied its findings:
+
+- **Doc currency:** `spine.md` status corrected from "Designed (pre-implementation)" to **Built**
+  (it contradicted its own body); `README` status + checklist now state multi-stack/by-stack is
+  built (nine packs), not "next"; `overview.md` L2 notes the spine is stack-parametric;
+  `engine.md`'s "fan-out/fan-in deferred" line clarified (the *pattern* shipped in Stage 2 — only
+  research-at-scale and Ralph remain deferred).
+- **No overstated coverage:** the eval-runbook now states plainly that the `*-patterns` /
+  `engineering-standards` `tier2_quality` thresholds have **no automated execution path yet** (the
+  `software-engineer` eval cases don't exercise pack idioms) — meet them via a manual judge until
+  pack-aware SE cases land; that wiring is the named roadmap item.
+- **Honesty in code/schema:** `spine_e2e.py`'s docstring now notes the Python toolchain is
+  hardcoded for the fixture (a non-Python E2E would drive the command from
+  `stacks.primary(repo).toolchain.test`); `evals.schema.json` marks the unused `tier3_e2e` and
+  the extra `component.type` enum values as **reserved** for future component types.
+
 ### Added — by-stack: javascript / jvm / dotnet / ruby / php packs (pack coverage complete)
 
 Five more `*-patterns` reference packs (off-listing, `disable-model-invocation`), completing pack

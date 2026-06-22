@@ -30,7 +30,7 @@ actually experience.
 | --- | --- | --- |
 | L0 Meta-core | `skill-factory`, eval-harness, `lib/`, Tier-0 validator. Builds everything else. | **Built** |
 | L1 Engine | Subagent roles + native patterns (router, fan-out/fan-in, review loop, Ralph, worktree, file handoff). | **Built** — six roles + handoff schemas + fan-out-fan-in / multi-aspect-review / adversarial-review / review-loop / worktree patterns; Ralph runs natively (not reimplemented). |
-| L2 Workflow skills | A phase-workflow per SDLC phase; each fans out subagents and synthesizes a handoff artifact; depth in references. | **Built** — six-phase spine (research → product → architecture → plan → develop → code-review), proven end-to-end (Tier-3). |
+| L2 Workflow skills | A phase-workflow per SDLC phase; each fans out subagents and synthesizes a handoff artifact; depth in references. | **Built** — six-phase spine (research → product → architecture → plan → develop → code-review), proven end-to-end (Tier-3); stack-parametric via `stacks.py` detection + nine `*-patterns` packs. |
 | L3 Knowledge base | Obsidian-format vault the plugin deploys, maintains, and reads for context. | Planned |
 | L4 Guardrails | Hooks for security, the test/eval gate, logging, subagent budgets. | Planned |
 

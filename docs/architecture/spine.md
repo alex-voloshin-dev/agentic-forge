@@ -1,6 +1,7 @@
 # Stage 2 — SDLC spine (design)
 
-Status: Designed (pre-implementation), workflow model. Decisions in
+Status: **Built** — the six-phase spine is implemented and proven end-to-end (Tier-3), and
+by-stack ships a `*-patterns` pack for every registered stack. Workflow model; decisions in
 [ADR 0013](decisions/0013-spine-workflow-chain.md) (which supersedes the earlier "thin router"
 ADR 0012). Builds on the Stage 1 engine ([engine.md](engine.md)), the handoff contract
 ([patterns/handoff.md](../../plugin/patterns/handoff.md)), and reuses ideas from the ancestor

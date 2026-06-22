@@ -10,7 +10,10 @@ real run drives each phase with the `claude` CLI.
 Fidelity note: in this environment the plugin's subagents are not registered, so each phase is
 approximated as a single CLI call seeded with the phase skill's body (rather than the skill
 forking its roles). The checkpoints validate the *artifacts and code*, which is what the Tier-3
-scenario gates.
+scenario gates. The repo's test command is the **Python toolchain hardcoded for this fixture**
+(``python -m pytest``); the by-stack detection wiring (``stacks``) is unit-tested separately and
+asserted against this workspace in ``tests/test_spine_e2e.py``. A non-Python E2E would drive the
+command from ``stacks.primary(repo).toolchain.test`` instead.
 """
 
 from __future__ import annotations

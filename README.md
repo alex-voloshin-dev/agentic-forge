@@ -18,8 +18,10 @@ Claude Code loads automatically when they are relevant. It is built on three com
 Layer 0 (meta-core) and Layer 1 (engine: roles, handoff, fan-out/review-loop/worktree
 patterns) are complete and green; the six engine roles pass Tier-2. Layer 2 — the six-phase
 SDLC spine (research → product → architecture → plan → develop → code-review) — is built and
-proven end-to-end (Tier-3); multi-stack support is next. See the [roadmap](docs/roadmap.md).
-The knowledge base is Layer 3 (not built yet).
+proven end-to-end (Tier-3). Multi-stack support is built too — by-stack detection plus a
+`*-patterns` pack for each of the nine registered stacks (Python, TypeScript, JavaScript, Go,
+Rust, JVM, .NET, Ruby, PHP). See the [roadmap](docs/roadmap.md). The knowledge base is Layer 3
+(not built yet).
 
 - [x] Repository skeleton, manifests, tooling
 - [x] Tier-0 deterministic validator + tests
@@ -30,6 +32,7 @@ The knowledge base is Layer 3 (not built yet).
 - [x] Layer 1 engine (minimal) — roles, handoff helper, patterns
 - [x] agent Tier-2 eval runner (subscription / CI)
 - [x] Layer 2 SDLC spine — six phase-workflow skills, proven end-to-end (Tier-3)
+- [x] Layer 2 by-stack — detection + a `*-patterns` pack per registered stack (9 languages)
 
 ## Documentation
 
