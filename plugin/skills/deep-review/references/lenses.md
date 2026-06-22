@@ -13,11 +13,15 @@ target; one reviewer per lens, prompted adversarially, returning structured find
   built-in), dead code, needless complexity, clearer equivalents.
 - **Security** — injection, unvalidated input, authz/authn gaps, secrets, unsafe defaults.
 - **Tests & coverage** — missing/weak tests, tests that assert nothing, untested edge cases,
-  tests weakened to pass.
+  tests weakened to pass. 100% *line* coverage can hide an uncovered *branch* (check
+  `--cov-branch`); don't claim coverage the run doesn't actually show.
 - **Contract & API** — breaking changes, signature/behavior drift, back-compat.
 - **Robustness at seams** — code parsing external / LLM / tool output: does it handle
   malformed input (prose-wrapped JSON, stray tokens, empty)? brittle greedy regex vs balanced
-  parsing; retry/fallback on a bad response.
+  parsing; retry/fallback on a bad response. For a matcher (regex/config/hint parser), check
+  precision: does it over-match lookalikes (e.g. `stackoverflow` for a `stack` key) or bridge
+  newlines (`\s` vs `[ \t]`)? Test the forms that should match **and** the near-misses that
+  should not.
 - **Safety defaults** — are protective behaviors enforced, not opt-in? (a sandbox/isolation
   that only holds when a flag is passed is a latent hazard).
 
@@ -67,6 +71,10 @@ When the artifact is an eval, a fixture, or a test harness:
 
 ## Cross-cutting (any target)
 
+- **Packaging / install boundary** — a shipped artifact (skill/agent) must reference only what
+  ships with it; a relative link that resolves in the repo but points outside the published root
+  (e.g. `../../../docs/` from a skill) dangles once the plugin is installed. Cite such material
+  by name instead of linking it.
 - **Completeness critic** — "what's missing — a lens not run, a claim unverified, a file not
   read?" Its answer becomes the next round.
 - **Living catalog** — when a review surfaces a new failure mode, add it here as a lens so

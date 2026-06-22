@@ -237,6 +237,20 @@ The same review found docs that lagged the built code; brought them current:
   `skill-factory` are readiness contracts run via the harness / manual LLM-judge (an automated
   skill-Tier-2 CLI is a roadmap item), not gates this CLI enforces.
 
+### Changed — deep-review lens catalog enriched (from this session's reviews)
+
+Per the "living catalog" rule, added three durable lenses to
+`plugin/skills/deep-review/references/lenses.md` from failure modes surfaced this session:
+
+- **Matcher precision** (under *Robustness at seams*) — a regex/config/hint parser that
+  over-matches lookalikes (`stackoverflow` for a `stack` key) or bridges newlines (`\s` vs
+  `[ \t]`); test the forms that should match and the near-misses that should not.
+- **Branch-vs-line coverage honesty** (under *Tests & coverage*) — 100% line coverage can hide
+  an uncovered branch (`--cov-branch`); don't claim coverage the run doesn't show.
+- **Packaging / install boundary** (cross-cutting) — a shipped skill/agent must reference only
+  what ships with it; a link that resolves in-repo but points outside the published root
+  (`../../../docs/`) dangles once installed — cite by name instead.
+
 ### Fixed — by-stack (multi-language), step 5: adversarial-review hardening
 
 An independent fresh-agent adversarial review of the whole by-stack feature found **no blockers
