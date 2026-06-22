@@ -4,13 +4,13 @@
     {
       "id": 1,
       "prompt": "With rust-patterns loaded, implement a small behaviour change in a Rust crate in a target repo (e.g. add a function that parses input and can fail).",
-      "expected_output": "A scoped change that returns Result with the ? operator and a real error type (thiserror/anyhow), borrows rather than cloning, adds tests covering the behaviour plus a boundary and an Err case, and leaves cargo clippy -- -D warnings and cargo fmt clean using the repo's own commands.",
+      "expected_output": "A scoped change that returns Result with the ? operator and a real error type (thiserror/anyhow), borrows rather than cloning, adds tests covering the behaviour plus a boundary and an Err case, and leaves cargo clippy --all-targets -- -D warnings and cargo fmt clean using the repo's own commands.",
       "files": [],
       "assertions": [
         "Failure is returned as Result<_, E> using `?` and a real error type, not unwrap()/expect() or panic",
         "Parameters borrow (&str/&[T]) rather than taking owned String/Vec or cloning to satisfy the borrow checker",
         "Tests cover the happy path plus a boundary and an Err case (table or rstest)",
-        "cargo clippy -- -D warnings is clean and cargo fmt is applied",
+        "cargo clippy --all-targets -- -D warnings is clean and cargo fmt is applied",
         "No existing test is weakened, skipped, or deleted; no new unsafe without a documented invariant"
       ]
     },

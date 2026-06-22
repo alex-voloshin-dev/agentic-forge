@@ -24,8 +24,8 @@ Rust work to. (Mechanism: ADR 0015, by-stack detection + reference packs.)
 | lint | `cargo clippy --all-targets -- -D warnings` | clean (no new `#[allow]`) |
 | format | `cargo fmt` | applied (rustfmt is canonical) |
 
-Run `cargo clippy -- -D warnings` and `cargo fmt` on the change before declaring done; keep
-`Cargo.toml`/`Cargo.lock` consistent. Never silence a lint to pass — fix the cause.
+Run `cargo clippy --all-targets -- -D warnings` and `cargo fmt` on the change before declaring
+done; keep `Cargo.toml`/`Cargo.lock` consistent. Never silence a lint to pass — fix the cause.
 
 ## Idioms
 
@@ -53,12 +53,13 @@ Run `cargo clippy -- -D warnings` and `cargo fmt` on the change before declaring
 - **`unsafe` without a documented invariant**; needless `unsafe`.
 - **Blocking in async** (sync blocking calls on the runtime); **holding a lock across `.await`**
   (contention/deadlock).
-- **Integer overflow** — panics in debug, wraps in release; use `checked_*`/`saturating_*`/
-  `wrapping_*`. **`Rc`/`RefCell` reference cycles** leak.
+- **Integer overflow** — panics when `overflow-checks` is on (the debug/test default), wraps in
+  release by default; use `checked_*`/`saturating_*`/`wrapping_*`. **`Rc`/`RefCell` reference
+  cycles** leak (break them with `Weak`).
 
 ## Definition of done (Rust)
 
-`cargo check`/`cargo build` clean, `cargo clippy -- -D warnings` clean, `cargo fmt` applied,
+`cargo check`/`cargo build` clean, `cargo clippy --all-targets -- -D warnings` clean, `cargo fmt` applied,
 `cargo test` green with the new boundary/`Err` cases (and doc-tests), no new
 `unwrap`/`expect`/`unsafe` in non-test code without a documented reason, public API documented —
 using the repo's own commands where declared.

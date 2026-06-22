@@ -256,6 +256,11 @@ The same review found docs that lagged the built code; brought them current:
   through the `software-engineer`'s Tier-2. Body 65 lines; Tier-0 green.
 - **Docs:** spine.md and roadmap mark python/typescript/go/rust packs shipped (further packs
   incremental).
+- **Independently adversarial-reviewed** (deep Rust-expertise agent; no blockers/majors, gate
+  green) and refined from its findings: standardise clippy on `--all-targets -- -D warnings`
+  across the prose/DoD/evals (so the lint gate also covers test code, matching the toolchain
+  table); state integer-overflow as governed by `overflow-checks` (debug/test default) rather
+  than an absolute debug-vs-release rule; name `Weak` as the fix for `Rc`/`RefCell` cycles.
 
 ### Added — by-stack: go-patterns (third stack pack)
 
