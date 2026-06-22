@@ -18,7 +18,7 @@ architecture before we invest in breadth.
 | --- | --- | --- |
 | 0 | Meta-core (L0) | **Done** |
 | 1 | Engine foundations (L1, minimal) | **Done** — see [engine.md](architecture/engine.md) |
-| 2 | SDLC spine vertical slice (L2) | Built — six-phase spine proven E2E; by-stack (detection + Python pack + wiring) built, further packs incremental |
+| 2 | SDLC spine vertical slice (L2) | Built — six-phase spine proven E2E; by-stack (detection + Python/TypeScript packs + wiring) built, further packs incremental |
 | 3 | Knowledge base (L3) | Planned |
 | 4 | Quality & operations domains | Planned |
 | 5 | Product & marketing domains | Planned |
@@ -89,10 +89,10 @@ the `software-engineer`/`security-engineer`/`qa-engineer` roles, the `engineerin
 skill, and the fan-out/multi-aspect-review patterns. The **full six-phase spine is proven end-to-end** (Tier-3: the `--runner claude` scenario
 carried a feature from `FEATURE_REQUEST` through all six phases on a fixture repo — each handoff
 schema-valid, code passing the repo suite, review approved; see CHANGELOG). The **by-stack
-mechanism is built** (ADR 0015): deterministic `stacks.detect`, the `python-patterns` pack, and
-`develop`/`code-review`/roles consuming the stack profile; the E2E fixture is detected as
-Python. **Remaining:** further `*-patterns` packs beyond Python, and a real Tier-1 runner on
-live descriptions.
+mechanism is built** (ADR 0015): deterministic `stacks.detect`, the `python-patterns` +
+`typescript-patterns` packs, and `develop`/`code-review`/roles consuming the stack profile; the
+E2E fixture is detected as Python. **Remaining:** further `*-patterns` packs beyond Python and
+TypeScript, and a real Tier-1 runner on live descriptions.
 
 Goal: one continuous path from idea to reviewed code, proving the architecture end to end.
 

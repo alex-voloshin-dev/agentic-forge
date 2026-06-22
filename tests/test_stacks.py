@@ -43,6 +43,7 @@ def test_typescript_supersedes_javascript(tmp_path: Path) -> None:
     profiles = detect(_repo(tmp_path, {"tsconfig.json": "{}", "package.json": "{}"}))
     ids = [p.stack_id for p in profiles]
     assert ids == ["typescript"]  # javascript suppressed when tsconfig present
+    assert profiles[0].pack == "typescript-patterns"
 
 
 def test_javascript_from_bare_package_json(tmp_path: Path) -> None:
@@ -189,9 +190,9 @@ def test_format_profile_unknown_and_no_pack(tmp_path: Path) -> None:
 # --- registry invariants -----------------------------------------------------
 
 
-def test_only_python_ships_a_pack_today() -> None:
+def test_shipped_packs() -> None:
     packs = {sid: spec.pack for sid, spec in STACKS.items() if spec.pack}
-    assert packs == {"python": "python-patterns"}
+    assert packs == {"python": "python-patterns", "typescript": "typescript-patterns"}
 
 
 def test_every_spec_has_a_test_command() -> None:

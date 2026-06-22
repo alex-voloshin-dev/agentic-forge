@@ -1,0 +1,38 @@
+{
+  "skill_name": "typescript-patterns",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "With typescript-patterns loaded, implement a small behaviour change in a TypeScript module in a target repo (e.g. add a typed parameter with validation).",
+      "expected_output": "A scoped, strictly-typed change that mirrors the repo's conventions, adds tests (the repo's runner) covering the behaviour plus a boundary and an error case, and leaves tsc --noEmit and eslint green using the repo's own scripts and package manager.",
+      "files": [],
+      "assertions": [
+        "The change is strictly typed: no `any` introduced and no unsound `as`/non-null `!` cast",
+        "tsc --noEmit passes under strict with no new @ts-ignore/@ts-expect-error",
+        "Tests are added covering the happy path plus a boundary and an error case",
+        "The repo's package manager (from the lockfile) and scripts are used, not assumed npm",
+        "No existing test is weakened, skipped, or deleted; eslint is clean"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "With typescript-patterns loaded, add async code that fetches an external resource and parses user-supplied JSON.",
+      "expected_output": "Awaited async with no floating promise, JSON narrowed from unknown into a typed shape (not used as any), errors handled by type, and deterministic tests that stub the resource and fake timers; no secret logged.",
+      "files": [],
+      "assertions": [
+        "Every promise is awaited (no floating promise) and rejections are handled",
+        "Parsed JSON is validated/narrowed into a typed shape rather than used as any",
+        "Tests are deterministic (resource stubbed, timers faked; no real network/clock)",
+        "No secret or credential is logged or interpolated into log output"
+      ]
+    }
+  ],
+  "component": {
+    "id": "typescript-patterns",
+    "type": "skill",
+    "purpose": "The TypeScript stack conventions and toolchain the software-engineer/qa-engineer (and the code-review lint aspect) apply when the detected stack is TypeScript; a lean, loaded-on-demand knowledge pack exercised through the software-engineer's Tier-2."
+  },
+  "thresholds": {
+    "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }
+  }
+}

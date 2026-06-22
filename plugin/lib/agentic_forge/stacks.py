@@ -95,6 +95,7 @@ STACKS: dict[str, StackSpec] = {
             typecheck="tsc --noEmit",
             format="prettier --write .",
         ),
+        pack="typescript-patterns",
         specificity=3,
     ),
     "javascript": StackSpec(

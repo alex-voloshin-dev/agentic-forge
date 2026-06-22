@@ -237,6 +237,25 @@ The same review found docs that lagged the built code; brought them current:
   `skill-factory` are readiness contracts run via the harness / manual LLM-judge (an automated
   skill-Tier-2 CLI is a roadmap item), not gates this CLI enforces.
 
+### Added — by-stack: typescript-patterns (second stack pack)
+
+- **`plugin/skills/typescript-patterns/`** — the second `*-patterns` reference pack (off-listing,
+  `disable-model-invocation`), modelled on `python-patterns`: the TS toolchain (prefer the repo's
+  `package.json` scripts and the package manager the lockfile implies — npm/pnpm/yarn/bun;
+  `tsc --noEmit` / eslint / prettier defaults), strict-typing idioms (`strict` on, no `any`,
+  `unknown` + narrowing, discriminated unions, `import type`, `satisfies`, union literals over
+  `enum`), testing (the repo's runner, type-level tests, determinism, boundary + error cases),
+  and high-value pitfalls (unsound `as` / non-null `!`, floating promises, `==` vs `===`, loose
+  `tsconfig`, `enum` cost).
+- **Registry wiring:** `stacks.STACKS["typescript"].pack = "typescript-patterns"`, so a
+  `tsconfig.json` repo now routes to the pack; updated the registry-invariant test and added a
+  TS `.pack` assertion. No workflow-skill change needed — `develop` / `code-review` / the roles
+  pick it up generically via the profile.
+- **`evals/evals.json`** — `tier2_quality` readiness contract (no `tier1_trigger`), exercised
+  through the `software-engineer`'s Tier-2 like `python-patterns`. Body 64 lines; Tier-0 green.
+- **Docs:** spine.md and roadmap mark `python-patterns` + `typescript-patterns` shipped (further
+  packs incremental). Bare JavaScript (no `tsconfig.json`) stays detection-only for now.
+
 ### Changed — deep-review lens catalog enriched (from this session's reviews)
 
 Per the "living catalog" rule, added three durable lenses to
