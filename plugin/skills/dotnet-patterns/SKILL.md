@@ -26,9 +26,10 @@ The .NET stack pack (C#): loaded by the `software-engineer` / `qa-engineer` role
 - **Nullable reference types on** (`<Nullable>enable</Nullable>` / `#nullable enable`); honour
   the warnings rather than `!`-suppressing.
 - **`async`/`await` all the way** — never block on async (`.Result` / `.Wait()` deadlock);
-  `ConfigureAwait(false)` in library code; `CancellationToken` flows through.
+  `ConfigureAwait(false)` in reusable **library** code (avoids capturing a caller's sync context;
+  unneeded in ASP.NET Core app code, which has none); `CancellationToken` flows through.
 - `record` types for data, switch expressions + pattern matching, **LINQ** (enumerate once),
-  `using` declarations for `IDisposable`, expression-bodied members, `var`.
+  **`using` / `await using`** for `IDisposable` / `IAsyncDisposable`, expression-bodied members, `var`.
 - Constructor **dependency injection** via the built-in container; program to interfaces.
 
 ## Testing
@@ -39,9 +40,10 @@ The .NET stack pack (C#): loaded by the `software-engineer` / `qa-engineer` role
 
 ## Pitfalls (C#-specific, high-value)
 
-- **`async void`** (except event handlers); **blocking on async** (`.Result`/`.Wait()` →
-  deadlock in a sync context).
-- **Not disposing `IDisposable`** (missing `using`); missing `ConfigureAwait(false)` in libs.
+- **`async void`** (except event handlers) — its exceptions escape the caller and can crash the
+  process; **blocking on async** (`.Result`/`.Wait()` → deadlock in a sync context).
+- **Not disposing `IDisposable`/`IAsyncDisposable`** (missing `using`/`await using`); missing
+  `ConfigureAwait(false)` in libs.
 - **Null-reference** despite NRTs (don't suppress with `!`); **multiple enumeration** of an
   `IEnumerable`; exceptions used for control flow; `==` on reference types vs `.Equals`.
 

@@ -133,6 +133,9 @@ STACKS: dict[str, StackSpec] = {
         id="jvm",
         display="JVM (Java/Kotlin)",
         manifests=("pom.xml", "build.gradle", "build.gradle.kts"),
+        # JVM spans Maven/Gradle and has no single canonical formatter (spotless/ktlint/
+        # checkstyle vary), so this default is a minimal fallback — jvm-patterns detects the
+        # build tool/wrapper and defers to the repo's configured lint/format commands.
         toolchain=Toolchain(test="mvn test"),
         pack="jvm-patterns",
         specificity=2,

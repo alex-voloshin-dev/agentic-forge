@@ -18,8 +18,8 @@ The JVM stack pack (Java and Kotlin): loaded by the `software-engineer` / `qa-en
 
 | Job | Conventional command | Gate |
 | --- | --- | --- |
-| test | `./gradlew test` / `mvn test` | green; new behaviour covered |
-| build | `./gradlew build` / `mvn verify` | compiles + checks pass |
+| test | `./gradlew test` / `./mvnw test` | green; new behaviour covered |
+| build | `./gradlew build` / `./mvnw verify` | compiles + checks pass |
 | format/lint | spotless / ktlint / checkstyle (if configured) | clean |
 
 ## Idioms
@@ -28,7 +28,7 @@ The JVM stack pack (Java and Kotlin): loaded by the `software-engineer` / `qa-en
   `null`, Streams + collectors, **try-with-resources** for `AutoCloseable`, `final`/immutability,
   `var` for locals, switch/pattern matching (Java 21).
 - **Kotlin:** lean on **null-safety** (`?`, avoid `!!`), `data class`, `when`, `val` over `var`,
-  extension functions, **coroutines** for async, `sealed` hierarchies, scope functions sparingly.
+  extension functions, **coroutines** for async, `sealed` hierarchies.
 - Constructor injection over field injection; program to interfaces; keep classes small.
 
 ## Testing

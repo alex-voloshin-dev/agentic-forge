@@ -23,7 +23,7 @@
         "Async all the way: no blocking on async via .Result or .Wait(), and no async void (except event handlers)",
         "Library code uses ConfigureAwait(false) and a CancellationToken is accepted/propagated",
         "Tests are deterministic (no real network/clock; the clock is faked if used)",
-        "IDisposable resources from the call are disposed"
+        "IDisposable/IAsyncDisposable resources from the call are disposed (using / await using)"
       ]
     }
   ],

@@ -264,6 +264,13 @@ coverage for **every registered stack**:
   `engineering-standards`-only fallback now applies to unrecognized (`unknown`) repos.
 - Each pack ships a 2-case `tier2_quality` readiness contract (no `tier1_trigger`); bodies
   51–55 lines; full Tier-0 green; `stacks.py` stays 100% line+branch.
+- **Independently adversarial-reviewed** — jvm/dotnet/php by language-expert agents,
+  javascript/ruby inline; **no blockers/majors**. Applied their polish: jvm table uses the
+  `./mvnw` wrapper for symmetry with `./gradlew` (+ a `stacks.py` note that JVM has no canonical
+  formatter default); dotnet adds the `ConfigureAwait(false)` rationale and `await using` /
+  `IAsyncDisposable` coverage (+ eval), and gives `async void` its consequence; php states
+  `declare(strict_types=1)` must be the *first statement*, tags the modern features as 8.0–8.1,
+  and adds the "never silence a checker" line for parity.
 
 ### Added — by-stack: rust-patterns (fourth stack pack)
 

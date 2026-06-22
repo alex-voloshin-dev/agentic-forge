@@ -21,11 +21,15 @@ The PHP stack pack: loaded by the `software-engineer` / `qa-engineer` roles (and
 | static analysis | `vendor/bin/phpstan analyse` (or `psalm`) | clean at the repo's level |
 | format/lint | `vendor/bin/php-cs-fixer fix` (or `phpcs`, PSR-12) | applied |
 
+Run PHPStan/Psalm and PHP-CS-Fixer on the change before declaring done; never silence a checker
+(no new baseline entries or `@phpstan-ignore`) — fix the cause or justify it in the diff.
+
 ## Idioms
 
-- **`declare(strict_types=1)`** at the top of every file; **type declarations** on params,
-  returns, and properties. Follow **PSR-12** style and **PSR-4** autoloading (via Composer).
-- Modern PHP: **constructor property promotion** (8.0), **enums** (8.1), **readonly** properties,
+- **`declare(strict_types=1)`** as the first statement of every file (directly after `<?php`);
+  **type declarations** on params, returns, and properties. Follow **PSR-12** style and **PSR-4**
+  autoloading (via Composer).
+- Modern PHP (8.0–8.1): **constructor property promotion**, **enums**, **readonly** properties,
   the **`match`** expression, named arguments, null-safe **`?->`**.
 - **Parameterised queries** (PDO prepared statements) — never build SQL by string concatenation;
   validate `$_GET`/`$_POST`/external input at the boundary.
