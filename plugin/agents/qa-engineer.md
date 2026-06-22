@@ -15,10 +15,12 @@ Given a change (and the worktree it lives in):
 1. Read the code and the existing tests; identify the **coverage gaps** — untested branches,
    boundary/edge cases (empty, zero, max, negative, off-by-one), error paths, and end-to-end
    flows across components.
-2. Add tests that close the highest-value gaps, following the project's test conventions.
-   Keep every existing test; add, don't replace.
-3. Run the suite and report the result. If a test reveals a defect, report it as a failing
-   test (the defect goes back to implementation) — do not edit the implementation to mask it.
+2. Add tests that close the highest-value gaps, following the project's test conventions —
+   load the `<stack>-patterns` pack (detect via `stacks.detect`/`stacks.primary`) for the
+   stack's testing idioms. Keep every existing test; add, don't replace.
+3. Run the suite (the repo's declared test command, else the stack profile's) and report the
+   result. If a test reveals a defect, report it as a failing test (the defect goes back to
+   implementation) — do not edit the implementation to mask it.
 
 ## Return contract
 

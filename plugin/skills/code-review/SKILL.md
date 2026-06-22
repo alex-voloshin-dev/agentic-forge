@@ -22,15 +22,17 @@ as the spine's review step. Not for reviewing docs/design (use `deep-review`), w
 Follow [multi-aspect-review.md](../../patterns/multi-aspect-review.md):
 
 1. **Scope** the change — `git diff` for the branch/PR, or the diff under review (when invoked
-   by `develop`, the worktree diff is supplied to you) — and pick the aspects that apply.
+   by `develop`, the worktree diff is supplied to you) — and pick the aspects that apply. Detect
+   the stack (`stacks.primary`) so the lint aspect runs the right tools.
 2. **Fan out** one reviewer per aspect (independent, structured findings —
    `severity`, `location`, `issue`, `suggestion`, `evidence`; see
    [patterns/fan-out-fan-in.md](../../patterns/fan-out-fan-in.md)):
    - **correctness / reuse** → [`reviewer`](../../agents/reviewer.md) role;
    - **security** → [`security-engineer`](../../agents/security-engineer.md) role;
    - **integration + API** → `reviewer` (or the relevant stack engineer);
-   - **style / lint / warnings** → run the project's real tools (ruff/mypy/eslint/…) and treat
-     their output as evidence.
+   - **style / lint / warnings** → run the detected stack's real tools (the `stacks` profile's
+     toolchain — ruff/mypy, eslint/tsc, go vet, … — preferring the repo's declared commands) and
+     treat their output as evidence.
 3. **Verify** each finding against the source (open the file, re-run the tool) — drop or
    downgrade what doesn't hold.
 4. **Synthesize one verdict.** Aggregate across aspects: **any `blocker`/`major` → `changes`**,

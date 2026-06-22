@@ -237,6 +237,22 @@ The same review found docs that lagged the built code; brought them current:
   `skill-factory` are readiness contracts run via the harness / manual LLM-judge (an automated
   skill-Tier-2 CLI is a roadmap item), not gates this CLI enforces.
 
+### Changed — by-stack (multi-language), step 3: spine consumes stack detection
+
+The spine is now stack-parametric end to end — detection feeds the implement/review phases:
+
+- **`develop`** detects the stack in step 1 (`stacks.primary`/`stacks.detect`), passes the
+  profile to `software-engineer` (which loads the named `<stack>-patterns` pack, e.g.
+  `python-patterns`, or falls back to standards + the profile's toolchain), and the review gate
+  uses the stack's lint/type tools.
+- **`code-review`** detects the stack in Scope so the style/lint aspect runs that stack's real
+  tools (the profile's toolchain — ruff/mypy, eslint/tsc, go vet, …), preferring the repo's
+  declared commands.
+- **`software-engineer`** and **`qa-engineer`** roles now detect the stack deterministically
+  (`stacks.detect`/`primary`) and load the `<stack>-patterns` pack — replacing the earlier
+  prose "detect from CLAUDE.md/AGENTS.md/the repo" with the tested helper. Both prefer the
+  repo's own declared commands over the profile defaults.
+
 ### Added — by-stack (multi-language), step 2: python-patterns pack
 
 - **`plugin/skills/python-patterns/`** — the first stack reference pack: an off-listing

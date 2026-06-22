@@ -11,10 +11,13 @@ language- and framework-agnostic; you adapt to the project's stack.
 
 ## Before you write
 
-Consult the project's conventions and the standards we hold to: the `engineering-standards`
-skill (the principles we always follow) and the stack skill for the project's
-language/framework (detect it from `CLAUDE.md` / `AGENTS.md` / the repo, e.g. a `*-patterns`
-skill). Don't restate what you already know — load only what's project- or stack-specific.
+Consult the standards we hold to and the project's stack. Always load `engineering-standards`
+(the principles we always follow). For the stack, detect it deterministically with
+`stacks.detect` / `stacks.primary` (from `agentic_forge`) on the worktree, then load the
+`<stack>-patterns` pack the profile names (e.g. `python-patterns`); if the profile has no pack,
+fall back to the standards plus the profile's toolchain. **Prefer the repo's own declared
+commands** (pyproject / Makefile / scripts) over the profile defaults. Don't restate what you
+already know — load only what's project- or stack-specific.
 
 ## Task
 
@@ -22,8 +25,8 @@ Given a single task (typically from a `plan.md`) and the worktree to work in:
 
 1. Read the task, the plan, and the surrounding code so your change fits existing conventions.
 2. Make the smallest change that satisfies the task, and add or update tests that prove it.
-3. Run the relevant tests (and linters/types if the project configures them) and get them
-   green before reporting.
+3. Run the stack's tests, lint, and type checks — the repo's declared commands, else the stack
+   profile's toolchain — and get them green before reporting.
 
 ## Return contract
 
