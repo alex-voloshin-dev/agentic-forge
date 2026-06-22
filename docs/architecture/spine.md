@@ -78,9 +78,10 @@ stack-parametric. Mechanism (see [ADR 0015](decisions/0015-by-stack-detection-an
   `engineering-standards`, loaded on demand by `develop` / `code-review` and the
   `software-engineer` / `qa-engineer` roles for the detected stack.
 
-**Status:** detection ships for the common stacks; **`python-patterns` and `typescript-patterns`
-ship**. A detected stack with no pack falls back to `engineering-standards` + the profile's
-toolchain defaults (logged, not silent). Further packs (go, rust, …) ship one at a time.
+**Status:** detection ships for the common stacks; **`python-patterns`, `typescript-patterns`,
+and `go-patterns` ship**. A detected stack with no pack falls back to `engineering-standards` +
+the profile's toolchain defaults (logged, not silent). Further packs (rust, jvm, …) ship one at
+a time.
 
 ## Trigger taxonomy
 

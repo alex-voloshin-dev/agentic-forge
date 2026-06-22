@@ -237,6 +237,25 @@ The same review found docs that lagged the built code; brought them current:
   `skill-factory` are readiness contracts run via the harness / manual LLM-judge (an automated
   skill-Tier-2 CLI is a roadmap item), not gates this CLI enforces.
 
+### Added — by-stack: go-patterns (third stack pack)
+
+- **`plugin/skills/go-patterns/`** — the third `*-patterns` reference pack (off-listing,
+  `disable-model-invocation`), modelled on `python-patterns`/`typescript-patterns`: the Go
+  toolchain (prefer the repo's Makefile/CI; `go test ./... -race`, `go vet`, `gofmt`/`goimports`,
+  `golangci-lint` defaults; keep `go.mod` tidy), idioms (errors as values wrapped with `%w` +
+  `errors.Is`/`As`, accept-interfaces/return-concrete, `defer` cleanup, `context.Context` first
+  param, no goroutine leaks), testing (table-driven `t.Run` subtests, `-race`, determinism), and
+  high-value pitfalls (unchecked errors, nil-interface-vs-nil-pointer, closed-channel send,
+  `defer`-in-loop, loop-variable capture incl. the Go 1.22 change, unchecked type assertions,
+  random map order).
+- **Registry wiring:** `stacks.STACKS["go"].pack = "go-patterns"`; extended `test_shipped_packs`
+  and added an end-to-end `go.mod` → `go-patterns` pack assertion. No workflow-skill change
+  needed — `develop` / `code-review` / the roles pick it up via the profile.
+- **`evals/evals.json`** — `tier2_quality` readiness contract (no `tier1_trigger`), exercised
+  through the `software-engineer`'s Tier-2. Body 66 lines; Tier-0 green.
+- **Docs:** spine.md and roadmap mark `python-patterns` + `typescript-patterns` + `go-patterns`
+  shipped (further packs incremental).
+
 ### Added — by-stack: typescript-patterns (second stack pack)
 
 - **`plugin/skills/typescript-patterns/`** — the second `*-patterns` reference pack (off-listing,

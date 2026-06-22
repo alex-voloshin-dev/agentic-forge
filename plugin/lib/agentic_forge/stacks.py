@@ -115,6 +115,7 @@ STACKS: dict[str, StackSpec] = {
             typecheck="go build ./...",
             format="gofmt -w .",
         ),
+        pack="go-patterns",
         specificity=2,
     ),
     "rust": StackSpec(

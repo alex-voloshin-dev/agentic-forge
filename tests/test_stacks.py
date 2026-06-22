@@ -68,6 +68,10 @@ def test_single_manifest_stacks(
     assert primary(_repo(tmp_path, {manifest: content})).stack_id == expected
 
 
+def test_go_profile_carries_pack(tmp_path: Path) -> None:
+    assert primary(_repo(tmp_path, {"go.mod": "module x\n"})).pack == "go-patterns"
+
+
 def test_jvm_from_gradle(tmp_path: Path) -> None:
     assert primary(_repo(tmp_path, {"build.gradle.kts": "plugins {}\n"})).stack_id == "jvm"
 
@@ -182,7 +186,8 @@ def test_format_profile_python(tmp_path: Path) -> None:
 
 
 def test_format_profile_unknown_and_no_pack(tmp_path: Path) -> None:
-    assert "no pack" in format_profile(primary(_repo(tmp_path, {"go.mod": "module x\n"})))
+    # rust still ships no pack -> the "no pack" fallback wording renders.
+    assert "no pack" in format_profile(primary(_repo(tmp_path, {"Cargo.toml": "[package]\n"})))
     unknown_line = format_profile(UNKNOWN)
     assert "Unknown" in unknown_line and "—" in unknown_line
 
@@ -192,7 +197,11 @@ def test_format_profile_unknown_and_no_pack(tmp_path: Path) -> None:
 
 def test_shipped_packs() -> None:
     packs = {sid: spec.pack for sid, spec in STACKS.items() if spec.pack}
-    assert packs == {"python": "python-patterns", "typescript": "typescript-patterns"}
+    assert packs == {
+        "python": "python-patterns",
+        "typescript": "typescript-patterns",
+        "go": "go-patterns",
+    }
 
 
 def test_every_spec_has_a_test_command() -> None:
