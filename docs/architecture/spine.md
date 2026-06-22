@@ -115,8 +115,9 @@ by-stack step. Prove the slice end to end, record Tier-1/2/3, then add
 3. ~~Thin-slice workflows (evals-first): `architecture`, `develop`, `code-review`.~~ Done.
 4. ~~Tier-3 scenario runner for the slice; prove end to end.~~ Done (Tier-3 PASS).
 5. ~~Complete spine: `research`, `product`, `plan`.~~ Done — all six phase skills built + gated.
-6. **Next:** extend the Tier-3 scenario to all six phases; then the by-stack mechanism +
-   non-Python stacks.
+6. ~~Extend the Tier-3 scenario to all six phases.~~ Done — full six-phase E2E proven.
+7. **Next:** the by-stack mechanism + non-Python stacks; a real Tier-1 runner on live
+   skill descriptions (current Tier-1 is a majority-of-N router sim).
 
 ## Defaults to confirm or override
 
