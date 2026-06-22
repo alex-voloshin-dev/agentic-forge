@@ -237,6 +237,25 @@ The same review found docs that lagged the built code; brought them current:
   `skill-factory` are readiness contracts run via the harness / manual LLM-judge (an automated
   skill-Tier-2 CLI is a roadmap item), not gates this CLI enforces.
 
+### Fixed — by-stack (multi-language), step 5: adversarial-review hardening
+
+An independent fresh-agent adversarial review of the whole by-stack feature found **no blockers
+and no majors** (gate green); applied its actionable items:
+
+- **Regex hardening (`stacks.py`):** a bare `stack:` no longer bridges a newline to capture the
+  next line's token as the value — the delimiter-adjacent separators are now line-local
+  (`[ \t*]`, not `\s`). Behaviour for the documented forms is unchanged.
+- **Test strength (`tests/test_stacks.py`):** added parametrized positive hint-form cases
+  (bullet, bold `**Stack:**`, blockquote, `=` delimiter, quoted value, indented, dotted alias)
+  and negative cases (headings, `stackoverflow:`, newline/YAML-list values), plus a
+  bogus-hint-in-`CLAUDE.md` → real-hint-in-`AGENTS.md` fall-through test — `stacks.py` is now at
+  **100% line + branch** coverage.
+- **Doc clarity:** `develop` now states the engineer **re-derives** the stack profile on the
+  worktree (rather than implying a profile object is handed across); ADR 0015 + spine.md clarify
+  that `tsconfig.json` alone detects TypeScript (suppressing a co-present bare `package.json`);
+  `meta-core.md`'s shared-library tree/table now list `spine_e2e.py` + `stacks.py` and the
+  `run_spine_e2e.py` CLI (closing pre-existing Stage-2 drift).
+
 ### Verified — by-stack (multi-language), step 4: detection closed on the E2E fixture
 
 - **Fixture target-repo gains a `pyproject.toml`** (`plugin/eval/fixtures/spine/target-repo/`)
@@ -293,7 +312,7 @@ The spine becomes stack-parametric (ADR 0015), starting with the detection layer
   data — adding a language is one entry.
 - **`tests/test_stacks.py`** — manifest detection per stack, hint precedence + aliases +
   fall-through, TS/JS suppression, monorepo ranking, unknown, and registry invariants;
-  `stacks.py` at 100% line coverage, ruff + mypy clean.
+  `stacks.py` at 100% line + branch coverage, ruff + mypy clean.
 
 ### Verified — full six-phase spine E2E (Tier-3, 2026-06-21)
 

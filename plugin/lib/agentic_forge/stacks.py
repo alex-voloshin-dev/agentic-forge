@@ -183,8 +183,12 @@ _ALIASES: dict[str, str] = {
     "rb": "ruby",
 }
 
+# Match a `stack:` / `stack =` declaration at the start of a line (allowing markdown bullet /
+# blockquote / bold markers and indentation). The separators around the delimiter are
+# line-local (`[ \t*]`, not `\s`) so a bare `stack:` never bridges a newline to grab the next
+# line's token as the value.
 _HINT_RE = re.compile(
-    r"(?im)^[\s\-*>]*stack[\s*]*[:=][\s*]*[\"'`]?([A-Za-z0-9.#+]+)"
+    r"(?im)^[\s\-*>]*stack[ \t*]*[:=][ \t*]*[\"'`]?([A-Za-z0-9.#+]+)"
 )
 
 

@@ -30,10 +30,11 @@ designing (`architecture`), task breakdown (`plan`), or reviewing already-writte
    implemented sequentially** (parallel worktree-per-component is deferred). `git init` + an
    initial commit first if the target is not yet a git repo.
 3. **Implement.** Delegate to the [`software-engineer`](../../agents/software-engineer.md) role
-   (fork via `Task`), **passing the worktree path** and the stack profile; it loads
-   `engineering-standards` + the detected `<stack>-patterns` pack (e.g. `python-patterns`; if the
-   profile has no pack, the standards + the profile's toolchain), writes the code and its tests
-   in the worktree, and reports files/tests/assumptions. Keep the change scoped to the step.
+   (fork via `Task`), **passing the worktree path**; it re-derives the stack profile there (the
+   same `stacks` helper, so the result matches step 1) and loads `engineering-standards` + the
+   detected `<stack>-patterns` pack (e.g. `python-patterns`; if the profile has no pack, the
+   standards + the profile's toolchain), writes the code and its tests in the worktree, and
+   reports files/tests/assumptions. Keep the change scoped to the step.
 4. **Review gate.** Produce the diff yourself — `git -C <worktree> add -A && git -C <worktree>
    diff --staged` (staging so new files are included) — and pass that diff text to the
    [multi-aspect review](../../patterns/multi-aspect-review.md) (the `code-review` engine:

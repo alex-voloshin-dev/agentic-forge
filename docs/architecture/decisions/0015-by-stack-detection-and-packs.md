@@ -28,7 +28,8 @@ Two forces shape the decision:
   StackProfile]` identifies a target repo's stack(s) from evidence, ranked, with a convenience
   `primary(repo)`. Precedence: (1) an explicit `stack:` hint in the repo's `CLAUDE.md` /
   `AGENTS.md`; (2) known manifest signatures (`pyproject.toml`/`setup.py`/… → python;
-  `tsconfig.json` (+`package.json`) → typescript, bare `package.json` → javascript;
+  `tsconfig.json` → typescript (suppressing a co-present bare `package.json`), bare
+  `package.json` → javascript;
   `go.mod` → go; `Cargo.toml` → rust; `pom.xml`/`build.gradle` → jvm; `*.csproj`/`*.sln` →
   dotnet; `Gemfile` → ruby; `composer.json` → php). An empty/unknown repo yields the `unknown`
   profile (engineering-standards only).

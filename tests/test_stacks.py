@@ -115,6 +115,48 @@ def test_no_hint_when_file_absent(tmp_path: Path) -> None:
     assert primary(_repo(tmp_path, {"Cargo.toml": "[package]\n"})).source == "manifest"
 
 
+def test_bogus_hint_in_first_file_falls_through_to_second(tmp_path: Path) -> None:
+    # CLAUDE.md's stack: value is unrecognised; AGENTS.md has a real one -> the loop continues
+    # to the second file (exercises the normalize-failed -> next-file branch).
+    repo = _repo(tmp_path, {"CLAUDE.md": "stack: cobol\n", "AGENTS.md": "stack: rust\n"})
+    p = primary(repo)
+    assert p.stack_id == "rust"
+    assert p.source == "hint"
+
+
+@pytest.mark.parametrize(
+    ("hint_line", "expected"),
+    [
+        ("stack: python", "python"),
+        ("- stack: ts", "typescript"),  # bullet + alias
+        ("**Stack:** go", "go"),  # bold markers around key/value
+        ("STACK = rust", "rust"),  # case-insensitive + `=` delimiter
+        ("  stack: java", "jvm"),  # indented + alias
+        ('stack: "ruby"', "ruby"),  # quoted value
+        ("> stack: node.js", "javascript"),  # blockquote + dotted alias
+    ],
+)
+def test_hint_forms_parsed(tmp_path: Path, hint_line: str, expected: str) -> None:
+    assert primary(_repo(tmp_path, {"CLAUDE.md": hint_line + "\n"})).stack_id == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "## Tech stack\n",  # heading, no delimiter
+        "stackoverflow: foo\n",  # different word
+        "stack:\npython\n",  # value on the next line must NOT bridge
+        "stack:\n  - python\n",  # YAML block list is not an inline value
+    ],
+)
+def test_non_hints_do_not_match(tmp_path: Path, text: str) -> None:
+    # None is a valid inline `stack:` hint -> detection falls through to the manifest (go).
+    repo = _repo(tmp_path, {"CLAUDE.md": text, "go.mod": "module x\n"})
+    p = primary(repo)
+    assert p.stack_id == "go"
+    assert p.source == "manifest"
+
+
 # --- unknown -----------------------------------------------------------------
 
 

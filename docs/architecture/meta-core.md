@@ -28,9 +28,10 @@ plugin/
   lib/agentic_forge/                  # shared, importable, tested
     naming.py frontmatter.py evals.py validation.py benchmark.py gate.py
     handoff.py agent_eval.py          # L1/eval-harness additions
+    spine_e2e.py stacks.py            # L2 spine: Tier-3 E2E + by-stack detection
   schemas/evals.schema.json           # the component contract schema (superset)
   eval/{README.md, fixtures/}         # harness architecture + agent eval fixtures (L1)
-dev/{validate.py, run_agent_evals.py} # Tier-0 gate + agent Tier-2 runner (CLI)
+dev/{validate.py, run_agent_evals.py, run_spine_e2e.py}  # Tier-0 gate + agent Tier-2 + spine Tier-3 (CLI)
 tests/                                # pytest for lib + harness + plugin integrity
 pyproject.toml                        # uv / pytest / ruff / mypy config
 .github/workflows/{ci.yml,eval.yml}   # Tier-0 always; Tier-1/2 cost-gated
@@ -48,6 +49,8 @@ pyproject.toml                        # uv / pytest / ruff / mypy config
 | `gate.py` | Apply thresholds: `trigger_metrics`, `tier1_trigger`, `tier2_quality`, `evaluate`. Pure functions. |
 | `handoff.py` | Load + validate SDLC handoff artifacts (Markdown + frontmatter) against per-type header schemas (L1). |
 | `agent_eval.py` | Tier-2 quality runner for subagent roles, over a pluggable model seam (eval-harness; see ADR 0011). |
+| `spine_e2e.py` | Tier-3 end-to-end runner for the SDLC spine: carry a feature through all six phases on an isolated fixture copy, with per-phase checkpoints (L2). |
+| `stacks.py` | Deterministic stack detection for target repos: `detect`/`primary` from hints/manifests plus the toolchain registry the spine's `develop`/`code-review` consume (by-stack; ADR 0015). |
 
 Everything here is dependency-light (pyyaml, jsonschema) and unit-tested. Skill scripts and
 hooks import from this package.

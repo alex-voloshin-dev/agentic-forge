@@ -66,7 +66,8 @@ stack-parametric. Mechanism (see [ADR 0015](decisions/0015-by-stack-detection-an
 
 - **Deterministic detection** — `lib/agentic_forge/stacks.py` `detect(repo)` returns ranked
   `StackProfile`s from an explicit `stack:` hint (CLAUDE.md / AGENTS.md) or manifest signatures
-  (`pyproject.toml` → python, `tsconfig.json`/`package.json` → typescript/javascript,
+  (`pyproject.toml` → python, `tsconfig.json` → typescript (suppressing a co-present bare
+  `package.json`), bare `package.json` → javascript,
   `go.mod` → go, `Cargo.toml` → rust, …). Detection is a tested fact, not an LLM guess.
 - **Stack profile input** — each profile carries `stack_id`, `display`, the `pack`
   (`*-patterns` skill name or `None`), and a `toolchain` (`test`/`lint`/`typecheck`/`format`
