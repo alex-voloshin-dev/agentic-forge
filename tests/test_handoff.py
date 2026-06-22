@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 from pathlib import Path
 
 import pytest
@@ -121,10 +122,21 @@ def test_missing_required_field_reports_root() -> None:
     assert any("acceptance" in e for e in errors)
 
 
-def test_bad_status_enum() -> None:
-    header = {**VALID_HEADERS["prd"], "status": "shipped"}
-    errors = validate_header(header)
+def test_status_accepts_free_string() -> None:
+    # Real artifacts use labels beyond the recommended set (e.g. "complete") — accept any string.
+    assert validate_header({**VALID_HEADERS["prd"], "status": "complete"}) == []
+
+
+def test_bad_status_type() -> None:
+    # ...but a non-string (or empty) status is still rejected.
+    errors = validate_header({**VALID_HEADERS["prd"], "status": 123})
     assert any(e.startswith("status:") for e in errors)
+
+
+def test_research_brief_accepts_date_object() -> None:
+    # YAML parses an unquoted ISO date into a date object; the schema must tolerate it.
+    header = {**VALID_HEADERS["research-brief"], "date": datetime.date(2026, 6, 21)}
+    assert validate_header(header) == []
 
 
 def test_wrong_field_type_reports_location() -> None:

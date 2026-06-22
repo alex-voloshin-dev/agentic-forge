@@ -25,8 +25,9 @@ import jsonschema
 
 from .frontmatter import FrontmatterError, parse
 
-# Recommended status vocabulary for feature artifacts. The workflow owns these transitions;
-# constraining them lets a downstream phase branch on status reliably.
+# Recommended status vocabulary for feature artifacts (documented guidance, NOT enforced — the
+# schema accepts any non-empty status string, since real artifacts use varied lifecycle labels
+# such as "complete"/"ready"). Downstream phases that branch on status should map liberally.
 STATUSES = ["draft", "in-review", "approved", "final", "superseded"]
 
 # Review verdict vocabulary. `approve` is the early-exit signal for the bounded review loop.
@@ -86,7 +87,8 @@ def _feature_schema(
     properties: dict[str, Any] = {
         "type": {"const": type_id},
         "feature": {"type": "string", "minLength": 1},
-        "status": {"enum": STATUSES},
+        # Any non-empty status string — real artifacts use labels beyond the recommended set.
+        "status": {"type": "string", "minLength": 1},
     }
     properties.update(properties_extra)
     return {
@@ -102,7 +104,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
     "research-brief": _feature_schema(
         "research-brief",
         required_extra=[],
-        properties_extra={"date": {"type": "string"}, "sources": _LIST},
+        properties_extra={"date": {}, "sources": _LIST},
     ),
     "prd": _feature_schema(
         "prd",

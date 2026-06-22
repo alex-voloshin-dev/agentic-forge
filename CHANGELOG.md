@@ -180,6 +180,26 @@ surfacing on a failed call.
   to own "compare/recommend before spec or design"). Depth quality comes from the delegated
   `deep-research` + the brief schema.
 
+### Verified — full six-phase spine E2E (Tier-3, 2026-06-21)
+
+The real `--runner claude` scenario (Opus 4.8) carried `task-priorities` through **all six
+phases** — `research → product → architecture → plan → develop → code-review` — on an isolated
+taskstore copy, starting from `FEATURE_REQUEST.md`. **All six phases pass**: each produced a
+schema-valid handoff the next consumed (`research-brief → prd → tech-design+ADRs → plan`),
+`develop` implemented priorities with the repo suite green, and `code-review` approved. The
+spine is proven end-to-end across its full length — idea to reviewed, tested code.
+
+The run again caught real schema-vs-output mismatches (the value of Tier-3): the model used
+`status: complete` (a reasonable lifecycle label outside our enum) and an unquoted `date:` that
+YAML parsed into a date object — both rejected by the over-strict schema.
+
+### Fixed — handoff schema: lenient status + date
+
+- `lib/agentic_forge/handoff.py`: `status` now validates as any non-empty string (the
+  `STATUSES` list stays as recommended-but-not-enforced guidance — real artifacts use labels
+  like "complete"); the `date` field accepts a string or a YAML-parsed date. `verdict` and
+  `severity` stay strict (the review loop branches on them). Tests added; coverage 100%.
+
 ### Verified — Stage 2 thin-slice E2E (Tier-3, 2026-06-21)
 
 The real `--runner claude` scenario (Opus 4.8, subscription) carried `task-priorities` through
