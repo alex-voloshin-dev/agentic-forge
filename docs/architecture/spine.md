@@ -59,13 +59,27 @@ artifact-header validation, synthesis scaffolding) lives in `plugin/lib/agentic_
 unit-tested. New pattern references: **fan-out/fan-in** and **multi-aspect review**; reused:
 worktree, review-loop, handoff, adversarial-review.
 
-## Multi-language (by-stack) — after the thin slice
+## Multi-language (by-stack)
 
-The thin slice proves the workflow model on **Python**. Then we bring the ancestor's by-stack
-mechanism: a **stack-detection** helper + **stack reference packs** (test runners, release
-tools, lint/format, cloud/telemetry) that `develop`/`code-review`/(later) `release` load on
-demand for the detected stack. Designed now (the workflows take a "stack profile" input);
-implemented for non-Python stacks as a follow-on step.
+The thin slice proved the workflow model on **Python**; by-stack makes the spine
+stack-parametric. Mechanism (see [ADR 0015](decisions/0015-by-stack-detection-and-packs.md)):
+
+- **Deterministic detection** — `lib/agentic_forge/stacks.py` `detect(repo)` returns ranked
+  `StackProfile`s from an explicit `stack:` hint (CLAUDE.md / AGENTS.md) or manifest signatures
+  (`pyproject.toml` → python, `tsconfig.json`/`package.json` → typescript/javascript,
+  `go.mod` → go, `Cargo.toml` → rust, …). Detection is a tested fact, not an LLM guess.
+- **Stack profile input** — each profile carries `stack_id`, `display`, the `pack`
+  (`*-patterns` skill name or `None`), and a `toolchain` (`test`/`lint`/`typecheck`/`format`
+  commands). Profile commands are **conventional fallbacks**; the repo's declared commands
+  (CLAUDE.md / Makefile / scripts) win.
+- **Stack reference packs** — off-listing (`disable-model-invocation: true`) `*-patterns`
+  knowledge skills (toolchain, idioms, testing, layout, pitfalls), modelled on
+  `engineering-standards`, loaded on demand by `develop` / `code-review` and the
+  `software-engineer` / `qa-engineer` roles for the detected stack.
+
+**Status:** detection ships for the common stacks; **`python-patterns` is the first pack**.
+A detected stack with no pack falls back to `engineering-standards` + the profile's toolchain
+defaults (logged, not silent). Further packs (typescript, go, …) ship one at a time.
 
 ## Trigger taxonomy
 
