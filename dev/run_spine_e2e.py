@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Tier-3 SDLC-spine E2E runner: carry `task-priorities` through architecture -> develop ->
-code-review on an isolated copy of the taskstore fixture repo, checking per-phase artifacts +
-that the code passes the repo's tests.
+"""Tier-3 SDLC-spine E2E runner: carry `task-priorities` through all six phases (research ->
+product -> architecture -> plan -> develop -> code-review) on an isolated copy of the taskstore
+fixture repo, checking per-phase artifacts + that the code passes the repo's tests.
 
 Usage:
     python dev/run_spine_e2e.py --runner dry         # verify wiring, no model calls

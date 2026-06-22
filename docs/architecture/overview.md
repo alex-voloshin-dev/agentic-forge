@@ -29,8 +29,8 @@ actually experience.
 | Layer | Responsibility | Status |
 | --- | --- | --- |
 | L0 Meta-core | `skill-factory`, eval-harness, `lib/`, Tier-0 validator. Builds everything else. | **Built** |
-| L1 Engine | Subagent roles + native patterns (router, fan-out/fan-in, review loop, Ralph, worktree, file handoff). | **Built (minimal)** — roles + handoff + review-loop/worktree/handoff patterns; fan-out & Ralph deferred. |
-| L2 Workflow skills | One router skill per domain; depth via references and sub-skills. | Planned |
+| L1 Engine | Subagent roles + native patterns (router, fan-out/fan-in, review loop, Ralph, worktree, file handoff). | **Built** — six roles + handoff schemas + fan-out-fan-in / multi-aspect-review / adversarial-review / review-loop / worktree patterns; Ralph runs natively (not reimplemented). |
+| L2 Workflow skills | A phase-workflow per SDLC phase; each fans out subagents and synthesizes a handoff artifact; depth in references. | **Built** — six-phase spine (research → product → architecture → plan → develop → code-review), proven end-to-end (Tier-3). |
 | L3 Knowledge base | Obsidian-format vault the plugin deploys, maintains, and reads for context. | Planned |
 | L4 Guardrails | Hooks for security, the test/eval gate, logging, subagent budgets. | Planned |
 
@@ -45,8 +45,9 @@ Claude Code merged custom commands into skills, so the unit set is deliberately 
 - **Hook** — deterministic event enforcement (Python). Guardrails, not logic.
 - **Script** — deterministic, unit-tested Python. Shared code in `plugin/lib/`,
   skill-specific in `skills/<name>/scripts/`.
-- **Pattern reference** — an on-demand Markdown guide to an engine pattern (review loop,
-  worktree, handoff) that workflow skills link to. Lives in `plugin/patterns/`.
+- **Pattern reference** — an on-demand Markdown guide to an engine pattern (fan-out/fan-in,
+  multi-aspect-review, adversarial-review, review loop, worktree, handoff) that workflow skills
+  link to. Lives in `plugin/patterns/`.
 - **Knowledge note** — Obsidian markdown in the target repo's vault.
 - **Eval contract** — `evals/evals.json` per component; the readiness source of truth.
 

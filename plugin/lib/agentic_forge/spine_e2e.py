@@ -1,7 +1,8 @@
 """Tier-3 end-to-end scenario for the SDLC spine thin slice.
 
-Carry one feature (`task-priorities`) through `architecture -> develop -> code-review` on an
-**isolated copy** of the taskstore fixture repo, checking per-phase handoff artifacts and that
+Carry one feature (`task-priorities`) through all six phases (`research -> product ->
+architecture -> plan -> develop -> code-review`) on an **isolated copy** of the taskstore
+fixture repo, checking per-phase handoff artifacts and that
 the implemented code passes the repo's own tests. The model/agent call is a seam
 (:data:`agent_eval.Runner`) so the orchestration + checkpoints are unit-tested with stubs; the
 real run drives each phase with the `claude` CLI.

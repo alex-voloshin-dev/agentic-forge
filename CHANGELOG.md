@@ -201,6 +201,27 @@ all fixed with tests (lib coverage ~99%):
 - **Test gaps closed:** added `tests/test_dev_cli.py` (the `dev/` entry points + the
   unknown-runner `ValueError`) and regression tests for every fix above.
 
+### Changed — documentation currency (deep-review pass)
+
+The same review found docs that lagged the built code; brought them current:
+
+- **Layer status:** `overview.md`, `README.md`, and `docs/README.md` now describe L1 and L2 as
+  **built** (six roles; fan-out-fan-in / multi-aspect-review / adversarial-review / review-loop /
+  worktree patterns; the six-phase spine proven end-to-end via Tier-3) instead of "planned" /
+  "thin router skills (pre-implementation)".
+- **Phase-workflows, not routers:** `CLAUDE.md` and `overview.md` describe L2 as a
+  phase-workflow per SDLC phase (fan out → synthesize a handoff artifact), replacing the older
+  "one router skill per domain, depth via sub-skills" framing.
+- **Handoff producers:** `patterns/handoff.md` maps artifacts to the real skill names
+  (`research`/`product`/`architecture`/`plan`), and documents `status` as recommended-but-not-
+  enforced (the schema accepts any non-empty string), matching the relaxed handoff schema.
+- **Ralph claim dropped:** removed "Ralph loops run natively" and the `ralph` keyword from
+  `plugin.json` (and the README) — Ralph is not shipped/used yet.
+- **Roster + runbook:** `eval-runbook.md` covers all six roles (adds `security-engineer`,
+  `qa-engineer`) and the write-role fidelity note includes `qa-engineer`; `engine.md` keeps its
+  Stage-1 scope but forward-points to the two Stage-2 specialists. Spine E2E docstrings now say
+  "all six phases" instead of the old three-phase thin slice.
+
 ### Verified — full six-phase spine E2E (Tier-3, 2026-06-21)
 
 The real `--runner claude` scenario (Opus 4.8) carried `task-priorities` through **all six

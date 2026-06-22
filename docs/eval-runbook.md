@@ -1,7 +1,8 @@
 # Eval runbook — Tier-2 quality for the engine roles
 
-This explains how to run the Tier-2 (LLM-judged quality) evals for the four engine roles
-(`reviewer`, `grader`, `software-engineer`, `architect`) and read the result. The orchestration is
+This explains how to run the Tier-2 (LLM-judged quality) evals for the six engine roles
+(`reviewer`, `grader`, `software-engineer`, `architect`, `security-engineer`, `qa-engineer`)
+and read the result. The orchestration is
 `plugin/lib/agentic_forge/agent_eval.py`; the CLI is `dev/run_agent_evals.py`; the wiring in
 CI is `.github/workflows/eval.yml`. Rationale: [ADR 0011](architecture/decisions/0011-agent-eval-runner.md).
 
@@ -52,7 +53,7 @@ The model/agent invocation is a seam, so there are two production runners:
 
 | `--runner` | How the role runs | Auth | Fidelity |
 | --- | --- | --- | --- |
-| `claude` (recommended) | headless `claude -p` with the role's tools in a workdir | Claude subscription (or API key) via the CLI | Level 2 — real tool use; `software-engineer`/`architect` actually read/write/run |
+| `claude` (recommended) | headless `claude -p` with the role's tools in a workdir | Claude subscription (or API key) via the CLI | Level 2 — real tool use; write roles (`software-engineer`/`architect`/`qa-engineer`) actually read/write/run |
 | `api` | one Anthropic Messages call per task (no tools) | `ANTHROPIC_API_KEY` only | Level 1 — judges the role's *output*; no real file edits or test execution |
 
 With `--runner claude`, grading also goes through the CLI but with **read-only** tools, so the

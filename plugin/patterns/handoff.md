@@ -19,13 +19,14 @@ slug is a short kebab-case name for the feature (e.g. `search`, `oauth-login`).
 
 | Artifact | Produced by | Key header fields |
 | --- | --- | --- |
-| `research-brief.md` | `research-brief` skill → built-in `Explore` | `type, feature, status, date, sources[]` |
-| `prd.md` | `product-spec` skill | `type, feature, status, goals[], non_goals[], metrics[], acceptance[]` |
-| `tech-design.md` + `adr-*.md` | `tech-design` skill → `architect` | `type, feature, status, decisions[], components[], risks[]` |
-| `plan.md` | `work-plan` skill → built-in `Plan` | `type, feature, status, tasks[] (id, deps), checkpoints[], deferred[]` |
+| `research-brief.md` | `research` skill → built-in `Explore` | `type, feature, status, date, sources[]` |
+| `prd.md` | `product` skill | `type, feature, status, goals[], non_goals[], metrics[], acceptance[]` |
+| `tech-design.md` + `adr-*.md` | `architecture` skill → `architect` | `type, feature, status, decisions[], components[], risks[]` |
+| `plan.md` | `plan` skill → built-in `Plan` | `type, feature, status, tasks[] (id, deps), checkpoints[], deferred[]` |
 | `review.md` | `code-review` skill → `reviewer` | `type, target, iteration, verdict, findings[]` |
 
-`status` is one of `draft | in-review | approved | final | superseded`. `verdict` is
+`status` is recommended to be one of `draft | in-review | approved | final | superseded`
+(the schema accepts any non-empty string). `verdict` is
 `approve | changes`. Finding `severity` is `blocker | major | minor | nit`.
 
 Each `findings[]` element (the canonical review-finding shape) has: `severity`, `location`,

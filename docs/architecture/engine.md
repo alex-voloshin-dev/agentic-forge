@@ -9,7 +9,9 @@ Tier-0 green. Implementation choices made on top of this design are recorded in
 
 - **Dedicated roles:** `reviewer`, `grader`, `software-engineer`, `architect`. Research uses the
   built-in `Explore` agent; planning uses the built-in `Plan` agent; generic delegation
-  uses `general-purpose`.
+  uses `general-purpose`. Stage 2 (the SDLC spine) extends this roster with two specialists —
+  `security-engineer` and `qa-engineer` — that the phase-workflows fan out to; see
+  [spine.md](spine.md).
 - **Handoff format:** Markdown + YAML frontmatter, committed to the target repo so it is
   human-readable, Obsidian-linkable, and machine-parseable on the key fields.
 - **Review loop:** bounded — at most `N` iterations (default `N = 3`), stop early when the
@@ -108,9 +110,10 @@ documentation review), so agents are gated like skills from the start.
 4. ~~Write pattern references (review loop, worktree, handoff) for Stage 2 to consume.~~ Done
    — `plugin/patterns/{handoff,review-loop,worktree}.md`.
 
-Tier-2 quality has been run for all four roles via the agent eval runner on a Claude
+Tier-2 quality has been run for the four Stage-1 roles via the agent eval runner on a Claude
 subscription (Opus 4.8) — all pass the `min_pass_rate 0.8` / `runs 5` gate (lower bound
-≥ 0.885); numbers recorded in the CHANGELOG.
+≥ 0.885); numbers recorded in the CHANGELOG. The two Stage-2 specialists
+(`security-engineer`, `qa-engineer`) are gated the same way — see [spine.md](spine.md).
 
 ## Defaults (confirmed)
 

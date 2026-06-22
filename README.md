@@ -8,16 +8,18 @@ Claude Code loads automatically when they are relevant. It is built on three com
 
 - **Standard-compliant.** Every skill follows the [Agent Skills](https://agentskills.io)
   open standard and validates with `skills-ref`.
-- **Native to Claude Code.** Subagents, plan mode, git worktrees, and review loops are used
-  directly — not reimplemented (fan-out/fan-in and Ralph loops are planned).
+- **Native to Claude Code.** Subagents, plan mode, git worktrees, review loops, and
+  fan-out/fan-in are used directly — not reimplemented.
 - **Eval-driven.** No component ships without a contract and a numeric eval gate. See
   [`CLAUDE.md`](./CLAUDE.md) for the full rulebook.
 
 ## Status
 
-Layer 0 (meta-core) is complete and green, and Layer 1 (engine: roles, handoff, patterns)
-is built (minimal — fan-out/fan-in and Ralph deferred); the four engine roles pass Tier-2. Workflow domains (Stage 2) are next — see the
-[roadmap](docs/roadmap.md). The knowledge base is Layer 3 (not built yet).
+Layer 0 (meta-core) and Layer 1 (engine: roles, handoff, fan-out/review-loop/worktree
+patterns) are complete and green; the six engine roles pass Tier-2. Layer 2 — the six-phase
+SDLC spine (research → product → architecture → plan → develop → code-review) — is built and
+proven end-to-end (Tier-3); multi-stack support is next. See the [roadmap](docs/roadmap.md).
+The knowledge base is Layer 3 (not built yet).
 
 - [x] Repository skeleton, manifests, tooling
 - [x] Tier-0 deterministic validator + tests
@@ -27,6 +29,7 @@ is built (minimal — fan-out/fan-in and Ralph deferred); the four engine roles 
 - [x] dogfood + CI
 - [x] Layer 1 engine (minimal) — roles, handoff helper, patterns
 - [x] agent Tier-2 eval runner (subscription / CI)
+- [x] Layer 2 SDLC spine — six phase-workflow skills, proven end-to-end (Tier-3)
 
 ## Documentation
 
