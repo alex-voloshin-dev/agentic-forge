@@ -23,4 +23,4 @@ jobs:
       - name: Lint
         run: ruff check .
       - name: Types
-        run: mypy plugin/lib dev
+        run: mypy plugin/lib plugin/hooks dev

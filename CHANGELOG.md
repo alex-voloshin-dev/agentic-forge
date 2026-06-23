@@ -237,6 +237,20 @@ The same review found docs that lagged the built code; brought them current:
   `skill-factory` are readiness contracts run via the harness / manual LLM-judge (an automated
   skill-Tier-2 CLI is a roadmap item), not gates this CLI enforces.
 
+### Added — L3 knowledge base (ADR 0018), step 3: session-start hook
+
+The plugin's **first hook** — session-start knowledge injection.
+
+- **`plugin/hooks/hooks.json`** — a `SessionStart` command hook (auto-discovered at the plugin
+  root) running `${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session_start.py` (15s timeout).
+- **`plugin/hooks/scripts/session_start.py`** — reads the hook payload (`cwd`), builds the vault
+  map via `vault.session_summary`, and emits it as SessionStart `additionalContext`. A **no-op**
+  when there's no vault, and it **never blocks the session** (any error exits 0 silently). All
+  logic is in the tested `vault.py`; the hook is thin glue.
+- **`tests/test_session_start_hook.py`** — build_context (vault / no-vault), main (emits the
+  injection JSON; no-vault → no output; bad stdin → safe exit 0), and hooks.json validity. mypy
+  now type-checks `plugin/hooks` too (CI + README).
+
 ### Added — L3 knowledge base (ADR 0018), step 2: knowledge skill
 
 - **`plugin/skills/knowledge/`** — an on-listing **recall + capture** skill. *Recall:* detect the
