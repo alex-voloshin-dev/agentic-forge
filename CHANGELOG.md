@@ -237,6 +237,24 @@ The same review found docs that lagged the built code; brought them current:
   `skill-factory` are readiness contracts run via the harness / manual LLM-judge (an automated
   skill-Tier-2 CLI is a roadmap item), not gates this CLI enforces.
 
+### Added — L4 guardrails (ADR 0019), step 2: the four hook scripts
+
+The plugin gains runtime enforcement on tool use (reusing the `plugin/hooks/` pattern from L3):
+
+- **`security.py`** (PreToolUse/Bash) — blocks dangerous commands (exit 2), allows the rest.
+- **`commit_gate.py`** (PreToolUse/Bash) — on `git commit`/`git push`, runs the fast gate
+  (`dev/validate.py` or the detected stack's lint) and blocks on failure; skippable via
+  `AGENTIC_FORGE_SKIP_TEST_GATE`; fails open on infra errors.
+- **`budget.py`** (PreToolUse/Task) — per-session subagent counter; warns over the soft cap,
+  blocks over the hard (`AGENTIC_FORGE_SUBAGENT_SOFT` / `_HARD`).
+- **`audit_log.py`** (PostToolUse) — appends a redacted JSONL audit line under
+  `<project>/.agentic-forge/`; never blocks.
+- `hooks.json` registers them (PreToolUse Bash → security + commit_gate, Task → budget;
+  PostToolUse → audit) alongside the SessionStart hook. Each script is thin glue over
+  `guardrails.py`, fails **open** on its own error (except the intentional security/gate blocks),
+  and is unit-tested on allow + block paths (`tests/test_guardrail_hooks.py`). The gate file is
+  `commit_gate.py` (not `test_gate.py`) to avoid pytest's `test_` collection prefix.
+
 ### Added — L4 guardrails (ADR 0019), step 1: guardrails lib
 
 L4 (the last layer) begins — deterministic guardrail logic the hook scripts call.
