@@ -9,6 +9,7 @@ _REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO / "dev"))
 
 import run_agent_evals  # noqa: E402
+import run_skill_evals  # noqa: E402
 import run_spine_e2e  # noqa: E402
 import run_tier1_evals  # noqa: E402
 import validate as validate_cli  # noqa: E402
@@ -36,6 +37,17 @@ def test_run_tier1_evals_dry_ok() -> None:
     assert run_tier1_evals.main(["run", "--runner", "dry"]) == 0
 
 
+def test_run_skill_evals_dry_ok() -> None:
+    # Every tier2 skill (packs + engineering-standards + deep-review/skill-factory) is wired.
+    assert run_skill_evals.main(["run", "--runner", "dry"]) == 0
+
+
+def test_run_skill_evals_unknown_skill_warns(capsys) -> None:
+    # An unknown --skill warns and (no tier2 contract) yields nothing to gate -> exit 0 dry.
+    run_skill_evals.main(["run", "--runner", "dry", "--skill", "does-not-exist"])
+    assert "no tier2_quality contract" in capsys.readouterr().err
+
+
 def test_build_runners_unknown_raises() -> None:
     with pytest.raises(ValueError, match="unknown runner"):
         run_agent_evals._build_runners("bogus", "reviewer", _REPO / "plugin", "m")
@@ -44,3 +56,8 @@ def test_build_runners_unknown_raises() -> None:
 def test_tier1_build_router_unknown_raises() -> None:
     with pytest.raises(ValueError, match="unknown runner"):
         run_tier1_evals._build_router("bogus", "m")
+
+
+def test_skill_build_runners_unknown_raises() -> None:
+    with pytest.raises(ValueError, match="unknown runner"):
+        run_skill_evals._build_runners("bogus", "python-patterns", _REPO / "plugin", "m")

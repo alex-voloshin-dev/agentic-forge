@@ -22,3 +22,4 @@ edit.
 | [0014](0014-software-engineer-base-role.md) | One software-engineer base role + stack skills, not per-stack agents | Accepted |
 | [0015](0015-by-stack-detection-and-packs.md) | By-stack: deterministic detection helper + stack reference packs | Accepted |
 | [0016](0016-tier1-trigger-runner.md) | Tier-1 trigger runner on live skill descriptions | Accepted |
+| [0017](0017-skill-tier2-runner.md) | Automated skill Tier-2 quality runner | Accepted |

@@ -237,6 +237,31 @@ The same review found docs that lagged the built code; brought them current:
   `skill-factory` are readiness contracts run via the harness / manual LLM-judge (an automated
   skill-Tier-2 CLI is a roadmap item), not gates this CLI enforces.
 
+### Added — automated skill Tier-2 quality runner (ADR 0017)
+
+The last manual tier is now automated — **every tier of the eval pyramid has a runner**.
+
+- **`plugin/lib/agentic_forge/skill_eval.py`** — runs Tier-2 for the twelve skills that declare
+  `tier2_quality` (`deep-review`, `skill-factory`, `engineering-standards`, the nine `*-patterns`
+  packs). Two execution modes: **knowledge skills** (`engineering-standards`, `*-patterns`) run
+  *as the `software-engineer` with them loaded* (system = SE body + standards + pack), the
+  engineer's tools, isolated, graded against the skill's own assertions — making the long-claimed
+  "exercised through the software-engineer's Tier-2" real; **on-listing skills** (`deep-review`,
+  `skill-factory`) run directly. Graded by the `grader` role, aggregated, gated `mean − σ ≥ 0.8`.
+  100% line + branch coverage.
+- **`agent_eval` refactor:** the per-run loop (grading, the pass-rate cap, write-isolation,
+  aggregate-over-expected-counts) extracted into `run_eval_cases`, shared by `run_role` and
+  `run_skill` — one eval core, no drift; `run_role`'s external behaviour and `RoleReport`
+  unchanged (its tests still pass).
+- **`dev/run_skill_evals.py`** — CLI mirroring the others (`--runner dry|claude|api`, `--skill`,
+  `--model`, `--runs`); `dry` checks every skill's wiring with no auth. It is the most expensive
+  eval (a full software-engineer coding session per case × N), so CI cost-gates it.
+- **CI:** `eval.yml` gains a real dry + cost-gated skill-Tier-2 step (replacing the manual note).
+- **Docs:** ADR 0017 (+ index); the eval-runbook scope note is rewritten (the "no automated
+  path" gap is closed) with a "Skill Tier-2" section; spine.md and roadmap mark all four tiers
+  automated. Resolves the deep-review completeness finding that the packs' `tier2_quality` had no
+  execution path.
+
 ### Added — Tier-1 trigger runner on live skill descriptions (ADR 0016)
 
 Skill Tier-1 is now automated (it was a CI TODO no-op and an ad-hoc "router sim"):

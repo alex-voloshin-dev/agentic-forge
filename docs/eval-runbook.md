@@ -23,22 +23,17 @@ Why agents have a dedicated runner (not skill-creator): skill-creator evaluates 
 roles. The runner reuses the same policy layer (`benchmark` + `gate`), so the gate is
 identical to skills'.
 
-### Scope: this CLI runs *agent* Tier-2 only
+### Scope: a runner per tier
 
-`run_agent_evals.py` gates the six **roles**. Skills are gated by Tier-0 (`dev/validate.py`)
-and Tier-1 (trigger recall/specificity — automated by `dev/run_tier1_evals.py`, see below); the
-spine phase-workflow skills carry no skill-level
-Tier-2 because their quality is exercised end-to-end by the Tier-3 spine E2E plus the agent
-Tier-2 of the roles they fork. A few judgment-heavy or loaded-on-demand skills (`deep-review`,
-`skill-factory`, and the knowledge packs `engineering-standards` / `*-patterns` such as
-`python-patterns`) *do* declare a `tier2_quality` threshold in their `evals.json`: that is a
-**readiness contract**, not a gate this CLI runs. There is **no automated execution path for it
-yet** — there is no skill-Tier-2 CLI, and the `software-engineer` eval cases do not currently
-exercise pack-specific idioms — so meet it with a manual LLM-judge pass (or the skill-creator
-harness) before release. The roadmap item that would make it automatic is wiring **pack-aware
-eval cases into the `software-engineer`'s Tier-2** (a Python case whose assertions check
-`python-patterns`-idiomatic output, etc.). Treat these thresholds as the quality bar to clear
-before release, not as a gate this CLI enforces.
+`run_agent_evals.py` gates the six **roles** (agent Tier-2). The other tiers have their own
+runners: **Tier-0** `dev/validate.py`; **skill Tier-1** `dev/run_tier1_evals.py` (trigger
+recall/specificity on the live listing — see below); **skill Tier-2** `dev/run_skill_evals.py`
+(see below); **Tier-3** `dev/run_spine_e2e.py`. The spine phase-workflow skills carry no
+skill-level Tier-2 — their quality is exercised end-to-end by the Tier-3 spine E2E plus the agent
+Tier-2 of the roles they fork. The judgment-heavy / loaded-on-demand skills (`deep-review`,
+`skill-factory`, `engineering-standards`, and the nine `*-patterns` packs) declare a
+`tier2_quality` threshold and **are now run by `run_skill_evals.py`** (ADR 0017) — no longer a
+manual step.
 
 ### Skill Tier-1 — `dev/run_tier1_evals.py` (live descriptions)
 
@@ -51,6 +46,23 @@ select the skill (recall), a `should_not_trigger` prompt must not (specificity);
 **majority-of-N**, gated at ≥ 0.9 via `gate.trigger_metrics` + `gate.tier1_trigger` (ADR 0016).
 It reuses the same transports — `--runner dry|claude|api` (the `claude` router call runs with
 tools disabled and one turn); `dry` verifies the listing/trigger wiring with no auth.
+
+### Skill Tier-2 — `dev/run_skill_evals.py`
+
+Tier-2 for skills that declare `tier2_quality` is automated (ADR 0017), reusing the agent
+runner's core. Two execution modes:
+
+- **Knowledge skills** (`engineering-standards`, the `*-patterns` packs) have no behaviour of
+  their own, so each runs *as the `software-engineer` with it loaded* — system = the
+  software-engineer body + `engineering-standards` (+ the pack body) — with the engineer's tools,
+  isolated (it writes code), graded against the skill's own assertions. This is the
+  "exercised through the software-engineer's Tier-2" path, now real.
+- **On-listing skills** (`deep-review`, `skill-factory`) run directly (their own body + tools).
+
+Each output is graded by the `grader` role, aggregated, and gated `mean − stddev ≥ 0.8` over the
+contract's `runs`. Same transports (`--runner dry|claude|api`). **It is the most expensive eval**
+— a full software-engineer coding session per case × N — so scope local runs with `--skill` /
+`--runs`; CI cost-gates it on the subscription token.
 
 ## Authentication — use your Claude subscription (recommended)
 

@@ -94,9 +94,11 @@ registered stack** (python, typescript, javascript, go, rust, jvm, dotnet, ruby,
 `develop`/`code-review`/roles consuming the stack profile; the E2E fixture is detected as Python.
 The **Tier-1 trigger runner on live descriptions is built** (ADR 0016): `dev/run_tier1_evals.py`
 gates the eight on-listing router skills' recall/specificity ≥ 0.9 against the real listing,
-replacing the earlier router sim and the CI TODO. **Remaining:** an automated skill-Tier-2 CLI
-(the `*-patterns` / `engineering-standards` readiness contracts are manual today), and a
-`*-patterns` pack for any new stack later added to the registry.
+replacing the earlier router sim and the CI TODO. The **skill Tier-2 runner is built too**
+(ADR 0017): `dev/run_skill_evals.py` runs the tier2 skills' contracts — knowledge skills as the
+software-engineer with them loaded, `deep-review`/`skill-factory` directly — so **all four tiers
+now have automated runners**. **Remaining:** a `*-patterns` pack for any new stack later added to
+the registry; Layers 3–4 (knowledge base, guardrail hooks).
 
 Goal: one continuous path from idea to reviewed code, proving the architecture end to end.
 

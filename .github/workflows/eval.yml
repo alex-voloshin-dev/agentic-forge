@@ -59,6 +59,14 @@ jobs:
         if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}
         run: python dev/run_tier1_evals.py --runner claude --model "$EVAL_MODEL"
 
-      # Skill Tier-2 (the *-patterns / engineering-standards readiness contracts) has no
-      # automated CLI yet — run it via a manual LLM-judge / the skill-creator harness for now
-      # (see the eval-runbook "Scope" note).
+      - name: Skill Tier-2 wiring (dry-run, no auth)
+        run: python dev/run_skill_evals.py --runner dry
+
+      # Real Tier-2 for the tier2 skills via the Claude subscription: knowledge skills
+      # (*-patterns / engineering-standards) run as the software-engineer with them loaded,
+      # deep-review / skill-factory run directly; each graded, aggregated, gated mean-stddev
+      # >= 0.8 (ADR 0017). The most expensive eval (a full coding session per case x N), so it is
+      # the last cost-gated step; skipped without the token.
+      - name: Skill Tier-2 quality (subscription via claude)
+        if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+        run: python dev/run_skill_evals.py --runner claude --model "$EVAL_MODEL"

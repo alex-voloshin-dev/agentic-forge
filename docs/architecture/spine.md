@@ -139,8 +139,11 @@ by-stack step. Prove the slice end to end, record Tier-1/2/3, then add
    registered stack (ADR 0015).
 8. ~~A real Tier-1 runner on live skill descriptions.~~ Done — `dev/run_tier1_evals.py` /
    `lib/agentic_forge/tier1_runner.py` (ADR 0016); replaces the earlier majority-of-N router sim.
-9. **Next:** an automated skill-Tier-2 CLI (the `*-patterns` / `engineering-standards` readiness
-   contracts are manual today — see the eval-runbook).
+9. ~~An automated skill-Tier-2 CLI.~~ Done — `dev/run_skill_evals.py` /
+   `lib/agentic_forge/skill_eval.py` (ADR 0017): knowledge skills run as the software-engineer
+   with them loaded, deep-review/skill-factory directly; graded + gated like agent Tier-2.
+10. **Next:** Layer 3 (knowledge base) and Layer 4 (guardrail hooks); optional with/without-skill
+    delta for marginal-lift measurement.
 
 ## Defaults to confirm or override
 

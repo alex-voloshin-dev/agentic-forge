@@ -246,6 +246,69 @@ def check_wiring(role: str, plugin_dir: Path) -> list[str]:
     return problems
 
 
+def run_eval_cases(
+    *,
+    system_body: str,
+    grader_body: str,
+    cases: list[dict[str, Any]],
+    thresholds: dict[str, Any],
+    plugin_dir: Path,
+    run_fn: Runner,
+    grader_fn: Runner,
+    runs: int,
+    isolate: bool,
+    workdir: Path | None = None,
+) -> tuple[dict[str, Any], gate.GateResult, list[dict[str, Any]]]:
+    """Shared Tier-2 core: run ``cases`` ``runs`` times under ``system_body``, grade each output
+    against its assertions, aggregate, and gate. Returns ``(benchmark, gate_result, gradings)``.
+
+    ``isolate`` gives each case a fresh temp workdir (removed after) so a write component never
+    sees another run's files or the real repo. Used by both the role runner (:func:`run_role`)
+    and the skill runner (``skill_eval.run_skill``).
+    """
+    default_work = workdir or plugin_dir
+    gradings: list[dict[str, Any]] = []
+    for _ in range(runs):
+        run_results: list[dict[str, Any]] = []
+        run_total = 0
+        run_passed = 0
+        for case in cases:
+            work = Path(tempfile.mkdtemp(prefix="af-eval-")) if isolate else default_work
+            try:
+                case_files = case.get("files") or []
+                fixture_text = load_fixtures(plugin_dir, case_files)
+                if isolate:
+                    materialize_fixtures(plugin_dir, case_files, work)
+                output = run_fn(
+                    system_body, build_role_prompt(case, fixture_text, in_workdir=isolate), work
+                )
+                graded = grade_output(
+                    case.get("assertions") or [], output, grader_body, grader_fn, work
+                )
+            finally:
+                if isolate:
+                    shutil.rmtree(work, ignore_errors=True)
+            run_results.extend(graded["assertion_results"])
+            # Aggregate over EXPECTED assertion counts (grade_output's summary), not len(results)
+            # — so a grader that omits or duplicates results can't skew the run's pass-rate.
+            run_total += graded["summary"]["total"]
+            run_passed += graded["summary"]["passed"]
+        gradings.append(
+            {
+                "assertion_results": run_results,
+                "summary": {
+                    "total": run_total,
+                    "passed": run_passed,
+                    "pass_rate": (run_passed / run_total) if run_total else 0.0,
+                },
+            }
+        )
+
+    bench = benchmark.summarize(gradings)
+    result = gate.tier2_quality(bench, thresholds)
+    return bench, result, gradings
+
+
 def run_role(
     role: str,
     plugin_dir: Path,
@@ -274,47 +337,18 @@ def run_role(
     contract_runs = (thresholds.get("tier2_quality") or {}).get("runs") or DEFAULT_RUNS
     n = runs if runs is not None else contract_runs
     cases = contract.get("evals") or []
-    default_work = workdir or plugin_dir
-
-    gradings: list[dict[str, Any]] = []
-    for _ in range(n):
-        run_results: list[dict[str, Any]] = []
-        run_total = 0
-        run_passed = 0
-        for case in cases:
-            work = Path(tempfile.mkdtemp(prefix="af-eval-")) if isolate else default_work
-            try:
-                case_files = case.get("files") or []
-                fixture_text = load_fixtures(plugin_dir, case_files)
-                if isolate:
-                    materialize_fixtures(plugin_dir, case_files, work)
-                output = run_role_fn(
-                    role_body, build_role_prompt(case, fixture_text, in_workdir=isolate), work
-                )
-                graded = grade_output(
-                    case.get("assertions") or [], output, grader_body, run_grader_fn, work
-                )
-            finally:
-                if isolate:
-                    shutil.rmtree(work, ignore_errors=True)
-            run_results.extend(graded["assertion_results"])
-            # Aggregate over EXPECTED assertion counts (grade_output's summary), not len(results)
-            # — so a grader that omits or duplicates results can't skew the run's pass-rate.
-            run_total += graded["summary"]["total"]
-            run_passed += graded["summary"]["passed"]
-        gradings.append(
-            {
-                "assertion_results": run_results,
-                "summary": {
-                    "total": run_total,
-                    "passed": run_passed,
-                    "pass_rate": (run_passed / run_total) if run_total else 0.0,
-                },
-            }
-        )
-
-    bench = benchmark.summarize(gradings)
-    result = gate.tier2_quality(bench, thresholds)
+    bench, result, gradings = run_eval_cases(
+        system_body=role_body,
+        grader_body=grader_body,
+        cases=cases,
+        thresholds=thresholds,
+        plugin_dir=plugin_dir,
+        run_fn=run_role_fn,
+        grader_fn=run_grader_fn,
+        runs=n,
+        isolate=isolate,
+        workdir=workdir,
+    )
     return RoleReport(role=role, runs=n, benchmark=bench, gate=result, gradings=gradings)
 
 
