@@ -23,3 +23,4 @@ edit.
 | [0015](0015-by-stack-detection-and-packs.md) | By-stack: deterministic detection helper + stack reference packs | Accepted |
 | [0016](0016-tier1-trigger-runner.md) | Tier-1 trigger runner on live skill descriptions | Accepted |
 | [0017](0017-skill-tier2-runner.md) | Automated skill Tier-2 quality runner | Accepted |
+| [0018](0018-l3-knowledge-base.md) | L3 knowledge base: Obsidian vault + recall/capture skill + session-start hook | Accepted |
