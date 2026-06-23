@@ -237,6 +237,22 @@ The same review found docs that lagged the built code; brought them current:
   `skill-factory` are readiness contracts run via the harness / manual LLM-judge (an automated
   skill-Tier-2 CLI is a roadmap item), not gates this CLI enforces.
 
+### Fixed — integrity audit (post-interruption review)
+
+A full integrity audit — prompted by several interrupted background tasks (API rate-limits killed
+some review agents mid-run) — confirmed the session's work is complete and consistent (277 tests,
+clean tree, lib coverage 99%, and all prior review-fixes verified present in their files). It
+found **two minor gaps**, both fixed:
+
+- **`meta-core.md` was stale:** the two lib modules added this session (`tier1_runner.py`,
+  `skill_eval.py`) and their CLIs (`run_tier1_evals.py`, `run_skill_evals.py`) were missing from
+  the shared-library tree/table and the `dev/` line — ADR 0016/0017 had updated
+  spine/roadmap/eval-runbook but not meta-core. Added (and noted `agent_eval.run_eval_cases` as
+  the shared eval core).
+- **Tier-3 was unwired in CI:** `run_spine_e2e.py` was the only eval runner not invoked in
+  `eval.yml`; added a dry-run wiring step plus a cost-gated subscription E2E step, so all five
+  runners now run in CI (Tier-0 always; Tier 1/2/3 cost-gated).
+
 ### Added — automated skill Tier-2 quality runner (ADR 0017)
 
 The last manual tier is now automated — **every tier of the eval pyramid has a runner**.

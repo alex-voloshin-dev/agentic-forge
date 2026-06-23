@@ -29,12 +29,13 @@ plugin/
     naming.py frontmatter.py evals.py validation.py benchmark.py gate.py
     handoff.py agent_eval.py          # L1/eval-harness additions
     spine_e2e.py stacks.py            # L2 spine: Tier-3 E2E + by-stack detection
+    tier1_runner.py skill_eval.py     # L2: skill Tier-1 (live listing) + skill Tier-2 runners
   schemas/evals.schema.json           # the component contract schema (superset)
   eval/{README.md, fixtures/}         # harness architecture + agent eval fixtures (L1)
-dev/{validate.py, run_agent_evals.py, run_spine_e2e.py}  # Tier-0 gate + agent Tier-2 + spine Tier-3 (CLI)
+dev/{validate.py, run_agent_evals.py, run_tier1_evals.py, run_skill_evals.py, run_spine_e2e.py}  # Tier 0/1/2/3 CLIs
 tests/                                # pytest for lib + harness + plugin integrity
 pyproject.toml                        # uv / pytest / ruff / mypy config
-.github/workflows/{ci.yml,eval.yml}   # Tier-0 always; Tier-1/2 cost-gated
+.github/workflows/{ci.yml,eval.yml}   # Tier-0 always; Tier 1/2/3 cost-gated
 ```
 
 ## The shared library (`plugin/lib/agentic_forge/`)
@@ -48,9 +49,11 @@ pyproject.toml                        # uv / pytest / ruff / mypy config
 | `benchmark.py` | Aggregate per-run `grading.json` pass rates into a `benchmark.json` shape (mean/stddev/n, delta). |
 | `gate.py` | Apply thresholds: `trigger_metrics`, `tier1_trigger`, `tier2_quality`, `evaluate`. Pure functions. |
 | `handoff.py` | Load + validate SDLC handoff artifacts (Markdown + frontmatter) against per-type header schemas (L1). |
-| `agent_eval.py` | Tier-2 quality runner for subagent roles, over a pluggable model seam (eval-harness; see ADR 0011). |
+| `agent_eval.py` | Tier-2 quality runner for subagent roles, over a pluggable model seam (eval-harness; see ADR 0011); its `run_eval_cases` core is shared with the skill Tier-2 runner. |
 | `spine_e2e.py` | Tier-3 end-to-end runner for the SDLC spine: carry a feature through all six phases on an isolated fixture copy, with per-phase checkpoints (L2). |
 | `stacks.py` | Deterministic stack detection for target repos: `detect`/`primary` from hints/manifests plus the toolchain registry the spine's `develop`/`code-review` consume (by-stack; ADR 0015). |
+| `tier1_runner.py` | Tier-1 trigger runner on the **live** skill listing: classify each on-listing skill's trigger prompts via the router, gate recall/specificity (ADR 0016). |
+| `skill_eval.py` | Skill Tier-2 quality runner: knowledge skills run as the `software-engineer` with them loaded, others directly; reuses `agent_eval.run_eval_cases` (ADR 0017). |
 
 Everything here is dependency-light (pyyaml, jsonschema) and unit-tested. Skill scripts and
 hooks import from this package.
