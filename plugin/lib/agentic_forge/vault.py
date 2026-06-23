@@ -38,7 +38,8 @@ VAULT_DIRNAME = "docs/knowledge"
 ROOT_MOC = "MOC"  # the root map-of-content note, MOC.md
 
 # [[target]] | [[target|alias]] | [[target#heading]] | [[target#heading|alias]] -> target
-_WIKILINK = re.compile(r"\[\[([^\[\]|#]+?)(?:#[^\[\]|]+)?(?:\|[^\[\]]+)?\]\]")
+# (newlines excluded so a stray "[[" can't swallow text across lines into a bogus target)
+_WIKILINK = re.compile(r"\[\[([^\[\]|#\n]+?)(?:#[^\[\]|\n]+)?(?:\|[^\[\]\n]+)?\]\]")
 _WORD = re.compile(r"[a-z0-9]+")
 _STOPWORDS = frozenset(
     "a an the of to and or for in on at by is are be with from this that it as we our".split()
@@ -179,6 +180,26 @@ def scaffold(repo: Path | str) -> Path:
     return vpath
 
 
+def _ensure_moc(vpath: Path, moc: str) -> Path:
+    """Return the MOC file path, creating it as a ``type: moc`` note if it doesn't exist yet."""
+    moc_path = vpath / f"{moc}.md"
+    if not moc_path.is_file():
+        moc_path.write_text(
+            _render_note(moc.replace("-", " ").title(), "## Notes\n", type="moc", tags=("moc",)),
+            encoding="utf-8",
+        )
+    return moc_path
+
+
+def _append_link(moc_path: Path, target: str, alias: str | None) -> None:
+    """Append ``- [[target|alias]]`` to a MOC file, unless ``target`` is already linked there."""
+    existing = moc_path.read_text(encoding="utf-8")
+    if f"[[{target}]]" in existing or f"[[{target}|" in existing:
+        return
+    sep = "" if existing.endswith("\n") else "\n"
+    moc_path.write_text(f"{existing}{sep}- {wikilink(target, alias)}\n", encoding="utf-8")
+
+
 def add_note(
     repo: Path | str,
     name: str,
@@ -189,24 +210,21 @@ def add_note(
     type: str = "note",
     moc: str | None = ROOT_MOC,
 ) -> Path:
-    """Write an atomic note and link it from ``moc`` (default the root MOC). Scaffolds if needed."""
+    """Write an atomic note and link it from ``moc`` (default the root MOC). Scaffolds if needed.
+
+    A themed (non-root) ``moc`` is created on demand **and linked from the root MOC**, so it is
+    reachable (never an orphan) and the vault stays valid.
+    """
     scaffold(repo)
     vpath = vault_path(repo)
     note_path = vpath / f"{name}.md"
     note_path.write_text(_render_note(title, body, type=type, tags=tags), encoding="utf-8")
     if moc:
-        moc_path = vpath / f"{moc}.md"
-        if not moc_path.is_file():
-            # create the (themed) MOC if it doesn't exist yet, so a custom moc= works too
-            moc_title = moc.replace("-", " ").title()
-            moc_path.write_text(
-                _render_note(moc_title, "## Notes\n", type="moc", tags=("moc",)),
-                encoding="utf-8",
-            )
-        existing = moc_path.read_text(encoding="utf-8")
-        if f"[[{name}]]" not in existing and f"[[{name}|" not in existing:
-            sep = "" if existing.endswith("\n") else "\n"
-            moc_path.write_text(f"{existing}{sep}- {wikilink(name, title)}\n", encoding="utf-8")
+        moc_path = _ensure_moc(vpath, moc)
+        if moc != ROOT_MOC:
+            # a themed MOC must itself be reachable from the root, or validate flags it orphan
+            _append_link(_ensure_moc(vpath, ROOT_MOC), moc, None)
+        _append_link(moc_path, name, title)
     return note_path
 
 

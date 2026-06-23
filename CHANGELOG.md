@@ -237,6 +237,17 @@ The same review found docs that lagged the built code; brought them current:
   `skill-factory` are readiness contracts run via the harness / manual LLM-judge (an automated
   skill-Tier-2 CLI is a roadmap item), not gates this CLI enforces.
 
+### Fixed — L3 knowledge base (ADR 0018), step 5: review hardening
+
+Independent adversarial review of L3 (gate green, vault 100%, hook never blocks the session). One
+**major** fixed: `add_note(moc=<themed>)` created a themed MOC but never linked it from the root
+MOC, so the themed MOC was an immediate **orphan** — yet the `knowledge` capture workflow (and
+eval id 2) require a clean vault. `add_note` now links a new themed MOC from the root
+(idempotently) via extracted `_ensure_moc` / `_append_link` helpers, so a clustered capture stays
+valid. Also: the masking test now asserts `validate_vault == []` (+ a two-notes-one-themed-MOC
+case); `_WIKILINK` excludes newlines (a stray `[[` can't swallow text across lines). vault.py
+stays 100% line+branch.
+
 ### Added — L3 knowledge base (ADR 0018), step 4: docs + layer complete
 
 - **`docs/architecture/knowledge.md`** — the L3 architecture doc (vault format, deterministic

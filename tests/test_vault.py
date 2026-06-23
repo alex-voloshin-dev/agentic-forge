@@ -37,6 +37,10 @@ def test_parse_links_none() -> None:
     assert parse_links("no links here, [[]] is empty") == []
 
 
+def test_parse_links_ignores_multiline() -> None:
+    assert parse_links("stray [[also\nbad]] across lines") == []  # wikilinks are single-line
+
+
 # --- load_vault --------------------------------------------------------------
 
 
@@ -142,6 +146,19 @@ def test_add_note_custom_moc_is_created(tmp_path: Path) -> None:
     add_note(tmp_path, "n", "N", "body", moc="themes")  # themes.md does not exist yet
     themes = (vault_path(tmp_path) / "themes.md").read_text(encoding="utf-8")
     assert "type: moc" in themes and "[[n|N]]" in themes
+    root = (vault_path(tmp_path) / f"{ROOT_MOC}.md").read_text(encoding="utf-8")
+    assert "[[themes]]" in root  # themed MOC reachable from the root MOC
+    assert validate_vault(tmp_path) == []  # so it is not an orphan
+
+
+def test_add_note_two_notes_one_themed_moc_stays_valid(tmp_path: Path) -> None:
+    add_note(tmp_path, "a", "A", "x", moc="testing")
+    add_note(tmp_path, "b", "B", "y", moc="testing")
+    root = (vault_path(tmp_path) / f"{ROOT_MOC}.md").read_text(encoding="utf-8")
+    assert root.count("[[testing]]") == 1  # root links the themed MOC exactly once
+    testing = (vault_path(tmp_path) / "testing.md").read_text(encoding="utf-8")
+    assert "[[a|A]]" in testing and "[[b|B]]" in testing
+    assert validate_vault(tmp_path) == []
 
 
 # --- recall ------------------------------------------------------------------
