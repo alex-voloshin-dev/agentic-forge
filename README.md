@@ -21,7 +21,8 @@ SDLC spine (research → product → architecture → plan → develop → code-
 proven end-to-end (Tier-3). Multi-stack support is built too — by-stack detection plus a
 `*-patterns` pack for each of the nine registered stacks (Python, TypeScript, JavaScript, Go,
 Rust, JVM, .NET, Ruby, PHP). The knowledge base (Layer 3) is built too — an Obsidian vault +
-`knowledge` recall/capture skill + a session-start hook; only guardrails (Layer 4) remain. See
+`knowledge` recall/capture skill + a session-start hook; and Layer 4 guardrail hooks (security,
+test-gate, logging, subagent budgets) are built too — **all five layers L0–L4 are in place**. See
 the [roadmap](docs/roadmap.md).
 
 - [x] Repository skeleton, manifests, tooling

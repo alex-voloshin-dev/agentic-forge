@@ -237,6 +237,15 @@ The same review found docs that lagged the built code; brought them current:
   `skill-factory` are readiness contracts run via the harness / manual LLM-judge (an automated
   skill-Tier-2 CLI is a roadmap item), not gates this CLI enforces.
 
+### Added — L4 guardrails (ADR 0019), step 3: docs + layer complete
+
+- **`docs/architecture/guardrails.md`** — the L4 architecture doc (the four hooks, design notes,
+  eval model, scheduling out-of-scope).
+- Status across docs: overview L4, roadmap Stage 7, README, and the docs index now mark L4
+  **Built**; `meta-core.md` lists `guardrails.py` + the guardrail hooks; `CLAUDE.md`'s layout
+  notes them. Scope reconciled: **L4 = the four guardrail hooks; scheduling/observability is
+  deferred** (a Stage-7 follow-on). **All five layers L0–L4 are now built.**
+
 ### Added — L4 guardrails (ADR 0019), step 2: the four hook scripts
 
 The plugin gains runtime enforcement on tool use (reusing the `plugin/hooks/` pattern from L3):

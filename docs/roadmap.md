@@ -23,7 +23,7 @@ architecture before we invest in breadth.
 | 4 | Quality & operations domains | Planned |
 | 5 | Product & marketing domains | Planned |
 | 6 | Design & onboarding domains | Planned |
-| 7 | Guardrails, observability, scheduling (L4) | Planned |
+| 7 | Guardrails, observability, scheduling (L4) | Built — four guardrail hooks (ADR 0019); scheduling/observability deferred |
 
 ---
 
@@ -216,6 +216,10 @@ Risks: scope creep into visual design. Mitigation: keep outputs as specs and han
 ---
 
 ## Stage 7 — Guardrails, observability, scheduling
+
+Status: **Built (the guardrail hooks)** (ADR 0019) — security, test-gate, logging, and budget
+hooks under `plugin/hooks/`; see [guardrails.md](architecture/guardrails.md). **Scheduling and
+observability dashboards remain a follow-on** (not guardrails).
 
 Goal: harden L4 — security hooks, a test/eval gate hook, action logging, subagent budgets —
 and wire scheduled work via CI/headless runs.

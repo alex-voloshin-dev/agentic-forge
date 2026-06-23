@@ -19,6 +19,8 @@ documentation discipline in the root `CLAUDE.md`).
     and proven end-to-end.
   - [Knowledge base (Layer 3)](architecture/knowledge.md) — the Obsidian vault, recall/capture
     skill, and session-start hook (built).
+  - [Guardrails (Layer 4)](architecture/guardrails.md) — security / test-gate / logging / budget
+    hooks (built); scheduling deferred.
   - [Decision records](architecture/decisions/README.md) — the ADRs behind every major
     choice.
 - **Plan**

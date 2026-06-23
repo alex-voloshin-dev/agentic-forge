@@ -66,7 +66,7 @@ plugin/
   skills/<name>/{SKILL.md, references/, assets/, scripts/, evals/evals.json}
   agents/<name>.md          # + agents/evals/<name>.evals.json (agent contracts)
   patterns/                 # engine pattern references (handoff, review loop, worktree)
-  hooks/{hooks.json, scripts/*.py}        # L3 session-start hook (built); more guardrail hooks in L4
+  hooks/{hooks.json, scripts/*.py}        # L3 session-start + L4 guardrail hooks (security, test-gate, logging, budgets)
   lib/agentic_forge/        # shared, importable, tested
   eval/{README.md, fixtures/}             # harness docs + agent eval fixtures
   schemas/                  # JSON Schema for evals.json + contract
