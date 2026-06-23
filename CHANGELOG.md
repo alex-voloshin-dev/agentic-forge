@@ -237,6 +237,19 @@ The same review found docs that lagged the built code; brought them current:
   `skill-factory` are readiness contracts run via the harness / manual LLM-judge (an automated
   skill-Tier-2 CLI is a roadmap item), not gates this CLI enforces.
 
+### Added — L3 knowledge base (ADR 0018), step 1: vault lib
+
+L3 begins — an Obsidian-format knowledge vault the plugin deploys + maintains in the target
+repo's `docs/knowledge/`.
+
+- **`plugin/lib/agentic_forge/vault.py`** — the deterministic core: parse/resolve `[[wikilinks]]`,
+  load the note graph, **validate** (broken links, orphans, missing root MOC), **scaffold** an
+  empty vault (root `MOC.md` + README), **add+link** an atomic note (creates the MOC if needed),
+  **rank recall candidates** by token/tag/title overlap, and build the **session-start summary**
+  (root MOC + highest-degree notes; `""` when there's no vault). Tolerates frontmatter-less notes
+  and skips the vault README. 100% line+branch coverage.
+- `tests/test_vault.py` — links/graph/validate/scaffold/add_note/recall/summary paths.
+
 ### Fixed — integrity audit (post-interruption review)
 
 A full integrity audit — prompted by several interrupted background tasks (API rate-limits killed
