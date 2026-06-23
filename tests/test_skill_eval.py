@@ -22,6 +22,7 @@ TIER2_SKILLS = {
     "deep-review",
     "skill-factory",
     "engineering-standards",
+    "knowledge",
     "python-patterns",
     "typescript-patterns",
     "javascript-patterns",

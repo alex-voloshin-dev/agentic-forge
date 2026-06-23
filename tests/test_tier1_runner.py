@@ -30,6 +30,7 @@ ON_LISTING = {
     "code-review",
     "deep-review",
     "skill-factory",
+    "knowledge",
 }
 
 

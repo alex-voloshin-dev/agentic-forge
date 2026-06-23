@@ -237,6 +237,17 @@ The same review found docs that lagged the built code; brought them current:
   `skill-factory` are readiness contracts run via the harness / manual LLM-judge (an automated
   skill-Tier-2 CLI is a roadmap item), not gates this CLI enforces.
 
+### Added — L3 knowledge base (ADR 0018), step 2: knowledge skill
+
+- **`plugin/skills/knowledge/`** — an on-listing **recall + capture** skill. *Recall:* detect the
+  vault, rank candidates via `vault.recall`, answer grounded in real notes citing `[[links]]` (or
+  say the vault is silent — never invent). *Capture:* distill to atomic notes, `vault.add_note`
+  (writes + wikilinks from a MOC), validate. Distinct from `research` (external) by design — it
+  reads **our** notes. allowed-tools Read/Grep/Glob/Bash/Write/Edit; body 43 lines.
+- **`evals/evals.json`** — Tier-1 triggers (recall + capture vs the neighbours, incl. the
+  research boundary) + a Tier-2 contract (two capture cases: atomic, wikilinked, valid vault),
+  run by `run_skill_evals.py`. The on-listing router set is now **9**, the tier2 skill set **13**.
+
 ### Added — L3 knowledge base (ADR 0018), step 1: vault lib
 
 L3 begins — an Obsidian-format knowledge vault the plugin deploys + maintains in the target

@@ -1,0 +1,55 @@
+{
+  "skill_name": "knowledge",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Capture this decision in the project knowledge base: we chose an ordered priority enum (low/normal/high) over free-text labels because it sorts deterministically and prevents typos.",
+      "expected_output": "An atomic note written under docs/knowledge/ with frontmatter (title, type: note, tags) capturing the decision AND its rationale, linked from a MOC via a [[wikilink]], leaving validate_vault clean.",
+      "files": [],
+      "assertions": [
+        "A new atomic note is created under docs/knowledge/ with YAML frontmatter (title, type, tags)",
+        "The note records both the decision and its rationale (deterministic sort / typo prevention)",
+        "The note is linked from a map-of-content via a [[wikilink]] (not an orphan)",
+        "The vault validates clean afterwards (no broken links, no orphans)",
+        "Nothing is fabricated beyond the stated decision"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Capture two related learnings in the knowledge base: (a) our test suite must stay deterministic (no real clock/network), and (b) we fake timers in unit tests. Keep them well-organized.",
+      "expected_output": "Two atomic notes (one idea each) under docs/knowledge/, connected to each other or a shared themed MOC via [[wikilinks]], each with frontmatter; validate_vault clean.",
+      "files": [],
+      "assertions": [
+        "Two separate atomic notes are created (one idea per note, not one combined note)",
+        "The notes are connected to each other or a shared themed MOC via [[wikilinks]]",
+        "Each note has frontmatter (title, type, tags) and is reachable from a MOC",
+        "validate_vault reports no broken links and no orphans"
+      ]
+    }
+  ],
+  "component": {
+    "id": "knowledge",
+    "type": "skill",
+    "purpose": "Recall and capture durable project knowledge in the repo's Obsidian vault (docs/knowledge/): answer what we know/decided from our notes, and save decisions/rationale/learnings as atomic, wikilinked notes via the vault lib."
+  },
+  "thresholds": {
+    "tier1_trigger": { "recall": 0.9, "specificity": 0.9 },
+    "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }
+  },
+  "triggers": {
+    "should_trigger": [
+      "What do we know about how we handle task priorities?",
+      "Have we already decided on an auth approach? Check our notes.",
+      "Remember this: we chose Postgres over SQLite for concurrent writes.",
+      "Capture this rationale in the knowledge base so we don't relitigate it.",
+      "Recall any prior art we noted on rate limiting before I design it."
+    ],
+    "should_not_trigger": [
+      "Research how other apps handle task priorities and write a brief.",
+      "Write a PRD with goals and acceptance criteria for the feature.",
+      "Design the technical architecture for the feature.",
+      "Implement the feature in a worktree.",
+      "Review my diff for bugs and security."
+    ]
+  }
+}

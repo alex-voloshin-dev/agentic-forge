@@ -1,0 +1,43 @@
+---
+name: knowledge
+description: Recall or capture durable PROJECT knowledge in the repo's Obsidian vault (docs/knowledge/) — answer "what do we know / have we decided about X" from our own notes, and save decisions, rationale, and learnings as atomic, wikilinked notes. Use to remember, recall, or capture project knowledge; not for external research (research), writing code (develop), or product specs (product).
+allowed-tools: Read, Grep, Glob, Bash, Write, Edit
+---
+
+# Knowledge (recall + capture)
+
+Maintain and read the project's durable knowledge — the Obsidian vault at `docs/knowledge/`
+(atomic notes + `[[wikilinks]]` + maps-of-content). The deterministic vault operations live in
+`lib/agentic_forge/vault.py`; this skill adds the judgement: what's worth recalling, what's worth
+capturing, and how to keep notes atomic and linked. (Mechanism: ADR 0018.)
+
+## When to use
+
+- **Recall** — "what do we know about X", "have we decided / discussed X", "our notes or prior
+  art on X", before designing or building. This reads **our** vault — not the outside world
+  (that's `research`).
+- **Capture** — "remember this", "capture this decision / rationale / learning", "note that …".
+  Save durable knowledge that does **not** belong in code or git history (the *why* behind a
+  choice, a gotcha, how we think about something).
+
+## Recall
+
+1. Detect the vault — `vault.validate_vault(repo)` (offer to `vault.scaffold(repo)` if absent).
+2. `vault.recall(repo, query)` → ranked candidate notes; read the top few in full.
+3. Answer **grounded in those notes**, citing `[[note]]` links. If the vault has nothing on it,
+   say so plainly — never invent knowledge.
+
+## Capture
+
+1. Distill to **one atomic idea per note** (split if it's several). Choose a kebab-case `name`,
+   a `title`, and `tags`.
+2. `vault.add_note(repo, name, title, body, tags=...)` — writes the note and links it from the
+   root MOC. Use `[[wikilinks]]` in the body to connect related notes; add or extend a themed
+   MOC (`moc=...`) for a cluster.
+3. `vault.validate_vault(repo)` and fix any broken link or orphan before finishing.
+
+## Definition of done
+
+- Recall answers are grounded in real notes and cite `[[links]]`, or state the vault is silent.
+- Captured notes are atomic, tagged, wikilinked, and reachable from a MOC; `validate_vault` is
+  clean — no broken links, no orphans.
