@@ -21,6 +21,9 @@ coverage.xml
 **/grading.json
 **/benchmark.json
 **/timing.json
+
+# L4 guardrail audit log (runtime artifact written by the logging hook)
+.agentic-forge/
 eval-report.html
 
 # OS / editor
