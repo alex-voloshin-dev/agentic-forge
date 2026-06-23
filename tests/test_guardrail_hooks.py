@@ -104,6 +104,15 @@ def test_commit_gate_main_blocks(monkeypatch, tmp_path: Path, capsys) -> None:
     assert "test-gate" in capsys.readouterr().err
 
 
+def test_commit_gate_main_allows_when_gate_passes(monkeypatch, tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    monkeypatch.delenv("AGENTIC_FORGE_SKIP_TEST_GATE", raising=False)
+    monkeypatch.setattr(commit_gate.subprocess, "run", _fake_run(0))
+    payload = {"tool_name": "Bash", "tool_input": {"command": "git commit"}, "cwd": str(tmp_path)}
+    _stdin(monkeypatch, payload)
+    assert commit_gate.main() == 0
+
+
 # --- budget ------------------------------------------------------------------
 
 
@@ -128,6 +137,12 @@ def test_budget_main_blocks(monkeypatch, tmp_path: Path, capsys) -> None:
     _stdin(monkeypatch, {"tool_name": "Task", "session_id": "s"})
     assert budget.main() == 2  # first spawn already over hard cap 0
     assert "budget hook" in capsys.readouterr().err
+
+
+def test_budget_main_allows_under_cap(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(budget.tempfile, "gettempdir", lambda: str(tmp_path))
+    _stdin(monkeypatch, {"tool_name": "Task", "session_id": "under"})
+    assert budget.main() == 0  # first spawn, under the default caps
 
 
 # --- audit_log ---------------------------------------------------------------

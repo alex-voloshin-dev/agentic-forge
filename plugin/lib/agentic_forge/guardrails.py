@@ -45,8 +45,15 @@ ALLOW = Decision(False)
 
 # --- security: dangerous-command deny-list -----------------------------------
 
-# A target that means "everything": filesystem root or the home directory (not /tmp/x etc.).
-_ROOT_TARGET = re.compile(r"(^|\s)(/|/\*|~|\$HOME|\$\{HOME\})(\s|/?\*?\s|$)")
+# A target that means "everything": filesystem root, home, or a top-level system dir (NOT
+# /tmp/x, ./build, ~/Downloads). Quotes are stripped before matching so "/" and '/usr' are seen.
+_DANGER_TARGET = re.compile(
+    r"(?:^|\s)(?:"
+    r"/\*?"  # / or /*
+    r"|~/?|\$HOME/?|\$\{HOME\}/?"  # home
+    r"|/(?:usr|etc|bin|sbin|lib|lib64|boot|var|opt|root|home)(?:/\S*)?"  # system dirs
+    r")(?:\s|$)"
+)
 _RM = re.compile(r"\brm\b")
 _RM_RECURSIVE = re.compile(r"(?<![\w-])-\w*[rR]\w*\b|--recursive\b")
 _RM_FORCE = re.compile(r"(?<![\w-])-\w*f\w*\b|--force\b")
@@ -57,23 +64,41 @@ _BLOCKERS: list[tuple[re.Pattern[str], str]] = [
         re.compile(r"\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(ba)?sh\b"),
         "pipe a network download into a shell",
     ),
-    (re.compile(r"\bmkfs\b|\bdd\b[^\n]*\bof=/dev/"), "overwrite a filesystem/disk device"),
+    (
+        # mkfs/dd with a /dev/ device argument (command-bounded so "echo mkfs" / "git grep mkfs"
+        # and "dd if=/dev/sda of=backup" are NOT blocked).
+        re.compile(r"\bmkfs(\.\w+)?\b[^\n;&|]*/dev/|\bdd\b[^\n;&|]*\bof=/dev/"),
+        "overwrite a filesystem/disk device",
+    ),
     (re.compile(r"\bchmod\b\s+-\w*R\w*\s+0?777\s+/(\s|$)"), "world-writable chmod on /"),
-    (re.compile(r">\s*/dev/(sd[a-z]|nvme\d|disk\d)"), "write to a raw disk device"),
+    (re.compile(r">\|?\s*/dev/(sd[a-z]|nvme\d|disk\d|mapper/)"), "write to a raw disk device"),
 ]
-_FORCE_PUSH = re.compile(r"\bgit\s+push\b.*?(--force\b|--force-with-lease\b|\s-f\b)", re.S)
-_PROTECTED = re.compile(r"\b(main|master|release)\b")
+_GIT_PUSH = re.compile(r"\bgit\s+push\b")
+_FORCE_FLAG = re.compile(r"--force\b|--force-with-lease\b|(?<![\w-])-\w*f\w*\b")
+# a protected branch as a standalone arg/refspec — NOT release-2024, my-release, feature/main-fix
+_PROTECTED_REF = re.compile(r"(?:^|\s)\+?(?:main|master|release)(?::|\s|$)")
+_PLUS_PROTECTED = re.compile(r"(?:^|\s)\+(?:main|master|release)(?::|\s|$)")
 
 
 def _dangerous_rm(command: str) -> bool:
-    """True for a recursive+forced ``rm`` whose target is the root or home (not a subpath)."""
+    """True for a recursive+forced ``rm`` whose target is the root, home, or a system dir."""
     if not _RM.search(command):
         return False
+    unquoted = command.replace('"', " ").replace("'", " ")  # so "/" and '/usr' are seen
     return bool(
         _RM_RECURSIVE.search(command)
         and _RM_FORCE.search(command)
-        and _ROOT_TARGET.search(command)
+        and _DANGER_TARGET.search(unquoted)
     )
+
+
+def _dangerous_push(command: str) -> bool:
+    """True for a force-push (``--force``/``-f`` or a ``+refspec``) to a protected branch."""
+    if not _GIT_PUSH.search(command):
+        return False
+    if _PLUS_PROTECTED.search(command):
+        return True
+    return bool(_FORCE_FLAG.search(command) and _PROTECTED_REF.search(command))
 
 
 def classify_command(command: str) -> Decision:
@@ -82,18 +107,19 @@ def classify_command(command: str) -> Decision:
     Conservative by design — a false block causes friction, so only unambiguous hazards match.
     """
     if _dangerous_rm(command):
-        return Decision(True, "blocked: recursive/forced delete of / or home")
+        return Decision(True, "blocked: recursive/forced delete of /, home, or a system dir")
     for pattern, reason in _BLOCKERS:
         if pattern.search(command):
             return Decision(True, f"blocked: {reason}")
-    if _FORCE_PUSH.search(command) and _PROTECTED.search(command):
+    if _dangerous_push(command):
         return Decision(True, "blocked: force-push to a protected branch (main/master/release)")
     return ALLOW
 
 
 # --- test-gate: fast gate before commit/push ---------------------------------
 
-_COMMIT_PUSH = re.compile(r"\bgit\s+(commit|push)\b")
+# git commit/push in command position (not "echo 'git commit'")
+_COMMIT_PUSH = re.compile(r"(?:^|[\n;&|]\s*)git\s+(?:commit|push)\b")
 
 
 def is_commit_or_push(command: str) -> bool:
@@ -122,8 +148,15 @@ _SECRETS = [
     re.compile(r"\bghp_[A-Za-z0-9]{20,}\b"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),
-    re.compile(r"\bBearer\s+[A-Za-z0-9._\-]{16,}"),
-    re.compile(r"(?i)\b(api[_-]?key|token|secret|password|passwd)\b\s*[:=]\s*['\"]?[^\s'\"]{6,}"),
+    re.compile(r"-----BEGIN[^-]*PRIVATE KEY-----[\s\S]*?-----END[^-]*-----"),
+    re.compile(r"(?i)\bauthorization\b\s*:\s*\S+(\s+\S{4,})?"),
+    re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._\-]{16,}"),
+    # key=value / key: value assignments. No leading \b on the keyword so AWS_SECRET_ACCESS_KEY
+    # (underscore-joined, no word boundary before "secret") is still caught.
+    re.compile(
+        r"(?i)(api[_-]?key|secret\w*|access[_-]?key|token|password|passwd)"
+        r"\s*[:=]\s*['\"]?[^\s'\"]{6,}"
+    ),
 ]
 
 
@@ -136,14 +169,14 @@ def redact_secrets(text: str) -> str:
 
 def audit_record(payload: dict[str, Any], *, max_len: int = 300) -> dict[str, str]:
     """Build a compact, secret-redacted audit record from a PostToolUse hook payload."""
-    tool = str(payload.get("tool_name") or payload.get("tool") or "unknown")
+    tool = str(payload.get("tool_name") or payload.get("tool") or "unknown")[:128]
     raw = json.dumps(payload.get("tool_input") or {}, sort_keys=True)
     brief = redact_secrets(raw)
     if len(brief) > max_len:
         brief = brief[:max_len] + "…"
     record = {"tool": tool, "input": brief}
     if payload.get("session_id"):
-        record["session_id"] = str(payload["session_id"])
+        record["session_id"] = str(payload["session_id"])[:128]
     return record
 
 

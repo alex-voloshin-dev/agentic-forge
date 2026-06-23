@@ -237,6 +237,25 @@ The same review found docs that lagged the built code; brought them current:
   `skill-factory` are readiness contracts run via the harness / manual LLM-judge (an automated
   skill-Tier-2 CLI is a roadmap item), not gates this CLI enforces.
 
+### Fixed — L4 guardrails (ADR 0019), step 4: security-review hardening
+
+Independent security review of L4 (no blockers; `guardrails.py` 100%, all hooks fail-open
+verified). Closed every finding:
+
+- **Secret redaction (M1):** `redact_secrets` now catches `AWS_SECRET_ACCESS_KEY=` / `access_key=`
+  (underscore-joined — no word boundary), PEM private-key blocks, and any `Authorization:` scheme
+  — not just `Bearer`/`sk-`/`ghp_` (these get written to the audit log on disk).
+- **mkfs false-positive (M2):** the disk-format block now requires a `/dev/` device argument
+  (command-bounded), so `git grep mkfs` / `echo "…mkfs…"` are no longer wrongly blocked.
+- **rm targets (M3):** also blocks `rm -rf` of system dirs (`/usr`, `/etc`, …), `~/`, and quoted
+  `"/"`; still allows `rm -rf ./build`, `/tmp/x`, `~/Downloads/…`.
+- **Force-push (M4/M5):** detects the `+refspec` form (`git push origin +main`) and matches a
+  protected branch as a standalone token (no longer over-blocks `release-2024` / `feature/main-fix`).
+- **Over-trigger + bounds (M6/N1/N2):** the test-gate triggers only on command-position
+  `git commit`/`push` (not a quoted mention); `audit_record` bounds `tool`/`session_id`; the
+  raw-disk block also covers `>|` clobber and `/dev/mapper/`. Plus hook `main()` allow-path tests
+  (N3). `guardrails.py` stays 100% line+branch.
+
 ### Added — L4 guardrails (ADR 0019), step 3: docs + layer complete
 
 - **`docs/architecture/guardrails.md`** — the L4 architecture doc (the four hooks, design notes,

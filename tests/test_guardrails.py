@@ -40,6 +40,13 @@ _REPO = Path(__file__).resolve().parents[1]
         "echo x > /dev/sda",
         "git push --force origin main",
         "git push -f origin master",
+        "mkfs.ext4 -L data /dev/sdb",  # mkfs with flags before the device
+        "rm -rf /usr",  # system dir
+        "rm -rf /etc/",
+        'rm -rf "/"',  # quoted root
+        "git push origin +main",  # +refspec force-push
+        "cat x >| /dev/sda",  # force-clobber redirect
+        "echo y > /dev/mapper/vg-root",  # LVM device
     ],
 )
 def test_classify_blocks_dangerous(cmd: str) -> None:
@@ -59,7 +66,13 @@ def test_classify_blocks_dangerous(cmd: str) -> None:
         "curl https://x -o out.json",  # download, no pipe-to-shell
         "chmod 644 file.py",
         "dd if=in.img of=out.img",  # not a /dev/ target
+        "dd if=/dev/sda of=backup.img",  # read FROM a device is fine
         "echo done",
+        "echo 'run mkfs to format the disk'",  # word mkfs, no /dev/ arg
+        "git grep -n mkfs",
+        "rm -rf ~/Downloads/tmp",  # a home subpath, not ~ itself
+        "git push -f origin release-2024",  # 'release' is a sub-segment, not the branch
+        "git push origin +my-feature",  # +refspec to a non-protected branch
     ],
 )
 def test_classify_allows_safe(cmd: str) -> None:
@@ -72,8 +85,10 @@ def test_classify_allows_safe(cmd: str) -> None:
 def test_is_commit_or_push() -> None:
     assert is_commit_or_push("git commit -m 'x'")
     assert is_commit_or_push("git push origin main")
+    assert is_commit_or_push("ruff check . && git commit -m x")  # command position after &&
     assert not is_commit_or_push("git status")
     assert not is_commit_or_push("echo commit")
+    assert not is_commit_or_push("echo 'git commit'")  # mention in an arg, not command position
 
 
 def test_choose_gate_prefers_validate(tmp_path: Path) -> None:
@@ -102,10 +117,19 @@ def test_choose_gate_none_when_unknown(tmp_path: Path) -> None:
         "Bearer abcdefghijklmnopqrstuvwx",
         "api_key=supersecretvalue",
         "password: hunter2hunter2",
+        "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMIabcdef1234567890ABCDEFGHij",
+        "access_key=abcdef123456",
+        "Authorization: Basic dXNlcjpwYXNzd29yZA==",
     ],
 )
 def test_redact_secrets(secret: str) -> None:
     assert "[REDACTED]" in redact_secrets(f"prefix {secret} suffix")
+
+
+def test_redact_pem_private_key() -> None:
+    pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEabc123\n-----END RSA PRIVATE KEY-----"
+    out = redact_secrets(f"key:\n{pem}\ndone")
+    assert "[REDACTED]" in out and "MIIEabc123" not in out
 
 
 def test_redact_leaves_clean_text() -> None:
@@ -131,6 +155,11 @@ def test_audit_record_truncates_long_input() -> None:
 def test_audit_record_defaults() -> None:
     rec = audit_record({})  # no tool_name, no session_id
     assert rec["tool"] == "unknown" and "session_id" not in rec
+
+
+def test_audit_record_bounds_tool_and_session() -> None:
+    rec = audit_record({"tool_name": "T" * 5000, "session_id": "S" * 5000, "tool_input": {}})
+    assert len(rec["tool"]) == 128 and len(rec["session_id"]) == 128
 
 
 # --- budgets -----------------------------------------------------------------
