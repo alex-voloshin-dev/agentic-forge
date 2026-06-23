@@ -19,7 +19,7 @@ architecture before we invest in breadth.
 | 0 | Meta-core (L0) | **Done** |
 | 1 | Engine foundations (L1, minimal) | **Done** — see [engine.md](architecture/engine.md) |
 | 2 | SDLC spine vertical slice (L2) | Built — six-phase spine proven E2E; by-stack complete: detection + a `*-patterns` pack for every registered stack (9) + wiring |
-| 3 | Knowledge base (L3) | Planned |
+| 3 | Knowledge base (L3) | Built — vault lib + `knowledge` skill + session-start hook (ADR 0018) |
 | 4 | Quality & operations domains | Planned |
 | 5 | Product & marketing domains | Planned |
 | 6 | Design & onboarding domains | Planned |
@@ -132,6 +132,10 @@ loose. Mitigation: design the trigger taxonomy and artifact schemas up front.
 ---
 
 ## Stage 3 — Knowledge base
+
+Status: **Built** (ADR 0018) — the vault lib (`vault.py`), the `knowledge` recall/capture skill,
+and the session-start injection hook (the plugin's first hook); see
+[knowledge.md](architecture/knowledge.md).
 
 Goal: an Obsidian-format vault the plugin deploys in the target repo, maintains, and reads
 to enrich workflow context.

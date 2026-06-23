@@ -17,6 +17,8 @@ documentation discipline in the root `CLAUDE.md`).
   - [SDLC spine (Layer 2)](architecture/spine.md) — the six-phase spine from idea to
     reviewed code (research → product → architecture → plan → develop → code-review), built
     and proven end-to-end.
+  - [Knowledge base (Layer 3)](architecture/knowledge.md) — the Obsidian vault, recall/capture
+    skill, and session-start hook (built).
   - [Decision records](architecture/decisions/README.md) — the ADRs behind every major
     choice.
 - **Plan**

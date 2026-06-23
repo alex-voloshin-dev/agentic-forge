@@ -237,6 +237,14 @@ The same review found docs that lagged the built code; brought them current:
   `skill-factory` are readiness contracts run via the harness / manual LLM-judge (an automated
   skill-Tier-2 CLI is a roadmap item), not gates this CLI enforces.
 
+### Added — L3 knowledge base (ADR 0018), step 4: docs + layer complete
+
+- **`docs/architecture/knowledge.md`** — the L3 architecture doc (vault format, deterministic
+  core, recall/capture skill, session-start hook, eval model).
+- Status across docs: `overview.md` L3, roadmap Stage 3, `README`, and the docs index now mark
+  L3 **Built**; `meta-core.md` lists `vault.py` + `plugin/hooks/`; `CLAUDE.md`'s layout notes the
+  session-start hook is built. **Only L4 (guardrails/observability) remains.**
+
 ### Added — L3 knowledge base (ADR 0018), step 3: session-start hook
 
 The plugin's **first hook** — session-start knowledge injection.

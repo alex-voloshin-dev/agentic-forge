@@ -30,8 +30,10 @@ plugin/
     handoff.py agent_eval.py          # L1/eval-harness additions
     spine_e2e.py stacks.py            # L2 spine: Tier-3 E2E + by-stack detection
     tier1_runner.py skill_eval.py     # L2: skill Tier-1 (live listing) + skill Tier-2 runners
+    vault.py                          # L3: Obsidian knowledge-vault core (ADR 0018)
   schemas/evals.schema.json           # the component contract schema (superset)
   eval/{README.md, fixtures/}         # harness architecture + agent eval fixtures (L1)
+  hooks/{hooks.json, scripts/session_start.py}  # L3 session-start knowledge hook (ADR 0018)
 dev/{validate.py, run_agent_evals.py, run_tier1_evals.py, run_skill_evals.py, run_spine_e2e.py}  # Tier 0/1/2/3 CLIs
 tests/                                # pytest for lib + harness + plugin integrity
 pyproject.toml                        # uv / pytest / ruff / mypy config
@@ -54,6 +56,7 @@ pyproject.toml                        # uv / pytest / ruff / mypy config
 | `stacks.py` | Deterministic stack detection for target repos: `detect`/`primary` from hints/manifests plus the toolchain registry the spine's `develop`/`code-review` consume (by-stack; ADR 0015). |
 | `tier1_runner.py` | Tier-1 trigger runner on the **live** skill listing: classify each on-listing skill's trigger prompts via the router, gate recall/specificity (ADR 0016). |
 | `skill_eval.py` | Skill Tier-2 quality runner: knowledge skills run as the `software-engineer` with them loaded, others directly; reuses `agent_eval.run_eval_cases` (ADR 0017). |
+| `vault.py` | L3 knowledge-vault core: parse/resolve `[[wikilinks]]`, load + validate the note graph, scaffold, add+link notes, rank recall candidates, build the session-start summary (ADR 0018). |
 
 Everything here is dependency-light (pyyaml, jsonschema) and unit-tested. Skill scripts and
 hooks import from this package.

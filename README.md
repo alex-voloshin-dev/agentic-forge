@@ -20,8 +20,9 @@ patterns) are complete and green; the six engine roles pass Tier-2. Layer 2 — 
 SDLC spine (research → product → architecture → plan → develop → code-review) — is built and
 proven end-to-end (Tier-3). Multi-stack support is built too — by-stack detection plus a
 `*-patterns` pack for each of the nine registered stacks (Python, TypeScript, JavaScript, Go,
-Rust, JVM, .NET, Ruby, PHP). See the [roadmap](docs/roadmap.md). The knowledge base is Layer 3
-(not built yet).
+Rust, JVM, .NET, Ruby, PHP). The knowledge base (Layer 3) is built too — an Obsidian vault +
+`knowledge` recall/capture skill + a session-start hook; only guardrails (Layer 4) remain. See
+the [roadmap](docs/roadmap.md).
 
 - [x] Repository skeleton, manifests, tooling
 - [x] Tier-0 deterministic validator + tests
