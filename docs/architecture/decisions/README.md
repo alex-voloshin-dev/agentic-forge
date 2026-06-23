@@ -18,7 +18,7 @@ edit.
 | [0010](0010-handoff-schemas-and-pattern-references.md) | Handoff header schemas + pattern-reference location | Accepted |
 | [0011](0011-agent-eval-runner.md) | Dedicated agent eval runner with a pluggable model seam | Accepted |
 | [0012](0012-sdlc-spine.md) | Stage 2 SDLC spine: six thin router skills | Superseded by 0013 |
-| [0013](0013-spine-workflow-chain.md) | Stage 2 SDLC spine as a chain of phase-workflows | Accepted (design) |
+| [0013](0013-spine-workflow-chain.md) | Stage 2 SDLC spine as a chain of phase-workflows | Accepted |
 | [0014](0014-software-engineer-base-role.md) | One software-engineer base role + stack skills, not per-stack agents | Accepted |
 | [0015](0015-by-stack-detection-and-packs.md) | By-stack: deterministic detection helper + stack reference packs | Accepted |
 | [0016](0016-tier1-trigger-runner.md) | Tier-1 trigger runner on live skill descriptions | Accepted |

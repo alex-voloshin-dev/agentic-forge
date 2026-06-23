@@ -31,7 +31,7 @@ recall/specificity on the live listing — see below); **skill Tier-2** `dev/run
 (see below); **Tier-3** `dev/run_spine_e2e.py`. The spine phase-workflow skills carry no
 skill-level Tier-2 — their quality is exercised end-to-end by the Tier-3 spine E2E plus the agent
 Tier-2 of the roles they fork. The judgment-heavy / loaded-on-demand skills (`deep-review`,
-`skill-factory`, `engineering-standards`, and the nine `*-patterns` packs) declare a
+`skill-factory`, `knowledge`, `engineering-standards`, and the nine `*-patterns` packs) declare a
 `tier2_quality` threshold and **are now run by `run_skill_evals.py`** (ADR 0017) — no longer a
 manual step.
 
@@ -57,7 +57,7 @@ runner's core. Two execution modes:
   software-engineer body + `engineering-standards` (+ the pack body) — with the engineer's tools,
   isolated (it writes code), graded against the skill's own assertions. This is the
   "exercised through the software-engineer's Tier-2" path, now real.
-- **On-listing skills** (`deep-review`, `skill-factory`) run directly (their own body + tools).
+- **On-listing skills** (`deep-review`, `skill-factory`, `knowledge`) run directly (own body + tools).
 
 Each output is graded by the `grader` role, aggregated, and gated `mean − stddev ≥ 0.8` over the
 contract's `runs`. Same transports (`--runner dry|claude|api`). **It is the most expensive eval**

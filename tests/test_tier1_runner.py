@@ -20,7 +20,7 @@ from agentic_forge.tier1_runner import (
 
 PLUGIN = Path(__file__).resolve().parents[1] / "plugin"
 
-# The eight on-listing router skills (the stack packs + engineering-standards are off-listing).
+# The nine on-listing router skills (the stack packs + engineering-standards are off-listing).
 ON_LISTING = {
     "research",
     "product",

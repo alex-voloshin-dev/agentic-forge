@@ -237,6 +237,21 @@ The same review found docs that lagged the built code; brought them current:
   `skill-factory` are readiness contracts run via the harness / manual LLM-judge (an automated
   skill-Tier-2 CLI is a roadmap item), not gates this CLI enforces.
 
+### Fixed — doc/plan drift (pre-L4 audit)
+
+An independent doc + plan audit before building L4 found drift (no blockers); fixed:
+- **Layer/Stage mapping** (`docs/README.md` glossary): corrected the false "1:1" claim — L0–L3
+  align with Stages 0–3, but **L4 = Stage 7**, and Stages 4–6 are SDLC-domain build-outs on top
+  of L1–L3 (no new layer).
+- **No untrue surface claims** (`plugin.json` keywords + `plugin.json` / `marketplace.json`
+  descriptions): dropped `ui-ux` / `qa` / `deployment` (unbuilt) and the UI/UX/QA/deployment
+  enumeration; added the knowledge base and `code-review`.
+- **Counts current:** the on-listing router set is **nine** (was "eight") in the roadmap + the
+  runner test comment; the eval-runbook tier2 list now includes `knowledge` (13, runs directly).
+- **Stale "Layer 3 next":** spine.md and the roadmap now point only to Layer 4 (L3 shipped).
+- **ADR index:** 0013 status "Accepted (design)" → "Accepted" (the spine is built). Immutable ADR
+  bodies (0016 "eight" / 0017 "twelve") left as point-in-time records.
+
 ### Fixed — L3 knowledge base (ADR 0018), step 5: review hardening
 
 Independent adversarial review of L3 (gate green, vault 100%, hook never blocks the session). One

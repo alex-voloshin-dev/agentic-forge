@@ -38,8 +38,10 @@ see the [eval runbook](eval-runbook.md) and the [eval harness](../plugin/eval/RE
 
 ## Glossary
 
-- **Layer / Stage** — they map 1:1 (Stage N builds Layer N): L0/Stage 0 meta-core, L1/Stage 1
-  engine, L2/Stage 2 workflow skills, and so on.
+- **Layer / Stage** — architecture *layers* (L0–L4) and roadmap *stages* (0–7) align for the
+  foundation (L0=Stage 0, L1=Stage 1, L2=Stage 2, L3=Stage 3) but diverge after: **L4
+  (guardrails) = Stage 7**, while Stages 4–6 build out SDLC *domains* on top of L1–L3 (no new
+  layer). They are not 1:1.
 - **Router discipline** — keeping the always-on, model-invocable skill set small with sharp
   descriptions so the skill listing stays within its context budget.
 - **Listing budget** — the ~1% of the model's context window the always-on skill
