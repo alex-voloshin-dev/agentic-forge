@@ -237,6 +237,18 @@ The same review found docs that lagged the built code; brought them current:
   `skill-factory` are readiness contracts run via the harness / manual LLM-judge (an automated
   skill-Tier-2 CLI is a roadmap item), not gates this CLI enforces.
 
+### Added — L4 guardrails (ADR 0019), step 1: guardrails lib
+
+L4 (the last layer) begins — deterministic guardrail logic the hook scripts call.
+
+- **`plugin/lib/agentic_forge/guardrails.py`** — `classify_command` (security deny-list: blocks
+  `rm -rf /`/`~`, fork bombs, `curl|sh`, `mkfs`/`dd` to a device, `chmod 777 /`, raw-disk writes,
+  and force-push to a protected branch — conservative, allows everything else), `is_commit_or_push`
+  + `choose_gate` (test-gate: `dev/validate.py` if present, else the detected stack's lint),
+  `redact_secrets` + `audit_record` (logging), and `bump_and_check` (subagent budget: warn over a
+  soft cap, block over a hard cap). 100% line+branch coverage.
+- `tests/test_guardrails.py` — allow **and** block paths for every guardrail.
+
 ### Fixed — doc/plan drift (pre-L4 audit)
 
 An independent doc + plan audit before building L4 found drift (no blockers); fixed:
