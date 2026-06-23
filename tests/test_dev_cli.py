@@ -43,8 +43,8 @@ def test_run_skill_evals_dry_ok() -> None:
 
 
 def test_run_skill_evals_unknown_skill_warns(capsys) -> None:
-    # An unknown --skill warns and (no tier2 contract) yields nothing to gate -> exit 0 dry.
-    run_skill_evals.main(["run", "--runner", "dry", "--skill", "does-not-exist"])
+    # An unknown --skill warns, then dry wiring-checks it (missing files) -> NOT READY -> exit 1.
+    assert run_skill_evals.main(["run", "--runner", "dry", "--skill", "does-not-exist"]) == 1
     assert "no tier2_quality contract" in capsys.readouterr().err
 
 

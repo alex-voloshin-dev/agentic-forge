@@ -185,6 +185,8 @@ def check_wiring(skill: str, plugin_dir: Path) -> list[str]:
                 problems.append(f"{skill} case {cid}: missing fixture {rel}")
     if is_off_listing(plugin_dir, skill):
         # A knowledge skill is executed as the base role with engineering-standards loaded.
+        if not _body(md):
+            problems.append(f"{skill}: empty SKILL.md body (nothing to load into the executor)")
         if not _role_md(plugin_dir, BASE_ROLE).is_file():
             problems.append(f"{skill}: base role {BASE_ROLE}.md missing (needed to execute it)")
         if not _skill_md(plugin_dir, STANDARDS_SKILL).is_file():

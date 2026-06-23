@@ -212,6 +212,35 @@ def test_check_wiring_off_listing_needs_base_role(tmp_path: Path) -> None:
     assert any("engineering-standards skill missing" in p for p in problems)
 
 
+def test_check_wiring_off_listing_empty_body(tmp_path: Path) -> None:
+    # A knowledge skill with an empty body would load nothing into the executor -> flag it.
+    _write(tmp_path, "agents/grader.md", "---\nname: grader\ndescription: g\n---\n# g\n")
+    _write(
+        tmp_path,
+        "agents/software-engineer.md",
+        "---\nname: software-engineer\ndescription: d\ntools: Read\n---\n# se\n",
+    )
+    _write(
+        tmp_path,
+        "skills/engineering-standards/SKILL.md",
+        "---\nname: engineering-standards\ndescription: d\n"
+        "disable-model-invocation: true\n---\n# es\n",
+    )
+    _write(
+        tmp_path,
+        "skills/y-patterns/SKILL.md",
+        "---\nname: y-patterns\ndescription: d\ndisable-model-invocation: true\n---\n",
+    )
+    _write(
+        tmp_path,
+        "skills/y-patterns/evals/evals.json",
+        '{"skill_name":"y-patterns","evals":[{"id":1,"prompt":"p","assertions":["a"]}],'
+        '"component":{"id":"y-patterns","type":"skill","purpose":"p"},'
+        '"thresholds":{"tier2_quality":{"min_pass_rate":0.8,"runs":5}}}',
+    )
+    assert any("empty SKILL.md body" in p for p in check_wiring("y-patterns", tmp_path))
+
+
 def test_is_off_listing_false_when_no_skill(tmp_path: Path) -> None:
     assert is_off_listing(tmp_path, "nope") is False
 
