@@ -45,7 +45,7 @@
     "should_not_trigger": [
       "Is the production deploy healthy right now?",
       "We have an outage — start incident response",
-      "Add a CHANGELOG entry for this pull request"
+      "Update the README with usage examples"
     ]
   }
 }

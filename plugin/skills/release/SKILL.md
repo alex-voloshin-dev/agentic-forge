@@ -1,6 +1,6 @@
 ---
 name: release
-description: Cut a release — derive the next semver version and assemble a Keep-a-Changelog changelog from the commits since the last tag, then write the release notes (and tag only when asked). Use to cut or prepare a release, write release notes, assemble a changelog from merged work, or decide the next version / bump. Not for the per-PR CHANGELOG entry during development, deploy/rollout monitoring (deploy-watch), or incident handling (incident-response).
+description: Cut and tag a release — decide the next semver version and write that release's notes and changelog from ALL commits since the last tag (the whole release's aggregated changelog, not one PR's entry). Use to cut or prepare a release, tag a version, decide the next version number / bump, or write the release notes / changelog for a release. Not for adding a single CHANGELOG entry for one pull request during development (ordinary file editing, not a release), deploy/rollout monitoring (deploy-watch), or incident handling (incident-response).
 allowed-tools: Read, Grep, Glob, Bash, Write, Edit
 ---
 

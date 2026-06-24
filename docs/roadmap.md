@@ -20,7 +20,7 @@ architecture before we invest in breadth.
 | 1 | Engine foundations (L1, minimal) | **Done** — see [engine.md](architecture/engine.md) |
 | 2 | SDLC spine vertical slice (L2) | Built — six-phase spine proven E2E; by-stack complete: detection + a `*-patterns` pack for every registered stack (9) + wiring |
 | 3 | Knowledge base (L3) | Built — vault lib + `knowledge` skill + session-start hook (ADR 0018) |
-| 4 | Quality & operations domains | Planned |
+| 4 | Quality & operations domains | Built — 5 skills (qa-test-strategy, security-review, deploy-watch, incident-response, release) + ops/release lib cores; Tier-1/Tier-2 gated (ADR 0021, [quality-ops.md](architecture/quality-ops.md)) |
 | 5 | Product & marketing domains | Planned |
 | 6 | Design & onboarding domains | Planned |
 | 7 | Guardrails, observability, scheduling (L4) | Built — four guardrail hooks (ADR 0019); scheduling/observability deferred |
@@ -164,6 +164,12 @@ Risks: KB sprawl and stale notes. Mitigation: MOC discipline + consolidation rou
 ---
 
 ## Stage 4 — Quality & operations domains
+
+Status: **Built and gated** (ADR 0021). Five phase-workflow skills shipped — `qa-test-strategy`
+and `security-review` (Tier-1 fork-orchestrators of qa-engineer / security-engineer),
+`deploy-watch`, `incident-response`, and `release` (Tier-1 + Tier-2 own-behavior, on the tested
+`ops` / `release` lib cores). Final gate (`claude-opus-4-8`): Tier-2 lower bound 1.000 for the
+three own-behavior skills (n=5); Tier-1 recall 1.000 / specificity 1.000 for all five (runs=5).
 
 Goal: `qa-test-strategy`, `security-review`, `deploy-watch`, `incident-response`, `release`.
 

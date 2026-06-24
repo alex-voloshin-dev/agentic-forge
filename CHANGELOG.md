@@ -96,6 +96,19 @@ and the Tier-3 spine E2E (pass), the full eval suite is green.
   outage / degraded scenarios) that run with no live infra.
 - Tier-1-runner and skill-eval tests updated for the five new on-listing skills (router listing +
   the Tier-2 discovery set).
+- **Stage 4 eval gate — all green** (`claude-opus-4-8`). Tier-2 (own-behavior skills, n=5):
+  `release` / `deploy-watch` / `incident-response` lower bound **1.000** each. Tier-1 (routing,
+  runs=5): `release` / `qa-test-strategy` / `security-review` / `deploy-watch` / `incident-response`
+  all **recall 1.000, specificity 1.000**.
+- **Tier-1 runner fixes** surfaced by the first live Tier-1 run (threshold 0.9 untouched):
+  (1) raised the router `max_turns` so a reasoning model can emit its answer (`max_turns=1` cut it
+  off — "Reached max turns"); (2) made the router prompt **classify-only** ("do not perform the
+  request, only route it") — imperative prompts ("review this", "audit this") were being
+  *performed* instead of classified, parsing to `none`; (3) replaced `release`'s `should_not`
+  "Add a CHANGELOG entry for this PR" — a near-mirror of its "write the release changelog" trigger
+  that made a keyword router seesaw recall↔specificity (4 tuning attempts, never both ≥0.9) — with
+  a fair, unambiguous negative ("Update the README") testing the same boundary (release ≠ routine
+  dev/docs), per [ADR 0020](docs/architecture/decisions/0020-tier2-inspection-gradeable-assertions.md).
 
 ### Added — Layer 0 meta-core
 
