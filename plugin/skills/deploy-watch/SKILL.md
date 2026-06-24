@@ -27,8 +27,10 @@ python -c "from agentic_forge import ops; help(ops.deploy_status)"
 ```
 
 1. **Get the state through a source.** In a live repo, wire a real `PipelineSource` /
-   `AlertSource` (an MCP connector, `gh run list`, or a provider API) — recent deploys + active
-   alerts for the environment. When handed a recorded snapshot (JSON of `deploys` + `alerts`),
+   `AlertSource` — the simplest is `connectors.pipeline_source(repo)` (auto-detects the `gh` CLI;
+   see [references/connectors.md](references/connectors.md)), or an MCP connector / provider API —
+   recent deploys + active alerts for the environment. When handed a recorded snapshot (JSON of
+   `deploys` + `alerts`),
    load it into `ops.InMemoryPipeline` / `ops.InMemoryAlerts` (build `ops.Deploy` / `ops.Alert`
    from the records).
 2. **Assess.** `ops.deploy_status(pipeline, alerts, environment)` returns the

@@ -173,7 +173,12 @@ model-invocable skills — deterministic infra, gated by `pytest` (cores 100% co
   each connector a **pure parser + thin fetch seam**; **Python adapters** for structured CLI/REST
   (GitHub Actions via `gh`), **MCP-first** for monitoring providers (Datadog / PagerDuty), native
   **`WebSearch`** for marketing; config + auto-detect selection; credentials never committed.
-  Phased rollout (`GhPipelineSource` first). Design accepted — no code yet.
+  Phased rollout (`GhPipelineSource` first).
+- **Connectors phase 1 — `GhPipelineSource`** (`lib/agentic_forge/connectors.py`, 100% covered):
+  a real `ops.PipelineSource` over GitHub Actions (`gh run list --json` → `Deploy`, with the
+  status/conclusion mapping); `parse_gh_runs` is pure + tested, the `gh` call is a `# pragma: no
+  cover` seam. `pipeline_source(repo)` auto-detects `gh` (else an empty source). Wired into
+  `deploy-watch` (a `references/connectors.md`) and the scheduled `deploy-digest`.
 
 ### Added — Layer 0 meta-core
 

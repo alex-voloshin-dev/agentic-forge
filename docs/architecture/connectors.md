@@ -59,9 +59,10 @@ A connector is chosen by a small config plus auto-detect:
 
 ## Phased rollout
 
-1. **`GhPipelineSource`** (Python adapter, tested) — GitHub Actions `gh run list --json` → `Deploy`
-   (`success→passing`, `failure→failing`, `in_progress→running`, `queued→queued`). Feeds
-   `deploy-watch` + the scheduled `deploy-digest`. Provider-neutral enough to ship first.
+1. **`GhPipelineSource`** (Python adapter, tested) — **✅ shipped** (`connectors.py`): GitHub
+   Actions `gh run list --json` → `Deploy` (`success→passing`, `failure→failing`,
+   `in_progress→running`, `queued→queued`); `pipeline_source(repo)` auto-detects `gh`. Wired into
+   `deploy-watch` (references/connectors.md) + the scheduled `deploy-digest`.
 2. **`AlertSource`** — MCP-first (Datadog / PagerDuty) + a generic REST parser fallback →
    `Alert`. Provider-specific; pick per stack.
 3. **marketing → `WebSearch`** — a reference wiring the research path to live web data with

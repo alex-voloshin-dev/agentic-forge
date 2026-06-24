@@ -22,7 +22,7 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO_ROOT / "plugin" / "lib"))
 
-from agentic_forge import observability, schedule, vault  # noqa: E402
+from agentic_forge import connectors, observability, ops, schedule, vault  # noqa: E402
 
 
 def _kb_maintenance(repo: Path) -> str:
@@ -37,9 +37,16 @@ def _audit_digest(repo: Path) -> str:
 
 
 def _deploy_digest(repo: Path) -> str:
-    # Real rollout health needs a configured provider source (PipelineSource/AlertSource);
-    # connectors are a follow-on. Until one is wired, report that plainly.
-    return "deploy-digest: no provider source configured — wire a PipelineSource/AlertSource."
+    # Phase-1 connector: auto-detect `gh` (GhPipelineSource); fall back gracefully if absent.
+    # Alerts await an AlertSource connector (phase 2), so use an empty alert source for now.
+    pipeline = connectors.pipeline_source(str(repo))
+    if isinstance(pipeline, ops.InMemoryPipeline):
+        return "deploy-digest: no pipeline source (gh not found) — see references/connectors.md."
+    env = "production"
+    status = ops.deploy_status(pipeline, ops.InMemoryAlerts({}), env)
+    deploys = status["deploys"]
+    n = len(deploys) if isinstance(deploys, list) else 0
+    return f"deploy-digest [{env}]: {status['pipeline']} — {status['action']} ({n} recent runs)"
 
 
 _ACTIONS = {
