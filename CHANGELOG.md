@@ -166,6 +166,15 @@ model-invocable skills — deterministic infra, gated by `pytest` (cores 100% co
   (`{tool, input, session_id}`) into per-tool / per-session counts and a report; `dev/audit_digest.py`
   prints it. No new event schema — it consumes what the L4 logging hook already records. (ADR 0024.)
 
+### Added — Real provider connectors (design)
+
+- **Design + ADR 0025** (`docs/architecture/connectors.md`): how to implement the existing
+  `ops.py` seams (`PipelineSource` / `AlertSource`) and marketing research against real providers —
+  each connector a **pure parser + thin fetch seam**; **Python adapters** for structured CLI/REST
+  (GitHub Actions via `gh`), **MCP-first** for monitoring providers (Datadog / PagerDuty), native
+  **`WebSearch`** for marketing; config + auto-detect selection; credentials never committed.
+  Phased rollout (`GhPipelineSource` first). Design accepted — no code yet.
+
 ### Added — Layer 0 meta-core
 
 - **Repository skeleton** for a Claude Code-only plugin: `plugin/` layout, `plugin.json`,

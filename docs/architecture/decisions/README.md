@@ -30,3 +30,4 @@ edit.
 | [0022](0022-stage5-marketing-domain.md) | Stage 5: marketing as one evidence-first router skill (product already covered) | Accepted |
 | [0023](0023-stage6-design-onboarding.md) | Stage 6: ux-design (specs not pixels) + repo-onboarding (analyze + seed the vault) | Accepted |
 | [0024](0024-stage7-scheduling-observability.md) | Stage 7: scheduling & observability (no daemon — declarative jobs + audit digest) | Accepted |
+| [0025](0025-real-provider-connectors.md) | Real provider connectors: implement the existing seams (Python for CLI/REST, MCP-first for monitoring) | Accepted |
