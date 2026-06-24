@@ -82,6 +82,10 @@ and the Tier-3 spine E2E (pass), the full eval suite is green.
   schema-valid `deploy-status` mapping), and `classify_incident` (sev1–4). Keeps the
   `deploy-watch` / `incident-response` Tier-2 runnable with no live infra. (`deploy-status`
   `alerts` widened to list-or-dict to carry the triage counts.)
+- **`release` skill** `plugin/skills/release/` (evals-first, fixture-backed): wires the `release`
+  core to the repo — find the current version + commits since the last tag, derive the version,
+  render the changelog and a `release` artifact, tag only on request. Tier-1 triggers + two
+  inspection-gradeable Tier-2 cases (minor bump; breaking → major). The Stage-4 build template.
 
 ### Added — Layer 0 meta-core
 

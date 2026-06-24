@@ -1,0 +1,51 @@
+{
+  "skill_name": "release",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Cut a release. The current version is 1.2.0 and the commit subjects since the last tag are in commits.txt (one per line). Produce the release notes: the next version and a grouped changelog, as a release artifact.",
+      "expected_output": "A release handoff artifact (type: release) proposing version 1.3.0 — a minor bump because a feat is present and nothing is breaking — with a Keep-a-Changelog changelog: Added (the ranking parameter), Fixed (the cache TTL), Changed (the scorer refactor). The chore and docs commits are omitted as changelog noise.",
+      "files": ["eval/fixtures/release/commits.txt"],
+      "assertions": [
+        "The proposed next version is 1.3.0 — a minor bump (a feat is present, nothing is breaking)",
+        "The changelog is grouped into Keep-a-Changelog sections (e.g. Added / Changed / Fixed)",
+        "The feat is under Added and the fix is under Fixed (entries placed in the right group)",
+        "The chore and docs commits are not listed as features or fixes (kept out of the changelog)",
+        "The output is a valid release artifact: type release, with a version and a non-empty changelog"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Cut a release. The current version is 2.4.1 and the commit subjects since the last tag are in commits-breaking.txt (one per line). Produce the release notes.",
+      "expected_output": "A release artifact proposing version 3.0.0 — a major bump because a commit is breaking (feat!: drop the v1 API) — with the breaking change explicitly flagged, plus the two features and the fix grouped under the right Keep-a-Changelog sections.",
+      "files": ["eval/fixtures/release/commits-breaking.txt"],
+      "assertions": [
+        "The proposed next version is 3.0.0 — a major bump driven by the breaking change",
+        "The breaking change (dropping the v1 query API) is explicitly called out as breaking",
+        "The non-breaking feature and the fix are grouped under the correct Keep-a-Changelog sections"
+      ]
+    }
+  ],
+  "component": {
+    "id": "release",
+    "type": "skill",
+    "purpose": "Cut a release: derive the semver bump and assemble a Keep-a-Changelog changelog from the commits since the last tag, emitting a release handoff artifact. Stage 4 quality & operations."
+  },
+  "thresholds": {
+    "tier1_trigger": { "recall": 0.9, "specificity": 0.9 },
+    "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }
+  },
+  "triggers": {
+    "should_trigger": [
+      "Cut a release for this repo",
+      "Write the release notes and changelog since the last tag",
+      "What should the next version number be?",
+      "Bump the version and assemble the changelog"
+    ],
+    "should_not_trigger": [
+      "Is the production deploy healthy right now?",
+      "We have an outage — start incident response",
+      "Add a CHANGELOG entry for this pull request"
+    ]
+  }
+}

@@ -1,0 +1,3 @@
+feat!: drop the deprecated v1 query API
+fix(auth): handle expired tokens without a 500
+feat(search): add cursor-based pagination

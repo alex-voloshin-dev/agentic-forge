@@ -1,0 +1,5 @@
+feat(search): add a ranking parameter to the query API
+fix: correct cache TTL so entries expire on time
+chore: bump dev dependencies
+docs: expand the README usage section
+refactor: extract the scorer into its own module
