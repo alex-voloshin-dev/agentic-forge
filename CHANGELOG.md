@@ -146,6 +146,11 @@ and the Tier-3 spine E2E (pass), the full eval suite is green.
   forks `Explore` and seeds the Stage-3 vault, emitting an `onboarding` map grounded in the code.
   Tier-1 triggers + inspection-gradeable Tier-2 (ux: flows/states/a11y at spec level; onboarding:
   components grounded in a fixture repo + a clean seeded vault). (ADR 0023.)
+- **Stage 6 eval gate — all green** (`claude-opus-4-8`): `ux-design` and `repo-onboarding` Tier-2
+  lower bound **1.000** (n=5) each; Tier-1 **recall 1.000 / specificity 1.000** (runs=5) each. The
+  sharp-from-the-start descriptions held — no Tier-1 keyword-collision tuning was needed (one
+  `repo-onboarding` gate run flickered to 0.75 purely on router variance — all four prompts route
+  100% — and re-ran clean).
 
 ### Added — Layer 0 meta-core
 

@@ -22,7 +22,7 @@ architecture before we invest in breadth.
 | 3 | Knowledge base (L3) | Built — vault lib + `knowledge` skill + session-start hook (ADR 0018) |
 | 4 | Quality & operations domains | Built — 5 skills (qa-test-strategy, security-review, deploy-watch, incident-response, release) + ops/release lib cores; Tier-1/Tier-2 gated (ADR 0021, [quality-ops.md](architecture/quality-ops.md)) |
 | 5 | Product & marketing domains | Built — product already covered by the `product` spine skill; `marketing` router skill (market-research / strategy / content) shipped, evidence-first, Tier-1/Tier-2 gated (ADR 0022, [product-marketing.md](architecture/product-marketing.md)) |
-| 6 | Design & onboarding domains | Planned |
+| 6 | Design & onboarding domains | Built — `ux-design` (ux-spec, specs not pixels) + `repo-onboarding` (analyze a codebase + seed the vault); Tier-1/Tier-2 gated (ADR 0023, [design-onboarding.md](architecture/design-onboarding.md)) |
 | 7 | Guardrails, observability, scheduling (L4) | Built — four guardrail hooks (ADR 0019); scheduling/observability deferred |
 
 ---
@@ -213,6 +213,12 @@ Risks: low-signal generated content. Mitigation: stronger rubrics and verificati
 ---
 
 ## Stage 6 — Design & onboarding domains
+
+Status: **Built and gated** (ADR 0023, [design-onboarding.md](architecture/design-onboarding.md)).
+`ux-design` (own behavior → a `ux-spec`: flows, screens/states, accessibility — specs not pixels)
+and `repo-onboarding` (forks `Explore` to analyze an unfamiliar codebase and seeds the Stage-3
+vault, emitting an `onboarding` map). Final gate (`claude-opus-4-8`): Tier-2 lower bound 1.000
+(n=5) each; Tier-1 recall 1.000 / specificity 1.000 (runs=5) each.
 
 Goal: `ux-design` (flows, design system, accessibility) and `repo-onboarding` (analyze an
 unfamiliar codebase, seed the KB).
