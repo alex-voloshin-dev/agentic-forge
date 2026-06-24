@@ -31,6 +31,12 @@ ON_LISTING = {
     "deep-review",
     "skill-factory",
     "knowledge",
+    # Stage 4 — quality & operations
+    "qa-test-strategy",
+    "security-review",
+    "deploy-watch",
+    "incident-response",
+    "release",
 }
 
 

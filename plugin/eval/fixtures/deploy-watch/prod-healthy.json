@@ -1,0 +1,7 @@
+{
+  "environment": "production",
+  "deploys": [
+    {"sha": "aaa111", "status": "passing", "environment": "production", "at": "11:00"}
+  ],
+  "alerts": []
+}

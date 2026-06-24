@@ -32,6 +32,10 @@ TIER2_SKILLS = {
     "dotnet-patterns",
     "ruby-patterns",
     "php-patterns",
+    # Stage 4 own-behavior skills (fork-orchestrators qa-test-strategy / security-review are Tier-1 only)
+    "release",
+    "deploy-watch",
+    "incident-response",
 }
 
 

@@ -1,0 +1,49 @@
+{
+  "skill_name": "qa-test-strategy",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Plan the test strategy for a new tiered-pricing function (quantity discounts at 10 / 50 / 100 units, a percentage cap, rejects negative quantity): what to test, at which levels, and the prioritized cases.",
+      "expected_output": "A test-strategy artifact: scope (the pricing function), risk areas (the 10/50/100 tier boundaries, negative/zero quantity, rounding, the cap), test levels (unit plus property/boundary, integration where wired), and a prioritized case list (boundaries and error paths first).",
+      "files": [],
+      "assertions": [
+        "The strategy identifies the real risk areas (tier boundaries, negative/zero input, rounding, the cap)",
+        "It spans more than one test level (e.g. unit plus property/boundary), not only a happy-path test",
+        "It lists prioritized, concrete cases (boundaries and error paths), not vague advice",
+        "It is produced as a test-strategy artifact (type/feature/status with a non-empty test_levels)"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "We are about to build a login rate-limiter (5 attempts / 15 min per account, then lockout). Plan the test strategy.",
+      "expected_output": "A test-strategy covering the limit boundary (5th vs 6th attempt), window expiry, per-account isolation, concurrency/races, and lockout reset — across unit and integration levels, with abuse/security cases prioritized.",
+      "files": [],
+      "assertions": [
+        "The strategy covers the limit boundary, window expiry, and per-account isolation",
+        "It includes concurrency or abuse cases, not just the happy path",
+        "It spans unit and integration levels and is produced as a test-strategy artifact"
+      ]
+    }
+  ],
+  "component": {
+    "id": "qa-test-strategy",
+    "type": "skill",
+    "purpose": "Phase workflow: plan what to test for a change/feature (risk areas, test levels, prioritized cases) into a test-strategy handoff. Delegates to the qa-engineer role; gated at Tier-1 (routing), with test-design quality covered by that role's Tier-2 and the Tier-3 spine."
+  },
+  "thresholds": {
+    "tier1_trigger": { "recall": 0.9, "specificity": 0.9 }
+  },
+  "triggers": {
+    "should_trigger": [
+      "What's the test strategy for this feature?",
+      "Plan how we should test the new checkout flow",
+      "What should we test, and at which levels, before building this?",
+      "Design a QA test plan for this change"
+    ],
+    "should_not_trigger": [
+      "Implement the checkout flow in Python",
+      "Review this diff for bugs and security",
+      "Cut a release and write the changelog"
+    ]
+  }
+}

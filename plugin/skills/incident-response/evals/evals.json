@@ -1,0 +1,50 @@
+{
+  "skill_name": "incident-response",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Triage this incident from outage-scenario.md (in your working directory): classify the severity, capture the impact and timeline, and propose remediation. Record an incident report.",
+      "expected_output": "An incident artifact classified sev1 (a full checkout/payments outage for all users, no workaround), stating the impact, a timeline starting at the 14:02 detection, and proposed remediation/next steps.",
+      "files": ["eval/fixtures/incident-response/outage-scenario.md"],
+      "assertions": [
+        "The incident is classified sev1 (a full outage affecting all users, no workaround)",
+        "The impact is stated clearly (checkout/payments unavailable for all users)",
+        "A timeline is assembled (at least the 14:02 detection) and remediation/next steps are proposed",
+        "The output is a valid incident artifact (severity sev1-4, status, impact, non-empty timeline)"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Triage this incident from degraded-scenario.md (in your working directory) and record an incident report.",
+      "expected_output": "An incident artifact classified sev3 (degraded search for ~10% of users, with a working workaround — disabling the ranking_v2 flag), with the workaround captured in the remediation.",
+      "files": ["eval/fixtures/incident-response/degraded-scenario.md"],
+      "assertions": [
+        "The incident is classified sev3 (degraded, not down, and a workaround exists)",
+        "The workaround (disable the ranking_v2 flag) is captured in the remediation",
+        "A valid incident artifact is produced (severity, status, impact, timeline)"
+      ]
+    }
+  ],
+  "component": {
+    "id": "incident-response",
+    "type": "skill",
+    "purpose": "Phase workflow: triage an incident — classify severity (sev1-4), capture impact and timeline, coordinate mitigation, and draft a postmortem — into an incident handoff. Own deterministic behavior via lib/ops.classify_incident; gated at Tier-1 and Tier-2."
+  },
+  "thresholds": {
+    "tier1_trigger": { "recall": 0.9, "specificity": 0.9 },
+    "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }
+  },
+  "triggers": {
+    "should_trigger": [
+      "We have an outage — start the incident response",
+      "Sev1: the service is down, coordinate the response",
+      "Triage this incident and draft a postmortem",
+      "Classify the severity of this production issue"
+    ],
+    "should_not_trigger": [
+      "Is the production deploy healthy right now?",
+      "Cut a release and write the changelog",
+      "Review this code for security issues"
+    ]
+  }
+}

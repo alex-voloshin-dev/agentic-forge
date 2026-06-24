@@ -1,0 +1,50 @@
+{
+  "skill_name": "deploy-watch",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Assess the production rollout health from the pipeline/alert snapshot in prod-failing.json (in your working directory) and record a deploy-status report with a recommended action.",
+      "expected_output": "A deploy-status artifact for production: pipeline health 'failing' (the latest deploy failed and a critical alert is active), the alerts triaged (1 critical, 1 warning), and a recommended action to roll back / halt the rollout.",
+      "files": ["eval/fixtures/deploy-watch/prod-failing.json"],
+      "assertions": [
+        "Rollout health is assessed as failing (the latest deploy failed and a critical alert is active)",
+        "The critical alert is surfaced (the alerts are triaged, not ignored)",
+        "The recommended action is to roll back or halt the rollout — not to continue",
+        "The output is a valid deploy-status artifact (environment, pipeline state, action)"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Assess production rollout health from prod-healthy.json (in your working directory) and record a deploy-status report.",
+      "expected_output": "A deploy-status artifact for production: health 'healthy' (latest deploy passing, no active alerts) and a recommended action to continue monitoring — no rollback.",
+      "files": ["eval/fixtures/deploy-watch/prod-healthy.json"],
+      "assertions": [
+        "Rollout health is assessed as healthy (latest deploy passing, no active alerts)",
+        "The recommended action is to continue monitoring — no rollback is proposed",
+        "A valid deploy-status artifact is produced"
+      ]
+    }
+  ],
+  "component": {
+    "id": "deploy-watch",
+    "type": "skill",
+    "purpose": "Phase workflow: read CI/CD pipeline state and monitoring alerts (through the ops adapter seam), assess rollout health, and recommend an action into a deploy-status handoff. Own deterministic behavior via lib/ops.py; gated at Tier-1 and Tier-2."
+  },
+  "thresholds": {
+    "tier1_trigger": { "recall": 0.9, "specificity": 0.9 },
+    "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }
+  },
+  "triggers": {
+    "should_trigger": [
+      "Is the production deploy healthy right now?",
+      "Watch the rollout and tell me the pipeline status",
+      "What's the deploy/rollout status?",
+      "Check the CI/CD pipeline health for this environment"
+    ],
+    "should_not_trigger": [
+      "We have an outage — start the incident response",
+      "Cut a release and write the changelog",
+      "Implement the feature in this branch"
+    ]
+  }
+}

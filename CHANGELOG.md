@@ -86,6 +86,16 @@ and the Tier-3 spine E2E (pass), the full eval suite is green.
   core to the repo — find the current version + commits since the last tag, derive the version,
   render the changelog and a `release` artifact, tag only on request. Tier-1 triggers + two
   inspection-gradeable Tier-2 cases (minor bump; breaking → major). The Stage-4 build template.
+- **`qa-test-strategy` + `security-review` skills** (Tier-1 fork-orchestrators): delegate to the
+  `qa-engineer` / `security-engineer` roles and emit a `test-strategy` / `review` (security-lens)
+  handoff; validated by Tier-1 routing plus those roles' agent Tier-2 and the Tier-3 spine — the
+  established convention for fork-orchestrators (no skill Tier-2).
+- **`deploy-watch` + `incident-response` skills** (Tier-1 + Tier-2 own-behavior): wire the `ops`
+  core — rollout-health assessment → `deploy-status`, and `sev1`–`sev4` classification →
+  `incident` — with fixture-backed, inspection-gradeable Tier-2 (recorded pipeline/alert snapshots;
+  outage / degraded scenarios) that run with no live infra.
+- Tier-1-runner and skill-eval tests updated for the five new on-listing skills (router listing +
+  the Tier-2 discovery set).
 
 ### Added — Layer 0 meta-core
 

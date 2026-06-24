@@ -54,19 +54,26 @@ fixture-backed Tier-2 from the start** (ADR 0020). Roadmap: Stage 4.
 
 ## Eval approach (ADR 0020 from the start)
 
-- **Tier-1** triggers per skill (`should_trigger` / `should_not_trigger`, recall & specificity
-  ≥ 0.9), with the boundaries above as the negative cases (e.g. `release` must *not* fire on
-  "watch the deploy").
-- **Tier-2** fixture-backed and **inspection-gradeable** (the read-only grader reads the output +
-  files — never runs infra):
-  - `qa-test-strategy`: a fixture feature/diff → assert the strategy names the real risk areas,
-    spans the right test levels, and prioritizes cases (all inspectable in the artifact).
-  - `security-review`: a fixture with a **planted vulnerability** → assert it's found with the
-    correct severity and a concrete remediation (inspectable).
-  - `deploy-watch` / `incident-response`: fixture pipeline/alert JSON through the **fake adapter**
-    → assert correct health/severity classification and recommended action.
-  - `release`: a fixture commit/PR list → assert the correct semver bump and Keep-a-Changelog
-    grouping.
+The eval tier follows the **established spine convention** (confirmed across develop / code-review /
+plan / architecture / research / product): a skill with its **own deterministic behavior** carries
+skill **Tier-2**; a skill that mainly **forks a role** is **Tier-1-only** and validated end-to-end
+by Tier-3 plus the forked role's agent Tier-2 (no skill Tier-2 — testing the orchestrator in
+isolation would just re-test the role).
+
+- **Tier-1** triggers for **all five** (`should_trigger` / `should_not_trigger`, recall &
+  specificity ≥ 0.9), with the boundaries above as negatives (e.g. `release` must *not* fire on
+  "watch the deploy"; `security-review` must *not* fire on a routine code review).
+- **Tier-2** (fixture-backed, **inspection-gradeable** — the read-only grader reads the output +
+  files, never runs infra) for the **own-behavior** skills, which run their tested lib core:
+  - `release`: a fixture commit list → correct semver bump + Keep-a-Changelog grouping (done).
+  - `deploy-watch`: fixture pipeline/alert JSON through the **fake `ops` adapter** → correct
+    health, triage, and recommended action; a schema-valid `deploy-status` artifact.
+  - `incident-response`: a fixture incident scenario → correct `sev1`–`sev4` classification and a
+    schema-valid `incident` artifact (severity, impact, timeline, remediation).
+- **Tier-1 + Tier-3 only** for the **fork-orchestrators** (consistent with develop/code-review):
+  - `qa-test-strategy` forks `qa-engineer`; `security-review` forks `security-engineer`. Their
+    quality is the forked role's (already gated by agent Tier-2) plus the end-to-end Tier-3
+    scenario; a planted-vulnerability fixture lives with the `security-engineer` role eval.
 
 ## Alternatives considered
 

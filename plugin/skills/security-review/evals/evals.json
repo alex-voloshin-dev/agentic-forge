@@ -1,0 +1,48 @@
+{
+  "skill_name": "security-review",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Do a security review of this module and record review.md with a verdict and findings.",
+      "expected_output": "A 'changes' verdict with a finding flagging the SQL injection (location, severity, parameterized-query fix), written as a review.md handoff with a security lens.",
+      "files": ["eval/fixtures/security-engineer/case1-sqli.py"],
+      "assertions": [
+        "The review flags the SQL injection with a concrete location and a parameterized-query fix",
+        "The injection finding carries a blocker/major severity and drives the verdict to 'changes'",
+        "The output is a review handoff (type/target/iteration/verdict/findings); no code is modified"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Security-review this small, input-validated, parameterized data-access change before merge.",
+      "expected_output": "An 'approve' verdict with no blocking findings (at most nits) — no vulnerabilities invented on safe code.",
+      "files": ["eval/fixtures/reviewer/case2.diff"],
+      "assertions": [
+        "The verdict is 'approve' for the safe change",
+        "No blocker- or major-severity vulnerability is invented on the secure code",
+        "The review does not modify any files"
+      ]
+    }
+  ],
+  "component": {
+    "id": "security-review",
+    "type": "skill",
+    "purpose": "Phase workflow: a dedicated deep security review of a component/design/change (threat surface, authz, secrets, dependencies, input handling) into a review handoff with a security lens. Delegates to the security-engineer role; gated at Tier-1 (routing), with finding quality covered by that role's Tier-2. Distinct from code-review's per-diff security aspect."
+  },
+  "thresholds": {
+    "tier1_trigger": { "recall": 0.9, "specificity": 0.9 }
+  },
+  "triggers": {
+    "should_trigger": [
+      "Do a security review of this service",
+      "Audit this module for vulnerabilities",
+      "Threat-model the authentication flow",
+      "Is this code secure? Review it for security issues"
+    ],
+    "should_not_trigger": [
+      "Review this diff for correctness and style before merge",
+      "Implement the authentication flow",
+      "Cut a release and write the changelog"
+    ]
+  }
+}

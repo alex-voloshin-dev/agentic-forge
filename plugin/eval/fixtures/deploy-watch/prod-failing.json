@@ -1,0 +1,11 @@
+{
+  "environment": "production",
+  "deploys": [
+    {"sha": "abc123", "status": "failing", "environment": "production", "at": "10:00"},
+    {"sha": "def456", "status": "passing", "environment": "production", "at": "09:00"}
+  ],
+  "alerts": [
+    {"severity": "critical", "summary": "5xx error rate > 10% on the checkout endpoint", "source": "datadog"},
+    {"severity": "warning", "summary": "p95 latency elevated", "source": "datadog"}
+  ]
+}
