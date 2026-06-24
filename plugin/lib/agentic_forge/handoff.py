@@ -12,7 +12,12 @@ Artifact types and their producers (see docs/architecture/engine.md):
 - ``prd`` — product-spec phase.
 - ``tech-design`` — architect role.
 - ``plan`` — Plan-based work-planning phase.
-- ``review`` — reviewer role (the unit the bounded review loop branches on).
+- ``review`` — reviewer role (the unit the bounded review loop branches on); also reused by the
+  ``security-review`` phase (a security-lensed review with verdict + severity-tagged findings).
+- ``test-strategy`` — ``qa-test-strategy`` phase (test levels, risks, prioritized cases).
+- ``release`` — ``release`` phase (semver version + Keep-a-Changelog groups).
+- ``incident`` — ``incident-response`` phase (severity sev1–4, timeline, remediation).
+- ``deploy-status`` — ``deploy-watch`` phase (environment, pipeline state, alerts, action).
 """
 
 from __future__ import annotations
@@ -35,6 +40,11 @@ VERDICTS = ["approve", "changes"]
 
 # Finding severities, ordered most to least serious. `blocker`/`major` block an `approve`.
 SEVERITIES = ["blocker", "major", "minor", "nit"]
+
+# Incident severities (operations), most to least serious — distinct from review-finding
+# SEVERITIES: sev1 = critical (outage / data loss), sev2 = major (degraded, no workaround),
+# sev3 = minor (degraded, workaround exists), sev4 = low (cosmetic / latent). See quality-ops.md.
+INCIDENT_SEVERITIES = ["sev1", "sev2", "sev3", "sev4"]
 
 _DRAFT7 = "http://json-schema.org/draft-07/schema#"
 # A list entry may be a bare string OR a structured object — real artifacts carry both (a
@@ -145,6 +155,55 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "iteration": {"type": "integer", "minimum": 1},
             "verdict": {"enum": VERDICTS},
             "findings": _FINDINGS,
+        },
+    },
+    "test-strategy": _feature_schema(
+        "test-strategy",
+        required_extra=["test_levels"],
+        properties_extra={
+            "scope": {"type": "string"},
+            "risks": _LIST,
+            "test_levels": _NONEMPTY_LIST,  # unit / integration / e2e / perf / security …
+            "cases": _LIST,
+        },
+    ),
+    "release": _feature_schema(
+        "release",
+        required_extra=["version", "changelog"],
+        properties_extra={
+            "version": {"type": "string", "minLength": 1},  # semver
+            "changelog": _NONEMPTY_LIST,  # Keep-a-Changelog groups (Added/Changed/Fixed/Removed)
+            "breaking": _LIST,
+            "date": {},
+        },
+    ),
+    "incident": {
+        "$schema": _DRAFT7,
+        "type": "object",
+        "required": ["type", "severity", "status", "impact", "timeline"],
+        "additionalProperties": True,
+        "properties": {
+            "type": {"const": "incident"},
+            "severity": {"enum": INCIDENT_SEVERITIES},
+            "status": {"type": "string", "minLength": 1},
+            "impact": {"type": "string", "minLength": 1},
+            "timeline": _NONEMPTY_LIST,  # ≥1 entry (at least the detection event)
+            "remediation": _LIST,
+            "action_items": _LIST,
+        },
+    },
+    "deploy-status": {
+        "$schema": _DRAFT7,
+        "type": "object",
+        "required": ["type", "environment", "pipeline"],
+        "additionalProperties": True,
+        "properties": {
+            "type": {"const": "deploy-status"},
+            "environment": {"type": "string", "minLength": 1},
+            "pipeline": {"type": ["string", "object"]},  # state label or structured pipeline info
+            "deploys": _LIST,
+            "alerts": _LIST,
+            "action": {"type": "string"},
         },
     },
 }

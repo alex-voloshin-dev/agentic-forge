@@ -61,6 +61,18 @@ already passed (go, php, python, ruby, typescript) each scored **1.000** on a 1�
 check — the faithful reframe did not regress them. Combined with the agent Tier-2 (6/6 roles)
 and the Tier-3 spine E2E (pass), the full eval suite is green.
 
+### Added — Stage 4 quality & operations (design + foundation)
+
+- **Stage 4 design** `docs/architecture/quality-ops.md`: the five quality/ops phase-workflows
+  (`qa-test-strategy`, `security-review`, `deploy-watch`, `incident-response`, `release`) — each
+  skill's contract (purpose, forked role, handoff artifact, trigger boundary), the ops adapter
+  seam (`lib/ops.py` + provider fakes), the four-level incident severity model, release
+  conventions (semver + Keep-a-Changelog), and a fixture-backed, inspection-gradeable eval plan.
+- **Handoff artifact types** (`handoff.py`, contract-first, 100% covered): `test-strategy`,
+  `release`, `incident` (with a four-level `INCIDENT_SEVERITIES` vocabulary `sev1`–`sev4`), and
+  `deploy-status`; `security-review` reuses the existing `review` type. Schemas and tests landed
+  before the skills, per the evals-first rule.
+
 ### Added — Layer 0 meta-core
 
 - **Repository skeleton** for a Claude Code-only plugin: `plugin/` layout, `plugin.json`,

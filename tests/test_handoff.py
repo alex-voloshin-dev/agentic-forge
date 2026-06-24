@@ -64,6 +64,41 @@ VALID_HEADERS: dict[str, dict] = {
             {"severity": "major", "location": "tech-design.md#cache", "suggestion": "Add TTL"}
         ],
     },
+    "test-strategy": {
+        "type": "test-strategy",
+        "feature": "search",
+        "status": "draft",
+        "scope": "The new ranking parameter",
+        "risks": ["Ranking regressions", {"risk": "latency", "mitigation": "cache"}],
+        "test_levels": ["unit", "integration", "e2e"],
+        "cases": ["empty query", "huge query"],
+    },
+    "release": {
+        "type": "release",
+        "feature": "search",
+        "status": "final",
+        "version": "1.4.0",
+        "changelog": [{"group": "Added", "items": ["Ranking param"]}, "Fixed: cache TTL"],
+        "breaking": [],
+        "date": "2026-06-24",
+    },
+    "incident": {
+        "type": "incident",
+        "severity": "sev2",
+        "status": "mitigating",
+        "impact": "Search latency p95 > 2s for 8% of users",
+        "timeline": [{"at": "10:02", "event": "alert fired"}, "10:15 mitigation applied"],
+        "remediation": ["Roll back ranking change"],
+        "action_items": ["Add a latency canary"],
+    },
+    "deploy-status": {
+        "type": "deploy-status",
+        "environment": "production",
+        "pipeline": "passing",
+        "deploys": [{"sha": "abc123", "at": "10:00"}],
+        "alerts": [],
+        "action": "none — healthy",
+    },
 }
 
 
@@ -186,6 +221,31 @@ def test_review_bad_finding_severity() -> None:
     assert any(e.startswith("findings/0/severity") for e in errors)
 
 
+def test_incident_bad_severity() -> None:
+    errors = validate_header({**VALID_HEADERS["incident"], "severity": "sev9"})
+    assert any(e.startswith("severity:") for e in errors)
+
+
+def test_incident_empty_timeline_rejected() -> None:
+    errors = validate_header({**VALID_HEADERS["incident"], "timeline": []})
+    assert any(e.startswith("timeline:") for e in errors)
+
+
+def test_release_empty_changelog_rejected() -> None:
+    errors = validate_header({**VALID_HEADERS["release"], "changelog": []})
+    assert any(e.startswith("changelog:") for e in errors)
+
+
+def test_test_strategy_empty_levels_rejected() -> None:
+    errors = validate_header({**VALID_HEADERS["test-strategy"], "test_levels": []})
+    assert any(e.startswith("test_levels:") for e in errors)
+
+
+def test_deploy_status_missing_environment_reports_root() -> None:
+    errors = validate_header({"type": "deploy-status", "pipeline": "passing"})
+    assert any("<root>" in e and "environment" in e for e in errors)
+
+
 def test_expected_type_mismatch() -> None:
     # A valid-looking prd header validated against research-brief fails on the type const.
     header = {"type": "prd", "feature": "x", "status": "draft"}
@@ -269,3 +329,4 @@ def test_module_exposes_vocabularies() -> None:
     assert handoff.VERDICTS == ["approve", "changes"]
     assert "blocker" in handoff.SEVERITIES
     assert "draft" in handoff.STATUSES
+    assert handoff.INCIDENT_SEVERITIES == ["sev1", "sev2", "sev3", "sev4"]
