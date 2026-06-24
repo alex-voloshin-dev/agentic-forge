@@ -28,3 +28,4 @@ edit.
 | [0020](0020-tier2-inspection-gradeable-assertions.md) | Tier-2 assertions must be inspection-gradeable; fix gates by fidelity, not lower thresholds | Accepted |
 | [0021](0021-stage4-ops-seam-and-eval-tiers.md) | Stage 4: ops adapter seam, incident severity model, fork-orchestrator eval tier | Accepted |
 | [0022](0022-stage5-marketing-domain.md) | Stage 5: marketing as one evidence-first router skill (product already covered) | Accepted |
+| [0023](0023-stage6-design-onboarding.md) | Stage 6: ux-design (specs not pixels) + repo-onboarding (analyze + seed the vault) | Accepted |

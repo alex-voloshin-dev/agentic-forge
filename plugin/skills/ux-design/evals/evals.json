@@ -1,0 +1,40 @@
+{
+  "skill_name": "ux-design",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Design the UX spec for the feature in feature.md (in your working directory): the user flows, the screens and their states, and accessibility requirements.",
+      "expected_output": "A ux-spec artifact: the key user flows (save a search; view / re-run / rename / delete from the list), per-screen states including the empty state (no saved searches) and the save-failure error, and concrete accessibility requirements — kept at the spec level (no pixel/visual mockup).",
+      "files": ["eval/fixtures/ux-design/feature.md"],
+      "assertions": [
+        "Specifies the key user flows (save a search; view / re-run / rename / delete from the list)",
+        "Covers per-screen states including the empty state (no saved searches) and a save-failure error",
+        "States concrete accessibility requirements (e.g. keyboard navigation, focus, contrast, or ARIA)",
+        "Stays at the spec level — flows/states/a11y, not a pixel or visual mockup",
+        "Produces a valid ux-spec artifact (type ux-spec, non-empty flows)"
+      ]
+    }
+  ],
+  "component": {
+    "id": "ux-design",
+    "type": "skill",
+    "purpose": "Design the UX for a feature — user flows, screens and states, accessibility — as a ux-spec handoff for develop (specs, not pixels). Stage 6; own behavior, gated at Tier-1 and Tier-2."
+  },
+  "thresholds": {
+    "tier1_trigger": { "recall": 0.9, "specificity": 0.9 },
+    "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }
+  },
+  "triggers": {
+    "should_trigger": [
+      "Design the UX for the saved-searches feature",
+      "What user flows and screens does this feature need?",
+      "Spec the screens and their states for this feature",
+      "What are the accessibility requirements for this feature?"
+    ],
+    "should_not_trigger": [
+      "Design the technical architecture for this feature",
+      "Implement the saved-searches feature",
+      "Write the PRD for saved searches"
+    ]
+  }
+}

@@ -141,6 +141,11 @@ and the Tier-3 spine E2E (pass), the full eval suite is green.
 - **Handoff types** (`handoff.py`, contract-first, 100% covered): `ux-spec` (flows, screens,
   accessibility, design-system refs) and `onboarding` (components, entry points, conventions,
   risks). Schemas + tests before the skills.
+- **`ux-design` + `repo-onboarding` skills** (evals-first): `ux-design` (own behavior) emits a
+  `ux-spec` (flows / screens-states / a11y / design-system) — specs, not pixels; `repo-onboarding`
+  forks `Explore` and seeds the Stage-3 vault, emitting an `onboarding` map grounded in the code.
+  Tier-1 triggers + inspection-gradeable Tier-2 (ux: flows/states/a11y at spec level; onboarding:
+  components grounded in a fixture repo + a clean seeded vault). (ADR 0023.)
 
 ### Added — Layer 0 meta-core
 

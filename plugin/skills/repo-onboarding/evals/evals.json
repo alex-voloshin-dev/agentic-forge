@@ -1,0 +1,44 @@
+{
+  "skill_name": "repo-onboarding",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Onboard to this codebase (app.py, worker.py, README.md are in your working directory): map the components, entry points, conventions, and risks, and seed the knowledge vault with grounded notes.",
+      "expected_output": "An onboarding map naming the real components — the Flask HTTP API (app.py) and the background worker (worker.py) — a real entry point (app.py / `python app.py`), and a real risk (the worker has no retry/backoff, so a failed job is lost). Knowledge-vault notes are seeded and validate clean. Nothing is invented beyond the code.",
+      "files": [
+        "eval/fixtures/repo-onboarding/app.py",
+        "eval/fixtures/repo-onboarding/worker.py",
+        "eval/fixtures/repo-onboarding/README.md"
+      ],
+      "assertions": [
+        "Identifies the real components from the code: the HTTP API (app.py) and the background worker (worker.py)",
+        "Names a real entry point (e.g. app.py / running `python app.py`)",
+        "Flags a real risk grounded in the code (the worker has no retry/backoff — a failed job is lost)",
+        "Seeds the knowledge vault with notes that validate clean (validate_vault: linked, no orphans)",
+        "Produces a valid onboarding artifact (type onboarding, non-empty components); nothing fabricated beyond the code"
+      ]
+    }
+  ],
+  "component": {
+    "id": "repo-onboarding",
+    "type": "skill",
+    "purpose": "Analyze an unfamiliar codebase (components, entry points, conventions, risks) and seed the Stage-3 knowledge vault, producing an onboarding map. Forks Explore to read the code; uses the vault lib. Stage 6; gated at Tier-1 and Tier-2."
+  },
+  "thresholds": {
+    "tier1_trigger": { "recall": 0.9, "specificity": 0.9 },
+    "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }
+  },
+  "triggers": {
+    "should_trigger": [
+      "Onboard me to this codebase",
+      "Help me understand this unfamiliar repo",
+      "Analyze this codebase and seed the knowledge base",
+      "Get me oriented in this new repo"
+    ],
+    "should_not_trigger": [
+      "Research the best approach to build full-text search",
+      "Review my diff for bugs and security",
+      "Remember this decision about our caching strategy"
+    ]
+  }
+}

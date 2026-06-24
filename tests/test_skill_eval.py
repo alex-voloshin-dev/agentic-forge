@@ -38,6 +38,9 @@ TIER2_SKILLS = {
     "incident-response",
     # Stage 5 — marketing (own synthesis + evidence discipline)
     "marketing",
+    # Stage 6 — design & onboarding (own behavior)
+    "ux-design",
+    "repo-onboarding",
 }
 
 

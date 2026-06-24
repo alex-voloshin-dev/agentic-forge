@@ -39,6 +39,9 @@ ON_LISTING = {
     "release",
     # Stage 5 — marketing
     "marketing",
+    # Stage 6 — design & onboarding
+    "ux-design",
+    "repo-onboarding",
 }
 
 
