@@ -33,11 +33,17 @@ from agentic_forge import agent_eval, tier1_runner  # noqa: E402
 
 
 def _build_router(runner: str, model: str) -> agent_eval.Runner:
-    """Return the classification Runner for the chosen transport (tools off, single turn)."""
+    """Return the classification Runner for the chosen transport (tools off, capped turns).
+
+    Tools are disabled (`allowed_tools=""`) so the router can only answer with a skill name. The
+    turn cap leaves room for the model's own thinking before its final text — `max_turns=1` cut
+    reasoning models off mid-think ("Reached max turns (1)"); a small cap (4) lets them finish
+    while tools-off keeps it a pure one-shot classification.
+    """
     if runner == "api":
         return agent_eval.api_runner(model)
     if runner == "claude":
-        return agent_eval.claude_cli_runner(allowed_tools="", model=model, max_turns=1)
+        return agent_eval.claude_cli_runner(allowed_tools="", model=model, max_turns=4)
     raise ValueError(f"unknown runner {runner!r}")
 
 
