@@ -6,6 +6,36 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Fixed — Tier-2 eval fidelity (skill quality gates)
+
+A live Tier-2 run surfaced 7 skill gates below the 0.8 bar. Per-assertion root-causing showed
+these were **eval-design** issues, not skill weakness — fixed by improving the skill or making
+the eval a higher-fidelity test, **never by lowering the 0.8 threshold or dropping assertion
+coverage** (per-case assertion counts are unchanged):
+
+- **The read-only grader cannot execute toolchains.** The `grader` role has only
+  `Read/Grep/Glob`, so assertions phrased as *executions* — "dotnet build is clean", "cargo
+  clippy clean", "the project builds via its wrapper", "eslint clean", "dev/validate.py reports
+  no errors", "ruff + mypy pass" — were never gradeable by running them; the grader could only
+  guess, which is the near-0.8 variance. Each was reframed to the **inspectable code-property it
+  proxies** (compiles cleanly / clippy-clean / no new `eslint-disable` / standard-compliant on
+  inspection), preserving the quality intent. (dotnet, rust, jvm, javascript, skill-factory)
+- **knowledge** — the executor looked for `lib/agentic_forge/vault.py` by path (absent in the
+  sandbox) and hand-rolled notes with the wrong frontmatter. SKILL.md now invokes the
+  **installed `agentic_forge.vault` module** and states the exact note frontmatter
+  (`title`/`type`/`tags`), so both the validation run and the schema are satisfied.
+- **skill-factory** — the body never stated where a subagent lives, so it scaffolded one at the
+  wrong path; added the **canonical component-location table** (`plugin/agents/<name>.md`, …).
+  An assertion demanding a `script`-type `evals.json` (a type the schema *reserves for future
+  use*) was corrected to the real convention: scripts are contracted by **pytest**.
+- **engineering-standards** — its empty-sandbox case made the software-engineer correctly refuse
+  to "scaffold from nothing"; it now ships a real `cart.py`/`test_cart.py` fixture and a concrete
+  task.
+- **jvm-patterns** — case 2 now exercises a value-type map key, so the equals/hashCode assertion
+  is actually tested rather than vacuously failing.
+- **javascript-patterns** — sharpened the boundary-validation idiom: returning raw parsed
+  `unknown`/`any` is explicitly *not* validation.
+
 ### Added — Layer 0 meta-core
 
 - **Repository skeleton** for a Claude Code-only plugin: `plugin/` layout, `plugin.json`,

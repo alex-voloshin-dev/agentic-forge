@@ -3,9 +3,12 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "With the engineering standards loaded, implement a small behaviour change in a target repo module.",
-      "expected_output": "A scoped change that mirrors the repo's conventions, ships tests covering the behaviour and its boundary cases, and leaves the lint/type/test gate green.",
-      "files": [],
+      "prompt": "With the engineering standards loaded, extend `total()` in cart.py to accept an optional `discount` fraction (0.0-1.0) applied to the summed price, validating the input. cart.py and its test_cart.py are in your working directory.",
+      "expected_output": "A scoped change to cart.py adding a validated `discount` parameter, with new pytest cases (a boundary at 0.0/1.0 and an out-of-range error case) added to test_cart.py, the existing test kept, and an invalid discount raising an error with context. ruff/mypy/pytest stay green.",
+      "files": [
+        "eval/fixtures/engineering-standards/cart.py",
+        "eval/fixtures/engineering-standards/test_cart.py"
+      ],
       "assertions": [
         "The change is scoped to the task with no unrelated edits",
         "Tests are added or updated for the behaviour, including a boundary/error case",

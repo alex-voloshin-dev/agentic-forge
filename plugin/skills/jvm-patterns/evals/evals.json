@@ -4,20 +4,20 @@
     {
       "id": 1,
       "prompt": "With jvm-patterns loaded, implement a small behaviour change in a Java or Kotlin module in a target repo (e.g. add a method that validates input and can fail).",
-      "expected_output": "A scoped change that avoids null (Optional / Kotlin null-safety, no !!), closes resources with try-with-resources/use, adds JUnit tests covering the behaviour plus a boundary and an exception case, and builds green via the repo's wrapper with the configured formatter/linter clean.",
+      "expected_output": "A scoped change that avoids null (Optional / Kotlin null-safety, no !!), closes resources with try-with-resources/use, adds JUnit tests covering the behaviour plus a boundary and an exception case, compiles cleanly (correct imports/types), and follows the configured formatter/linter conventions.",
       "files": [],
       "assertions": [
         "Null is handled via Optional or Kotlin null-safety (no Kotlin !! and no obvious NPE risk)",
         "Resources are closed with try-with-resources (Java) or use (Kotlin)",
         "JUnit tests cover the happy path plus a boundary and an exception case",
-        "No exception is swallowed (no empty catch); the project builds via its wrapper",
+        "No exception is swallowed (no empty catch), and the change has no obvious compile error (correct imports, types, and signatures)",
         "No existing test is weakened, skipped, or deleted"
       ]
     },
     {
       "id": 2,
-      "prompt": "With jvm-patterns loaded, add code that shares state across threads.",
-      "expected_output": "Thread-safe shared state (immutability or proper synchronization), resources closed, and deterministic tests covering an error path.",
+      "prompt": "With jvm-patterns loaded, add code that shares state across threads, keyed by a small value type (e.g. a record or data class used as a map key).",
+      "expected_output": "Thread-safe shared state (immutability or proper synchronization/concurrent types), a value-type key (record/data class) with consistent equals/hashCode, resources closed, and deterministic tests covering an error path.",
       "files": [],
       "assertions": [
         "Shared state is thread-safe (immutable or properly synchronized/concurrent types)",

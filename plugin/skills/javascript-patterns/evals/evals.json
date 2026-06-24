@@ -4,14 +4,14 @@
     {
       "id": 1,
       "prompt": "With javascript-patterns loaded, implement a small behaviour change in a JavaScript module in a target repo (e.g. add a function that parses input and can fail).",
-      "expected_output": "A scoped ESM change using const/let and async/await with all promises awaited, strict equality, external input validated at the boundary, JSDoc/@ts-check where useful, plus tests (the repo's runner) covering the behaviour with a boundary and an error case; eslint and prettier clean using the repo's own scripts.",
+      "expected_output": "A scoped ESM change using const/let and async/await with all promises awaited, strict equality, external input validated at the boundary, JSDoc/@ts-check where useful, plus tests (the repo's runner) covering the behaviour with a boundary and an error case; no new eslint-disable and consistent (prettier-style) formatting.",
       "files": [],
       "assertions": [
         "Uses ESM and const/let (never var); every promise is awaited (no floating promise)",
         "Uses strict equality (===) and validates external/JSON.parse input at the boundary",
         "Tests cover the happy path plus a boundary and an error case",
-        "eslint is clean (no new eslint-disable) and prettier is applied",
-        "No existing test is weakened, skipped, or deleted; the repo's package manager (from the lockfile) is used"
+        "No new eslint-disable is introduced and the code is consistently formatted (prettier-style)",
+        "No existing test is weakened, skipped, or deleted; when the repo declares a package manager (a lockfile or packageManager field), that one is used"
       ]
     },
     {

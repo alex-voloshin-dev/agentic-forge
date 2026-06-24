@@ -31,8 +31,10 @@ ADR 0015, by-stack detection + reference packs.)
   `await`** (no floating promises); `===` (never `==`); `?.` / `??`.
 - Array methods (`map`/`filter`/`reduce`/`find`) and destructuring over manual loops; template
   literals; small pure functions.
-- **No static types, so validate at boundaries** — check external/`JSON.parse` input (a schema
-  validator or explicit guards); annotate with **JSDoc + `// @ts-check`** for editor safety.
+- **No static types, so validate at boundaries** — check external/`JSON.parse`/`response.json()`
+  input with a schema validator or explicit guards **before returning or using it**; returning the
+  raw parsed value (typed `unknown`/`any`) is *not* validation. Annotate with **JSDoc +
+  `// @ts-check`** for editor safety.
 
 ## Testing
 

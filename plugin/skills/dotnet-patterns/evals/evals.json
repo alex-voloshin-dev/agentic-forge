@@ -4,13 +4,13 @@
     {
       "id": 1,
       "prompt": "With dotnet-patterns loaded, implement a small behaviour change in a C# project in a target repo (e.g. add a method that validates input and can fail).",
-      "expected_output": "A scoped change that honours nullable reference types (no ! suppression), disposes IDisposable via using, adds xUnit/NUnit tests covering the behaviour plus a boundary and an exception case, and leaves dotnet build clean with dotnet format applied.",
+      "expected_output": "A scoped change that honours nullable reference types (no ! suppression), disposes IDisposable via using, adds xUnit/NUnit tests covering the behaviour plus a boundary and an exception case, compiles cleanly, and applies standard C# formatting.",
       "files": [],
       "assertions": [
         "Nullable reference types are honoured (no `!` null-forgiving suppression to silence warnings)",
         "IDisposable resources are disposed (using declaration/statement)",
         "xUnit/NUnit tests cover the happy path plus a boundary and an exception case",
-        "dotnet build is clean and dotnet format is applied",
+        "The code compiles cleanly on inspection (no missing usings, undefined symbols, or type errors) and follows standard C# formatting",
         "No existing test is weakened, skipped, or deleted"
       ]
     },

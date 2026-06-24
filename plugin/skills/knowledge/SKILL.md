@@ -7,9 +7,30 @@ allowed-tools: Read, Grep, Glob, Bash, Write, Edit
 # Knowledge (recall + capture)
 
 Maintain and read the project's durable knowledge — the Obsidian vault at `docs/knowledge/`
-(atomic notes + `[[wikilinks]]` + maps-of-content). The deterministic vault operations live in
-`lib/agentic_forge/vault.py`; this skill adds the judgement: what's worth recalling, what's worth
-capturing, and how to keep notes atomic and linked. (Mechanism: ADR 0018.)
+(atomic notes + `[[wikilinks]]` + maps-of-content). The deterministic vault operations are the
+**installed `agentic_forge.vault` module**; this skill adds the judgement: what's worth recalling,
+what's worth capturing, and how to keep notes atomic and linked. (Mechanism: ADR 0018.)
+
+## Vault operations (deterministic core)
+
+Invoke the helpers as an **installed module** — never look for a file by path:
+
+```
+python -c "from agentic_forge import vault; print(vault.validate_vault('.'))"
+```
+
+Use `vault.add_note(repo, name, title, body, tags=..., moc=...)` to write a note (it emits the
+canonical frontmatter and links it from a MOC) and `vault.validate_vault(repo)` to check the graph
+before finishing. If the module is genuinely unavailable and you must write a note by hand, its
+YAML frontmatter MUST be exactly these keys:
+
+```
+---
+title: <human title>
+type: note        # "note" for an atomic note, "moc" for a map-of-content
+tags: [tag-a, tag-b]
+---
+```
 
 ## When to use
 

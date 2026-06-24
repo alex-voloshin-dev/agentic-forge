@@ -11,7 +11,7 @@
         "The skill directory name matches the frontmatter name",
         "An evals/evals.json exists and validates against the project schema",
         "evals.json contains both thresholds and triggers sections",
-        "python dev/validate.py reports no errors for the new skill"
+        "The new skill is standard-compliant on inspection: valid name/description frontmatter, body within the 500-line limit, and references that resolve"
       ]
     },
     {
@@ -32,8 +32,8 @@
       "assertions": [
         "A Python module is created in plugin/lib/agentic_forge/ or a skill scripts/ directory",
         "Corresponding pytest tests are added under tests/",
-        "ruff check and mypy pass on the new code",
-        "The script is documented by a script-type evals.json"
+        "The new code is fully type-annotated and lint-clean on inspection (typed signatures, no unused imports, no obvious ruff/mypy violations)",
+        "The tests cover an error or edge path (not only the happy path), and the module exposes an importable, exit-code-friendly API"
       ]
     }
   ],

@@ -45,9 +45,16 @@ If purpose or triggers are unclear, stop and ask the user.
 body yet.
 
 **C. Implement.** Read the matching author guide, copy the template, and write the
-component to the standard. Keep skill bodies under 500 lines and push detail into
-`references/`. Put shared code in `plugin/lib/agentic_forge/`; put skill-specific
-executables in `<skill>/scripts/` referenced via `${CLAUDE_SKILL_DIR}`.
+component to the standard **at its canonical location**:
+
+| Component | Lives at |
+| --- | --- |
+| Skill | `plugin/skills/<name>/SKILL.md` (+ `references/`, `assets/`, `scripts/`, `evals/evals.json`) |
+| Subagent | `plugin/agents/<name>.md` + its contract `plugin/agents/evals/<name>.evals.json` |
+| Shared script | `plugin/lib/agentic_forge/<name>.py` + pytest under `tests/` (pytest is the script's contract; a `script`-type evals.json is reserved for future use) |
+| Skill-specific script | `plugin/skills/<skill>/scripts/`, referenced via `${CLAUDE_SKILL_DIR}` |
+
+Keep skill bodies under 500 lines and push detail into `references/`.
 
 **D. Gate.** Run the eval pyramid (see [references/eval-loop.md](references/eval-loop.md)):
 Tier 0 (`python dev/validate.py` + `pytest` + `ruff` + `mypy`), then for skills the
