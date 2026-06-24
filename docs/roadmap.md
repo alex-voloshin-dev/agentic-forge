@@ -169,9 +169,10 @@ Goal: `qa-test-strategy`, `security-review`, `deploy-watch`, `incident-response`
 
 Dependencies: Stages 1–2 (reuses roles, patterns, handoff).
 
-Open design questions: CI/CD and monitoring integration points (likely MCP connectors);
-what `deploy-watch` reads (pipeline state, alerts) and how it is triggered (event vs
-scheduled CI); severity model for incidents; changelog/version conventions for `release`.
+Design: [architecture/quality-ops.md](architecture/quality-ops.md) — resolves the open
+questions (ops via a tested adapter seam `lib/ops.py` with provider fakes; four-level incident
+severity; semver + Keep-a-Changelog for `release`; scheduling deferred to Stage 7), with the five
+skills' contracts, new handoff types, and the fixture-backed, inspection-gradeable eval plan.
 
 Exit criteria: each skill meets Tier-1/Tier-2; integration points stubbed or wired with
 tests.
