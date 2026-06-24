@@ -120,6 +120,11 @@ and the Tier-3 spine E2E (pass), the full eval suite is green.
 - **Marketing handoff types** (`handoff.py`, contract-first, 100% covered): `market-brief`
   (segments, named competitors, cited sources) and `marketing-strategy` (positioning, channels,
   messaging, metrics). Schemas + tests landed before the skill.
+- **`marketing` skill** `plugin/skills/marketing/` (evals-first): one router skill dispatching to
+  market-research / strategy / content `references/`, forking research/`Explore` for evidence.
+  Tier-1 triggers (market/competitor research, GTM/positioning, content/social/paid) + two
+  inspection-gradeable Tier-2 cases — a `market-brief` that cites every claim and invents no TAM,
+  and on-brand content with no unsupported claims. (ADR 0022.)
 
 ### Added — Layer 0 meta-core
 

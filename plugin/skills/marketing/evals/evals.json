@@ -1,0 +1,51 @@
+{
+  "skill_name": "marketing",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Synthesize a market brief from market-notes.md (in your working directory): the segments, the competitor landscape, and sizing. Cite every claim to the notes; do not invent figures.",
+      "expected_output": "A market-brief artifact naming the specific competitors from the notes (Algolia, Elastic, Typesense), each claim attributed to its source from the notes, the SMB/enterprise segments, and NO fabricated market-size figure (the notes say none was found).",
+      "files": ["eval/fixtures/marketing/market-notes.md"],
+      "assertions": [
+        "Names the specific competitors from the notes (Algolia, Elastic, Typesense), not vague 'various players'",
+        "Each market/competitor claim is attributed to a source from the notes (cited), not stated bare",
+        "No market-size / TAM figure is fabricated — the notes state none was found, so none is invented",
+        "Produces a valid market-brief artifact (type market-brief, named competitors, sources)"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Write a landing-page headline and two supporting lines for the product described in positioning.md (in your working directory).",
+      "expected_output": "Short marketing copy that reflects the positioning (fast/easy integration for SMB developers), makes no claim beyond the brief's proof points (no invented benchmarks/percentages), and matches the tone (developer-friendly, concrete, no hype).",
+      "files": ["eval/fixtures/marketing/positioning.md"],
+      "assertions": [
+        "The copy reflects the positioning — fast/easy integration for SMB developers",
+        "No unsupported claim is made — no invented benchmarks, percentages, or numbers beyond the brief's proof points",
+        "The tone matches the brief (developer-friendly, concrete, no hype)"
+      ]
+    }
+  ],
+  "component": {
+    "id": "marketing",
+    "type": "skill",
+    "purpose": "Marketing domain router: market & competitor research (evidence-cited), GTM/positioning strategy, and on-brand content — one router skill dispatching to references/, forking the research/Explore roles for evidence. Stage 5; gated at Tier-1 and Tier-2 (claims-verification)."
+  },
+  "thresholds": {
+    "tier1_trigger": { "recall": 0.9, "specificity": 0.9 },
+    "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }
+  },
+  "triggers": {
+    "should_trigger": [
+      "Research the market and competitors for this product",
+      "Do a competitor analysis for our space",
+      "What's our go-to-market strategy and positioning?",
+      "Write the landing-page copy for this launch",
+      "Draft social posts and ad copy for the launch"
+    ],
+    "should_not_trigger": [
+      "Write a PRD defining what to build",
+      "Research the best technical approach to build search",
+      "Design the system architecture for the search service"
+    ]
+  }
+}

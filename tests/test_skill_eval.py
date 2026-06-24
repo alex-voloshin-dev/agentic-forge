@@ -36,6 +36,8 @@ TIER2_SKILLS = {
     "release",
     "deploy-watch",
     "incident-response",
+    # Stage 5 — marketing (own synthesis + evidence discipline)
+    "marketing",
 }
 
 

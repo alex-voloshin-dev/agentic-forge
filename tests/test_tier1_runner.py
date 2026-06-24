@@ -37,6 +37,8 @@ ON_LISTING = {
     "deploy-watch",
     "incident-response",
     "release",
+    # Stage 5 — marketing
+    "marketing",
 }
 
 
