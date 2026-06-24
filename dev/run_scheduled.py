@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""Run due scheduled jobs headlessly (Stage 7). The external clock is CI cron / OS cron.
+
+Computes which built-in jobs (``schedule.JOBS``) are due given the recorded last-run times, runs
+each by reusing existing libs, and records the run under ``.agentic-forge/``. ``--dry`` lists what
+*would* run without running it (the roadmap's "dry-run green"). The scheduling logic is pure and
+tested in ``agentic_forge.schedule``; this is the thin runner. See
+docs/architecture/scheduling-observability.md.
+
+    python dev/run_scheduled.py --dry        # list due jobs, run nothing
+    python dev/run_scheduled.py              # run the due jobs and record them
+    python dev/run_scheduled.py --force      # run every job regardless of cadence
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+import time
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_REPO_ROOT / "plugin" / "lib"))
+
+from agentic_forge import observability, schedule, vault  # noqa: E402
+
+
+def _kb_maintenance(repo: Path) -> str:
+    problems = vault.validate_vault(repo)
+    return "vault clean — no broken links or orphans" if not problems else (
+        "vault problems:\n  " + "\n  ".join(problems)
+    )
+
+
+def _audit_digest(repo: Path) -> str:
+    return observability.render(observability.digest(observability.load_audit(repo)))
+
+
+def _deploy_digest(repo: Path) -> str:
+    # Real rollout health needs a configured provider source (PipelineSource/AlertSource);
+    # connectors are a follow-on. Until one is wired, report that plainly.
+    return "deploy-digest: no provider source configured — wire a PipelineSource/AlertSource."
+
+
+_ACTIONS = {
+    "kb_maintenance": _kb_maintenance,
+    "deploy_digest": _deploy_digest,
+    "audit_digest": _audit_digest,
+}
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description="Run due scheduled jobs.")
+    parser.add_argument("--repo", type=Path, default=Path("."))
+    parser.add_argument("--dry", action="store_true", help="list due jobs without running them")
+    parser.add_argument("--force", action="store_true", help="run every job regardless of cadence")
+    args = parser.parse_args(argv[1:])
+
+    repo = args.repo.resolve()
+    now = time.time()
+    state = schedule.load_state(repo)
+    due = list(schedule.JOBS) if args.force else schedule.due_jobs(schedule.JOBS, state, now)
+
+    if not due:
+        print("No jobs due.")
+        return 0
+    if args.dry:
+        print("Due jobs:")
+        for job in due:
+            print(f"  {job.name} ({job.cadence}) — {job.description}")
+        return 0
+
+    for job in due:
+        action = _ACTIONS.get(job.action)
+        print(f"## {job.name}")
+        print(action(repo) if action else f"(no action registered for {job.action!r})")
+        state[job.name] = now
+    schedule.save_state(repo, state)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))

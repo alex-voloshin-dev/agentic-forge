@@ -23,7 +23,7 @@ architecture before we invest in breadth.
 | 4 | Quality & operations domains | Built — 5 skills (qa-test-strategy, security-review, deploy-watch, incident-response, release) + ops/release lib cores; Tier-1/Tier-2 gated (ADR 0021, [quality-ops.md](architecture/quality-ops.md)) |
 | 5 | Product & marketing domains | Built — product already covered by the `product` spine skill; `marketing` router skill (market-research / strategy / content) shipped, evidence-first, Tier-1/Tier-2 gated (ADR 0022, [product-marketing.md](architecture/product-marketing.md)) |
 | 6 | Design & onboarding domains | Built — `ux-design` (ux-spec, specs not pixels) + `repo-onboarding` (analyze a codebase + seed the vault); Tier-1/Tier-2 gated (ADR 0023, [design-onboarding.md](architecture/design-onboarding.md)) |
-| 7 | Guardrails, observability, scheduling (L4) | Built — four guardrail hooks (ADR 0019); scheduling/observability deferred |
+| 7 | Guardrails, observability, scheduling (L4) | Built — four guardrail hooks (ADR 0019) + scheduling & observability (ADR 0024): declarative job registry + audit-log digest + cron CI |
 
 ---
 
@@ -237,9 +237,12 @@ Risks: scope creep into visual design. Mitigation: keep outputs as specs and han
 
 ## Stage 7 — Guardrails, observability, scheduling
 
-Status: **Built (the guardrail hooks)** (ADR 0019) — security, test-gate, logging, and budget
-hooks under `plugin/hooks/`; see [guardrails.md](architecture/guardrails.md). **Scheduling and
-observability dashboards remain a follow-on** (not guardrails).
+Status: **Built** — the four guardrail hooks (ADR 0019: security, test-gate, logging, budget under
+`plugin/hooks/`; see [guardrails.md](architecture/guardrails.md)) **and scheduling & observability**
+(ADR 0024, [scheduling-observability.md](architecture/scheduling-observability.md)): a declarative
+scheduled-job registry + pure due-logic (`schedule.py`), an audit-log digest (`observability.py`),
+the `run_scheduled` / `audit_digest` CLIs, and a cron-triggered CI workflow. A richer observability
+dashboard remains an optional follow-on.
 
 Goal: harden L4 — security hooks, a test/eval gate hook, action logging, subagent budgets —
 and wire scheduled work via CI/headless runs.

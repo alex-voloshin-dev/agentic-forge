@@ -1,0 +1,77 @@
+# Stage 7 (follow-on) — Scheduling & observability (design)
+
+The L4 guardrail hooks shipped in ADR 0019; **scheduling and observability** were deferred as a
+follow-on because scheduling is headless *cadence*, not a guardrail (see ADR 0019). This increment
+adds them. It introduces **no new model-invocable skills** — it is deterministic infrastructure
+(lib + CLI + CI), so it is gated by `pytest` + Tier-0, not Tier-1/Tier-2.
+
+## Constraint: a plugin has no daemon
+
+A Claude Code plugin can't run a long-lived scheduler. So "scheduling" is three pieces:
+
+1. a **declarative job registry** + due-logic in `lib/` (pure, tested),
+2. a **headless runner CLI** (`dev/run_scheduled.py`) that runs the due jobs and records when each
+   last ran,
+3. a **cron-triggered CI workflow** (`.github/workflows/scheduled.yml`, GitHub Actions
+   `schedule:`) that invokes the runner — the external clock.
+
+Users who don't use GitHub Actions can invoke the same CLI from OS cron.
+
+## Scheduling — `lib/agentic_forge/schedule.py`
+
+- `Job(name, cadence, description, action)` — `cadence` is a coarse interval (`daily` / `weekly` /
+  `monthly`); `action` is the seam (a callable / command id the runner maps to work).
+- `JOBS` registry (the built-in scheduled work):
+  - `kb-maintenance` (weekly): `vault.validate_vault` + a health report; flag broken links/orphans.
+  - `deploy-digest` (daily): `ops.deploy_status` summary per configured environment.
+  - `audit-digest` (daily): roll up the guardrail audit log (below).
+- `due_jobs(jobs, last_run, now)` — **pure**: returns the jobs whose `cadence` has elapsed since
+  `last_run[name]` (or never-run). Deterministic + fully tested (timestamps passed in, never
+  `Date.now()`).
+- State = a small JSON of last-run timestamps under `${CLAUDE_PROJECT_DIR}/.agentic-forge/`.
+
+## Observability — `lib/agentic_forge/observability.py`
+
+The `logging` guardrail hook already writes a redacted audit JSONL (tool, brief, ts) under
+`.agentic-forge/`. This module **reads** it:
+
+- `digest(lines, *, since=None)` — **pure**: parse the JSONL records → a summary (counts by tool,
+  number of blocks, budget warnings, errors, time window). Deterministic + tested.
+- `render(digest)` — a compact text report for the CLI / CI job.
+
+## CLIs
+
+- `dev/run_scheduled.py` — compute due jobs (`schedule.due_jobs`), run each (seam), update the
+  last-run state. `--dry` lists what *would* run without running it (the roadmap's "dry-run green").
+- `dev/audit_digest.py` — print `observability.digest` of the audit log (a window flag).
+
+## CI
+
+- `.github/workflows/scheduled.yml` — `on: schedule:` (e.g. daily cron) runs `run_scheduled.py`;
+  also `workflow_dispatch` for manual runs. Mirrors the cost-gating pattern of `eval.yml` (jobs
+  that call the model use the subscription token; pure jobs don't).
+
+## Eval / gate approach
+
+No skills → no Tier-1/Tier-2. Gated by **`pytest`** (schedule + observability cores, aim 100%) and
+**Tier-0**, plus a **dry-run** of `run_scheduled.py`. The deterministic cores are the contract
+(per the script convention; ADR 0020's note that `script`-type evals.json is reserved — pytest is
+the contract).
+
+## Alternatives considered
+
+- **A `schedule` / `maintain` skill** — rejected for now (router discipline): scheduling is set up
+  once via CI, not invoked conversationally; the work it runs reuses existing libs (`vault`, `ops`).
+  Add a thin `maintain` skill later only if ad-hoc "run maintenance now" demand appears.
+- **A real daemon / long-running scheduler** — impossible in a plugin; the CI/OS-cron + headless
+  runner is the native pattern (Ralph loop / headless runs, CLAUDE.md L1).
+- **A web observability dashboard** — out of scope for a CLI plugin; the digest is a text report.
+  A richer dashboard remains a possible future follow-on.
+
+## Exit criteria
+
+- `schedule.py` + `observability.py` unit-tested (aim 100%); `due_jobs` / `digest` pure and
+  deterministic.
+- `run_scheduled.py --dry` green; `audit_digest.py` runs on a sample log.
+- `scheduled.yml` valid; Tier-0 + full suite green.
+- Docs: this design, an ADR, roadmap (Stage 7 → built) / overview, CHANGELOG.

@@ -152,6 +152,20 @@ and the Tier-3 spine E2E (pass), the full eval suite is green.
   `repo-onboarding` gate run flickered to 0.75 purely on router variance — all four prompts route
   100% — and re-ran clean).
 
+### Added — Stage 7 scheduling & observability
+
+Completes the half of L4 that ADR 0019 deferred (scheduling is cadence, not a guardrail). No new
+model-invocable skills — deterministic infra, gated by `pytest` (cores 100% covered) + Tier-0.
+
+- **Scheduling** (no daemon): `lib/agentic_forge/schedule.py` — a declarative scheduled-job
+  registry (`kb-maintenance` weekly; `deploy-digest` / `audit-digest` daily) + a **pure**
+  `due_jobs(jobs, last_run, now)` + last-run state I/O. `dev/run_scheduled.py` runs the due jobs
+  (`--dry` lists, `--force` runs all); `.github/workflows/scheduled.yml` (cron + dispatch) is the
+  external clock. Built-in jobs reuse existing libs (`vault`, `ops`).
+- **Observability**: `lib/agentic_forge/observability.py` — digests the logging hook's audit JSONL
+  (`{tool, input, session_id}`) into per-tool / per-session counts and a report; `dev/audit_digest.py`
+  prints it. No new event schema — it consumes what the L4 logging hook already records. (ADR 0024.)
+
 ### Added — Layer 0 meta-core
 
 - **Repository skeleton** for a Claude Code-only plugin: `plugin/` layout, `plugin.json`,
