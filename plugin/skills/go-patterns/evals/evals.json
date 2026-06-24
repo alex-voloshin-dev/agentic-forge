@@ -9,7 +9,7 @@
       "assertions": [
         "Failure is returned as an error value (wrapped with %w), not via panic, and no error is discarded",
         "Table-driven tests with t.Run subtests cover the happy path plus a boundary and an error case",
-        "gofmt is applied and go vet ./... is clean",
+        "Code is gofmt-formatted and go vet-clean on inspection",
         "Exported identifiers added carry a doc comment starting with the identifier name",
         "No existing test is weakened, skipped, or deleted"
       ]
@@ -21,8 +21,8 @@
       "files": [],
       "assertions": [
         "Every goroutine has a clear exit path (no leak); cancellation/deadline flows through context.Context",
-        "Shared state is guarded (channel or sync primitive); no data race under go test -race",
-        "The test runs with -race and is deterministic (no real network/clock; no reliance on map order)",
+        "Shared state is guarded (channel or sync primitive) with no data race evident on inspection",
+        "The test is written to pass under -race and is deterministic (no real network/clock; no reliance on map order)",
         "No send on a closed channel and no unchecked type assertion"
       ]
     }

@@ -35,6 +35,14 @@ coverage** (per-case assertion counts are unchanged):
   is actually tested rather than vacuously failing.
 - **javascript-patterns** — sharpened the boundary-validation idiom: returning raw parsed
   `unknown`/`any` is explicitly *not* validation.
+- **Applied uniformly (ADR 0020).** An audit of *every* skill's assertions found the same
+  execution-phrasing in the 5 packs that *passed* (go, php, python, ruby, typescript) — latent
+  flakiness that would surface on a future run. Reframed those too (faithfully, same strictness).
+  Recorded the rule as
+  [ADR 0020](docs/architecture/decisions/0020-tier2-inspection-gradeable-assertions.md) and in
+  the eval-runbook: **a Tier-2 assertion must be verifiable by the read-only grader
+  (`Read/Grep/Glob`) — it can never run a build/linter/test, so phrase the property for
+  inspection, not execution.**
 
 ### Added — Layer 0 meta-core
 

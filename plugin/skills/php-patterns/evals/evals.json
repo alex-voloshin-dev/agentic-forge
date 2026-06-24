@@ -10,7 +10,7 @@
         "declare(strict_types=1) is present and params/returns/properties are type-declared",
         "Strict comparison (===) is used, not loose ==",
         "PHPUnit tests cover the happy path plus a boundary and an exception case",
-        "PHPStan/Psalm is clean at the repo's level and PHP-CS-Fixer/PSR-12 is applied",
+        "No obvious static-analysis errors (PHPStan/Psalm-level) on inspection and PSR-12 formatting is applied",
         "No existing test is weakened, skipped, or deleted"
       ]
     },

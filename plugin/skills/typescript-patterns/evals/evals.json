@@ -8,10 +8,10 @@
       "files": [],
       "assertions": [
         "The change is strictly typed: no `any` introduced and no unsound `as`/non-null `!` cast",
-        "tsc --noEmit passes under strict with no new @ts-ignore/@ts-expect-error",
+        "Type-checks under strict on inspection (no type errors) with no new @ts-ignore/@ts-expect-error",
         "Tests are added covering the happy path plus a boundary and an error case",
-        "The repo's package manager (from the lockfile) and scripts are used, not assumed npm",
-        "No existing test is weakened, skipped, or deleted; eslint is clean"
+        "When the repo declares a package manager (a lockfile or packageManager field) and scripts, those are used (not assumed npm)",
+        "No existing test is weakened, skipped, or deleted; no new eslint-disable and consistent formatting"
       ]
     },
     {

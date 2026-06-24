@@ -10,7 +10,7 @@
         "Failure raises a specific StandardError subclass (no bare rescue, no swallowed error)",
         "Idiomatic Ruby: Enumerable/guard clauses and safe navigation (&.) where nil is possible",
         "RSpec/Minitest tests cover the happy path plus a boundary and an error case",
-        "RuboCop is clean (no new rubocop:disable) and frozen_string_literal is set",
+        "RuboCop-clean idioms on inspection (no new rubocop:disable) and frozen_string_literal is set",
         "No existing test is weakened, skipped, or deleted"
       ]
     },

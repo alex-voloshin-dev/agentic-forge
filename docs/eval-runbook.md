@@ -64,6 +64,23 @@ contract's `runs`. Same transports (`--runner dry|claude|api`). **It is the most
 — a full software-engineer coding session per case × N — so scope local runs with `--skill` /
 `--runs`; CI cost-gates it on the subscription token.
 
+### Authoring assertions: the grader is read-only (ADR 0020)
+
+Grading always runs with **read-only** tools (`Read, Grep, Glob`) — the grader has no `Bash`, so
+it can never *run* a build, linter, formatter, test, or `dev/validate.py`. Write every assertion
+so the grader can verify it **by reading the work and its files**, not by executing a toolchain:
+
+- ✗ "dotnet build is clean" / "cargo clippy clean" / "eslint clean" / "`dev/validate.py` passes"
+  — ungradeable by execution; the grader can only guess, which surfaces as near-0.8 variance.
+- ✓ "compiles cleanly on inspection (no missing imports / undefined symbols)" / "clippy-clean
+  idioms (no needless clone, no `unwrap()` on the happy path)" / "no new `eslint-disable`" /
+  "standard-compliant: valid frontmatter, body ≤ 500 lines, references resolve".
+
+When a gate fails, **root-cause per assertion first** (`run_skill_evals.py --skill X --runs 1`,
+reading each assertion's grader evidence), then fix at the cause — improve the skill, give the
+case a fixture that exercises the assertion, or correct a mis-stated convention — **never lower
+the threshold or drop an assertion** (ADR 0020).
+
 ## Authentication — use your Claude subscription (recommended)
 
 The `claude` runner shells out to the `claude` CLI, so it uses whatever auth the CLI is
