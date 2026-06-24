@@ -76,6 +76,15 @@ so the grader can verify it **by reading the work and its files**, not by execut
   idioms (no needless clone, no `unwrap()` on the happy path)" / "no new `eslint-disable`" /
   "standard-compliant: valid frontmatter, body ≤ 500 lines, references resolve".
 
+**Exception — a toolchain that is actually present and run by a write role.** The write roles
+(`software-engineer`, `qa-engineer`, `architect`) run with `Bash` at Level 2, and the **Python**
+toolchain (`pytest`/`ruff`/`mypy`) *is* installed in the sandbox, so they genuinely run it. An
+assertion like "the tests are run and reported as passing" is fine **there**: the role executes
+the present toolchain and the grader verifies it by **reading the role's run report plus the test
+files and the changed code**. The rule targets *absent* toolchains (dotnet/cargo/gradle/node) the
+grader can only guess about — not the ones the environment can actually run. When unsure, phrase
+for inspection; it never hurts.
+
 When a gate fails, **root-cause per assertion first** (`run_skill_evals.py --skill X --runs 1`,
 reading each assertion's grader evidence), then fix at the cause — improve the skill, give the
 case a fixture that exercises the assertion, or correct a mis-stated convention — **never lower
