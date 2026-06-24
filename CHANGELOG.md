@@ -72,6 +72,10 @@ and the Tier-3 spine E2E (pass), the full eval suite is green.
   `release`, `incident` (with a four-level `INCIDENT_SEVERITIES` vocabulary `sev1`–`sev4`), and
   `deploy-status`; `security-review` reuses the existing `review` type. Schemas and tests landed
   before the skills, per the evals-first rule.
+- **`release` core** `lib/agentic_forge/release.py` (100% covered): classify conventional commits
+  → derive the semver bump (breaking → major, `feat` → minor, else patch; `0.y.z` breaking → minor)
+  and a Keep-a-Changelog grouping (`**BREAKING:**`-flagged); a thin `commits_since` git seam keeps
+  the logic unit-tested without a repo.
 
 ### Added — Layer 0 meta-core
 
