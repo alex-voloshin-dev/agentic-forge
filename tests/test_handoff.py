@@ -99,6 +99,25 @@ VALID_HEADERS: dict[str, dict] = {
         "alerts": [],
         "action": "none — healthy",
     },
+    "market-brief": {
+        "type": "market-brief",
+        "feature": "search",
+        "status": "draft",
+        "segments": ["enterprise", "SMB"],
+        "competitors": ["Algolia", "Elastic"],
+        "sizing": "TAM ~$2B (source: Gartner 2025)",
+        "sources": ["https://example.com/gartner-2025"],
+    },
+    "marketing-strategy": {
+        "type": "marketing-strategy",
+        "feature": "search",
+        "status": "draft",
+        "positioning": "The fastest typo-tolerant search for SMBs",
+        "segments": ["SMB"],
+        "channels": ["content", "paid-search"],
+        "messaging": ["fast", "typo-tolerant"],
+        "metrics": ["signups", "CAC"],
+    },
 }
 
 
@@ -244,6 +263,17 @@ def test_test_strategy_empty_levels_rejected() -> None:
 def test_deploy_status_missing_environment_reports_root() -> None:
     errors = validate_header({"type": "deploy-status", "pipeline": "passing"})
     assert any("<root>" in e and "environment" in e for e in errors)
+
+
+def test_market_brief_empty_competitors_rejected() -> None:
+    errors = validate_header({**VALID_HEADERS["market-brief"], "competitors": []})
+    assert any(e.startswith("competitors:") for e in errors)
+
+
+def test_marketing_strategy_requires_positioning_and_channels() -> None:
+    errors = validate_header({"type": "marketing-strategy", "feature": "x", "status": "draft"})
+    assert any("<root>" in e and "positioning" in e for e in errors)
+    assert any("channels" in e for e in errors)
 
 
 def test_expected_type_mismatch() -> None:

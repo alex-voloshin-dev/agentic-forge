@@ -18,6 +18,8 @@ Artifact types and their producers (see docs/architecture/engine.md):
 - ``release`` — ``release`` phase (semver version + Keep-a-Changelog groups).
 - ``incident`` — ``incident-response`` phase (severity sev1–4, timeline, remediation).
 - ``deploy-status`` — ``deploy-watch`` phase (environment, pipeline state, alerts, action).
+- ``market-brief`` — ``marketing`` (market-research): segments, named competitors, cited sources.
+- ``marketing-strategy`` — ``marketing`` (strategy): positioning, channels, messaging, metrics.
 """
 
 from __future__ import annotations
@@ -206,6 +208,27 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "action": {"type": "string"},
         },
     },
+    "market-brief": _feature_schema(
+        "market-brief",
+        required_extra=["competitors"],
+        properties_extra={
+            "segments": _LIST,
+            "competitors": _NONEMPTY_LIST,  # named competitors, not "various players"
+            "sizing": {"type": ["string", "object"]},
+            "sources": _LIST,  # citations backing the claims
+        },
+    ),
+    "marketing-strategy": _feature_schema(
+        "marketing-strategy",
+        required_extra=["positioning", "channels"],
+        properties_extra={
+            "positioning": {"type": "string", "minLength": 1},
+            "segments": _LIST,
+            "channels": _NONEMPTY_LIST,
+            "messaging": _LIST,
+            "metrics": _LIST,
+        },
+    ),
 }
 
 ARTIFACT_TYPES: tuple[str, ...] = tuple(SCHEMAS)

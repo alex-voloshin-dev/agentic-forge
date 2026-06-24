@@ -110,6 +110,17 @@ and the Tier-3 spine E2E (pass), the full eval suite is green.
   a fair, unambiguous negative ("Update the README") testing the same boundary (release ≠ routine
   dev/docs), per [ADR 0020](docs/architecture/decisions/0020-tier2-inspection-gradeable-assertions.md).
 
+### Added — Stage 5 product & marketing (design + foundation)
+
+- **Stage 5 design** `docs/architecture/product-marketing.md`: the product half is already shipped
+  (the `product` spine skill does research → PRD with success metrics), so Stage 5 is the
+  **marketing** domain — one router-disciplined `marketing` skill (market-research / strategy /
+  content as `references/` sub-procedures), **evidence-first** (claims-verification assertions) to
+  address the roadmap's low-signal-content risk.
+- **Marketing handoff types** (`handoff.py`, contract-first, 100% covered): `market-brief`
+  (segments, named competitors, cited sources) and `marketing-strategy` (positioning, channels,
+  messaging, metrics). Schemas + tests landed before the skill.
+
 ### Added — Layer 0 meta-core
 
 - **Repository skeleton** for a Claude Code-only plugin: `plugin/` layout, `plugin.json`,
