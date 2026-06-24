@@ -1,6 +1,6 @@
 ---
 name: research
-description: Investigate a feature or idea before it is specified or designed — gather inputs, fan out parallel research tracks (e.g. prior art / product / engineering), synthesize, and produce a research-brief.md with cited sources and a recommendation. Use when asked to research, investigate, explore or compare options/approaches, survey prior art, or recommend a direction BEFORE speccing or designing. This is the SDLC research phase (feeds product); for a standalone deep report not tied to the feature flow use deep-research. Not for defining requirements (product), the technical design itself (architecture), or implementing (develop).
+description: Investigate a feature or idea before it is specified or designed — gather inputs, fan out parallel research tracks (e.g. prior art / product / engineering), synthesize, and produce a research-brief.md with cited sources and a recommendation. Use when asked to research, investigate, or compare options / approaches / prior art for a feature or idea, or recommend a direction BEFORE speccing or designing it. This is the SDLC research phase (feeds product); for a standalone deep report not tied to the feature flow use deep-research. Not for defining requirements (product), the technical design itself (architecture), implementing (develop), or market/competitor research (marketing).
 allowed-tools: Read, Grep, Glob, Task, Write
 ---
 

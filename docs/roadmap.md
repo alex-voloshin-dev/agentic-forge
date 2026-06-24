@@ -21,7 +21,7 @@ architecture before we invest in breadth.
 | 2 | SDLC spine vertical slice (L2) | Built — six-phase spine proven E2E; by-stack complete: detection + a `*-patterns` pack for every registered stack (9) + wiring |
 | 3 | Knowledge base (L3) | Built — vault lib + `knowledge` skill + session-start hook (ADR 0018) |
 | 4 | Quality & operations domains | Built — 5 skills (qa-test-strategy, security-review, deploy-watch, incident-response, release) + ops/release lib cores; Tier-1/Tier-2 gated (ADR 0021, [quality-ops.md](architecture/quality-ops.md)) |
-| 5 | Product & marketing domains | Planned |
+| 5 | Product & marketing domains | Built — product already covered by the `product` spine skill; `marketing` router skill (market-research / strategy / content) shipped, evidence-first, Tier-1/Tier-2 gated (ADR 0022, [product-marketing.md](architecture/product-marketing.md)) |
 | 6 | Design & onboarding domains | Planned |
 | 7 | Guardrails, observability, scheduling (L4) | Built — four guardrail hooks (ADR 0019); scheduling/observability deferred |
 
@@ -189,6 +189,13 @@ core logic testable.
 ---
 
 ## Stage 5 — Product & marketing domains
+
+Status: **Built and gated** (ADR 0022, [product-marketing.md](architecture/product-marketing.md)).
+The product half is already shipped (the `product` spine skill does research → PRD with metrics),
+so Stage 5 is the **marketing** domain: one evidence-first `marketing` router skill
+(market-research / strategy / content as references), with `market-brief` / `marketing-strategy`
+handoff types. Final gate (`claude-opus-4-8`): Tier-2 lower bound 1.000 (n=5); Tier-1 recall 1.000
+/ specificity 1.000 (runs=5).
 
 Goal: `product` (research synthesis, metrics) and `marketing` (market, competitors,
 strategy, content, social, paid).

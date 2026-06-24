@@ -1,6 +1,6 @@
 ---
 name: marketing
-description: Marketing domain — research the market and competitors (with cited evidence), shape go-to-market strategy and positioning, and produce on-brand content (landing copy, social, ad/paid copy). Use for market or competitor research/analysis, GTM / positioning / channel strategy, or writing marketing content / social posts / ad copy. Not for product requirements or a PRD (product), researching the feature or technical options (research), or the technical design (architecture).
+description: Market and competitor research and analysis, go-to-market strategy and positioning, and marketing content (landing copy, social, ad/paid) — the outward-facing marketing domain, all with cited evidence. Use for market research or a competitor analysis, go-to-market / positioning / channel strategy, or writing landing-page copy, social posts, or ad / paid copy. Not for product requirements or a PRD (product), researching the product feature or technical options (research), or the technical design (architecture).
 allowed-tools: Read, Grep, Glob, Bash, Task, Write, Edit
 ---
 

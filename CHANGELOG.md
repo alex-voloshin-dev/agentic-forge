@@ -125,6 +125,12 @@ and the Tier-3 spine E2E (pass), the full eval suite is green.
   Tier-1 triggers (market/competitor research, GTM/positioning, content/social/paid) + two
   inspection-gradeable Tier-2 cases — a `market-brief` that cites every claim and invents no TAM,
   and on-brand content with no unsupported claims. (ADR 0022.)
+- **Stage 5 eval gate — all green** (`claude-opus-4-8`): `marketing` Tier-2 lower bound **1.000**
+  (n=5); Tier-1 **recall 1.000 / specificity 1.000** (runs=5). Routing tuning (threshold 0.9
+  untouched): scoped `research` to *feature/options* research so "research the market" routes to
+  `marketing` (research re-confirmed Tier-1 1.000), and made `marketing`'s description own its
+  trigger phrasings (market research / competitor analysis / go-to-market / landing-page / social /
+  ad copy) to lift three ~80%-routing prompts to ~100%.
 
 ### Added — Layer 0 meta-core
 
