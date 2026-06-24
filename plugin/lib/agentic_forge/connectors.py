@@ -11,15 +11,31 @@ docs/architecture/connectors.md.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from .ops import Deploy, InMemoryPipeline, PipelineSource
+from .ops import (
+    Alert,
+    AlertSource,
+    Deploy,
+    InMemoryAlerts,
+    InMemoryPipeline,
+    PipelineSource,
+)
 
-__all__ = ["parse_gh_runs", "GhPipelineSource", "gh_available", "pipeline_source"]
+__all__ = [
+    "parse_gh_runs",
+    "GhPipelineSource",
+    "gh_available",
+    "pipeline_source",
+    "parse_grafana_alerts",
+    "GrafanaAlertSource",
+    "alert_source",
+]
 
 # A completed run's ``conclusion`` -> Deploy.status. Only success and the failure family are
 # decisive for rollout health; other conclusions (cancelled/skipped/neutral) are *not* failures.
@@ -119,3 +135,98 @@ def pipeline_source(repo: str, *, available: Callable[[], bool] = gh_available) 
     if available():
         return GhPipelineSource(repo)
     return InMemoryPipeline({})
+
+
+# --- Grafana alerts (AlertSource) --------------------------------------------
+# MCP-first by policy (ADR 0025): the skills prefer the Grafana MCP tool when present; this REST
+# adapter is the deterministic fallback and the tested core.
+
+# Grafana alert ``severity`` label -> ops alert severity. An unknown *firing* alert defaults to
+# ``warning`` (degraded) — never silently dropped.
+_GRAFANA_SEVERITY: dict[str, str] = {
+    "critical": "critical",
+    "crit": "critical",
+    "page": "critical",
+    "warning": "warning",
+    "warn": "warning",
+    "high": "warning",
+    "info": "info",
+    "information": "info",
+}
+
+
+def _as_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def parse_grafana_alerts(payload: str, environment: str) -> list[Alert]:
+    """Parse Grafana Alertmanager-style alert JSON into Alerts (pure, tolerant).
+
+    Reads the array from ``GET /api/alertmanager/grafana/api/v2/alerts``: each alert's
+    ``labels.severity`` maps onto ops severities and ``annotations.summary`` (or the alert name) is
+    the summary. Skips non-active alerts and alerts whose ``environment``/``env`` label doesn't
+    match ``environment`` (alerts lacking that label are kept — they can't be filtered). Invalid
+    JSON or a non-list yields ``[]``.
+    """
+    try:
+        data = json.loads(payload)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(data, list):
+        return []
+    out: list[Alert] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        if _as_dict(item.get("status")).get("state") not in (None, "active"):
+            continue  # resolved / suppressed
+        labels = _as_dict(item.get("labels"))
+        env = labels.get("environment") or labels.get("env")
+        if env and str(env) != environment:
+            continue
+        severity = _GRAFANA_SEVERITY.get(str(labels.get("severity", "")).lower(), "warning")
+        summary = (
+            _as_dict(item.get("annotations")).get("summary")
+            or labels.get("alertname")
+            or "alert"
+        )
+        out.append(Alert(severity=severity, summary=str(summary), source="grafana"))
+    return out
+
+
+def _grafana_alerts(base_url: str, token: str) -> str:  # pragma: no cover
+    """Fetch active alerts from Grafana's Alertmanager-compatible endpoint (thin seam)."""
+    import urllib.request
+
+    url = base_url.rstrip("/") + "/api/alertmanager/grafana/api/v2/alerts"
+    req = urllib.request.Request(url)
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return str(resp.read().decode("utf-8"))
+
+
+@dataclass
+class GrafanaAlertSource:
+    """An :class:`~agentic_forge.ops.AlertSource` over Grafana alerting (REST; the MCP server is the
+    preferred path per ADR 0025). ``base_url`` is the Grafana root; ``token`` an API token from
+    env/config — never committed."""
+
+    base_url: str
+    token: str = ""
+
+    def active_alerts(self, environment: str) -> list[Alert]:
+        try:
+            payload = _grafana_alerts(self.base_url, self.token)
+        except OSError:
+            return []  # fetch failed -> no data, never raise into the assessment
+        return parse_grafana_alerts(payload, environment)
+
+
+def alert_source(*, env: Callable[[str], str | None] = os.environ.get) -> AlertSource:
+    """Select an AlertSource: :class:`GrafanaAlertSource` when ``GRAFANA_URL`` is set, else an empty
+    in-memory source (graceful fallback). ``env`` is injectable for testing."""
+    url = env("GRAFANA_URL")
+    if url:
+        return GrafanaAlertSource(url, env("GRAFANA_TOKEN") or "")
+    return InMemoryAlerts({})

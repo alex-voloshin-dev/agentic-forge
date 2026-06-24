@@ -63,8 +63,11 @@ A connector is chosen by a small config plus auto-detect:
    Actions `gh run list --json` → `Deploy` (`success→passing`, `failure→failing`,
    `in_progress→running`, `queued→queued`); `pipeline_source(repo)` auto-detects `gh`. Wired into
    `deploy-watch` (references/connectors.md) + the scheduled `deploy-digest`.
-2. **`AlertSource`** — MCP-first (Datadog / PagerDuty) + a generic REST parser fallback →
-   `Alert`. Provider-specific; pick per stack.
+2. **`AlertSource`** — **✅ Grafana shipped** (`GrafanaAlertSource`): `parse_grafana_alerts` (pure,
+   tested) maps Grafana Alertmanager alerts → `Alert`; `alert_source()` reads `GRAFANA_URL` /
+   `GRAFANA_TOKEN`. MCP-first per policy (prefer the Grafana MCP tool; REST is the fallback). Wired
+   into deploy-watch + incident-response references and the scheduled `deploy-digest`.
+   Datadog / PagerDuty are siblings behind the same Protocol.
 3. **marketing → `WebSearch`** — a reference wiring the research path to live web data with
    citations.
 

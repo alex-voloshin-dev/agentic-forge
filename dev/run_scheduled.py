@@ -37,13 +37,14 @@ def _audit_digest(repo: Path) -> str:
 
 
 def _deploy_digest(repo: Path) -> str:
-    # Phase-1 connector: auto-detect `gh` (GhPipelineSource); fall back gracefully if absent.
-    # Alerts await an AlertSource connector (phase 2), so use an empty alert source for now.
+    # Connectors auto-detect: GhPipelineSource (gh on PATH) + GrafanaAlertSource (GRAFANA_URL set).
+    # Both degrade to empty in-memory sources, so this stays graceful when nothing is configured.
     pipeline = connectors.pipeline_source(str(repo))
-    if isinstance(pipeline, ops.InMemoryPipeline):
-        return "deploy-digest: no pipeline source (gh not found) — see references/connectors.md."
+    alerts = connectors.alert_source()
+    if isinstance(pipeline, ops.InMemoryPipeline) and isinstance(alerts, ops.InMemoryAlerts):
+        return "deploy-digest: no pipeline/alert source configured — see references/connectors.md."
     env = "production"
-    status = ops.deploy_status(pipeline, ops.InMemoryAlerts({}), env)
+    status = ops.deploy_status(pipeline, alerts, env)
     deploys = status["deploys"]
     n = len(deploys) if isinstance(deploys, list) else 0
     return f"deploy-digest [{env}]: {status['pipeline']} — {status['action']} ({n} recent runs)"

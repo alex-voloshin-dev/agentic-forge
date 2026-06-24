@@ -27,7 +27,9 @@ python -c "from agentic_forge import ops; print(ops.classify_incident(outage=Tru
 ```
 
 1. **Assess the signal.** From the alerts/impact, determine the facts: is it a full **outage**?
-   **data loss**? **degraded** (still working, slower/partial)? is there a **workaround**?
+   **data loss**? **degraded** (still working, slower/partial)? is there a **workaround**? For a
+   live incident, pull active alerts via a connector (see
+   [references/connectors.md](references/connectors.md)).
 2. **Classify severity.** `ops.classify_incident(outage=…, data_loss=…, degraded=…, workaround=…)`
    → `sev1` (outage / data loss), `sev2` (degraded, no workaround), `sev3` (degraded, workaround),
    `sev4` (cosmetic / latent). Use the derived level — do not eyeball it.

@@ -179,6 +179,12 @@ model-invocable skills — deterministic infra, gated by `pytest` (cores 100% co
   status/conclusion mapping); `parse_gh_runs` is pure + tested, the `gh` call is a `# pragma: no
   cover` seam. `pipeline_source(repo)` auto-detects `gh` (else an empty source). Wired into
   `deploy-watch` (a `references/connectors.md`) and the scheduled `deploy-digest`.
+- **Connectors phase 2 — `GrafanaAlertSource`** (`connectors.py`, 100% covered): a real
+  `ops.AlertSource` over Grafana alerting — `parse_grafana_alerts` (pure, tested) maps Alertmanager
+  alerts → `Alert` (severity normalization, active-only, env filter); the HTTP call is a `# pragma:
+  no cover` seam. `alert_source()` reads `GRAFANA_URL`/`GRAFANA_TOKEN` (else empty). **MCP-first**
+  per ADR 0025 (prefer the Grafana MCP tool; REST is the fallback). Wired into `deploy-watch` +
+  `incident-response` references and the scheduled `deploy-digest`.
 
 ### Added — Layer 0 meta-core
 
