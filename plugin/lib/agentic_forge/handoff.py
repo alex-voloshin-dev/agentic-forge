@@ -202,7 +202,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "environment": {"type": "string", "minLength": 1},
             "pipeline": {"type": ["string", "object"]},  # state label or structured pipeline info
             "deploys": _LIST,
-            "alerts": _LIST,
+            "alerts": {"type": ["array", "object"]},  # a raw list or a severity→count triage dict
             "action": {"type": "string"},
         },
     },

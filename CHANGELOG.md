@@ -76,6 +76,12 @@ and the Tier-3 spine E2E (pass), the full eval suite is green.
   → derive the semver bump (breaking → major, `feat` → minor, else patch; `0.y.z` breaking → minor)
   and a Keep-a-Changelog grouping (`**BREAKING:**`-flagged); a thin `commits_since` git seam keeps
   the logic unit-tested without a repo.
+- **`ops` adapter seam** `lib/agentic_forge/ops.py` (100% covered): provider-agnostic
+  `PipelineSource` / `AlertSource` (with `InMemory*` fakes for tests + eval fixtures) plus the
+  deterministic assessment — `rollout_health`, `triage_alerts`, `deploy_status` (emits a
+  schema-valid `deploy-status` mapping), and `classify_incident` (sev1–4). Keeps the
+  `deploy-watch` / `incident-response` Tier-2 runnable with no live infra. (`deploy-status`
+  `alerts` widened to list-or-dict to carry the triage counts.)
 
 ### Added — Layer 0 meta-core
 
