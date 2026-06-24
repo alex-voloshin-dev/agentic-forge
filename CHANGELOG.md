@@ -132,6 +132,16 @@ and the Tier-3 spine E2E (pass), the full eval suite is green.
   trigger phrasings (market research / competitor analysis / go-to-market / landing-page / social /
   ad copy) to lift three ~80%-routing prompts to ~100%.
 
+### Added — Stage 6 design & onboarding (design + foundation)
+
+- **Stage 6 design** `docs/architecture/design-onboarding.md`: `ux-design` (UX specs — flows,
+  screens/states, accessibility — never pixels) and `repo-onboarding` (analyze an unfamiliar
+  codebase + seed the Stage-3 vault). Both own-behavior → Tier-1 + Tier-2; Tier-1 descriptions
+  written sharp from the start to avoid the keyword collisions that cost iteration in Stages 4–5.
+- **Handoff types** (`handoff.py`, contract-first, 100% covered): `ux-spec` (flows, screens,
+  accessibility, design-system refs) and `onboarding` (components, entry points, conventions,
+  risks). Schemas + tests before the skills.
+
 ### Added — Layer 0 meta-core
 
 - **Repository skeleton** for a Claude Code-only plugin: `plugin/` layout, `plugin.json`,

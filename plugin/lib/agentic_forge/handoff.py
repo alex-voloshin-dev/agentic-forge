@@ -20,6 +20,8 @@ Artifact types and their producers (see docs/architecture/engine.md):
 - ``deploy-status`` — ``deploy-watch`` phase (environment, pipeline state, alerts, action).
 - ``market-brief`` — ``marketing`` (market-research): segments, named competitors, cited sources.
 - ``marketing-strategy`` — ``marketing`` (strategy): positioning, channels, messaging, metrics.
+- ``ux-spec`` — ``ux-design`` phase: user flows, screens/states, accessibility, design-system refs.
+- ``onboarding`` — ``repo-onboarding`` phase: components, entry points, conventions, risks.
 """
 
 from __future__ import annotations
@@ -227,6 +229,26 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "channels": _NONEMPTY_LIST,
             "messaging": _LIST,
             "metrics": _LIST,
+        },
+    ),
+    "ux-spec": _feature_schema(
+        "ux-spec",
+        required_extra=["flows"],
+        properties_extra={
+            "flows": _NONEMPTY_LIST,  # user flows (specs, not pixels)
+            "screens": _LIST,  # screens + their states (empty/loading/error/success)
+            "accessibility": _LIST,  # WCAG: keyboard, contrast, semantics/ARIA
+            "design_system": _LIST,  # referenced components/tokens
+        },
+    ),
+    "onboarding": _feature_schema(
+        "onboarding",
+        required_extra=["components"],
+        properties_extra={
+            "components": _NONEMPTY_LIST,  # the real modules/components found
+            "entry_points": _LIST,
+            "conventions": _LIST,
+            "risks": _LIST,
         },
     ),
 }

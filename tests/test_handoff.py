@@ -118,6 +118,24 @@ VALID_HEADERS: dict[str, dict] = {
         "messaging": ["fast", "typo-tolerant"],
         "metrics": ["signups", "CAC"],
     },
+    "ux-spec": {
+        "type": "ux-spec",
+        "feature": "search",
+        "status": "draft",
+        "flows": ["search → results → detail"],
+        "screens": [{"name": "results", "states": ["empty", "loading", "error", "list"]}],
+        "accessibility": ["keyboard-navigable", "AA contrast", "ARIA live region for results"],
+        "design_system": ["SearchInput", "ResultCard"],
+    },
+    "onboarding": {
+        "type": "onboarding",
+        "feature": "acme-repo",
+        "status": "draft",
+        "components": ["api", "worker", "web"],
+        "entry_points": ["cmd/server/main.go"],
+        "conventions": ["errors wrapped with %w"],
+        "risks": ["no integration tests"],
+    },
 }
 
 
@@ -274,6 +292,16 @@ def test_marketing_strategy_requires_positioning_and_channels() -> None:
     errors = validate_header({"type": "marketing-strategy", "feature": "x", "status": "draft"})
     assert any("<root>" in e and "positioning" in e for e in errors)
     assert any("channels" in e for e in errors)
+
+
+def test_ux_spec_empty_flows_rejected() -> None:
+    errors = validate_header({**VALID_HEADERS["ux-spec"], "flows": []})
+    assert any(e.startswith("flows:") for e in errors)
+
+
+def test_onboarding_requires_components() -> None:
+    errors = validate_header({"type": "onboarding", "feature": "x", "status": "draft"})
+    assert any("<root>" in e and "components" in e for e in errors)
 
 
 def test_expected_type_mismatch() -> None:
