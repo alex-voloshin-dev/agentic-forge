@@ -26,3 +26,4 @@ edit.
 | [0018](0018-l3-knowledge-base.md) | L3 knowledge base: Obsidian vault + recall/capture skill + session-start hook | Accepted |
 | [0019](0019-l4-guardrails.md) | L4 guardrails: deterministic hooks (security, test-gate, logging, budgets) | Accepted |
 | [0020](0020-tier2-inspection-gradeable-assertions.md) | Tier-2 assertions must be inspection-gradeable; fix gates by fidelity, not lower thresholds | Accepted |
+| [0021](0021-stage4-ops-seam-and-eval-tiers.md) | Stage 4: ops adapter seam, incident severity model, fork-orchestrator eval tier | Accepted |
