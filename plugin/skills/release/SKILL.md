@@ -9,7 +9,8 @@ allowed-tools: Read, Grep, Glob, Bash, Write, Edit
 The release phase of the SDLC spine: turn the merged work since the last tag into a proposed
 **semver version** and a **Keep-a-Changelog** changelog, emit a `release` handoff artifact, and —
 only when asked — tag. The deterministic logic lives in the installed `agentic_forge.release`
-module; this skill wires it to the repo and renders the result. (Design: ADR-pending,
+module; this skill wires it to the repo and renders the result. (Design:
+[ADR 0021](../../../docs/architecture/decisions/0021-stage4-ops-seam-and-eval-tiers.md),
 [quality-ops.md](../../../docs/architecture/quality-ops.md).)
 
 ## When to use

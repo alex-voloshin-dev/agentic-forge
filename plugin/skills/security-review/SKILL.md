@@ -1,6 +1,6 @@
 ---
 name: security-review
-description: Run a dedicated deep security review of a component, design, or change — threat surface, authz, secrets, dependencies, input handling — by delegating to the security-engineer role, and record a review handoff with a security lens. Use to security-review, security-audit, threat-model, or check whether code is secure / find vulnerabilities. Not the per-diff security aspect of a general code review (code-review), implementing fixes (develop), or cutting a release (release).
+description: Run a dedicated deep security review or audit of a component, module, service, or design — threat surface, authz, secrets, dependencies, input handling — by delegating to the security-engineer role, and record a review handoff with a security lens. Use when the request is about security specifically — "is this code secure?", "review this for security issues", "audit this module/service for vulnerabilities", "security-review this", or "threat-model this flow" — i.e. any security review, security audit, vulnerability hunt, or threat model. Not the per-diff security aspect of a general code review (code-review), implementing fixes (develop), or cutting a release (release).
 allowed-tools: Read, Grep, Glob, Bash, Task, Write, Edit
 ---
 

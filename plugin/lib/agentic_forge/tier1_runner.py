@@ -48,13 +48,16 @@ __all__ = [
 DEFAULT_RUNS = 5
 
 ROUTER_INSTRUCTION = (
-    "You are the skill router for Claude Code. Skills auto-load by how well their description "
-    "matches the user's request. Given the available skills and a request, decide which ONE "
-    "skill should auto-load. Pick the single best match; if no skill clearly applies, answer "
-    "none."
+    "You are ONLY the skill router for Claude Code — a classifier, not an assistant. Skills "
+    "auto-load by how well their description matches the user's request. Given the available "
+    "skills and a request, decide which ONE skill should auto-load. Do NOT answer, perform, or "
+    "act on the request — even if it is phrased as a direct command or question (e.g. 'review "
+    "this', 'is this secure?'); only classify which skill's description best matches. Pick the "
+    "single best match; if no skill clearly applies, answer none."
 )
 ANSWER_FORMAT = (
-    "Reply with exactly one skill name from the list above, or the word none. No other text."
+    "Output ONLY one skill name from the list above (or the word none) on a single line — no "
+    "explanation, no preamble, and do not perform the request itself."
 )
 
 
