@@ -44,6 +44,23 @@ coverage** (per-case assertion counts are unchanged):
   (`Read/Grep/Glob`) — it can never run a build/linter/test, so phrase the property for
   inspection, not execution.**
 
+**Results** (model `claude-opus-4-8`; lower bound = `mean − stddev`, n = 5):
+
+| Skill | Before (lower bound) | After (lower bound) |
+| --- | --- | --- |
+| skill-factory | 0.454 ❌ | **0.912** ✅ |
+| engineering-standards | 0.571 ❌ | **0.836** ✅ |
+| knowledge | 0.667 ❌ | **1.000** ✅ |
+| jvm-patterns | 0.672 ❌ | **1.000** ✅ |
+| javascript-patterns | 0.750 ❌ | **0.895** ✅ |
+| rust-patterns | 0.778 ❌ | **0.861** ✅ |
+| dotnet-patterns | 0.822 ❌ | **0.895** ✅ |
+
+All seven now clear the gate (`mean − stddev ≥ 0.8`, n = 5). The five hardened packs that
+already passed (go, php, python, ruby, typescript) each scored **1.000** on a 1× regression
+check — the faithful reframe did not regress them. Combined with the agent Tier-2 (6/6 roles)
+and the Tier-3 spine E2E (pass), the full eval suite is green.
+
 ### Added — Layer 0 meta-core
 
 - **Repository skeleton** for a Claude Code-only plugin: `plugin/` layout, `plugin.json`,

@@ -176,6 +176,11 @@ the CHANGELOG entry (or a milestone note) next to the thresholds, per the eval-l
 and re-run. Tier-2 numbers are model-dependent — record which model produced them (current
 baseline: `claude-opus-4-8`).
 
+The latest skill Tier-2 baseline (the ADR-0020 fidelity pass) is recorded in the `CHANGELOG.md`
+"Tier-2 eval fidelity" entry: the 7 reframed/improved gates are proven at **n = 5** (all clear
+`mean − stddev ≥ 0.8`) on `claude-opus-4-8`; the 5 hardened packs scored **1.000 on a 1× re-check**
+after the faithful reframe (they already cleared the bar at n = 5 in the prior live run).
+
 ## Caveats
 
 - If `ANTHROPIC_API_KEY` is set, the `claude` CLI uses it before the subscription token —
