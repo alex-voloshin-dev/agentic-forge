@@ -41,9 +41,12 @@ Tier-1 **is** automated, by a sibling CLI. `run_tier1_evals.py` builds the **liv
 listing (every model-invocable skill's `name` + `description`; off-listing `*-patterns` /
 `engineering-standards` excluded) and, for each on-listing router skill that declares
 `tier1_trigger`, asks the router — the model classifying against that listing — which skill
-auto-loads for each trigger prompt. Grading is **deterministic**: a `should_trigger` prompt must
-select the skill (recall), a `should_not_trigger` prompt must not (specificity); sampled
-**majority-of-N**, gated at ≥ 0.9 via `gate.trigger_metrics` + `gate.tier1_trigger` (ADR 0016).
+auto-loads for each trigger prompt. Grading is **deterministic** and scored as the **mean
+per-prompt routing rate** over N samples: recall = the mean rate of selecting the skill on
+`should_trigger` prompts, specificity = the mean rate of *not* selecting it on
+`should_not_trigger` prompts; gated at ≥ 0.9 via `gate.trigger_metrics` + `gate.tier1_trigger`.
+(The mean rate replaces the older per-prompt majority-of-N, which flickered around the 50% cliff
+and rubber-stamped barely-majority routing — ADR 0016, metric refined by ADR 0026.)
 It reuses the same transports — `--runner dry|claude|api` (the `claude` router call runs with
 tools disabled and one turn); `dry` verifies the listing/trigger wiring with no auth.
 

@@ -31,3 +31,4 @@ edit.
 | [0023](0023-stage6-design-onboarding.md) | Stage 6: ux-design (specs not pixels) + repo-onboarding (analyze + seed the vault) | Accepted |
 | [0024](0024-stage7-scheduling-observability.md) | Stage 7: scheduling & observability (no daemon — declarative jobs + audit digest) | Accepted |
 | [0025](0025-real-provider-connectors.md) | Real provider connectors: implement the existing seams (Python for CLI/REST, MCP-first for monitoring) | Accepted |
+| [0026](0026-tier1-mean-routing-rate.md) | Tier-1 recall/specificity = mean routing-rate (refines ADR 0016): stabler + stricter at the same 0.9 bar | Accepted |
