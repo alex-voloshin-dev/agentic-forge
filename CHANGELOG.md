@@ -185,6 +185,10 @@ model-invocable skills — deterministic infra, gated by `pytest` (cores 100% co
   no cover` seam. `alert_source()` reads `GRAFANA_URL`/`GRAFANA_TOKEN` (else empty). **MCP-first**
   per ADR 0025 (prefer the Grafana MCP tool; REST is the fallback). Wired into `deploy-watch` +
   `incident-response` references and the scheduled `deploy-digest`.
+- **Connectors phase 3 — marketing live research**: `marketing` gains `WebSearch` / `WebFetch`
+  tools; its market-research procedure now gathers live market/competitor data and records every
+  source URL (under the evidence-discipline already gated in Tier-2). No connector code — native
+  tools, provider-neutral. Completes the connectors rollout (ADR 0025).
 
 ### Added — Layer 0 meta-core
 

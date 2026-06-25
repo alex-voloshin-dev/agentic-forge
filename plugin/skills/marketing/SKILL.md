@@ -1,7 +1,7 @@
 ---
 name: marketing
 description: Market and competitor research and analysis, go-to-market strategy and positioning, and marketing content (landing copy, social, ad/paid) — the outward-facing marketing domain, all with cited evidence. Use for market research or a competitor analysis, go-to-market / positioning / channel strategy, or writing landing-page copy, social posts, or ad / paid copy. Not for product requirements or a PRD (product), researching the product feature or technical options (research), or the technical design (architecture).
-allowed-tools: Read, Grep, Glob, Bash, Task, Write, Edit
+allowed-tools: Read, Grep, Glob, Bash, Task, Write, Edit, WebSearch, WebFetch
 ---
 
 # Marketing (domain router)
@@ -40,8 +40,10 @@ The failure mode of generated marketing is confident, low-signal fluff. So every
 ## Process
 
 1. **Identify the sub-area** from the request and read its reference for the procedure + rubric.
-2. **Gather evidence.** Use provided research/notes if present; otherwise fork the `research` /
-   `Explore` roles (via `Task`) to gather it — then apply the evidence discipline above.
+2. **Gather evidence.** Use provided research/notes if present; otherwise gather it **live with
+   `WebSearch` / `WebFetch`** (analyst reports, competitor sites, pricing pages) — or fork the
+   `research` / `Explore` roles via `Task` for deeper tracks — **keeping every source URL**. Then
+   apply the evidence discipline above (cite or mark every claim; no fabrication).
 3. **Synthesize** the handoff artifact (`handoff` type `market-brief` / `marketing-strategy`) or
    the content files, grounded in the evidence and the upstream `prd.md` where relevant.
 4. **Verify claims** before finishing: every claim is cited or marked an assumption; no invented

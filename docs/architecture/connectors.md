@@ -68,8 +68,9 @@ A connector is chosen by a small config plus auto-detect:
    `GRAFANA_TOKEN`. MCP-first per policy (prefer the Grafana MCP tool; REST is the fallback). Wired
    into deploy-watch + incident-response references and the scheduled `deploy-digest`.
    Datadog / PagerDuty are siblings behind the same Protocol.
-3. **marketing → `WebSearch`** — a reference wiring the research path to live web data with
-   citations.
+3. **marketing → `WebSearch`** — **✅ shipped**: `marketing` gains `WebSearch` / `WebFetch` tools;
+   its market-research procedure gathers live market/competitor data and records every source URL,
+   under the evidence-discipline already gated in Tier-2. No connector code (native tools).
 
 ## Alternatives considered
 

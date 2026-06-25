@@ -5,8 +5,10 @@ cited**. This is the evidence foundation the strategy and content build on.
 
 ## Steps
 
-1. **Gather evidence.** Use the provided research/notes if present; otherwise fork the `research` /
-   `Explore` roles (via `Task`) to gather market and competitor information. Keep the sources.
+1. **Gather evidence.** Use the provided research/notes if present; otherwise gather it **live with
+   `WebSearch` / `WebFetch`** — search analyst / market-size reports, competitor sites, and pricing
+   pages (or fork `research` / `Explore` via `Task` for deeper tracks). **Record every source URL**
+   so each claim can be cited.
 2. **Segments.** Identify the real buyer segments from the evidence (who buys, what they want) —
    not invented personas.
 3. **Competitor landscape.** Name *specific* competitors (never "various players"); for each, note
