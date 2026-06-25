@@ -33,7 +33,7 @@ uv venv && uv pip install -e ".[dev]"      # or: pip install -e ".[dev]"
 python dev/validate.py
 pytest -q --cov=agentic_forge --cov-fail-under=80
 ruff check .
-mypy plugin/lib dev
+mypy plugin/lib plugin/hooks dev
 ```
 
 Expected: validator clean, tests pass, coverage ≥ 80% (currently ~97.6%), ruff/mypy clean.
@@ -76,6 +76,10 @@ lib/agentic_forge/handoff.py with per-type artifact header schemas and tests, an
 the pattern references (review loop, worktree, handoff). Keep the Tier-0 gate green and
 follow the documentation discipline in CLAUDE.md (CHANGELOG + docs updates per change).
 ```
+
+> Note: the `implementer` role above was later renamed **`software-engineer`** (see the
+> [engine doc](architecture/engine.md) and the ADR index); the prompt is kept verbatim as
+> the historical kickoff.
 
 ## 6. Keep the discipline
 

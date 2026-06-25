@@ -15,7 +15,7 @@ edit.
 | [0007](0007-python-only-scripts.md) | Python-only, tested scripts | Accepted |
 | [0008](0008-evals-first-enforcement.md) | Enforce evals-first via instructions + Tier-0 | Accepted |
 | [0009](0009-engine-roles-and-handoff.md) | Engine roles, markdown handoff, bounded review loop | Accepted (agent-eval narrowed by 0011) |
-| [0010](0010-handoff-schemas-and-pattern-references.md) | Handoff header schemas + pattern-reference location | Accepted |
+| [0010](0010-handoff-schemas-and-pattern-references.md) | Handoff header schemas + pattern-reference location | Accepted (status/list shape relaxed by 0028) |
 | [0011](0011-agent-eval-runner.md) | Dedicated agent eval runner with a pluggable model seam | Accepted |
 | [0012](0012-sdlc-spine.md) | Stage 2 SDLC spine: six thin router skills | Superseded by 0013 |
 | [0013](0013-spine-workflow-chain.md) | Stage 2 SDLC spine as a chain of phase-workflows | Accepted |
@@ -32,3 +32,5 @@ edit.
 | [0024](0024-stage7-scheduling-observability.md) | Stage 7: scheduling & observability (no daemon — declarative jobs + audit digest) | Accepted |
 | [0025](0025-real-provider-connectors.md) | Real provider connectors: implement the existing seams (Python for CLI/REST, MCP-first for monitoring) | Accepted |
 | [0026](0026-tier1-mean-routing-rate.md) | Tier-1 recall/specificity = mean routing-rate (refines ADR 0016): stabler + stricter at the same 0.9 bar | Accepted |
+| [0027](0027-deep-review-and-adversarial-pattern.md) | `deep-review` skill + adversarial fan-out review pattern (non-code review; complements `multi-aspect-review`) | Accepted |
+| [0028](0028-handoff-contract-relaxation.md) | Relax the handoff contract: open `status` + string-or-object list entries (relaxes 0010); `verdict`/`severity` stay closed | Accepted |

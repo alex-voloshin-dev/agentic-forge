@@ -1,8 +1,9 @@
-# Layer 4 — Guardrails & observability (design + status)
+# Layer 4 — Guardrails (hooks)
 
 Status: **Built** ([ADR 0019](decisions/0019-l4-guardrails.md)) — four deterministic guardrail
-hooks on tool use, on top of L3's session-start hook. (Scheduling and observability dashboards —
-the broader roadmap Stage 7 — remain a follow-on; see "Out of scope.")
+hooks on tool use, on top of L3's session-start hook. **Scheduling & observability shipped
+separately** ([ADR 0024](decisions/0024-stage7-scheduling-observability.md),
+[scheduling-observability.md](scheduling-observability.md)); this doc covers only the hooks.
 
 The guardrails turn the project's discipline into **enforcement**: a hook deterministically
 blocks (or warns) where a CLAUDE.md rule would only advise. They live under `plugin/hooks/`
@@ -40,8 +41,10 @@ session — except where blocking is the whole point (security, test-gate).
   (block → exit 2, allow → exit 0, internal error → fail-open exit 0); `hooks.json` validated.
   mypy covers `plugin/hooks`.
 
-## Out of scope (Stage 7 follow-on)
+## Beyond the hooks (shipped separately)
 
 **Scheduling** (headless/CI cadence — knowledge-base re-scan, deploy-watch digests) and
-**observability dashboards** are not guardrails; they are deferred. L4 = the four hooks per
-CLAUDE.md; the roadmap's "Stage 7" is the broader superset.
+**observability** (the audit-log digest) are not guardrails, so they live outside L4 — now
+**built** in `schedule.py` / `observability.py` + the `run_scheduled` / `audit_digest` CLIs + a
+cron workflow ([ADR 0024](decisions/0024-stage7-scheduling-observability.md)). A richer
+observability dashboard remains an optional follow-on. L4 itself = the four hooks per CLAUDE.md.

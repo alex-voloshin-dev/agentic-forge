@@ -198,7 +198,11 @@ model-invocable skills — deterministic infra, gated by `pytest` (cores 100% co
   barely-majority routing (a skill routing every prompt at 55% passed at recall 1.0); the mean rate
   is **stable *and* stricter** (that 55% skill now fails). Implemented: `tier1_runner.selection_rate`
   + `gate.trigger_metrics` average the rates; `Tier1Report` now carries per-prompt rates; tests +
-  eval-runbook updated. Tier-1 re-validation of all on-listing skills under the new metric pending.
+  eval-runbook updated. **Re-validation (all 17 on-listing skills, runs=5):** 11 PASS, and the
+  stricter metric surfaced 6 with mean recall < 0.9 (the old majority-of-N hid them):
+  `qa-test-strategy` 0.55, `skill-factory` 0.70, `repo-onboarding` 0.75, `product` 0.76,
+  `knowledge` 0.80, `deep-review` 0.84 (specificity ≥ 0.92 throughout). Sharpening those six is a
+  tracked follow-up.
 
 ### Fixed — documentation (deep-review pass)
 
@@ -210,6 +214,20 @@ faithful to the code but lagging the latest increments and thin on user onboardi
   in `README.md` + `CLAUDE.md`; rewrote the README Status to the current L0–L4 state and added a
   **runnable Install**, a **"Using the plugin"** guide, and an **on-listing skill catalog**; added
   the MIT `LICENSE`.
+- **P1** — currency + onboarding gaps. Docs currency: the `docs/` map now lists all five
+  Stage-4–7 architecture docs (quality-ops, product-marketing, design-onboarding,
+  scheduling-observability, connectors) and drops the stale "scheduling deferred"; `roadmap.md`
+  count nine→seventeen on-listing skills + a **Post-spine increments** section (connectors 0025,
+  Tier-1 metric 0026); `meta-core.md` lib tree/table gains `ops`/`release`/`schedule`/
+  `observability`/`connectors` + the new dev CLIs; `guardrails.md` notes scheduling/observability
+  shipped separately (0024); `eval-runbook.md` Tier-2 skill list updated (19, with the
+  fork-orchestrators noted Tier-1-only). Onboarding: added **`CONTRIBUTING.md`** and a
+  **`plugin/README.md`** (install + what's inside); fixed `handoff-to-cli.md`'s mypy command
+  (`plugin/lib plugin/hooks dev`) and noted the `implementer`→`software-engineer` rename. Recorded
+  two missing decisions: **[ADR 0027](docs/architecture/decisions/0027-deep-review-and-adversarial-pattern.md)**
+  (`deep-review` skill + adversarial fan-out review pattern) and
+  **[ADR 0028](docs/architecture/decisions/0028-handoff-contract-relaxation.md)** (the handoff
+  contract relaxation that opened `status` + list-entry shape, relaxing ADR 0010).
 
 ### Added — Layer 0 meta-core
 

@@ -24,6 +24,7 @@ architecture before we invest in breadth.
 | 5 | Product & marketing domains | Built — product already covered by the `product` spine skill; `marketing` router skill (market-research / strategy / content) shipped, evidence-first, Tier-1/Tier-2 gated (ADR 0022, [product-marketing.md](architecture/product-marketing.md)) |
 | 6 | Design & onboarding domains | Built — `ux-design` (ux-spec, specs not pixels) + `repo-onboarding` (analyze a codebase + seed the vault); Tier-1/Tier-2 gated (ADR 0023, [design-onboarding.md](architecture/design-onboarding.md)) |
 | 7 | Guardrails, observability, scheduling (L4) | Built — four guardrail hooks (ADR 0019) + scheduling & observability (ADR 0024): declarative job registry + audit-log digest + cron CI |
+| — | Post-spine increments | Built — real provider connectors (ADR 0025) + Tier-1 mean-rate metric (ADR 0026); see [Post-spine increments](#post-spine-increments-beyond-the-staged-plan) |
 
 ---
 
@@ -93,8 +94,8 @@ mechanism is built** (ADR 0015): deterministic `stacks.detect`, a `*-patterns` p
 registered stack** (python, typescript, javascript, go, rust, jvm, dotnet, ruby, php), and
 `develop`/`code-review`/roles consuming the stack profile; the E2E fixture is detected as Python.
 The **Tier-1 trigger runner on live descriptions is built** (ADR 0016): `dev/run_tier1_evals.py`
-gates the nine on-listing router skills' recall/specificity ≥ 0.9 against the real listing,
-replacing the earlier router sim and the CI TODO. The **skill Tier-2 runner is built too**
+gates every on-listing router skill's recall/specificity ≥ 0.9 against the real listing
+(seventeen on-listing skills as of Stage 6), replacing the earlier router sim and the CI TODO. The **skill Tier-2 runner is built too**
 (ADR 0017): `dev/run_skill_evals.py` runs the tier2 skills' contracts — knowledge skills as the
 software-engineer with them loaded, `deep-review`/`skill-factory` directly — so **all four tiers
 now have automated runners**. **Remaining:** a `*-patterns` pack for any new stack later added to
@@ -257,6 +258,21 @@ workflows defined and dry-run green.
 
 Risks: over-restrictive hooks causing friction. Mitigation: warn-then-block rollout, tests
 for both allow and block paths.
+
+---
+
+## Post-spine increments (beyond the staged plan)
+
+Two cross-cutting increments shipped after Stage 7, recorded by ADR + CHANGELOG:
+
+- **Real provider connectors** — Built (ADR 0025, [architecture/connectors.md](architecture/connectors.md)).
+  Concrete implementations of the existing `ops`/marketing seams: `GhPipelineSource` (GitHub
+  Actions), `GrafanaAlertSource` (MCP-first + REST), and `marketing` → live `WebSearch`. Each a
+  pure parser + a thin fetch seam; no skill/schema change. Siblings (GitLab/CircleCI,
+  Datadog/PagerDuty) remain optional behind the same Protocols.
+- **Tier-1 metric refinement** — Built (ADR 0026). Tier-1 recall/specificity are the **mean
+  per-prompt routing rate** over N samples (threshold 0.9 unchanged), replacing the brittle
+  per-prompt majority-of-N: stabler and stricter.
 
 ---
 

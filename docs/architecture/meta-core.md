@@ -32,10 +32,13 @@ plugin/
     tier1_runner.py skill_eval.py     # L2: skill Tier-1 (live listing) + skill Tier-2 runners
     vault.py                          # L3: Obsidian knowledge-vault core (ADR 0018)
     guardrails.py                     # L4: guardrail hook logic (ADR 0019)
+    ops.py release.py                 # Stage 4: deploy/incident assessment + release core (ADR 0021)
+    schedule.py observability.py      # Stage 7: scheduled-job registry + audit digest (ADR 0024)
+    connectors.py                     # real provider connectors behind the ops seams (ADR 0025)
   schemas/evals.schema.json           # the component contract schema (superset)
   eval/{README.md, fixtures/}         # harness architecture + agent eval fixtures (L1)
   hooks/{hooks.json, scripts/*.py}    # L3 session-start + L4 guardrail hooks (ADR 0018/0019)
-dev/{validate.py, run_agent_evals.py, run_tier1_evals.py, run_skill_evals.py, run_spine_e2e.py}  # Tier 0/1/2/3 CLIs
+dev/{validate.py, run_agent_evals.py, run_tier1_evals.py, run_skill_evals.py, run_spine_e2e.py, run_scheduled.py, audit_digest.py}  # Tier 0/1/2/3 CLIs + scheduling/observability
 tests/                                # pytest for lib + harness + plugin integrity
 pyproject.toml                        # uv / pytest / ruff / mypy config
 .github/workflows/{ci.yml,eval.yml}   # Tier-0 always; Tier 1/2/3 cost-gated
@@ -59,6 +62,11 @@ pyproject.toml                        # uv / pytest / ruff / mypy config
 | `skill_eval.py` | Skill Tier-2 quality runner: knowledge skills run as the `software-engineer` with them loaded, others directly; reuses `agent_eval.run_eval_cases` (ADR 0017). |
 | `vault.py` | L3 knowledge-vault core: parse/resolve `[[wikilinks]]`, load + validate the note graph, scaffold, add+link notes, rank recall candidates, build the session-start summary (ADR 0018). |
 | `guardrails.py` | L4 guardrail logic: dangerous-command deny-list, test-gate command choice, secret redaction + audit record, subagent-budget counter (ADR 0019). |
+| `ops.py` | Stage-4 ops assessment behind provider-agnostic `PipelineSource`/`AlertSource` seams: `rollout_health`, `triage_alerts`, `deploy_status`, `classify_incident` (sev1–4) (ADR 0021). |
+| `release.py` | Stage-4 release core: classify conventional commits → semver bump + Keep-a-Changelog grouping; thin `commits_since` git seam (ADR 0021). |
+| `schedule.py` | Stage-7 scheduled-job registry + pure `due_jobs` due-logic + last-run state I/O (ADR 0024). |
+| `observability.py` | Stage-7 audit-log digest: parse the logging hook's JSONL → per-tool/session counts + report (ADR 0024). |
+| `connectors.py` | Real provider connectors behind the `ops` seams: `GhPipelineSource`, `GrafanaAlertSource` — pure parsers + thin fetch seams (ADR 0025). |
 
 Everything here is dependency-light (pyyaml, jsonschema) and unit-tested. Skill scripts and
 hooks import from this package.

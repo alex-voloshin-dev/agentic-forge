@@ -17,15 +17,21 @@ documentation discipline in the root `CLAUDE.md`).
   - [SDLC spine (Layer 2)](architecture/spine.md) — the six-phase spine from idea to
     reviewed code (research → product → architecture → plan → develop → code-review), built
     and proven end-to-end.
+  - **Layer 2 domains** — [quality & ops](architecture/quality-ops.md) (qa-test-strategy,
+    security-review, deploy-watch, incident-response, release),
+    [product & marketing](architecture/product-marketing.md), and
+    [design & onboarding](architecture/design-onboarding.md) (ux-design, repo-onboarding).
   - [Knowledge base (Layer 3)](architecture/knowledge.md) — the Obsidian vault, recall/capture
     skill, and session-start hook (built).
   - [Guardrails (Layer 4)](architecture/guardrails.md) — security / test-gate / logging / budget
-    hooks (built); scheduling deferred.
+    hooks; plus [scheduling & observability](architecture/scheduling-observability.md) (built).
+  - [Connectors](architecture/connectors.md) — real provider connectors behind the ops/marketing
+    seams (post-spine).
   - [Decision records](architecture/decisions/README.md) — the ADRs behind every major
     choice.
 - **Plan**
   - [Roadmap](roadmap.md) — staged work plan; each stage analyzed before implementation.
-  - [Handoff to CLI](handoff-to-cli.md) — how to continue implementation in Claude Code CLI.
+  - [Handoff to CLI](handoff-to-cli.md) *(historical)* — the original L0→CLI bring-up notes.
 - **Change history**
   - [CHANGELOG](../CHANGELOG.md) — what was added/changed/fixed, by milestone.
 
@@ -34,8 +40,8 @@ documentation discipline in the root `CLAUDE.md`).
 1. Vision → 2. Architecture overview → 3. Roadmap → 4. Meta-core → 5. Engine (Layer 1) →
 6. ADRs as needed.
 
-When building a component or running evals: use `skill-factory` (load the plugin in a Claude
-Code session, then describe the component — [handoff-to-cli.md](handoff-to-cli.md) §4), and
+When building a component or running evals: use `skill-factory` (install the plugin per the
+[README](../README.md#install), then describe the component in a Claude Code session), and
 see the [eval runbook](eval-runbook.md) and the [eval harness](../plugin/eval/README.md).
 
 ## Glossary
