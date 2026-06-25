@@ -1,8 +1,9 @@
-# Eval runbook — Tier-2 quality for the engine roles
+# Eval runbook — running the eval pyramid
 
-This explains how to run the Tier-2 (LLM-judged quality) evals for the six engine roles
-(`reviewer`, `grader`, `software-engineer`, `architect`, `security-engineer`, `qa-engineer`)
-and read the result. The orchestration is
+This explains how to run the project's evals and read the results. It starts with the Tier-2
+(LLM-judged quality) evals for the six engine roles (`reviewer`, `grader`, `software-engineer`,
+`architect`, `security-engineer`, `qa-engineer`); the other tiers each have their own runner
+(see *Scope: a runner per tier* below). The orchestration for the roles is
 `plugin/lib/agentic_forge/agent_eval.py`; the CLI is `dev/run_agent_evals.py`; the wiring in
 CI is `.github/workflows/eval.yml`. Rationale: [ADR 0011](architecture/decisions/0011-agent-eval-runner.md).
 

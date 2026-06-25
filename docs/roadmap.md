@@ -108,7 +108,7 @@ Dependencies: Stage 1; benefits from Stage 3 but should not block on it.
 Scope: workflow skills `research → product → architecture → plan → develop → code-review`,
 handing off artifacts phase to phase. Delegation targets are the Stage 1 set plus Stage 2
 additions: built-in `Explore`/`Plan`, dedicated `architect`, `software-engineer` (renamed from
-`software-engineer`), `reviewer`, `grader`, and the new `security-engineer` / `qa-engineer` — added
+`implementer`), `reviewer`, `grader`, and the new `security-engineer` / `qa-engineer` — added
 per shipping phase and gated (see ADR 0013/0014). Stack specialization is via skills, not
 per-stack agents.
 

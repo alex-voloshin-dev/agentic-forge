@@ -31,8 +31,9 @@ Three commitments, each a direct answer to a problem above:
   is defined by thresholds, measured repeatedly, and enforced in CI. This is the core
   differentiator: agentic-forge is a *tested* agent toolkit, not a prompt collection.
 - **Standard-native.** Every skill conforms to the [Agent Skills](https://agentskills.io)
-  open standard and uses Claude Code primitives (subagents, plan mode, worktrees, review
-  and Ralph loops) directly, so the plugin is portable in form and powerful in practice.
+  open standard and uses Claude Code primitives (subagents, plan mode, worktrees, and review
+  loops) directly, so the plugin is portable in form and powerful in practice. (A Ralph
+  loop — a self-restarting autonomous loop — is designed-for but deferred; see the overview.)
 
 A self-maintained, human-readable (Obsidian) **knowledge base** in the target repo ties it
 together: workflows write to it, and read from it to enrich their context over time.
@@ -48,7 +49,7 @@ together: workflows write to it, and read from it to enrich their context over t
 
 ## Scope
 
-**In scope (v1 domains, second wave):**
+**In scope (v1 domains):**
 research/brainstorm, product management, architecture/technical design, UI/UX design,
 work planning, development/bugfix, QA/testing, security review, deployment/CI-CD
 monitoring, code review, plus the knowledge base.

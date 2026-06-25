@@ -21,7 +21,7 @@ edit.
 | [0013](0013-spine-workflow-chain.md) | Stage 2 SDLC spine as a chain of phase-workflows | Accepted |
 | [0014](0014-software-engineer-base-role.md) | One software-engineer base role + stack skills, not per-stack agents | Accepted |
 | [0015](0015-by-stack-detection-and-packs.md) | By-stack: deterministic detection helper + stack reference packs | Accepted |
-| [0016](0016-tier1-trigger-runner.md) | Tier-1 trigger runner on live skill descriptions | Accepted |
+| [0016](0016-tier1-trigger-runner.md) | Tier-1 trigger runner on live skill descriptions | Accepted (metric refined by 0026) |
 | [0017](0017-skill-tier2-runner.md) | Automated skill Tier-2 quality runner | Accepted |
 | [0018](0018-l3-knowledge-base.md) | L3 knowledge base: Obsidian vault + recall/capture skill + session-start hook | Accepted |
 | [0019](0019-l4-guardrails.md) | L4 guardrails: deterministic hooks (security, test-gate, logging, budgets) | Accepted |

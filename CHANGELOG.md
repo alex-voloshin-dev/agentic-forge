@@ -228,6 +228,14 @@ faithful to the code but lagging the latest increments and thin on user onboardi
   (`deep-review` skill + adversarial fan-out review pattern) and
   **[ADR 0028](docs/architecture/decisions/0028-handoff-contract-relaxation.md)** (the handoff
   contract relaxation that opened `status` + list-entry shape, relaxing ADR 0010).
+- **P2** — consistency polish: marked the **Ralph loop deferred** everywhere (resolved the
+  `overview.md` layer-table contradiction where it was listed among Built patterns; `vision.md`
+  no longer lists it as a primitive used directly); `overview.md` scheduling bullet now notes it
+  is **built** (registry + `run_scheduled` + cron, no daemon, ADR 0024); fixed `roadmap.md`'s
+  self-referential `software-engineer` "(renamed from `software-engineer`)" → `implementer`;
+  dropped the undefined "second wave" qualifier in `vision.md` scope; broadened the eval-runbook
+  title/intro from "Tier-2 for the engine roles" to the whole eval pyramid; added the
+  "(metric refined by 0026)" forward-marker to ADR 0016 in the index.
 
 ### Added — Layer 0 meta-core
 
