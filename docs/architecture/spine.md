@@ -97,7 +97,8 @@ non-code review stay with `deep-review`.
 ## Eval model
 
 - **Each workflow skill:** Tier-1 (trigger recall/specificity ≥ 0.9), measured on the **live
-  skill listing** by `dev/run_tier1_evals.py` with majority-of-N router sampling (ADR 0016). A
+  skill listing** by `dev/run_tier1_evals.py` as the mean per-prompt routing rate over N samples
+  (ADR 0016, refined by ADR 0026). A
   skill that delegates to gated roles inherits its **quality** from those roles'
   Tier-2 (≥ 0.8) rather than re-running a separate Tier-2; the end-to-end quality is the Tier-3
   scenario. A skill with substantial own logic still ships a `tier2_quality` gate.
@@ -138,7 +139,8 @@ by-stack step. Prove the slice end to end, record Tier-1/2/3, then add
 7. ~~The by-stack mechanism + non-Python stacks.~~ Done — a `*-patterns` pack for every
    registered stack (ADR 0015).
 8. ~~A real Tier-1 runner on live skill descriptions.~~ Done — `dev/run_tier1_evals.py` /
-   `lib/agentic_forge/tier1_runner.py` (ADR 0016); replaces the earlier majority-of-N router sim.
+   `lib/agentic_forge/tier1_runner.py` (ADR 0016); scored as the mean per-prompt routing rate
+   (ADR 0026), replacing the earlier ad-hoc router sim.
 9. ~~An automated skill-Tier-2 CLI.~~ Done — `dev/run_skill_evals.py` /
    `lib/agentic_forge/skill_eval.py` (ADR 0017): knowledge skills run as the software-engineer
    with them loaded, deep-review/skill-factory directly; graded + gated like agent Tier-2.

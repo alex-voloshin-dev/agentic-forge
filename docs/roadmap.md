@@ -84,7 +84,7 @@ what Stage 2 consumes.
 
 Status: **all six phase skills built and gated.** `research → product → architecture → plan →
 develop → code-review` are each a workflow skill passing Tier-0 + Tier-1 (≥ 0.9 recall/
-specificity via majority-of-N router sims), joined by schema-validated handoff artifacts, atop
+specificity, scored as the mean per-prompt routing rate — ADR 0026), joined by schema-validated handoff artifacts, atop
 the `software-engineer`/`security-engineer`/`qa-engineer` roles, the `engineering-standards`
 skill, and the fan-out/multi-aspect-review patterns. The **full six-phase spine is proven end-to-end** (Tier-3: the `--runner claude` scenario
 carried a feature from `FEATURE_REQUEST` through all six phases on a fixture repo — each handoff

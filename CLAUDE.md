@@ -10,7 +10,8 @@ This file is the project constitution. Every contributor (human or agent) MUST f
   primitives directly: skills, subagents, hooks, plan mode, git worktrees, review loops,
   Ralph loops, and headless runs.
 - **Standard-compliant**: every skill conforms to the [Agent Skills](https://agentskills.io)
-  open standard and passes `skills-ref validate`. Claude Code extensions live only in
+  open standard and passes `python dev/validate.py` (a `skills-ref`-style check; the external
+  `skills-ref` CLI is not required). Claude Code extensions live only in
   documented optional frontmatter fields.
 
 ## Core principles (non-negotiable)
@@ -33,8 +34,8 @@ This file is the project constitution. Every contributor (human or agent) MUST f
    Numeric thresholds are the definition of done.
 
 4. **The eval pyramid.**
-   - Tier 0 (static, always blocks): `skills-ref validate`, frontmatter lint, body
-     <= 500 lines, references resolve, `pytest` green, `ruff` + `mypy` clean,
+   - Tier 0 (static, always blocks): `dev/validate.py` (skills-ref-style validation), frontmatter
+     lint, body <= 500 lines, references resolve, `pytest` green, `ruff` + `mypy` clean,
      script coverage >= 80%.
    - Tier 1 (trigger): should-trigger recall >= 0.9, should-not-trigger specificity >= 0.9.
    - Tier 2 (quality, LLM-judge, N >= 5 runs): (mean - sigma) pass-rate >= 0.8; token/time

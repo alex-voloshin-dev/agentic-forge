@@ -200,6 +200,17 @@ model-invocable skills — deterministic infra, gated by `pytest` (cores 100% co
   + `gate.trigger_metrics` average the rates; `Tier1Report` now carries per-prompt rates; tests +
   eval-runbook updated. Tier-1 re-validation of all on-listing skills under the new metric pending.
 
+### Fixed — documentation (deep-review pass)
+
+A four-reviewer deep review (product/design, ADRs, usage/onboarding, impl↔docs) found the docs
+faithful to the code but lagging the latest increments and thin on user onboarding. Fixes:
+
+- **P0** — synced the Tier-1 metric description to the **mean routing-rate** (ADR 0026) in
+  `spine.md` + `roadmap.md`; reconciled `skills-ref` → `dev/validate.py` (a skills-ref-style check)
+  in `README.md` + `CLAUDE.md`; rewrote the README Status to the current L0–L4 state and added a
+  **runnable Install**, a **"Using the plugin"** guide, and an **on-listing skill catalog**; added
+  the MIT `LICENSE`.
+
 ### Added — Layer 0 meta-core
 
 - **Repository skeleton** for a Claude Code-only plugin: `plugin/` layout, `plugin.json`,
