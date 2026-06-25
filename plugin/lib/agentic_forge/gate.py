@@ -27,21 +27,23 @@ class GateResult:
 
 
 def trigger_metrics(
-    should_trigger_hits: list[bool],
-    should_not_trigger_hits: list[bool],
+    should_trigger_rates: list[float],
+    should_not_trigger_rates: list[float],
 ) -> dict[str, float | None]:
-    """Compute recall and specificity from boolean trigger outcomes.
+    """Compute recall and specificity from per-prompt routing **rates** (ADR 0026).
 
-    should_trigger_hits[i] is True if the skill triggered on a should-trigger prompt.
-    should_not_trigger_hits[i] is True if the skill (wrongly) triggered on a
-    should-not-trigger prompt.
+    Each rate is the fraction of router samples that picked the skill for that prompt (``[0, 1]``).
+    ``recall`` is the mean rate over should-trigger prompts; ``specificity`` the mean rate of *not*
+    picking the skill over should-not-trigger prompts. Booleans (``0.0``/``1.0``) are valid rates,
+    so single-sample runs still work. Replaces the fraction-of-prompt-majorities, which flickered
+    at the 50% cliff and passed barely-majority routing.
     """
     recall = (
-        sum(should_trigger_hits) / len(should_trigger_hits) if should_trigger_hits else None
+        sum(should_trigger_rates) / len(should_trigger_rates) if should_trigger_rates else None
     )
     specificity = (
-        sum(not h for h in should_not_trigger_hits) / len(should_not_trigger_hits)
-        if should_not_trigger_hits
+        sum(1.0 - r for r in should_not_trigger_rates) / len(should_not_trigger_rates)
+        if should_not_trigger_rates
         else None
     )
     return {"recall": recall, "specificity": specificity}

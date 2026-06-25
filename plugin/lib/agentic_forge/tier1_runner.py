@@ -38,6 +38,7 @@ __all__ = [
     "build_router_system",
     "parse_selection",
     "majority_selection",
+    "selection_rate",
     "load_triggers",
     "eval_skill",
     "run_tier1",
@@ -87,8 +88,8 @@ class Tier1Report:
     specificity: float | None
     passed: bool
     reasons: list[str] = field(default_factory=list)
-    should_trigger_hits: list[bool] = field(default_factory=list)
-    should_not_trigger_wrong: list[bool] = field(default_factory=list)
+    should_trigger_rates: list[float] = field(default_factory=list)  # per-prompt routing rate
+    should_not_trigger_rates: list[float] = field(default_factory=list)  # per-prompt false-fire
 
     def summary_line(self) -> str:
         status = "PASS" if self.passed else "FAIL"
@@ -167,6 +168,27 @@ def majority_selection(
     return Counter(picks).most_common(1)[0][0]
 
 
+def selection_rate(
+    run_fn: Runner,
+    system: str,
+    prompt: str,
+    names: list[str],
+    runs: int,
+    workdir: Path,
+    *,
+    target: str,
+) -> float:
+    """The fraction of ``runs`` router calls that select ``target`` for ``prompt`` (0.0–1.0).
+
+    The smooth alternative to :func:`majority_selection` for the Tier-1 metric (ADR 0026): no 50%
+    majority cliff, so a borderline prompt yields a stable rate instead of a flickering bool.
+    """
+    hits = sum(
+        parse_selection(run_fn(system, prompt, workdir), names) == target for _ in range(runs)
+    )
+    return hits / runs
+
+
 def load_triggers(plugin_dir: Path) -> list[SkillTrigger]:
     """Every skill that declares a ``tier1_trigger`` threshold, with its trigger prompts."""
     out: list[SkillTrigger] = []
@@ -205,15 +227,15 @@ def eval_skill(
     workdir: Path,
 ) -> Tier1Report:
     """Measure recall/specificity for one skill against the live listing and gate it."""
-    st_hits = [
-        majority_selection(run_fn, system, p, names, runs, workdir) == trig.name
+    st_rates = [
+        selection_rate(run_fn, system, p, names, runs, workdir, target=trig.name)
         for p in trig.should_trigger
     ]
-    sn_wrong = [
-        majority_selection(run_fn, system, p, names, runs, workdir) == trig.name
+    sn_rates = [
+        selection_rate(run_fn, system, p, names, runs, workdir, target=trig.name)
         for p in trig.should_not_trigger
     ]
-    measured = gate.trigger_metrics(st_hits, sn_wrong)
+    measured = gate.trigger_metrics(st_rates, sn_rates)
     result = gate.tier1_trigger(measured, trig.thresholds)
     return Tier1Report(
         skill=trig.name,
@@ -221,8 +243,8 @@ def eval_skill(
         specificity=measured["specificity"],
         passed=result.passed,
         reasons=result.reasons,
-        should_trigger_hits=st_hits,
-        should_not_trigger_wrong=sn_wrong,
+        should_trigger_rates=st_rates,
+        should_not_trigger_rates=sn_rates,
     )
 
 

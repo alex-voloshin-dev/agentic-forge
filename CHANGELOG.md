@@ -190,14 +190,15 @@ model-invocable skills — deterministic infra, gated by `pytest` (cores 100% co
   source URL (under the evidence-discipline already gated in Tier-2). No connector code — native
   tools, provider-neutral. Completes the connectors rollout (ADR 0025).
 
-### Changed — Tier-1 metric → mean routing-rate (design accepted)
+### Changed — Tier-1 metric → mean routing-rate (ADR 0026)
 
-- **ADR 0026 + eval-runbook**: Tier-1 recall/specificity become the **mean per-prompt routing rate**
-  over N samples (threshold **0.9 unchanged**), replacing "fraction of prompts whose majority-of-N
-  routes correctly." The old metric flickered around the 50% majority cliff (forced re-rolls in
-  Stages 4–6) and rubber-stamped barely-majority routing (a skill routing every prompt at 55%
-  passed at recall 1.0); the mean rate is **stable *and* stricter** (that 55% skill now fails).
-  Design accepted — `gate.trigger_metrics` / `tier1_runner` change + Tier-1 re-validation next.
+- Tier-1 recall/specificity are now the **mean per-prompt routing rate** over N samples (threshold
+  **0.9 unchanged**), replacing "fraction of prompts whose majority-of-N routes correctly." The old
+  metric flickered around the 50% majority cliff (forced re-rolls in Stages 4–6) and rubber-stamped
+  barely-majority routing (a skill routing every prompt at 55% passed at recall 1.0); the mean rate
+  is **stable *and* stricter** (that 55% skill now fails). Implemented: `tier1_runner.selection_rate`
+  + `gate.trigger_metrics` average the rates; `Tier1Report` now carries per-prompt rates; tests +
+  eval-runbook updated. Tier-1 re-validation of all on-listing skills under the new metric pending.
 
 ### Added — Layer 0 meta-core
 

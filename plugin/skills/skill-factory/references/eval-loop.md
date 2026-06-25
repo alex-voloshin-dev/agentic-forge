@@ -37,7 +37,8 @@ and take the majority** before scoring it a hit/miss — the same absorb-the-noi
 Tier-2's N runs; a single sample can flip a borderline prompt and fail the gate spuriously.
 Compute metrics and gate:
 
-- `agentic_forge.gate.trigger_metrics(should_trigger_hits, should_not_trigger_hits)`
+- `agentic_forge.gate.trigger_metrics(should_trigger_rates, should_not_trigger_rates)` — per-prompt
+  routing rates in [0,1]; recall/specificity are their means (ADR 0026)
 - `agentic_forge.gate.tier1_trigger(measured, thresholds)`
 
 ## 4. Tier 2 — quality

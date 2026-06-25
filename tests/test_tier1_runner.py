@@ -16,6 +16,7 @@ from agentic_forge.tier1_runner import (
     parse_selection,
     render_listing,
     run_tier1,
+    selection_rate,
 )
 
 PLUGIN = Path(__file__).resolve().parents[1] / "plugin"
@@ -103,6 +104,16 @@ def test_majority_selection_takes_the_mode(tmp_path: Path) -> None:
         return next(replies)
 
     assert majority_selection(run, "sys", "p", ["research", "product"], 3, tmp_path) == "research"
+
+
+def test_selection_rate_is_fraction_for_target(tmp_path: Path) -> None:
+    replies = iter(["research", "product", "research"])
+
+    def run(system: str, prompt: str, workdir: Path) -> str:
+        return next(replies)
+
+    rate = selection_rate(run, "sys", "p", ["research", "product"], 3, tmp_path, target="research")
+    assert abs(rate - 2 / 3) < 1e-9
 
 
 # --- eval_skill --------------------------------------------------------------

@@ -13,9 +13,17 @@ def _benchmark(mean: float, stddev: float, n: int, delta: dict | None = None) ->
 # --- trigger metrics ---
 
 def test_trigger_metrics() -> None:
-    m = gate.trigger_metrics([True, True, False], [False, False])
+    # Booleans are valid 0.0/1.0 rates (single-sample runs).
+    m = gate.trigger_metrics([1.0, 1.0, 0.0], [0.0, 0.0])
     assert abs(m["recall"] - 2 / 3) < 1e-9
     assert m["specificity"] == 1.0
+
+
+def test_trigger_metrics_mean_of_rates() -> None:
+    # Mean routing rate (ADR 0026), not fraction-of-majorities: a 0.6 prompt contributes 0.6.
+    m = gate.trigger_metrics([1.0, 0.6], [0.2, 0.0])
+    assert abs(m["recall"] - 0.8) < 1e-9  # mean(1.0, 0.6)
+    assert abs(m["specificity"] - 0.9) < 1e-9  # mean(1-0.2, 1-0.0)
 
 
 def test_trigger_metrics_empty() -> None:
