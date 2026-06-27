@@ -268,8 +268,8 @@ Cross-cutting increments beyond the staged plan, recorded by ADR + CHANGELOG:
 - **Real provider connectors** — Built (ADR 0025, [architecture/connectors.md](architecture/connectors.md)).
   Concrete implementations of the existing `ops`/marketing seams: `GhPipelineSource` (GitHub
   Actions), `GrafanaAlertSource` (MCP-first + REST), and `marketing` → live `WebSearch`. Each a
-  pure parser + a thin fetch seam; no skill/schema change. Siblings (GitLab/CircleCI,
-  Datadog/PagerDuty) remain optional behind the same Protocols.
+  pure parser + a thin fetch seam; no skill/schema change. The `ops` Protocols stay
+  provider-agnostic, so a new provider can be added if a concrete need arises (not planned).
 - **Tier-1 metric refinement** — Built (ADR 0026), with the routing-remediation playbook in
   ADR 0029 (sharpen descriptions; reword only genuinely-ambiguous prompts) that brought all
   seventeen on-listing skills to ≥ 0.9 under the stricter metric. Tier-1 recall/specificity are
@@ -282,6 +282,11 @@ Cross-cutting increments beyond the staged plan, recorded by ADR + CHANGELOG:
   deterministic `marketing` complement), judge-free checkpoints (code comparison / location
   substring / carrier schema), unit-tested on stubbed phases, wired into `eval.yml`. The recorded
   live `--runner claude` run is on-demand.
+- **Scheduling cadence persistence** — Built (ADR 0031, extends 0024). Per-job `JobState`
+  (`last_run`/`status`/`runs`/`failures`) replaces the flat last-run map; `due_jobs` retries a
+  failed job on the next poll (bounded by `MAX_RETRIES`) and the runner records each outcome;
+  legacy state files migrate on load. Anchored/drift-free schedules and per-environment keys are
+  deferred behind the same state shape.
 
 ---
 

@@ -6,6 +6,20 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Added — Scheduling cadence persistence (per-job state + retry)
+
+Enriched headless scheduling
+([ADR 0031](docs/architecture/decisions/0031-scheduling-cadence-persistence.md), extends ADR 0024).
+Per-job **`JobState`** (`last_run`, `status`, `runs`, `failures`) replaces the flat
+`{name: last_run}` map; **`due_jobs` is retry-aware** — a failed job re-runs on the next poll,
+bounded by `MAX_RETRIES`, then backs off to its cadence (a broken weekly job self-heals within the
+polling rhythm instead of waiting a week); **`record_run`** is the pure outcome-recorder, and
+`dev/run_scheduled.py` now wraps each action so a failure is **recorded, not fatal** (fail-open).
+`load_state` **migrates** legacy flat state files transparently, and run history
+(`runs`/`failures`/`status`) is now persisted for a future observability rollup. `schedule.py`
+stays **100% covered** and the due-logic stays pure. Anchored (drift-free) schedules and
+per-environment keys are explicitly deferred behind the same state shape.
+
 ### Added — Domain E2E Wave 2 (product-inception + market-brief)
 
 Completed the domain-E2E plan. Added the **`product-inception`** chain (repo-onboarding → research

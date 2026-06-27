@@ -25,10 +25,15 @@ Users who don't use GitHub Actions can invoke the same CLI from OS cron.
   - `kb-maintenance` (weekly): `vault.validate_vault` + a health report; flag broken links/orphans.
   - `deploy-digest` (daily): `ops.deploy_status` summary per configured environment.
   - `audit-digest` (daily): roll up the guardrail audit log (below).
-- `due_jobs(jobs, last_run, now)` — **pure**: returns the jobs whose `cadence` has elapsed since
-  `last_run[name]` (or never-run). Deterministic + fully tested (timestamps passed in, never
+- `due_jobs(jobs, state, now)` — **pure**: returns the jobs that should run — never-run, cadence
+  elapsed, **or the last run failed and it is within `MAX_RETRIES`** (a bounded retry on the next
+  poll, then back off to cadence). Deterministic + fully tested (timestamps passed in, never
   `Date.now()`).
-- State = a small JSON of last-run timestamps under `${CLAUDE_PROJECT_DIR}/.agentic-forge/`.
+- `record_run(state, name, now, *, ok)` — **pure**: record a job's outcome (advance `last_run`,
+  bump `runs`, set `status`, reset/increment consecutive `failures`).
+- State = a small JSON of per-job `JobState` (`last_run`, `status`, `runs`, `failures`) under
+  `${CLAUDE_PROJECT_DIR}/.agentic-forge/`; legacy flat `{name: last_run}` files migrate on load
+  (cadence persistence — ADR 0031).
 
 ## Observability — `lib/agentic_forge/observability.py`
 
@@ -41,8 +46,9 @@ The `logging` guardrail hook already writes a redacted audit JSONL (tool, brief,
 
 ## CLIs
 
-- `dev/run_scheduled.py` — compute due jobs (`schedule.due_jobs`), run each (seam), update the
-  last-run state. `--dry` lists what *would* run without running it (the roadmap's "dry-run green").
+- `dev/run_scheduled.py` — compute due jobs (`schedule.due_jobs`), run each (seam), and record each
+  outcome (`schedule.record_run`; a failed job is retried next poll, not fatal). `--dry` lists what
+  *would* run without running it (the roadmap's "dry-run green").
 - `dev/audit_digest.py` — print `observability.digest` of the audit log (a window flag).
 
 ## CI

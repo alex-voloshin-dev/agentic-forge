@@ -81,8 +81,13 @@ def main(argv: list[str]) -> int:
     for job in due:
         action = _ACTIONS.get(job.action)
         print(f"## {job.name}")
-        print(action(repo) if action else f"(no action registered for {job.action!r})")
-        state[job.name] = now
+        ok = True
+        try:
+            print(action(repo) if action else f"(no action registered for {job.action!r})")
+        except Exception as exc:  # noqa: BLE001 — record the failure (retried next poll), don't crash the run
+            ok = False
+            print(f"FAILED: {exc}")
+        state = schedule.record_run(state, job.name, now, ok=ok)
     schedule.save_state(repo, state)
     return 0
 
