@@ -6,6 +6,17 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Changed — README rewritten around the SDLC usage story
+
+The README's "Using the plugin" section was a flat example list; it now tells the lifecycle
+story. An **ASCII flow diagram** of the spine (research → … → code-review) shows the handoff
+artifact under each phase, the review loop, the qa/security attach points, and the post-merge ops
+tail (release → deploy-watch → incident-response). A full **"Ship a feature end to end"** worked
+example walks prompt → skill → artifact; **"Two ways in"** contrasts a new feature (start at
+`research`) with an existing repo (start at `repo-onboarding`); and a **"Skills by stage"**
+grouping (Frame & design / Build & verify / Ship & operate / Cross-cutting) replaces the flat
+table. The page now conveys *how to drive the plugin across the SDLC*, not just what each skill does.
+
 ### Changed — Tier-1 routing (skill descriptions sharpened to the ADR-0026 metric)
 
 The first full Tier-1 sweep under the ADR-0026 mean-routing-rate metric failed six on-listing

@@ -48,44 +48,98 @@ claude --plugin-dir /path/to/agentic-forge/plugin
 /plugin install agentic-forge@agentic-forge
 ```
 
-## Using the plugin
+## Using it across the SDLC
 
-You don't invoke skills by hand — they **auto-load by description** when your request matches.
-Describe the work and the right skill activates and writes its handoff artifact. For example:
+You don't call skills by hand — you **describe intent**, the matching phase-skill activates,
+does the work (often by fanning out to subagents), and writes a **handoff artifact** the next
+phase reads. Spine artifacts land under `docs/sdlc/<feature>/`; durable knowledge lands in
+`docs/knowledge/`. Everything is plain Markdown — committable, reviewable, and picked up by the
+next phase, so the lifecycle is auditable rather than hidden in chat.
 
-- "Research options for full-text search" → **research** → a `research-brief`.
-- "Plan the work for this design" → **plan** → `plan.md`.
-- "Implement the current plan step" → **develop** (worktree → software-engineer → review loop → QA).
-- "Review this diff before I merge" → **code-review** → an approve/changes verdict.
-- "What did we decide about caching?" → **knowledge** (recalls from the vault).
-- "Cut a release" → **release**; "is the prod deploy healthy?" → **deploy-watch**.
+```
+  idea
+   │
+   ▼
+ research ─▶ product ─▶ architecture ─▶ plan ─▶ develop ⇄ code-review ─▶ merge
+  brief       prd       tech-design     plan     code        review
+                                                  ▲   ▲
+                                qa-test-strategy ─┘   └─ security-review
+                                 test-strategy            review
 
-To force a specific skill, type `/agentic-forge:<skill>` (e.g. `/agentic-forge:release`).
+ after merge ─▶ release ─▶ deploy-watch ─▶ incident-response
+                 release     deploy-status     incident
 
-## Skills
+ always-on ─ knowledge (recall/capture → docs/knowledge/) · guardrail hooks (test-gate + security on every commit)
+ new repo? ─ repo-onboarding maps the code and seeds the vault first
+```
 
-The `*-patterns` packs (python, typescript, javascript, go, rust, jvm, dotnet, ruby, php) +
-`engineering-standards` load on demand for the repo's detected stack. The on-listing skills:
+### Ship a feature end to end
 
-| Skill | What it does |
-| --- | --- |
-| `research` | Investigate options / prior art before speccing → `research-brief` |
-| `product` | Turn research into a PRD (goals, metrics, acceptance) |
-| `architecture` | Technical design + ADRs → `tech-design` |
-| `plan` | Dependency-ordered work plan → `plan.md` |
-| `develop` | Implement a plan step in a worktree (code + review loop + QA) |
-| `code-review` | Multi-aspect review of a diff → approve/changes verdict |
-| `deep-review` | Deep, adversarial, multi-perspective audit |
-| `qa-test-strategy` | Plan what & how to test → `test-strategy` |
-| `security-review` | Dedicated security audit → `review` |
-| `deploy-watch` | Assess rollout health from CI/alerts → `deploy-status` |
-| `incident-response` | Triage + classify severity (sev1–4) → `incident` |
-| `release` | Semver bump + changelog from commits → `release` |
-| `marketing` | Market/competitor research, GTM, content (evidence-cited) |
-| `ux-design` | User flows, screens/states, accessibility → `ux-spec` |
-| `repo-onboarding` | Analyze an unfamiliar repo + seed the knowledge vault |
-| `knowledge` | Recall/capture durable project knowledge (Obsidian vault) |
-| `skill-factory` | Create new components contract-first, evals-first |
+Each line is roughly what you'd type; the arrow shows the skill that activates and the artifact
+it writes.
+
+```
+"Research how task apps do priorities, then we'll spec it"
+      → research          → docs/sdlc/task-priorities/research-brief.md
+"Turn that brief into a PRD"
+      → product           → prd.md  (goals · non-goals · metrics · acceptance)
+"Design the architecture"
+      → architecture      → tech-design.md + ADRs
+"Plan the work"
+      → plan              → plan.md (dependency-ordered tasks + checkpoints)
+"Plan what to test"          (any time around build)
+      → qa-test-strategy  → test-strategy.md
+"Implement step 1"
+      → develop           → worktree → code + tests → multi-aspect review ⇄ fixes → QA hardening
+"Review the branch before I merge"
+      → code-review       → review.md  (approve / changes)
+— merge —
+"Cut the release"            → release           → version bump + changelog
+"Is the prod deploy healthy?"→ deploy-watch      → deploy-status
+"Production is down"         → incident-response → incident (sev1–4) + postmortem
+```
+
+Throughout, `knowledge` recalls and saves decisions, and the guardrail hooks gate every commit.
+
+### Two ways in
+
+- **New feature** — start at `research` (or jump straight to `product` if you already have a
+  brief). Each phase hands off to the next.
+- **Existing / unfamiliar repo** — start at `repo-onboarding`: it maps the code and seeds the
+  knowledge vault, which then enriches every later phase.
+
+You can enter at any phase — a skill doesn't require the previous artifact to exist. To force
+one, type `/agentic-forge:<skill>` (e.g. `/agentic-forge:release`).
+
+## Skills by stage
+
+The `*-patterns` packs (python, typescript, javascript, go, rust, jvm, dotnet, ruby, php) and
+`engineering-standards` load on demand for the repo's detected stack — they don't appear in the menu.
+
+**Frame & design**
+- `research` — investigate options / prior art before speccing → `research-brief`
+- `product` — turn a brief into a PRD (goals, metrics, acceptance) → `prd`
+- `ux-design` — user flows, screens/states, accessibility → `ux-spec`
+- `architecture` — technical design + ADRs → `tech-design`
+- `marketing` — market/competitor research, GTM, content, evidence-cited → `market-brief` / `marketing-strategy`
+
+**Build & verify**
+- `plan` — dependency-ordered work plan → `plan`
+- `develop` — implement a plan step in a worktree (code + review loop + QA)
+- `code-review` — multi-aspect review of a diff → approve/changes `review`
+- `deep-review` — deep, adversarial, multi-perspective audit of docs, a design, or code
+- `qa-test-strategy` — plan what & how to test → `test-strategy`
+- `security-review` — dedicated security audit → `review`
+
+**Ship & operate**
+- `release` — semver bump + changelog from commits since the last tag → `release`
+- `deploy-watch` — assess rollout health from CI/alerts → `deploy-status`
+- `incident-response` — triage + classify severity (sev1–4) + postmortem → `incident`
+
+**Cross-cutting**
+- `knowledge` — recall/capture durable project knowledge in the Obsidian vault
+- `repo-onboarding` — analyze an unfamiliar repo + seed the vault → `onboarding`
+- `skill-factory` — create new components contract-first, evals-first
 
 ## Documentation
 
