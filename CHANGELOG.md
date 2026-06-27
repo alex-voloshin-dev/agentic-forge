@@ -6,6 +6,20 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Added — Domain E2E design (Tier-3 for the Stage 4–6 domains)
+
+Design + decision for extending Tier-3 (end-to-end) coverage from the SDLC spine to the domain
+skills (`qa-test-strategy`, `security-review`, `deploy-watch`, `incident-response`, `release`,
+`ux-design`, `repo-onboarding`; `marketing` deliberately excluded). **Design, not built.**
+[docs/architecture/domain-e2e.md](docs/architecture/domain-e2e.md) +
+[ADR 0030](docs/architecture/decisions/0030-domain-e2e-scenarios.md) decide: grow Tier-3 by
+deterministic multi-skill **chain** scenarios (`quality-gate`, `ops-incident`, then
+`product-inception`) rather than per-skill repeats (which would duplicate Tier-2); generalize
+`spine_e2e.py` into a `Scenario` registry (spine becomes one entry, behaviour-preserving);
+keep checkpoints deterministic (schema + computed outcomes + planted defects, no LLM judge in the
+gate); reuse existing Tier-2 fixtures. Recorded in the roadmap's Post-spine increments; no code
+yet (contract → evals → implementation → gate still to come).
+
 ### Changed — README rewritten around the SDLC usage story
 
 The README's "Using the plugin" section was a flat example list; it now tells the lifecycle

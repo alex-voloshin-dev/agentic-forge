@@ -263,16 +263,23 @@ for both allow and block paths.
 
 ## Post-spine increments (beyond the staged plan)
 
-Two cross-cutting increments shipped after Stage 7, recorded by ADR + CHANGELOG:
+Cross-cutting increments beyond the staged plan, recorded by ADR + CHANGELOG:
 
 - **Real provider connectors** — Built (ADR 0025, [architecture/connectors.md](architecture/connectors.md)).
   Concrete implementations of the existing `ops`/marketing seams: `GhPipelineSource` (GitHub
   Actions), `GrafanaAlertSource` (MCP-first + REST), and `marketing` → live `WebSearch`. Each a
   pure parser + a thin fetch seam; no skill/schema change. Siblings (GitLab/CircleCI,
   Datadog/PagerDuty) remain optional behind the same Protocols.
-- **Tier-1 metric refinement** — Built (ADR 0026). Tier-1 recall/specificity are the **mean
-  per-prompt routing rate** over N samples (threshold 0.9 unchanged), replacing the brittle
-  per-prompt majority-of-N: stabler and stricter.
+- **Tier-1 metric refinement** — Built (ADR 0026), with the routing-remediation playbook in
+  ADR 0029 (sharpen descriptions; reword only genuinely-ambiguous prompts) that brought all
+  seventeen on-listing skills to ≥ 0.9 under the stricter metric. Tier-1 recall/specificity are
+  the **mean per-prompt routing rate** over N samples (threshold 0.9 unchanged), replacing the
+  brittle per-prompt majority-of-N: stabler and stricter.
+- **Domain E2E (Tier-3 for Stage 4–6)** — **Designed, not built** (ADR 0030,
+  [architecture/domain-e2e.md](architecture/domain-e2e.md)). Extend Tier-3 from the spine to the
+  domain skills via deterministic multi-skill **chain** scenarios (`quality-gate`, `ops-incident`,
+  then `product-inception`), generalizing `spine_e2e` into a `Scenario` registry. `marketing` is
+  excluded (non-deterministic live research). Implementation pending.
 
 ---
 

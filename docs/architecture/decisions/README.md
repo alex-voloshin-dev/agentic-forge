@@ -35,3 +35,4 @@ edit.
 | [0027](0027-deep-review-and-adversarial-pattern.md) | `deep-review` skill + adversarial fan-out review pattern (non-code review; complements `multi-aspect-review`) | Accepted |
 | [0028](0028-handoff-contract-relaxation.md) | Relax the handoff contract: open `status` + string-or-object list entries (relaxes 0010); `verdict`/`severity` stay closed | Accepted |
 | [0029](0029-tier1-routing-remediation.md) | Tier-1 routing remediation playbook (extends 0026): sharpen descriptions; reword only genuinely-ambiguous prompts, never lower the bar | Accepted |
+| [0030](0030-domain-e2e-scenarios.md) | Domain E2E: extend Tier-3 to Stage 4–6 via deterministic chain scenarios (not per-skill); generalize `spine_e2e` into a `Scenario` registry | Accepted (design; impl pending) |
