@@ -1,29 +1,34 @@
-"""Tier-3 end-to-end scenario for the SDLC spine thin slice.
+"""Tier-3 end-to-end scenarios (the SDLC spine + the Stage 4-6 domain chains).
 
-Carry one feature (`task-priorities`) through all six phases (`research -> product ->
-architecture -> plan -> develop -> code-review`) on an **isolated copy** of the taskstore
-fixture repo, checking per-phase handoff artifacts and that
-the implemented code passes the repo's own tests. The model/agent call is a seam
-(:data:`agent_eval.Runner`) so the orchestration + checkpoints are unit-tested with stubs; the
-real run drives each phase with the `claude` CLI.
+The **spine** scenario carries one feature (`task-priorities`) through all six phases
+(`research -> product -> architecture -> plan -> develop -> code-review`) on an isolated copy of
+the taskstore fixture, checking per-phase handoff artifacts and that the implemented code passes
+the repo's tests. The **domain** scenarios (`quality-gate`, `ops-incident`, …) chain the Stage 4-6
+skills the same way, with deterministic per-phase checkpoints (see docs/architecture/domain-e2e.md,
+ADR 0030).
+
+The model/agent call is a seam (:data:`agent_eval.Runner`) so the orchestration + checkpoints are
+unit-tested with stubs; the real run drives each phase with the `claude` CLI. Checkpoints never
+call an LLM judge: each is a code comparison, a substring/location match on the model's artifact,
+or a schema-only validation of a handoff gated elsewhere.
 
 Fidelity note: in this environment the plugin's subagents are not registered, so each phase is
 approximated as a single CLI call seeded with the phase skill's body (rather than the skill
-forking its roles). The checkpoints validate the *artifacts and code*, which is what the Tier-3
-scenario gates. The repo's test command is the **Python toolchain hardcoded for this fixture**
-(``python -m pytest``); the by-stack detection wiring (``stacks``) is unit-tested separately and
-asserted against this workspace in ``tests/test_spine_e2e.py``. A non-Python E2E would drive the
-command from ``stacks.primary(repo).toolchain.test`` instead.
+forking its roles). The checkpoints validate the *artifacts and code*. The spine repo's test
+command is the **Python toolchain hardcoded for this fixture** (``python -m pytest``); a non-Python
+E2E would drive it from ``stacks.primary(repo).toolchain.test`` instead.
 """
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import handoff
+from . import handoff, ops, release
 from .agent_eval import Runner
 from .frontmatter import parse as parse_frontmatter
 
@@ -32,6 +37,8 @@ FIXTURE_REPO = "eval/fixtures/spine/target-repo"
 PRD = "eval/fixtures/spine/prd.md"
 PLAN = "eval/fixtures/spine/plan.md"
 PHASES = ("research", "product", "architecture", "plan", "develop", "code-review")
+
+_SEMVER = re.compile(r"^v?\d+\.\d+\.\d+$")
 
 
 @dataclass
@@ -60,17 +67,33 @@ def _git(repo: Path, *args: str) -> None:
     subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True)
 
 
-def prepare_workspace(plugin_dir: Path, dest: Path, *, seed: tuple[str, ...] = ()) -> Path:
-    """Copy the fixture repo into ``dest/repo`` and git-init it.
+def _commit(repo: Path, message: str, *, allow_empty: bool = False) -> None:
+    args = ["-c", "user.email=e2e@local", "-c", "user.name=e2e", "commit", "-q", "-m", message]
+    if allow_empty:
+        args.insert(-2, "--allow-empty")
+    _git(repo, *args)
 
-    The full six-phase run seeds nothing — `research` starts from the repo's `FEATURE_REQUEST.md`
-    and each phase produces the artifact the next consumes. ``seed`` optionally pre-places
-    fixture artifacts (by basename) under ``docs/sdlc/<slug>/`` to start a partial run.
-    """
-    repo = dest / "repo"
+
+def _copy_fixture(plugin_dir: Path, repo: Path, fixture: str | None) -> None:
+    """(Re)create ``repo`` from ``fixture`` (a fixture dir relative to the plugin), or empty."""
     if repo.exists():  # allow re-running against the same --workspace (a natural debugging move)
         shutil.rmtree(repo)
-    shutil.copytree(plugin_dir / FIXTURE_REPO, repo)
+    if fixture:
+        shutil.copytree(plugin_dir / fixture, repo)
+    else:
+        repo.mkdir(parents=True)
+
+
+def prepare_workspace(plugin_dir: Path, dest: Path, *, seed: tuple[str, ...] = ()) -> Path:
+    """Copy the spine fixture repo into ``dest/repo`` and git-init it (the spine scenario's prep).
+
+    The full six-phase run seeds nothing — `research` starts from the repo's `FEATURE_REQUEST.md`
+    and each phase produces the artifact the next consumes. ``seed`` optionally pre-places fixture
+    artifacts (by basename) under ``docs/sdlc/<slug>/`` to start a partial run. Domain scenarios
+    use :func:`prepare_scenario` (arbitrary seed destinations + a baseline tag).
+    """
+    repo = dest / "repo"
+    _copy_fixture(plugin_dir, repo, FIXTURE_REPO)
     if seed:
         sdlc = repo / "docs" / "sdlc" / FEATURE_SLUG
         sdlc.mkdir(parents=True, exist_ok=True)
@@ -80,10 +103,7 @@ def prepare_workspace(plugin_dir: Path, dest: Path, *, seed: tuple[str, ...] = (
             )
     _git(repo, "init", "-q", "-b", "main")
     _git(repo, "add", "-A")
-    _git(
-        repo, "-c", "user.email=e2e@local", "-c", "user.name=e2e",
-        "commit", "-q", "-m", "baseline",
-    )
+    _commit(repo, "baseline")
     return repo
 
 
@@ -95,8 +115,23 @@ def _valid(path: Path, artifact_type: str) -> bool:
         return False
 
 
-def check_architecture(repo: Path) -> list[Checkpoint]:
-    sdlc = repo / "docs" / "sdlc" / FEATURE_SLUG
+def _load(path: Path, artifact_type: str) -> handoff.Artifact | None:
+    """Load + validate an artifact, or return None if missing/invalid (for richer checkpoints)."""
+    try:
+        return handoff.load_artifact(path, expected_type=artifact_type)
+    except handoff.HandoffError:
+        return None
+
+
+def _sdlc(repo: Path, slug: str) -> Path:
+    return repo / "docs" / "sdlc" / slug
+
+
+# --- spine checkpoints (slug defaults to the spine feature, so the spine guard is unchanged) ---
+
+
+def check_architecture(repo: Path, slug: str = FEATURE_SLUG) -> list[Checkpoint]:
+    sdlc = _sdlc(repo, slug)
     td = sdlc / "tech-design.md"
     adrs = sorted(sdlc.glob("adr-*.md"))
     return [
@@ -129,8 +164,8 @@ def check_develop(repo: Path, *, run_tests: bool = True) -> list[Checkpoint]:
     return cps
 
 
-def check_code_review(repo: Path) -> list[Checkpoint]:
-    rv = repo / "docs" / "sdlc" / FEATURE_SLUG / "review.md"
+def check_code_review(repo: Path, slug: str = FEATURE_SLUG) -> list[Checkpoint]:
+    rv = _sdlc(repo, slug) / "review.md"
     valid = rv.is_file() and _valid(rv, "review")
     cps = [Checkpoint("review.md exists and validates", valid)]
     if valid:
@@ -139,25 +174,120 @@ def check_code_review(repo: Path) -> list[Checkpoint]:
     return cps
 
 
-def _artifact_checkpoint(repo: Path, filename: str, artifact_type: str) -> Checkpoint:
-    path = repo / "docs" / "sdlc" / FEATURE_SLUG / filename
+def _artifact_checkpoint(
+    repo: Path, filename: str, artifact_type: str, slug: str = FEATURE_SLUG
+) -> Checkpoint:
+    path = _sdlc(repo, slug) / filename
     ok = path.is_file() and _valid(path, artifact_type)
     return Checkpoint(f"{filename} exists and validates", ok)
 
 
-def check_research(repo: Path) -> list[Checkpoint]:
-    return [_artifact_checkpoint(repo, "research-brief.md", "research-brief")]
+def check_research(repo: Path, slug: str = FEATURE_SLUG) -> list[Checkpoint]:
+    return [_artifact_checkpoint(repo, "research-brief.md", "research-brief", slug)]
 
 
-def check_product(repo: Path) -> list[Checkpoint]:
-    return [_artifact_checkpoint(repo, "prd.md", "prd")]
+def check_product(repo: Path, slug: str = FEATURE_SLUG) -> list[Checkpoint]:
+    return [_artifact_checkpoint(repo, "prd.md", "prd", slug)]
 
 
-def check_plan(repo: Path) -> list[Checkpoint]:
-    return [_artifact_checkpoint(repo, "plan.md", "plan")]
+def check_plan(repo: Path, slug: str = FEATURE_SLUG) -> list[Checkpoint]:
+    return [_artifact_checkpoint(repo, "plan.md", "plan", slug)]
 
 
-CHECKS = {
+# --- domain checkpoints (Stage 4-6; deterministic — no LLM judge) ---
+
+
+def check_test_strategy(
+    repo: Path, slug: str, *, risk_keywords: tuple[str, ...] = ()
+) -> list[Checkpoint]:
+    art = _load(_sdlc(repo, slug) / "test-strategy.md", "test-strategy")
+    cps = [Checkpoint("test-strategy.md valid", art is not None)]
+    if art is not None:
+        levels = art.header.get("test_levels") or []
+        cps.append(Checkpoint("test_levels non-empty", bool(levels), f"{len(levels)} level(s)"))
+        if risk_keywords:  # schema does not enforce `risks`, so assert a known risk is referenced
+            blob = (str(art.header.get("risks", "")) + "\n" + art.body).lower()
+            cps.append(
+                Checkpoint("risk area referenced", any(k.lower() in blob for k in risk_keywords))
+            )
+    return cps
+
+
+def check_security_review(
+    repo: Path,
+    slug: str,
+    *,
+    filename: str = "security-review.md",
+    sink_markers: tuple[str, ...] = (),
+) -> list[Checkpoint]:
+    art = _load(_sdlc(repo, slug) / filename, "review")
+    cps = [Checkpoint(f"{filename} valid review", art is not None)]
+    if art is not None and sink_markers:
+        findings = art.header.get("findings") or []
+        locs = " ".join(
+            str(f.get("location", "")) + " " + str(f.get("issue", ""))
+            for f in findings
+            if isinstance(f, dict)
+        )
+        blob = (locs + " " + art.body).lower()
+        cps.append(
+            Checkpoint(
+                "planted sink referenced", any(m.lower() in blob for m in sink_markers)
+            )
+        )
+    return cps
+
+
+def expected_release_version(repo: Path, baseline: str, tag: str) -> str | None:  # pragma: no cover
+    """Compute the release bump from real git history (live seam — exercised only in a real run)."""
+    messages = release.commits_since(repo, tag)
+    return release.summarize(baseline, messages).version if messages else None
+
+
+def check_release(
+    repo: Path, slug: str, *, expected_version: str | None = None
+) -> list[Checkpoint]:
+    art = _load(_sdlc(repo, slug) / "release.md", "release")
+    cps = [Checkpoint("release.md valid", art is not None)]
+    if art is not None:
+        version = str(art.header.get("version", ""))
+        if expected_version is not None:
+            cps.append(
+                Checkpoint(
+                    "version == computed bump",
+                    version == expected_version,
+                    f"{version} vs {expected_version}",
+                )
+            )
+        else:
+            cps.append(Checkpoint("version is semver", bool(_SEMVER.match(version)), version))
+        cps.append(Checkpoint("changelog non-empty", bool(art.header.get("changelog"))))
+    return cps
+
+
+def check_deploy_status(repo: Path, slug: str, *, expected_health: str) -> list[Checkpoint]:
+    art = _load(_sdlc(repo, slug) / "deploy-status.md", "deploy-status")
+    cps = [Checkpoint("deploy-status.md valid", art is not None)]
+    if art is not None:  # health lives in the `pipeline` field, not a `health` key (ADR 0030)
+        pipeline = art.header.get("pipeline")
+        cps.append(
+            Checkpoint(
+                f"pipeline == {expected_health}", pipeline == expected_health, str(pipeline)
+            )
+        )
+    return cps
+
+
+def check_incident(repo: Path, slug: str, *, expected_sev: str) -> list[Checkpoint]:
+    art = _load(_sdlc(repo, slug) / "incident.md", "incident")
+    cps = [Checkpoint("incident.md valid", art is not None)]
+    if art is not None:
+        sev = art.header.get("severity")
+        cps.append(Checkpoint(f"severity == {expected_sev}", sev == expected_sev, str(sev)))
+    return cps
+
+
+CHECKS: dict[str, Callable[[Path], list[Checkpoint]]] = {
     "research": check_research,
     "product": check_product,
     "architecture": check_architecture,
@@ -213,14 +343,186 @@ def _phase_prompt(phase: str) -> str:
     return prompts[phase]
 
 
-def run_e2e(plugin_dir: Path, *, run_phase: Runner, workspace: Path) -> list[PhaseResult]:
-    """Run the three-phase scenario in an isolated copy and return per-phase checkpoint results."""
-    repo = prepare_workspace(plugin_dir, workspace)
+# --- scenario model -----------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SeedItem:
+    """A fixture file to pre-place in the workspace: ``src`` (relative to the plugin) -> ``dest``
+    (relative to the repo root) — supports arbitrary destinations, not only ``docs/sdlc/``."""
+
+    src: str
+    dest: str
+
+
+@dataclass(frozen=True)
+class Phase:
+    """One scenario phase: the skill whose body seeds the run, the instruction, and the
+    deterministic checkpoint(s) evaluated after it."""
+
+    skill: str
+    prompt: str
+    checks: Callable[[Path], list[Checkpoint]]
+
+
+@dataclass(frozen=True)
+class Scenario:
+    """A Tier-3 scenario: a chain of phases on an isolated workspace, with deterministic
+    checkpoints. ``fixture`` is the repo to copy (None = an empty workspace); ``seed`` pre-places
+    inputs; ``tag`` creates a baseline tag (for ``release``); ``commits`` replays conventional
+    commits after the tag so a release bump is reproducible."""
+
+    name: str
+    slug: str
+    phases: tuple[Phase, ...]
+    fixture: str | None = FIXTURE_REPO
+    seed: tuple[SeedItem, ...] = ()
+    tag: str | None = None
+    commits: tuple[str, ...] = ()
+
+
+def prepare_scenario(plugin_dir: Path, dest: Path, scenario: Scenario) -> Path:
+    """Materialize a scenario's isolated workspace: copy the fixture, seed inputs, git-init +
+    baseline commit, optionally tag and replay conventional commits."""
+    repo = dest / "repo"
+    _copy_fixture(plugin_dir, repo, scenario.fixture)
+    for item in scenario.seed:
+        target = repo / item.dest
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text((plugin_dir / item.src).read_text(encoding="utf-8"), encoding="utf-8")
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "add", "-A")
+    _commit(repo, "baseline")
+    if scenario.tag:
+        _git(repo, "tag", scenario.tag)
+    for msg in scenario.commits:
+        _commit(repo, msg, allow_empty=True)
+    return repo
+
+
+def run_scenario(
+    plugin_dir: Path, scenario: Scenario, *, run_phase: Runner, workspace: Path
+) -> list[PhaseResult]:
+    """Run a scenario's phases in an isolated copy and return per-phase checkpoint results."""
+    repo = prepare_scenario(plugin_dir, workspace, scenario)
     results: list[PhaseResult] = []
-    for phase in PHASES:
-        run_phase(skill_body(plugin_dir, phase), _phase_prompt(phase), repo)
-        results.append(PhaseResult(phase, CHECKS[phase](repo)))
+    for phase in scenario.phases:
+        run_phase(skill_body(plugin_dir, phase.skill), phase.prompt, repo)
+        results.append(PhaseResult(phase.skill, phase.checks(repo)))
     return results
+
+
+# --- scenario registry --------------------------------------------------------
+
+SPINE = Scenario(
+    name="spine",
+    slug=FEATURE_SLUG,
+    fixture=FIXTURE_REPO,
+    phases=tuple(Phase(skill=ph, prompt=_phase_prompt(ph), checks=CHECKS[ph]) for ph in PHASES),
+)
+
+
+def _quality_gate() -> Scenario:
+    slug = FEATURE_SLUG
+    sdlc = f"docs/sdlc/{slug}/"
+    base = "1.0.0"
+    tag = f"v{base}"
+    return Scenario(
+        name="quality-gate",
+        slug=slug,
+        fixture=FIXTURE_REPO,
+        tag=tag,
+        # Conventional commits replayed after the baseline tag so the release bump is reproducible.
+        commits=("feat: add task priority", "fix: clamp invalid priority"),
+        seed=(
+            SeedItem(PRD, f"{sdlc}prd.md"),
+            SeedItem("eval/fixtures/spine/tech-design.md", f"{sdlc}tech-design.md"),
+            # Isolated, un-imported planted defect (a SQLi sink) — keeps the test suite green.
+            SeedItem("eval/fixtures/security-engineer/case1-sqli.py", "user_lookup.py"),
+        ),
+        phases=(
+            Phase(
+                "qa-test-strategy",
+                f"Read {sdlc}prd.md and {sdlc}tech-design.md and the code. Plan the tests for the "
+                f"priority feature and write {sdlc}test-strategy.md (frontmatter type: "
+                "test-strategy, feature, status, test_levels[], risks[], cases[]). No code.",
+                lambda repo: check_test_strategy(
+                    repo, slug, risk_keywords=("priorit", "invalid", "order")
+                ),
+            ),
+            Phase("develop", _phase_prompt("develop"), check_develop),
+            Phase(
+                "security-review",
+                f"Run a security review of user_lookup.py and the diff. Write {sdlc}"
+                "security-review.md (frontmatter type: review, target, iteration: 1, verdict, "
+                "findings[] each with severity+location). Reference the exact vulnerable location. "
+                "Do not modify code.",
+                lambda repo: check_security_review(
+                    repo, slug, sink_markers=("user_lookup", "find_user", "sql", "injection")
+                ),
+            ),
+            Phase("code-review", _phase_prompt("code-review"), check_code_review),
+            Phase(
+                "release",
+                f"Decide the next version from the commits since {tag} and write {sdlc}release.md "
+                "(frontmatter type: release, feature, status, version, changelog[], breaking[]). "
+                "Aggregate the whole release's changelog.",
+                lambda repo: check_release(
+                    repo, slug, expected_version=expected_release_version(repo, base, tag)
+                ),
+            ),
+        ),
+    )
+
+
+def _ops_incident() -> Scenario:
+    slug = "checkout-outage"
+    sdlc = f"docs/sdlc/{slug}/"
+    sev1 = ops.classify_incident(outage=True)  # deterministic expected severity
+    return Scenario(
+        name="ops-incident",
+        slug=slug,
+        fixture=None,  # artifact-driven; no app repo for phases 1-2
+        seed=(
+            SeedItem("eval/fixtures/deploy-watch/prod-failing.json", "pipeline.json"),
+            SeedItem("eval/fixtures/incident-response/outage-scenario.md", "outage-scenario.md"),
+        ),
+        phases=(
+            Phase(
+                "deploy-watch",
+                "Read pipeline.json and load it into ops.InMemoryPipeline / ops.InMemoryAlerts — "
+                "do NOT use a live connector (ignore any gh CLI or GRAFANA_URL). Assess rollout "
+                f"health and write {sdlc}deploy-status.md (frontmatter type: deploy-status, "
+                "environment, pipeline, deploys[], alerts, action).",
+                lambda repo: check_deploy_status(repo, slug, expected_health="failing"),
+            ),
+            Phase(
+                "incident-response",
+                f"Read outage-scenario.md, classify severity with ops.classify_incident, and write "
+                f"{sdlc}incident.md (frontmatter type: incident, severity, status, impact, "
+                "timeline[], remediation[]).",
+                lambda repo: check_incident(repo, slug, expected_sev=sev1),
+            ),
+            Phase(
+                "release",
+                f"Cut a hotfix release and write {sdlc}release.md (frontmatter type: release, "
+                "feature, status, version, changelog[]).",
+                lambda repo: check_release(repo, slug, expected_version=None),  # schema-only here
+            ),
+        ),
+    )
+
+
+SCENARIOS: dict[str, Scenario] = {
+    "spine": SPINE,
+    "quality-gate": _quality_gate(),
+    "ops-incident": _ops_incident(),
+}
+
+
+def run_e2e(plugin_dir: Path, *, run_phase: Runner, workspace: Path) -> list[PhaseResult]:
+    """Run the spine scenario (kept for back-compat; delegates to :func:`run_scenario`)."""
+    return run_scenario(plugin_dir, SPINE, run_phase=run_phase, workspace=workspace)
 
 
 def all_passed(results: list[PhaseResult]) -> bool:
@@ -228,7 +530,7 @@ def all_passed(results: list[PhaseResult]) -> bool:
 
 
 def check_wiring(plugin_dir: Path) -> list[str]:
-    """Return setup problems without running anything (the dry-run check)."""
+    """Return spine-scenario setup problems without running anything (the dry-run check)."""
     problems: list[str] = []
     for phase in PHASES:
         if not (plugin_dir / "skills" / phase / "SKILL.md").is_file():
@@ -236,4 +538,22 @@ def check_wiring(plugin_dir: Path) -> list[str]:
     for rel in (FIXTURE_REPO, PRD, PLAN):
         if not (plugin_dir / rel).exists():
             problems.append(f"missing fixture: {rel}")
+    return problems
+
+
+def scenario_wiring(plugin_dir: Path, scenario: Scenario) -> list[str]:
+    """Return a scenario's setup problems (skills present, fixture + seed sources present, and —
+    for ops-incident — the in-memory/no-live-connector guard is in the deploy-watch prompt)."""
+    problems: list[str] = []
+    for phase in scenario.phases:
+        if not (plugin_dir / "skills" / phase.skill / "SKILL.md").is_file():
+            problems.append(f"{scenario.name}: missing skill: {phase.skill}")
+    if scenario.fixture and not (plugin_dir / scenario.fixture).exists():
+        problems.append(f"{scenario.name}: missing fixture: {scenario.fixture}")
+    for item in scenario.seed:
+        if not (plugin_dir / item.src).exists():
+            problems.append(f"{scenario.name}: missing seed source: {item.src}")
+    for phase in scenario.phases:
+        if phase.skill == "deploy-watch" and "do not use a live" not in phase.prompt.lower():
+            problems.append(f"{scenario.name}: deploy-watch prompt must neutralize live connectors")
     return problems

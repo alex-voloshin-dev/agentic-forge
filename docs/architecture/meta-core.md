@@ -56,7 +56,7 @@ pyproject.toml                        # uv / pytest / ruff / mypy config
 | `gate.py` | Apply thresholds: `trigger_metrics`, `tier1_trigger`, `tier2_quality`, `evaluate`. Pure functions. |
 | `handoff.py` | Load + validate SDLC handoff artifacts (Markdown + frontmatter) against per-type header schemas (L1). |
 | `agent_eval.py` | Tier-2 quality runner for subagent roles, over a pluggable model seam (eval-harness; see ADR 0011); its `run_eval_cases` core is shared with the skill Tier-2 runner. |
-| `spine_e2e.py` | Tier-3 end-to-end runner for the SDLC spine: carry a feature through all six phases on an isolated fixture copy, with per-phase checkpoints (L2). |
+| `spine_e2e.py` | Tier-3 end-to-end runner — a `Scenario` registry (the SDLC `spine` + the `quality-gate` / `ops-incident` domain chains) carried through their phases on an isolated fixture copy, with deterministic per-phase checkpoints (L2; ADR 0030). |
 | `stacks.py` | Deterministic stack detection for target repos: `detect`/`primary` from hints/manifests plus the toolchain registry the spine's `develop`/`code-review` consume (by-stack; ADR 0015). |
 | `tier1_runner.py` | Tier-1 trigger runner on the **live** skill listing: classify each on-listing skill's trigger prompts via the router, gate recall/specificity (ADR 0016). |
 | `skill_eval.py` | Skill Tier-2 quality runner: knowledge skills run as the `software-engineer` with them loaded, others directly; reuses `agent_eval.run_eval_cases` (ADR 0017). |

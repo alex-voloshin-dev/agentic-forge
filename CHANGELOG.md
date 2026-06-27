@@ -6,6 +6,31 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Added — Domain E2E Wave 1 (Tier-3 chains implemented)
+
+Implemented Wave 1 of the design
+([ADR 0030](docs/architecture/decisions/0030-domain-e2e-scenarios.md) /
+[domain-e2e.md](docs/architecture/domain-e2e.md)). Generalized `spine_e2e.py` into a `Scenario`
+registry — the **spine becomes one entry** and `run_e2e` delegates to the generic `run_scenario`,
+so the spine guard (`tests/test_spine_e2e.py`) is unchanged and green — and added two domain
+chains:
+
+- **`quality-gate`** — qa-test-strategy → develop → security-review → code-review → release, on a
+  seeded `spine/target-repo` with a tagged `v1.0.0` baseline + an isolated planted SQLi module.
+- **`ops-incident`** — deploy-watch → incident-response → release, artifact-driven (no app repo for
+  the first two phases).
+
+Every checkpoint is **judge-free**: schema validation, computed-outcome comparisons
+(`release.summarize(...).version`; `ops.classify_incident(outage=True)` → `sev1`; the
+`deploy-status` health read from the **`pipeline`** field), and a planted-sink **location** match
+for security-review. `dev/run_spine_e2e.py` gains `--scenario {spine,quality-gate,ops-incident,all}`;
+the dry-run wiring check covers every scenario and asserts the deploy-watch prompt **neutralizes a
+live `gh`/Grafana connector** so it can't shadow the fixture. New unit tests
+(`tests/test_domain_e2e.py`) cover the checkpoints + `run_scenario` on stubbed phases —
+`spine_e2e.py` at **100% line coverage**, suite 99%. Wired into `eval.yml` (dry always-on; live
+spine + domain chains cost-gated on the subscription token). **Wave 2** (`product-inception`,
+`market-brief`) and the live `--runner claude` recorded run are **pending**.
+
 ### Added — Domain E2E design (Tier-3 for the Stage 4–6 domains)
 
 Design + decision for extending Tier-3 (end-to-end) coverage from the SDLC spine to **all eight**

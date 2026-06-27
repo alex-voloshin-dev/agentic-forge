@@ -71,12 +71,18 @@ jobs:
         if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}
         run: python dev/run_skill_evals.py --runner claude --model "$EVAL_MODEL"
 
-      - name: Spine Tier-3 wiring (dry-run, no auth)
-        run: python dev/run_spine_e2e.py --runner dry
+      - name: Tier-3 wiring (dry-run, no auth) — spine + domain scenarios
+        run: python dev/run_spine_e2e.py --runner dry --scenario all
 
-      # Real Tier-3 end-to-end via the Claude subscription: carry one feature through all six
-      # phases on an isolated fixture copy, checking per-phase artifacts + that the code passes
-      # the repo's tests. The heaviest eval; skipped without the token.
+      # Real Tier-3 end-to-end via the Claude subscription: carry a feature through a scenario's
+      # phases on an isolated fixture copy, checking deterministic per-phase artifacts/outcomes.
+      # The heaviest evals; skipped without the token.
       - name: Spine Tier-3 E2E (subscription via claude)
         if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}
-        run: python dev/run_spine_e2e.py --runner claude --model "$EVAL_MODEL"
+        run: python dev/run_spine_e2e.py --runner claude --model "$EVAL_MODEL" --scenario spine
+
+      - name: Domain Tier-3 chains (subscription via claude)
+        if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+        run: >-
+          python dev/run_spine_e2e.py --runner claude --model "$EVAL_MODEL"
+          --scenario quality-gate --scenario ops-incident

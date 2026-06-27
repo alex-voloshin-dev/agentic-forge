@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""Tier-3 SDLC-spine E2E runner: carry `task-priorities` through all six phases (research ->
-product -> architecture -> plan -> develop -> code-review) on an isolated copy of the taskstore
-fixture repo, checking per-phase artifacts + that the code passes the repo's tests.
+"""Tier-3 E2E runner: carry a feature through a scenario's phases on an isolated fixture copy,
+checking deterministic per-phase artifacts/outcomes. The `spine` scenario is the six-phase SDLC
+slice; the domain scenarios (`quality-gate`, `ops-incident`) chain the Stage 4-6 skills
+(docs/architecture/domain-e2e.md, ADR 0030).
 
 Usage:
-    python dev/run_spine_e2e.py --runner dry         # verify wiring, no model calls
-    python dev/run_spine_e2e.py --runner claude      # real run via the claude CLI (subscription)
+    python dev/run_spine_e2e.py --runner dry                       # verify wiring, no model calls
+    python dev/run_spine_e2e.py --runner claude                    # spine, via the claude CLI
+    python dev/run_spine_e2e.py --runner claude --scenario quality-gate --scenario ops-incident
+    python dev/run_spine_e2e.py --runner dry --scenario all        # wiring for every scenario
 
-`dry` needs no credentials. `claude` drives each phase headlessly with full tools in the copied
-repo; keep ANTHROPIC_API_KEY unset to bill the subscription (see docs/eval-runbook.md).
-
-Exit code 0 if every phase's checkpoints pass (or dry-run is clean), 1 otherwise.
+`dry` needs no credentials. `claude` drives each phase headlessly with full tools in a copied
+repo; keep ANTHROPIC_API_KEY unset to bill the subscription (see docs/eval-runbook.md). Without
+`--scenario` only the spine runs. Exit code 0 if every selected scenario's checkpoints pass (or
+dry-run is clean), 1 otherwise.
 """
 
 from __future__ import annotations
@@ -26,34 +29,61 @@ sys.path.insert(0, str(_REPO_ROOT / "plugin" / "lib"))
 from agentic_forge import agent_eval, spine_e2e  # noqa: E402
 
 
+def _selected(names: list[str] | None) -> list[str]:
+    """Resolve --scenario into scenario names (default: spine; ``all`` -> every registered one)."""
+    if not names:
+        return ["spine"]
+    if "all" in names:
+        return list(spine_e2e.SCENARIOS)
+    return names
+
+
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(description="Run the Tier-3 SDLC-spine E2E scenario.")
+    parser = argparse.ArgumentParser(description="Run Tier-3 E2E scenarios.")
     parser.add_argument("--plugin", type=Path, default=_REPO_ROOT / "plugin")
     parser.add_argument("--runner", choices=["dry", "claude"], default="dry")
     parser.add_argument("--model", default="claude-opus-4-8")
     parser.add_argument("--workspace", type=Path, default=None)
+    parser.add_argument(
+        "--scenario",
+        action="append",
+        dest="scenarios",
+        choices=[*spine_e2e.SCENARIOS, "all"],
+        help="scenario(s) to run; repeatable; 'all' for every one (default: spine)",
+    )
     args = parser.parse_args(argv[1:])
     plugin_dir: Path = args.plugin.resolve()
+    names = _selected(args.scenarios)
 
     if args.runner == "dry":
-        problems = spine_e2e.check_wiring(plugin_dir)
-        for p in problems:
-            print(f"  - {p}")
-        print("Dry-run:", "OK" if not problems else "problems found")
+        problems: list[str] = []
+        for name in names:
+            problems += spine_e2e.scenario_wiring(plugin_dir, spine_e2e.SCENARIOS[name])
+        for problem in problems:
+            print(f"  - {problem}")
+        print(f"Dry-run ({', '.join(names)}):", "OK" if not problems else "problems found")
         return 0 if not problems else 1
 
-    workspace = args.workspace or Path(tempfile.mkdtemp(prefix="spine-e2e-"))
-    print(f"workspace: {workspace}", flush=True)
     run_phase = agent_eval.claude_cli_runner(
         allowed_tools="Read,Write,Edit,Bash,Grep,Glob", model=args.model, max_turns=40
     )
-    results = spine_e2e.run_e2e(plugin_dir, run_phase=run_phase, workspace=workspace)
-    for r in results:
-        print(f"[{r.phase}] {'PASS' if r.passed else 'FAIL'}", flush=True)
-        for c in r.checkpoints:
-            print(c, flush=True)
-    ok = spine_e2e.all_passed(results)
-    print(f"\nTier-3 E2E: {'PASS' if ok else 'FAIL'}", flush=True)
+    base = args.workspace or Path(tempfile.mkdtemp(prefix="tier3-e2e-"))
+    ok = True
+    for name in names:
+        scenario = spine_e2e.SCENARIOS[name]
+        workspace = base / name
+        print(f"\n=== scenario: {name} (workspace: {workspace}) ===", flush=True)
+        results = spine_e2e.run_scenario(
+            plugin_dir, scenario, run_phase=run_phase, workspace=workspace
+        )
+        for r in results:
+            print(f"[{r.phase}] {'PASS' if r.passed else 'FAIL'}", flush=True)
+            for c in r.checkpoints:
+                print(c, flush=True)
+        passed = spine_e2e.all_passed(results)
+        print(f"-> {name}: {'PASS' if passed else 'FAIL'}", flush=True)
+        ok = ok and passed
+    print(f"\nTier-3 E2E ({', '.join(names)}): {'PASS' if ok else 'FAIL'}", flush=True)
     return 0 if ok else 1
 
 

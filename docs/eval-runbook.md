@@ -35,7 +35,9 @@ Tier-2 of the roles they fork. Every skill that declares a `tier2_quality` thres
 `deep-review`, `skill-factory`, `knowledge`, `engineering-standards`, the nine `*-patterns` packs,
 and the Stage-4–6 own-behavior skills `release`, `deploy-watch`, `incident-response`, `marketing`,
 `ux-design`, `repo-onboarding`) **is run by `run_skill_evals.py`** (ADR 0017) — no longer a manual
-step. (The fork-orchestrators `qa-test-strategy` / `security-review` are Tier-1-only by design.)
+step. (The fork-orchestrators `qa-test-strategy` / `security-review` carry no skill Tier-2 by design;
+their end-to-end quality is the Tier-3 `quality-gate` domain scenario plus the forked role's agent
+Tier-2 — see [domain-e2e.md](architecture/domain-e2e.md) / [ADR 0030](architecture/decisions/0030-domain-e2e-scenarios.md).)
 
 ### Skill Tier-1 — `dev/run_tier1_evals.py` (live descriptions)
 
