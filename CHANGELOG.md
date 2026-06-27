@@ -8,17 +8,27 @@ versioning once it has a public surface.
 
 ### Added — Domain E2E design (Tier-3 for the Stage 4–6 domains)
 
-Design + decision for extending Tier-3 (end-to-end) coverage from the SDLC spine to the domain
-skills (`qa-test-strategy`, `security-review`, `deploy-watch`, `incident-response`, `release`,
-`ux-design`, `repo-onboarding`; `marketing` deliberately excluded). **Design, not built.**
+Design + decision for extending Tier-3 (end-to-end) coverage from the SDLC spine to **all eight**
+Stage 4–6 domain skills. **Design, not built.**
 [docs/architecture/domain-e2e.md](docs/architecture/domain-e2e.md) +
 [ADR 0030](docs/architecture/decisions/0030-domain-e2e-scenarios.md) decide: grow Tier-3 by
-deterministic multi-skill **chain** scenarios (`quality-gate`, `ops-incident`, then
-`product-inception`) rather than per-skill repeats (which would duplicate Tier-2); generalize
-`spine_e2e.py` into a `Scenario` registry (spine becomes one entry, behaviour-preserving);
-keep checkpoints deterministic (schema + computed outcomes + planted defects, no LLM judge in the
-gate); reuse existing Tier-2 fixtures. Recorded in the roadmap's Post-spine increments; no code
-yet (contract → evals → implementation → gate still to come).
+deterministic multi-skill **chain** scenarios (`quality-gate`, `ops-incident`, `product-inception`)
+plus a deterministic `market-brief` complement, rather than per-skill repeats; generalize
+`spine_e2e.py` into a `Scenario` registry; keep every checkpoint judge-free (code comparison /
+location substring / carrier schema); reuse existing Tier-2 fixtures.
+
+The design was **hardened by a deep multi-reviewer review** (five adversarial lenses, each verified
+against the source) before acceptance — which corrected real errors in the first draft: the
+`deploy-status` health value lives in the `pipeline` field (no `health` key); the release bump is
+`release.summarize(...).version`, not `release.classify`; two checkpoints were not actually
+judge-free and were reduced to deterministic substring/keyword forms; `security-review` and
+`code-review` both default to `review.md` (collision — fixed via a phase-prompt path override); the
+`Scenario` change is a real refactor (module-level `FEATURE_SLUG`/`FIXTURE_REPO`), not a rename;
+`deploy-watch` must be forced onto the in-memory source so a runner-present `gh` can't shadow the
+fixture; and `marketing` is **included** (its Tier-2 is fixture-grounded, so a deterministic
+named-competitor check is feasible — the earlier "live web research" exclusion was a false premise).
+Recorded in the roadmap's Post-spine increments; no code yet (contract → evals → implementation →
+gate still to come).
 
 ### Changed — README rewritten around the SDLC usage story
 

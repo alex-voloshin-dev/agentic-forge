@@ -276,10 +276,12 @@ Cross-cutting increments beyond the staged plan, recorded by ADR + CHANGELOG:
   the **mean per-prompt routing rate** over N samples (threshold 0.9 unchanged), replacing the
   brittle per-prompt majority-of-N: stabler and stricter.
 - **Domain E2E (Tier-3 for Stage 4–6)** — **Designed, not built** (ADR 0030,
-  [architecture/domain-e2e.md](architecture/domain-e2e.md)). Extend Tier-3 from the spine to the
-  domain skills via deterministic multi-skill **chain** scenarios (`quality-gate`, `ops-incident`,
-  then `product-inception`), generalizing `spine_e2e` into a `Scenario` registry. `marketing` is
-  excluded (non-deterministic live research). Implementation pending.
+  [architecture/domain-e2e.md](architecture/domain-e2e.md)); the design was hardened by a deep
+  multi-reviewer pass. Extend Tier-3 from the spine to **all eight** domain skills via deterministic
+  multi-skill **chain** scenarios (`quality-gate`, `ops-incident`, `product-inception`) plus a
+  deterministic `market-brief` complement for `marketing`, generalizing `spine_e2e` into a
+  `Scenario` registry. Checkpoints stay judge-free (code comparison / location substring / carrier
+  schema). Implementation pending.
 
 ---
 
