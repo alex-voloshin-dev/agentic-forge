@@ -6,6 +6,35 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Verified — Domain E2E live Tier-3 runs (subscription, `claude-opus-4-8`)
+
+Ran the five Tier-3 scenarios live (`--runner claude`). The harness and **every deterministic
+checkpoint type are proven** — each fired green in a real run — and several live-only gaps were
+found and fixed:
+
+- **market-brief** ✅ — `marketing` named the competitors from the notes (deterministic check).
+- **ops-incident** ✅ — deploy health `failing`, incident `sev1`, hotfix release valid. Two live
+  fixes: the incident phase now **reads `deploy-status.md`** and names the failing `production`
+  environment (the handoff the design specified but the prompt hadn't wired), and the
+  hotfix-release prompt is **prescriptive** so the artifact reliably validates.
+- **quality-gate** ✅ (flagship) — a live `develop` session implemented the feature and the repo
+  test suite passed; `security-review` found the planted SQLi sink; `release` produced the
+  **exact** computed bump (`1.1.0 == 1.1.0`).
+- **spine** — research / product / architecture / plan / **develop (live coding + tests pass)**
+  green; `code-review` flaked on strict `review.md` schema validation (a missing required field).
+- **product-inception** — repo-onboarding (**vault validates clean**), research, product,
+  architecture green; `ux-design` flaked on strict `ux-spec` validation. Fixes: prescriptive
+  `product`/`ux-design`/`architecture` prompts + a valid-YAML instruction, and the **`ux-design`
+  skill body** now requires `feature`/`status` and YAML **list** fields (its output contract had
+  omitted them — a real skill gap).
+
+**Finding:** at strict per-artifact schema validation, a full multi-phase chain passing in a
+*single* live run is probabilistic — each phase has a small chance of emitting an artifact missing
+a required frontmatter field (model output variance), so a 5–6-phase chain may need a re-run to go
+all-green. The checkpoints are correct (the artifacts genuinely were invalid); the remedy is better
+prompts/skill contracts (done) and, optionally, a **per-phase retry** in the live runner (noted as
+a follow-up). The live job stays on-demand/cost-gated, where re-running to a clean sweep belongs.
+
 ### Added — Scheduling cadence persistence (per-job state + retry)
 
 Enriched headless scheduling

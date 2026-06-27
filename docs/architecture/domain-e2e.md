@@ -189,7 +189,11 @@ Tier-3 scenarios), not a new tier.
 **Implementation status:** (1) ✓ — the `Scenario` refactor landed, the spine guard
 (`tests/test_spine_e2e.py`) is unchanged and green, and the new plumbing has stubbed-phase tests
 (`spine_e2e.py` at 100% line coverage). (2) `--runner dry` green for **all five** scenarios + stub
-tests ✓; the recorded live `--runner claude` run is **on-demand**. (3) ✓ — the eval-runbook line is
+tests ✓; the **live `--runner claude` sweep was run** (recorded in the CHANGELOG) — every
+checkpoint *type* proved out, with `quality-gate` / `ops-incident` / `market-brief` fully green;
+full single-run chains are probabilistic at strict per-artifact schema validation (model
+frontmatter variance), so the live job stays on-demand (re-run to all-green; a per-phase retry is
+a possible runner follow-up). (3) ✓ — the eval-runbook line is
 updated. (4) ✓ — wired into `eval.yml`. (5) ✓ — Wave 2 (`product-inception`, `market-brief`) built
 to the same bar.
 

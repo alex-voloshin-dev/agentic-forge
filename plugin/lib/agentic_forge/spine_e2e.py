@@ -535,18 +535,22 @@ def _ops_incident() -> Scenario:
             ),
             Phase(
                 "incident-response",
-                f"Read outage-scenario.md, classify severity with ops.classify_incident, and write "
-                f"{sdlc}incident.md (frontmatter type: incident, severity, status, impact, "
-                "timeline[], remediation[]).",
+                "Read outage-scenario.md and the deploy-watch output "
+                f"{sdlc}deploy-status.md. Classify severity with ops.classify_incident "
+                f"and write {sdlc}incident.md (frontmatter type: incident, severity, "
+                "status, impact, timeline[], remediation[]); name the impacted environment "
+                "from the deploy-status in the impact.",
                 lambda repo: check_incident(
                     repo, slug, expected_sev=sev1, env_marker="production"
                 ),
             ),
             Phase(
                 "release",
-                f"Cut a hotfix release and write {sdlc}release.md (frontmatter type: release, "
-                "feature, status, version, changelog[]).",
-                lambda repo: check_release(repo, slug, expected_version=None),  # schema-only here
+                f"Cut the hotfix release for the rollback. Write {sdlc}release.md with YAML "
+                "frontmatter containing ALL of: type: release, feature, status, version (a semver "
+                "string such as 1.4.3), and a non-empty changelog list (e.g. '- Fixed: roll back "
+                "the failing deploy').",
+                lambda repo: check_release(repo, slug, expected_version=None),  # schema-only
             ),
         ),
     )
@@ -584,21 +588,25 @@ def _product_inception() -> Scenario:
             ),
             Phase(
                 "product",
-                f"Write the product spec to {sdlc}prd.md (frontmatter type: prd, feature, status, "
-                "goals[], non_goals[], metrics[], acceptance[]).",
+                f"Read {sdlc}research-brief.md and write {sdlc}prd.md with YAML frontmatter "
+                "containing ALL of: type: prd, feature, status, a non-empty goals list, non_goals, "
+                "metrics, and a non-empty acceptance list. Add user stories in the body.",
                 lambda repo: check_product(repo, slug),
             ),
             Phase(
                 "ux-design",
-                f"Read {sdlc}prd.md and design the UX: write {sdlc}ux-spec.md (frontmatter type: "
-                "ux-spec, feature, status, flows[], screens[], accessibility[], design_system[]).",
+                f"Read {sdlc}prd.md and design the UX. Write {sdlc}ux-spec.md with VALID YAML "
+                "frontmatter (quote any value containing a colon) holding ALL of: type: ux-spec, "
+                "feature, status, a non-empty flows list, screens, a non-empty accessibility list, "
+                "and design_system.",
                 lambda repo: check_ux_spec(repo, slug),
             ),
             Phase(
                 "architecture",
-                f"Read {sdlc}prd.md and {sdlc}ux-spec.md and write {sdlc}tech-design.md "
-                "(frontmatter type: tech-design, feature, status, decisions, components, risks) "
-                "plus at least one adr-*.md.",
+                f"Read {sdlc}prd.md and {sdlc}ux-spec.md and write {sdlc}tech-design.md with VALID "
+                "YAML frontmatter (quote any value containing a colon) holding type: tech-design, "
+                "feature, status, a non-empty decisions list, a non-empty components list, and "
+                "risks; plus at least one adr-*.md.",
                 lambda repo: check_architecture(repo, slug),
             ),
         ),
