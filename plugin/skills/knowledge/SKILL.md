@@ -1,6 +1,6 @@
 ---
 name: knowledge
-description: Recall or capture durable PROJECT knowledge in the repo's Obsidian vault (docs/knowledge/) — answer "what do we know / have we decided about X" from our own notes, and save decisions, rationale, and learnings as atomic, wikilinked notes. Use to remember, recall, or capture project knowledge; not for external research (research), writing code (develop), or product specs (product).
+description: Remember, recall, or capture durable PROJECT knowledge in the repo's Obsidian vault (docs/knowledge/). CAPTURE — when asked to remember, note, save, or not forget a decision, rationale, or learning ("remember this …", "note that we decided …", "don't let us relitigate …"), persist it to the vault as an atomic, wikilinked note (durable project memory, not transient chat memory). RECALL — answer "what do we know / have we already decided / did we note about X" from OUR OWN notes, including prior art WE recorded. For NEW external investigation use research; not onboarding a whole codebase (repo-onboarding), writing code (develop), or product specs (product).
 allowed-tools: Read, Grep, Glob, Bash, Write, Edit
 ---
 

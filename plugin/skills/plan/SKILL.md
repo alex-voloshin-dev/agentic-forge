@@ -1,6 +1,6 @@
 ---
 name: plan
-description: Turn a technical design into a dependency-ordered work plan — break the work into tasks with dependencies, checkpoints, and deferred items, written to plan.md. Use when asked to plan the work, break a design into tasks, sequence or order implementation, or make a work/implementation plan. Not for the technical design itself (architecture), writing code (develop), or defining requirements (product).
+description: Turn a technical design into a dependency-ordered WORK plan — the build order — break the work into implementation tasks with dependencies, checkpoints, and deferred items, written to plan.md. (A "test plan" or "QA plan" is NOT this — that's qa-test-strategy.) Use to plan or sequence the engineering WORK — break a design into tasks, order the build, make a work/implementation plan. Not the technical design (architecture), writing code (develop), requirements (product), or a test/QA plan (qa-test-strategy).
 allowed-tools: Read, Grep, Glob, Task, Write
 ---
 

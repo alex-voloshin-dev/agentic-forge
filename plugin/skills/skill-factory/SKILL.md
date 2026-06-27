@@ -1,6 +1,6 @@
 ---
 name: skill-factory
-description: Create a new agentic-forge component (skill, subagent, or Python script) the right way — contract-first and evals-first, standard-compliant (agentskills.io), gated by the eval pyramid. Use when asked to create, build, scaffold, or add a skill / agent / script / workflow to this plugin, or to make a component "the agentic-forge way". This is the meta-skill that builds everything else.
+description: Create / build / scaffold / add a NEW component to this plugin (agentic-forge) — a new skill, subagent/agent, or Python script — contract-first and evals-first, standard-compliant (agentskills.io), gated by the eval pyramid. ANY request to create or add a new skill / agent / script / workflow routes here, whatever the component is FOR — e.g. "create a skill for release notes", "scaffold an agent that reviews diffs for security"; that domain is the new component's purpose, and building the component is this skill's job (not release / security-review / code-review / develop). This is the meta-skill that builds everything else.
 allowed-tools: Read Write Edit Grep Glob
 ---
 

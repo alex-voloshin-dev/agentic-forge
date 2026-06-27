@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: Review a CODE change — a diff, a pull request, or the branch from the develop phase — across correctness, security, integration/API, and style/lint, returning an approve/changes verdict with findings and a review.md handoff. Use to review code before merge or as the spine's review phase. For reviewing docs or a design, or a deep adversarial audit, use deep-review; to write code use develop.
+description: Review a CODE change — a diff, a pull request, or the branch from the develop phase — across correctness, security, integration/API, and style/lint, returning an approve/changes verdict with findings and a review.md handoff. Use for a standard code review before merge or as the spine's review phase. For a DEEP / thorough / rigorous / adversarial review or audit — even of a PR or diff — or for reviewing docs or a design, use deep-review; to write code use develop.
 allowed-tools: Read, Grep, Glob, Bash, Task, Write
 ---
 

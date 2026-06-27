@@ -40,7 +40,7 @@
     "should_trigger": [
       "What do we know about how we handle task priorities?",
       "Have we already decided on an auth approach? Check our notes.",
-      "Remember this: we chose Postgres over SQLite for concurrent writes.",
+      "Remember in our project notes that we chose Postgres over SQLite for concurrent writes.",
       "Capture this rationale in the knowledge base so we don't relitigate it.",
       "Recall any prior art we noted on rate limiting before I design it."
     ],

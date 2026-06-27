@@ -52,6 +52,18 @@ and rubber-stamped barely-majority routing — ADR 0016, metric refined by ADR 0
 It reuses the same transports — `--runner dry|claude|api` (the `claude` router call runs with
 tools disabled and one turn); `dry` verifies the listing/trigger wiring with no auth.
 
+**When recall fails — the remediation playbook
+([ADR 0029](architecture/decisions/0029-tier1-routing-remediation.md)):** diagnose *per-prompt*,
+not per-skill — route each `should_trigger` prompt K times against the live listing and record
+where it actually went; one "killer" prompt usually dominates the failure (leaking to a specific
+competitor or to `none`). Fix it by **sharpening the description**: own the leaking prompt's
+keywords, add a reciprocal disclaimer on the competitor it leaks to (only where that can't steal
+the competitor's own triggers — check them), and remove spurious keyword matches in other skills.
+**Never lower the 0.9 threshold.** Reword a `should_trigger` prompt only when it is *genuinely
+ambiguous* and fights a router prior no description can beat — and then only to an equivalent that
+tests the same capability the skill's other prompts already cover, keeping the prompt count and
+threshold unchanged.
+
 ### Skill Tier-2 — `dev/run_skill_evals.py`
 
 Tier-2 for skills that declare `tier2_quality` is automated (ADR 0017), reusing the agent
