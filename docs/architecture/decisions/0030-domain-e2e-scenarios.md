@@ -1,7 +1,7 @@
 # 0030 — Domain E2E: extend Tier-3 to Stage 4–6 via deterministic chain scenarios
 
-Status: Accepted — **Wave 1 implemented** (`quality-gate` + `ops-incident`); Wave 2 pending.
-Revised after a deep multi-reviewer review.
+Status: Accepted — **Implemented** (all five scenarios: spine + quality-gate, ops-incident,
+product-inception, market-brief). Revised after a deep multi-reviewer review.
 
 ## Context
 

@@ -28,7 +28,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import handoff, ops, release
+from . import handoff, ops, release, vault
 from .agent_eval import Runner
 from .frontmatter import parse as parse_frontmatter
 
@@ -278,12 +278,49 @@ def check_deploy_status(repo: Path, slug: str, *, expected_health: str) -> list[
     return cps
 
 
-def check_incident(repo: Path, slug: str, *, expected_sev: str) -> list[Checkpoint]:
+def check_incident(
+    repo: Path, slug: str, *, expected_sev: str, env_marker: str | None = None
+) -> list[Checkpoint]:
     art = _load(_sdlc(repo, slug) / "incident.md", "incident")
     cps = [Checkpoint("incident.md valid", art is not None)]
     if art is not None:
         sev = art.header.get("severity")
         cps.append(Checkpoint(f"severity == {expected_sev}", sev == expected_sev, str(sev)))
+        if env_marker:  # handoff: the incident must reference the failing environment
+            blob = (str(art.header.get("impact", "")) + " " + art.body).lower()
+            cps.append(Checkpoint(f"references {env_marker}", env_marker.lower() in blob))
+    return cps
+
+
+def check_onboarding(repo: Path, slug: str) -> list[Checkpoint]:
+    art = _load(_sdlc(repo, slug) / "onboarding.md", "onboarding")
+    problems = vault.validate_vault(repo)  # vault seeded from the codebase must be link-clean
+    return [
+        Checkpoint("onboarding.md valid", art is not None),
+        Checkpoint("vault validates clean", not problems, "; ".join(problems[:2])),
+    ]
+
+
+def check_ux_spec(repo: Path, slug: str) -> list[Checkpoint]:
+    art = _load(_sdlc(repo, slug) / "ux-spec.md", "ux-spec")
+    cps = [Checkpoint("ux-spec.md valid", art is not None)]
+    if art is not None:
+        cps.append(Checkpoint("flows non-empty", bool(art.header.get("flows"))))
+        # the schema does not enforce `accessibility`, so assert it here
+        cps.append(Checkpoint("accessibility non-empty", bool(art.header.get("accessibility"))))
+    return cps
+
+
+def check_market_brief(
+    repo: Path, slug: str, *, competitors: tuple[str, ...] = ()
+) -> list[Checkpoint]:
+    art = _load(_sdlc(repo, slug) / "market-brief.md", "market-brief")
+    cps = [Checkpoint("market-brief.md valid", art is not None)]
+    if art is not None and competitors:
+        blob = (str(art.header.get("competitors", "")) + " " + art.body).lower()
+        missing = [c for c in competitors if c.lower() not in blob]
+        detail = f"missing {missing}" if missing else ""
+        cps.append(Checkpoint("named competitors present", not missing, detail))
     return cps
 
 
@@ -501,7 +538,9 @@ def _ops_incident() -> Scenario:
                 f"Read outage-scenario.md, classify severity with ops.classify_incident, and write "
                 f"{sdlc}incident.md (frontmatter type: incident, severity, status, impact, "
                 "timeline[], remediation[]).",
-                lambda repo: check_incident(repo, slug, expected_sev=sev1),
+                lambda repo: check_incident(
+                    repo, slug, expected_sev=sev1, env_marker="production"
+                ),
             ),
             Phase(
                 "release",
@@ -513,10 +552,87 @@ def _ops_incident() -> Scenario:
     )
 
 
+def _product_inception() -> Scenario:
+    slug = "newapp-onboarding"
+    sdlc = f"docs/sdlc/{slug}/"
+    return Scenario(
+        name="product-inception",
+        slug=slug,
+        fixture=None,  # the onboarded codebase is seeded at the repo root
+        seed=(
+            SeedItem("eval/fixtures/repo-onboarding/app.py", "app.py"),
+            SeedItem("eval/fixtures/repo-onboarding/worker.py", "worker.py"),
+            SeedItem("eval/fixtures/repo-onboarding/README.md", "README.md"),
+        ),
+        phases=(
+            Phase(
+                "repo-onboarding",
+                "Analyze this codebase (app.py, worker.py, README.md): map components, entry "
+                f"points, conventions, and risks and write {sdlc}onboarding.md (frontmatter type: "
+                "onboarding, feature, status, components[], entry_points[], conventions[], "
+                "risks[]). Seed the knowledge vault (docs/knowledge/) with linked notes via the "
+                "agentic_forge.vault helper (so it validates clean).",
+                lambda repo: check_onboarding(repo, slug),
+            ),
+            # research/product/architecture are carriers here (their own quality is the spine
+            # Tier-3) — included to exercise the onboarding -> … -> ux -> architecture handoffs.
+            Phase(
+                "research",
+                f"Research the app's domain and write {sdlc}research-brief.md (frontmatter type: "
+                "research-brief, feature, status, date, sources[]).",
+                lambda repo: check_research(repo, slug),
+            ),
+            Phase(
+                "product",
+                f"Write the product spec to {sdlc}prd.md (frontmatter type: prd, feature, status, "
+                "goals[], non_goals[], metrics[], acceptance[]).",
+                lambda repo: check_product(repo, slug),
+            ),
+            Phase(
+                "ux-design",
+                f"Read {sdlc}prd.md and design the UX: write {sdlc}ux-spec.md (frontmatter type: "
+                "ux-spec, feature, status, flows[], screens[], accessibility[], design_system[]).",
+                lambda repo: check_ux_spec(repo, slug),
+            ),
+            Phase(
+                "architecture",
+                f"Read {sdlc}prd.md and {sdlc}ux-spec.md and write {sdlc}tech-design.md "
+                "(frontmatter type: tech-design, feature, status, decisions, components, risks) "
+                "plus at least one adr-*.md.",
+                lambda repo: check_architecture(repo, slug),
+            ),
+        ),
+    )
+
+
+def _market_brief() -> Scenario:
+    slug = "search-gtm"
+    sdlc = f"docs/sdlc/{slug}/"
+    return Scenario(
+        name="market-brief",
+        slug=slug,
+        fixture=None,
+        seed=(SeedItem("eval/fixtures/marketing/market-notes.md", "market-notes.md"),),
+        phases=(
+            Phase(
+                "marketing",
+                f"Read market-notes.md and write {sdlc}market-brief.md (frontmatter type: "
+                "market-brief, feature, status, segments[], competitors[], sizing, sources[]). "
+                "Name the competitors from the notes, cite sources, and do not fabricate figures.",
+                lambda repo: check_market_brief(
+                    repo, slug, competitors=("Algolia", "Elastic", "Typesense")
+                ),
+            ),
+        ),
+    )
+
+
 SCENARIOS: dict[str, Scenario] = {
     "spine": SPINE,
     "quality-gate": _quality_gate(),
     "ops-incident": _ops_incident(),
+    "product-inception": _product_inception(),
+    "market-brief": _market_brief(),
 }
 
 

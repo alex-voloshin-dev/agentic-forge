@@ -1,10 +1,10 @@
 # Domain E2E — Tier-3 scenarios for the Stage 4–6 domains
 
-Status: **Wave 1 implemented** — the `Scenario` refactor plus the `quality-gate` and `ops-incident`
-chains are built in `spine_e2e.py`, unit-tested on stubbed phases, dry-runnable, and wired into
-`eval.yml`; the live `--runner claude` run is on-demand. **Wave 2** (`product-inception`,
-`market-brief`) is pending. ([ADR 0030](decisions/0030-domain-e2e-scenarios.md); design hardened by
-a deep multi-reviewer review.) This doc remains the contract for the scenarios.
+Status: **Implemented** — the `Scenario` refactor and all five scenarios (`spine`, `quality-gate`,
+`ops-incident`, `product-inception`, `market-brief`) are built in `spine_e2e.py`, unit-tested on
+stubbed phases, dry-runnable, and wired into `eval.yml`; the recorded live `--runner claude` run is
+on-demand. ([ADR 0030](decisions/0030-domain-e2e-scenarios.md); design hardened by a deep
+multi-reviewer review.) This doc remains the contract for the scenarios.
 
 ## Goal
 
@@ -186,11 +186,12 @@ Tier-3 scenarios), not a new tier.
 4. Wired into `eval.yml` (on-demand / `eval` label, cost-gated) alongside the spine.
 5. Wave 2 (`product-inception`, `market-brief`) follows the same bar in a second increment.
 
-**Wave 1 status against these:** (1) ✓ — the `Scenario` refactor landed, the spine guard
+**Implementation status:** (1) ✓ — the `Scenario` refactor landed, the spine guard
 (`tests/test_spine_e2e.py`) is unchanged and green, and the new plumbing has stubbed-phase tests
-(`spine_e2e.py` at 100% line coverage). (2) `--runner dry` green for all scenarios + stub tests ✓;
-the live `--runner claude` run is **on-demand / pending**. (3) ✓ — the eval-runbook line is updated.
-(4) ✓ — wired into `eval.yml`. (5) Wave 2 **pending**.
+(`spine_e2e.py` at 100% line coverage). (2) `--runner dry` green for **all five** scenarios + stub
+tests ✓; the recorded live `--runner claude` run is **on-demand**. (3) ✓ — the eval-runbook line is
+updated. (4) ✓ — wired into `eval.yml`. (5) ✓ — Wave 2 (`product-inception`, `market-brief`) built
+to the same bar.
 
 ## Cost
 

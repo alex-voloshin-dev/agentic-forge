@@ -275,13 +275,13 @@ Cross-cutting increments beyond the staged plan, recorded by ADR + CHANGELOG:
   seventeen on-listing skills to ≥ 0.9 under the stricter metric. Tier-1 recall/specificity are
   the **mean per-prompt routing rate** over N samples (threshold 0.9 unchanged), replacing the
   brittle per-prompt majority-of-N: stabler and stricter.
-- **Domain E2E (Tier-3 for Stage 4–6)** — **Wave 1 built** (ADR 0030,
+- **Domain E2E (Tier-3 for Stage 4–6)** — **Built** (ADR 0030,
   [architecture/domain-e2e.md](architecture/domain-e2e.md)); design hardened by a deep
-  multi-reviewer pass. `spine_e2e` generalized into a `Scenario` registry; the `quality-gate` and
-  `ops-incident` chains are implemented with judge-free checkpoints (code comparison / location
-  substring / carrier schema), unit-tested on stubbed phases, and wired into `eval.yml` (live run
-  on-demand). Wave 2 (`product-inception`, `market-brief` — the deterministic `marketing`
-  complement) pending.
+  multi-reviewer pass. `spine_e2e` generalized into a `Scenario` registry with five scenarios
+  (`spine` + `quality-gate`, `ops-incident`, `product-inception`, `market-brief` — the last a
+  deterministic `marketing` complement), judge-free checkpoints (code comparison / location
+  substring / carrier schema), unit-tested on stubbed phases, wired into `eval.yml`. The recorded
+  live `--runner claude` run is on-demand.
 
 ---
 

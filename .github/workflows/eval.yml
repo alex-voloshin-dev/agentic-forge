@@ -86,3 +86,4 @@ jobs:
         run: >-
           python dev/run_spine_e2e.py --runner claude --model "$EVAL_MODEL"
           --scenario quality-gate --scenario ops-incident
+          --scenario product-inception --scenario market-brief

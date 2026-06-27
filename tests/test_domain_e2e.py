@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from agentic_forge import release
+from agentic_forge import release, vault
 from agentic_forge.spine_e2e import (
     SCENARIOS,
     Phase,
@@ -12,9 +12,12 @@ from agentic_forge.spine_e2e import (
     all_passed,
     check_deploy_status,
     check_incident,
+    check_market_brief,
+    check_onboarding,
     check_release,
     check_security_review,
     check_test_strategy,
+    check_ux_spec,
     prepare_scenario,
     run_scenario,
     scenario_wiring,
@@ -79,7 +82,7 @@ INCIDENT = """---
 type: incident
 severity: sev1
 status: mitigating
-impact: checkout returns 503 for all users
+impact: checkout returns 503 for all users in production
 timeline:
   - 10:02 alert fired
 remediation:
@@ -87,6 +90,115 @@ remediation:
 ---
 # Incident
 Total outage.
+"""
+
+ONBOARDING = """---
+type: onboarding
+feature: newapp
+status: draft
+components:
+  - Flask API (app.py)
+  - Background worker (worker.py)
+entry_points:
+  - python app.py
+conventions:
+  - fire-and-forget enqueue
+risks:
+  - worker has no retry/backoff — a failed job is lost
+---
+# Onboarding
+The HTTP API enqueues jobs to a background worker.
+"""
+
+RESEARCH_BRIEF = """---
+type: research-brief
+feature: newapp
+status: final
+date: "2026-06-27"
+sources:
+  - https://example.com/x
+---
+# Research brief
+Findings and a recommendation.
+"""
+
+PRD_MD = """---
+type: prd
+feature: newapp
+status: approved
+goals:
+  - reliable job processing
+non_goals:
+  - multi-tenant
+metrics:
+  - p95 latency
+acceptance:
+  - jobs retried on failure
+---
+# PRD
+As a user, I want reliable jobs.
+"""
+
+UX_SPEC = """---
+type: ux-spec
+feature: newapp
+status: draft
+flows:
+  - submit a job
+screens:
+  - job list
+accessibility:
+  - keyboard navigable
+  - sufficient contrast
+design_system:
+  - button
+---
+# UX spec
+Flows and their states.
+"""
+
+TECH_DESIGN = """---
+type: tech-design
+feature: newapp
+status: approved
+decisions:
+  - add a retry queue
+components:
+  - worker
+risks:
+  - duplicate delivery
+---
+# Tech design
+Consumes the ux-spec flows.
+"""
+
+ADR = """# ADR 1
+## Context
+c
+## Decision
+d
+## Alternatives considered
+a
+## Consequences
+q
+"""
+
+MARKET_BRIEF = """---
+type: market-brief
+feature: search
+status: draft
+segments:
+  - SMB
+competitors:
+  - Algolia
+  - Elastic
+  - Typesense
+sizing: not stated in the notes
+sources:
+  - market-notes.md
+---
+# Market brief
+Competitors: Algolia, Elastic, Typesense.
 """
 
 # A priority-bearing taskstore that keeps the target-repo's existing suite green (mirrors the
@@ -165,6 +277,21 @@ def _good_phase(system: str, user: str, repo: Path) -> str:
         (_sdlc_dir(user, repo) / "deploy-status.md").write_text(DEPLOY_STATUS, encoding="utf-8")
     elif "type: incident" in user:
         (_sdlc_dir(user, repo) / "incident.md").write_text(INCIDENT, encoding="utf-8")
+    elif "type: onboarding" in user:
+        (_sdlc_dir(user, repo) / "onboarding.md").write_text(ONBOARDING, encoding="utf-8")
+        vault.add_note(repo, "worker-no-retry", "Worker has no retry", "A failed job is lost.")
+    elif "type: research-brief" in user:
+        (_sdlc_dir(user, repo) / "research-brief.md").write_text(RESEARCH_BRIEF, encoding="utf-8")
+    elif "type: prd" in user:
+        (_sdlc_dir(user, repo) / "prd.md").write_text(PRD_MD, encoding="utf-8")
+    elif "type: ux-spec" in user:
+        (_sdlc_dir(user, repo) / "ux-spec.md").write_text(UX_SPEC, encoding="utf-8")
+    elif "type: tech-design" in user:
+        sdlc = _sdlc_dir(user, repo)
+        (sdlc / "tech-design.md").write_text(TECH_DESIGN, encoding="utf-8")
+        (sdlc / "adr-001.md").write_text(ADR, encoding="utf-8")
+    elif "type: market-brief" in user:
+        (_sdlc_dir(user, repo) / "market-brief.md").write_text(MARKET_BRIEF, encoding="utf-8")
     return "done"
 
 
@@ -290,7 +417,13 @@ def test_run_scenario_fails_with_noop(tmp_path: Path) -> None:
 
 
 def test_scenarios_registered() -> None:
-    assert set(SCENARIOS) == {"spine", "quality-gate", "ops-incident"}
+    assert set(SCENARIOS) == {
+        "spine",
+        "quality-gate",
+        "ops-incident",
+        "product-inception",
+        "market-brief",
+    }
     for scn in SCENARIOS.values():
         assert isinstance(scn, Scenario) and scn.phases
 
@@ -324,3 +457,59 @@ def test_ops_incident_prompt_neutralizes_live_connector() -> None:
         phases=(Phase("deploy-watch", "read the data and write it", lambda r: []),),
     )
     assert any("neutralize live connectors" in p for p in scenario_wiring(PLUGIN, broken))
+
+
+# --- Wave 2 checkpoints + scenarios ------------------------------------------
+
+
+def test_check_incident_env_marker(tmp_path: Path) -> None:
+    _write(tmp_path, "f", "incident.md", INCIDENT)
+    ok = check_incident(tmp_path, "f", expected_sev="sev1", env_marker="production")
+    assert all(c.passed for c in ok)
+    bad = check_incident(tmp_path, "f", expected_sev="sev1", env_marker="staging")
+    assert not bad[-1].passed  # the failing environment is not referenced
+
+
+def test_check_onboarding(tmp_path: Path) -> None:
+    assert not check_onboarding(tmp_path, "f")[0].passed  # no artifact, no vault
+    _write(tmp_path, "f", "onboarding.md", ONBOARDING)
+    assert not check_onboarding(tmp_path, "f")[1].passed  # vault not seeded yet
+    vault.add_note(tmp_path, "n", "N", "body")
+    assert all(c.passed for c in check_onboarding(tmp_path, "f"))
+
+
+def test_check_ux_spec(tmp_path: Path) -> None:
+    assert not check_ux_spec(tmp_path, "f")[0].passed
+    _write(tmp_path, "f", "ux-spec.md", UX_SPEC)
+    assert all(c.passed for c in check_ux_spec(tmp_path, "f"))
+
+
+def test_check_market_brief(tmp_path: Path) -> None:
+    assert not check_market_brief(tmp_path, "f")[0].passed
+    _write(tmp_path, "f", "market-brief.md", MARKET_BRIEF)
+    good = check_market_brief(tmp_path, "f", competitors=("Algolia", "Typesense"))
+    assert all(c.passed for c in good)
+    miss = check_market_brief(tmp_path, "f", competitors=("Algolia", "Nonesuch"))
+    assert not miss[-1].passed  # a named competitor is absent
+
+
+def test_run_product_inception_all_pass(tmp_path: Path) -> None:
+    results = run_scenario(
+        PLUGIN, SCENARIOS["product-inception"], run_phase=_good_phase, workspace=tmp_path
+    )
+    assert [r.phase for r in results] == [
+        "repo-onboarding",
+        "research",
+        "product",
+        "ux-design",
+        "architecture",
+    ]
+    assert all_passed(results), [str(c) for r in results for c in r.checkpoints]
+
+
+def test_run_market_brief_all_pass(tmp_path: Path) -> None:
+    results = run_scenario(
+        PLUGIN, SCENARIOS["market-brief"], run_phase=_good_phase, workspace=tmp_path
+    )
+    assert [r.phase for r in results] == ["marketing"]
+    assert all_passed(results), [str(c) for r in results for c in r.checkpoints]

@@ -6,6 +6,20 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Added — Domain E2E Wave 2 (product-inception + market-brief)
+
+Completed the domain-E2E plan. Added the **`product-inception`** chain (repo-onboarding → research
+→ product → ux-design → architecture — the spine phases are carriers exercising the handoffs; the
+onboarding phase's checkpoint runs `vault.validate_vault` on the seeded knowledge vault) and the
+**`market-brief`** scenario (`marketing` on its Tier-2 fixture with a **deterministic**
+named-competitor check — Algolia / Elastic / Typesense — the complement that the earlier "exclude
+marketing" draft wrongly ruled out). Closed the **`ops-incident` handoff check** the design called
+for: the incident must reference the failing `production` environment from the deploy-status
+(`check_incident`'s `env_marker`). New checkpoints `check_onboarding` / `check_ux_spec` /
+`check_market_brief`; `tests/test_domain_e2e.py` extended (spine_e2e.py stays **100% line
+coverage**, suite 99%). `eval.yml`'s domain step now runs all four domain scenarios; all five
+Tier-3 scenarios pass `--runner dry`. The recorded live `--runner claude` run remains on-demand.
+
 ### Added — Domain E2E Wave 1 (Tier-3 chains implemented)
 
 Implemented Wave 1 of the design
