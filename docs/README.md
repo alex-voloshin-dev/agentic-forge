@@ -17,8 +17,10 @@ documentation discipline in the root `CLAUDE.md`).
   - [SDLC spine (Layer 2)](architecture/spine.md) — the six-phase spine from idea to
     reviewed code (research → product → architecture → plan → develop → code-review), built
     and proven end-to-end.
-  - [Domain E2E](architecture/domain-e2e.md) *(designed, not built)* — planned Tier-3 chain
-    scenarios extending end-to-end coverage to the Stage 4–6 domains.
+  - [Domain E2E](architecture/domain-e2e.md) — Tier-3 chain scenarios extending end-to-end coverage
+    to the Stage 4–6 domains (built + live-validated; per-phase retry).
+  - [Quality hardening](architecture/quality-hardening.md) *(designed, not built)* — three post-spine
+    increments: handoff-contract guard, knowledge recall in the spine, develop parallelism.
   - **Layer 2 domains** — [quality & ops](architecture/quality-ops.md) (qa-test-strategy,
     security-review, deploy-watch, incident-response, release),
     [product & marketing](architecture/product-marketing.md), and

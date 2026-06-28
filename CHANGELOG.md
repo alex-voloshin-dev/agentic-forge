@@ -6,6 +6,19 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Added — Quality-hardening plan (handoff guard, knowledge recall, develop parallelism)
+
+Design + decisions for three post-spine hardening increments — **design only, no code yet**:
+[quality-hardening.md](docs/architecture/quality-hardening.md) +
+[ADR 0032](docs/architecture/decisions/0032-handoff-contract-guard.md) (a deterministic guard that
+each artifact-producing skill's body documents the fields its handoff schema requires — the root
+cause behind the live-sweep `ux-design` flakiness),
+[ADR 0033](docs/architecture/decisions/0033-knowledge-recall-in-spine.md) (each spine phase recalls
+relevant vault notes before acting — realizing the constitution's read-the-vault intent), and
+[ADR 0034](docs/architecture/decisions/0034-develop-parallelism.md) (develop implements independent
+plan tasks concurrently across worktrees via a tested `plan_batches`). The three are independent
+(implementable in parallel); contract → evals → implementation → gate → a final deep review follow.
+
 ### Added — Scheduled-job health report
 
 `schedule.health(jobs, state)` + `format_health(...)` surface the per-job run history that cadence
