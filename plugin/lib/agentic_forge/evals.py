@@ -13,7 +13,7 @@ from typing import Any
 
 import jsonschema
 
-__all__ = ["EvalsError", "load_evals", "validate_evals"]
+__all__ = ["EvalsError", "eval_case_problems", "load_evals", "validate_evals"]
 
 # plugin/lib/agentic_forge/evals.py -> plugin/schemas/evals.schema.json
 _SCHEMA_PATH = Path(__file__).resolve().parents[2] / "schemas" / "evals.schema.json"
@@ -47,3 +47,24 @@ def validate_evals(data: dict[str, Any], *, schema: dict[str, Any] | None = None
         location = "/".join(str(p) for p in err.path) or "<root>"
         errors.append(f"{location}: {err.message}")
     return errors
+
+
+def eval_case_problems(label: str, cases: list[dict[str, Any]], plugin_dir: Path) -> list[str]:
+    """Per-case wiring problems shared by the skill + agent Tier-2 readiness checks: no eval cases,
+    a case with no assertions, duplicate fixture basenames (``materialize_fixtures`` flattens to
+    basename, so a collision silently overwrites), and a missing fixture file."""
+    problems: list[str] = []
+    if not cases:
+        problems.append(f"{label}: contract has no eval cases")
+    for case in cases:
+        cid = case.get("id")
+        if not (case.get("assertions") or []):
+            problems.append(f"{label} case {cid}: no assertions")
+        files = case.get("files") or []
+        basenames = [Path(rel).name for rel in files]
+        if len(set(basenames)) != len(basenames):
+            problems.append(f"{label} case {cid}: duplicate fixture basenames {basenames}")
+        for rel in files:
+            if not (plugin_dir / rel).is_file():
+                problems.append(f"{label} case {cid}: missing fixture {rel}")
+    return problems

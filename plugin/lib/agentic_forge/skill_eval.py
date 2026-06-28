@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from agentic_forge import agent_eval, gate
-from agentic_forge.evals import load_evals
+from agentic_forge.evals import eval_case_problems, load_evals
 from agentic_forge.frontmatter import parse as parse_frontmatter
 
 __all__ = [
@@ -160,20 +160,7 @@ def check_wiring(skill: str, plugin_dir: Path) -> list[str]:
     contract = load_evals(evals_path)
     if "tier2_quality" not in (contract.get("thresholds") or {}):
         problems.append(f"{skill}: no tier2_quality threshold")
-    cases = contract.get("evals") or []
-    if not cases:
-        problems.append(f"{skill}: contract has no eval cases")
-    for case in cases:
-        cid = case.get("id")
-        if not (case.get("assertions") or []):
-            problems.append(f"{skill} case {cid}: no assertions")
-        files = case.get("files") or []
-        basenames = [Path(rel).name for rel in files]
-        if len(set(basenames)) != len(basenames):
-            problems.append(f"{skill} case {cid}: duplicate fixture basenames {basenames}")
-        for rel in files:
-            if not (plugin_dir / rel).is_file():
-                problems.append(f"{skill} case {cid}: missing fixture {rel}")
+    problems += eval_case_problems(skill, contract.get("evals") or [], plugin_dir)
     if is_off_listing(plugin_dir, skill):
         # A knowledge skill is executed as the base role with engineering-standards loaded.
         if not _body(md):

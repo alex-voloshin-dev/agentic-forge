@@ -22,13 +22,13 @@ Exit code 0 if every selected role's gate passes (or dry-run is clean), 1 otherw
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO_ROOT / "plugin" / "lib"))
 
+import _eval_cli  # noqa: E402
 from agentic_forge import agent_eval  # noqa: E402
 from agentic_forge.frontmatter import parse as parse_frontmatter  # noqa: E402
 
@@ -95,12 +95,7 @@ def main(argv: list[str]) -> int:
         print("\nDry-run:", "OK" if ok else "problems found")
         return 0 if ok else 1
 
-    if args.runner == "claude" and os.environ.get("ANTHROPIC_API_KEY"):
-        print(
-            "warning: ANTHROPIC_API_KEY is set; the claude CLI uses it before the "
-            "subscription token. Unset it to bill this run to your Claude subscription.",
-            file=sys.stderr,
-        )
+    _eval_cli.warn_if_api_key_set(args.runner)
 
     all_passed = True
     for role in roles:

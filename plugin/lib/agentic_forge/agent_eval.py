@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from . import benchmark, gate
-from .evals import load_evals
+from .evals import eval_case_problems, load_evals
 from .frontmatter import parse as parse_frontmatter
 
 __all__ = [
@@ -240,21 +240,7 @@ def check_wiring(role: str, plugin_dir: Path) -> list[str]:
     if problems:
         return problems
     contract = load_evals(contract_path)
-    cases = contract.get("evals") or []
-    if not cases:
-        problems.append(f"{role}: contract has no eval cases")
-    for case in cases:
-        cid = case.get("id")
-        if not (case.get("assertions") or []):
-            problems.append(f"{role} case {cid}: no assertions")
-        files = case.get("files") or []
-        basenames = [Path(rel).name for rel in files]
-        if len(set(basenames)) != len(basenames):
-            # materialize_fixtures flattens to basename, so a collision would silently overwrite.
-            problems.append(f"{role} case {cid}: duplicate fixture basenames {basenames}")
-        for rel in files:
-            if not (plugin_dir / rel).is_file():
-                problems.append(f"{role} case {cid}: missing fixture {rel}")
+    problems += eval_case_problems(role, contract.get("evals") or [], plugin_dir)
     return problems
 
 
