@@ -77,12 +77,14 @@ hooks import from this package.
 
 A CLI that walks `plugin/skills/*` and `plugin/agents/*.md` and runs `validation.py`. For
 each skill it checks: directory/name rules, required non-empty `description` (≤1024), body
-≤500 lines, that local `references/`, `assets/`, `scripts/` links resolve, and that a valid
-`evals/evals.json` (with `component.type: skill`) exists. Each agent is gated the same way:
-a sibling contract at `plugin/agents/evals/<name>.evals.json` with `component.type: agent`
-is required. Errors fail the gate (exit 1); warnings (e.g. unknown frontmatter field) never
-fail. Standard fields and documented Claude Code extension fields are both recognized;
-anything else warns as a possible typo.
+≤500 lines, that local (`references/`/`assets/`/`scripts/`) **and cross-tree (`](../...)`) links
+resolve**, and that a valid `evals/evals.json` (with `component.type: skill`) exists. Each agent is
+gated the same way: a sibling contract at `plugin/agents/evals/<name>.evals.json` with
+`component.type: agent` is required. Errors fail the gate (exit 1); warnings (e.g. unknown
+frontmatter field) never fail. Standard fields and documented Claude Code extension fields are both
+recognized; anything else warns as a possible typo. It also runs the two **skill-body contract
+guards** (`skill_contract`, ADR 0032/0033) over the present skills — documented handoff fields +
+the spine recall step — so a single `validate.py` run enforces them (they also block via pytest).
 
 Coverage and types are part of Tier 0 too, enforced in CI: `pytest --cov=agentic_forge
 --cov-fail-under=80`, `ruff`, and `mypy` (see [ci.yml](../../.github/workflows/ci.yml)).

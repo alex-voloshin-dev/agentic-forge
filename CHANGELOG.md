@@ -6,6 +6,18 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Changed — Tier-0 validator gates cross-tree links + runs the contract guards
+
+`dev/validate.py` now (a) resolves **cross-tree relative markdown links** (`](../...)` / `](./...)`
+to patterns, agents, docs, and sibling skills — previously only a skill's own
+`references/`/`assets/`/`scripts/` links were checked, so the **52** inter-dir links sat ungated —
+and (b) runs the **handoff-contract** and **knowledge-recall** guards (ADR 0032/0033) over the
+skills present in the plugin, so one `python dev/validate.py` enforces them (they already blocked
+via pytest). The guards scope to *present* skills, so the aggregate validator stays correct on a
+partial plugin; map/spine completeness is still asserted by pytest. This closes the two follow-ups
+the quality-hardening deep review deferred. All 52 links resolve; new tests cover the relative-ref
+check (resolving + missing) and the guard wiring; full gate green.
+
 ### Fixed — quality-hardening deep review (5-lens adversarial pass)
 
 A five-reviewer review (each verified against source; full gate re-run clean) found real gaps in the

@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import evals as evals_mod
-from . import naming
+from . import naming, skill_contract
 from .frontmatter import FrontmatterError, parse
 
 DESCRIPTION_MAX_LEN = 1024
@@ -51,6 +51,22 @@ KNOWN_FIELDS = STANDARD_FIELDS | CLAUDE_CODE_FIELDS
 
 # Local references we expect to resolve on disk.
 _LOCAL_REF = re.compile(r"(?:\]\(|\$\{CLAUDE_SKILL_DIR\}/)((?:references|assets|scripts)/[^)\s]+)")
+# Cross-tree relative markdown links (`](../...)` / `](./...)`) — patterns, agents, docs, sibling
+# skills. These resolve against the file's own directory and must exist (gates inter-dir link rot).
+_RELATIVE_REF = re.compile(r"\]\((\.\.?/[^)\s#?]+)")
+
+
+def _check_refs(text: str, base_dir: Path, loc: str, report: Report) -> None:
+    """Error on any local (`references/`/`assets/`/`scripts/`) or relative (`../`,`./`) markdown
+    reference in ``text`` that does not resolve under ``base_dir``."""
+    for match in _LOCAL_REF.finditer(text):
+        ref = match.group(1).split("#", 1)[0].split("?", 1)[0]  # drop #anchor / ?query
+        if ref and not (base_dir / ref).exists():
+            report.error(loc, f"referenced file does not exist: {ref}")
+    for match in _RELATIVE_REF.finditer(text):
+        ref = match.group(1)
+        if not (base_dir / ref).exists():
+            report.error(loc, f"referenced file does not exist: {ref}")
 
 
 @dataclass
@@ -161,11 +177,8 @@ def validate_skill(skill_dir: Path) -> Report:
             f"body is {line_count} lines; keep under {BODY_MAX_LINES} (move detail to references/)",
         )
 
-    # local references must resolve.
-    for match in _LOCAL_REF.finditer(text):
-        ref = match.group(1).split("#", 1)[0].split("?", 1)[0]  # drop #anchor / ?query
-        if ref and not (skill_dir / ref).exists():
-            report.error(f"{rel}/SKILL.md", f"referenced file does not exist: {ref}")
+    # local + cross-tree relative references must resolve.
+    _check_refs(text, skill_dir, f"{rel}/SKILL.md", report)
 
     # evals.json contract is mandatory; its fixture files must exist (no silent rot).
     _check_evals(
@@ -215,11 +228,13 @@ def validate_agent(agent_md: Path) -> Report:
     for err in naming.validate_name(name):
         report.error(rel, f"file name: {err}")
 
+    text = agent_md.read_text(encoding="utf-8")
     try:
-        fm, _ = parse(agent_md.read_text(encoding="utf-8"))
+        fm, _ = parse(text)
     except FrontmatterError as exc:
         report.error(rel, str(exc))
         return report
+    _check_refs(text, agent_md.parent, rel, report)
 
     if not fm.get("description"):
         report.error(rel, "agent description is required")
@@ -269,5 +284,18 @@ def validate_plugin(plugin_dir: Path) -> Report:
     if agents_dir.is_dir():
         for child in sorted(agents_dir.glob("*.md")):
             report.extend(validate_agent(child))
+
+    # Skill-body contract guards (ADR 0032/0033) over the skills present in this dir: documented
+    # handoff fields + the spine recall step. Map/spine completeness vs the real plugin is asserted
+    # separately by pytest, so the aggregate validator stays correct on a partial plugin too.
+    def _present(name: str) -> bool:
+        return (plugin_dir / "skills" / name / "SKILL.md").is_file()
+
+    handoff_map = {s: t for s, t in skill_contract.SKILL_HANDOFF.items() if _present(s)}
+    for problem in skill_contract.handoff_contract_problems(plugin_dir, handoff_map):
+        report.error("skill-contract", problem)
+    spine_present = tuple(s for s in skill_contract.SPINE_SKILLS if _present(s))
+    for problem in skill_contract.recall_problems(plugin_dir, spine_present):
+        report.error("knowledge-recall", problem)
 
     return report
