@@ -68,7 +68,7 @@ plugin/
   .claude-plugin/plugin.json
   skills/<name>/{SKILL.md, references/, assets/, scripts/, evals/evals.json}
   agents/<name>.md          # + agents/evals/<name>.evals.json (agent contracts)
-  patterns/                 # engine pattern references (handoff, review loop, worktree)
+  patterns/                 # engine pattern references (handoff, review/adversarial review, fan-out/fan-in, worktree(-parallel), knowledge-recall)
   hooks/{hooks.json, scripts/*.py}        # L3 session-start + L4 guardrail hooks (security, test-gate, logging, budgets)
   lib/agentic_forge/        # shared, importable, tested
   eval/{README.md, fixtures/}             # harness docs + agent eval fixtures

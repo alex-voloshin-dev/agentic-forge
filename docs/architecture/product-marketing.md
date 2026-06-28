@@ -1,4 +1,4 @@
-# Stage 5 — Product & marketing domains (design)
+# Stage 5 — Product & marketing domains
 
 Stage 5 adds the **marketing** domain. The "product" half of the roadmap stage is already shipped,
 so the net-new work is one router skill for marketing, evidence-first to avoid low-signal output.
@@ -18,7 +18,8 @@ wanted later, it extends `product`; it is not a new component. This stage is the
 CLAUDE.md router discipline keeps the always-on set small and pushes depth into `references/`;
 marketing is rarely used relative to the SDLC core, so it is **one on-listing `marketing` router
 skill** that dispatches to sub-procedures in `references/`, forking the research / `Explore` roles
-to gather evidence. It covers the roadmap's six areas:
+to gather evidence. It consolidates the roadmap's six topics (market, competitors, strategy,
+content, social, paid) into three sub-procedures:
 
 | Sub-area (reference) | Does | Output |
 | --- | --- | --- |

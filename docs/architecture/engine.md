@@ -25,7 +25,7 @@ These are recorded in [ADR 0009](decisions/0009-engine-roles-and-handoff.md).
 ## Subagent roles
 
 Each role is a single Markdown file under `plugin/agents/<name>.md`. Skills delegate to
-them via `context: fork` + `agent: <name>` or the `Task` tool; users never call them.
+them via the `Task` tool (named in `allowed-tools`); users never call them.
 
 | Role | Purpose | Tools (narrowed) | Returns |
 | --- | --- | --- | --- |

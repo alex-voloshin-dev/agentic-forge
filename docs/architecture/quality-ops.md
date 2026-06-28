@@ -1,4 +1,4 @@
-# Stage 4 — Quality & operations domains (design)
+# Stage 4 — Quality & operations domains
 
 Five phase-workflow skills that extend the SDLC spine past `develop` / `code-review` into
 **quality** (`qa-test-strategy`, `security-review`) and **operations** (`deploy-watch`,

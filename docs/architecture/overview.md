@@ -29,7 +29,7 @@ actually experience.
 | Layer | Responsibility | Status |
 | --- | --- | --- |
 | L0 Meta-core | `skill-factory`, eval-harness, `lib/`, Tier-0 validator. Builds everything else. | **Built** |
-| L1 Engine | Subagent roles + native patterns (router, fan-out/fan-in, review loop, worktree, file handoff; Ralph deferred). | **Built** — six roles + handoff schemas + fan-out-fan-in / multi-aspect-review / adversarial-review / review-loop / worktree patterns; **Ralph deferred** (would run natively, not reimplemented — see below). |
+| L1 Engine | Subagent roles + native patterns (router, fan-out/fan-in, review loop, worktree, file handoff; Ralph deferred). | **Built** — six roles + handoff schemas + fan-out-fan-in / multi-aspect-review / adversarial-review / review-loop / worktree / worktree-parallel / knowledge-recall patterns; **Ralph deferred** (would run natively, not reimplemented — see below). |
 | L2 Workflow skills | A phase-workflow per SDLC phase; each fans out subagents and synthesizes a handoff artifact; depth in references. | **Built** — six-phase spine (research → product → architecture → plan → develop → code-review), proven end-to-end (Tier-3); stack-parametric via `stacks.py` detection + nine `*-patterns` packs; **+ Stage-4 quality/ops domains** (qa-test-strategy, security-review, deploy-watch, incident-response, release) on the `ops`/`release` cores, Tier-1/Tier-2 gated (ADR 0021); **+ Stage-5 marketing domain** (one evidence-first `marketing` router, ADR 0022); **+ Stage-6 design & onboarding** (`ux-design` specs, `repo-onboarding` → seeds the Stage-3 vault, ADR 0023). |
 | L3 Knowledge base | Obsidian-format vault the plugin deploys, maintains, and reads for context. | **Built** — vault lib + `knowledge` recall/capture skill + session-start hook (ADR 0018). |
 | L4 Guardrails & ops | Hooks for security, the test/eval gate, logging, subagent budgets; plus scheduling & observability. | **Built** — four PreToolUse/PostToolUse guardrail hooks (ADR 0019) **+ scheduling & observability** (ADR 0024): declarative scheduled-job registry + audit-log digest + `run_scheduled`/`audit_digest` CLIs + cron CI. |
@@ -66,8 +66,9 @@ built are marked **(deferred)** — designed-for but not part of the current eng
   descriptions. (`user-invocable: false` only hides a skill from the user's `/` menu — its
   description still counts against the budget; `disable-model-invocation: true` removes a
   skill from the listing.)
-- **Forked skills / subagents** — `context: fork` + `agent` runs a skill in isolation; the
-  `Task` tool spawns subagents for fan-out/fan-in.
+- **Forked skills / subagents** — the `Task` tool spawns subagents (the convention this plugin
+  uses for delegation + fan-out/fan-in); `context: fork` + `agent` is an alternative Claude Code
+  mechanism (binds a skill to one subagent type) that the plugin does not use.
 - **Fan-out / fan-in** — partition work into independent units, run one subagent each in
   parallel, then synthesize one result (the backbone of Stage 2 phase-workflows;
   `patterns/fan-out-fan-in.md`, specialised by `patterns/multi-aspect-review.md`).

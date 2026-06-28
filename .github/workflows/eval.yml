@@ -53,8 +53,9 @@ jobs:
         run: python dev/run_tier1_evals.py --runner dry
 
       # Real Tier-1 for the on-listing router skills via the Claude subscription: classifies each
-      # skill's trigger prompts against the LIVE listing, majority-of-N, and gates
-      # recall/specificity >= 0.9 with agentic_forge.gate (ADR 0016). Skipped without the token.
+      # skill's trigger prompts against the LIVE listing, scored as the mean per-prompt routing
+      # rate, and gates recall/specificity >= 0.9 with agentic_forge.gate (ADR 0016/0026). Skipped
+      # without the token.
       - name: Skill Tier-1 trigger (subscription via claude)
         if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}
         run: python dev/run_tier1_evals.py --runner claude --model "$EVAL_MODEL"

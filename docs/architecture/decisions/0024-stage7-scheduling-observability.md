@@ -1,6 +1,6 @@
 # 0024 — Stage 7: scheduling & observability (no daemon — declarative jobs + audit digest)
 
-Status: Accepted
+Status: Accepted (extended by [ADR 0031](0031-scheduling-cadence-persistence.md))
 
 ## Context
 

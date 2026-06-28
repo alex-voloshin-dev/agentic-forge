@@ -1,4 +1,4 @@
-# Real provider connectors (design)
+# Real provider connectors
 
 Implement the **existing** seams against real providers — no new seams. The `ops.py` Protocols
 (`PipelineSource`, `AlertSource`) and the marketing → `research`/`Explore` path were built for

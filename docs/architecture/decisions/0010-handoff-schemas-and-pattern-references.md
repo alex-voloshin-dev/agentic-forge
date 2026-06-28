@@ -1,6 +1,6 @@
 # 0010 — Handoff header schemas and pattern-reference location
 
-Status: Accepted
+Status: Accepted (relaxed by [ADR 0028](0028-handoff-contract-relaxation.md))
 
 ## Context
 

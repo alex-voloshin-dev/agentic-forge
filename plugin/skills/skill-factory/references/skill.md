@@ -18,8 +18,9 @@ Common Claude Code extensions (use only when needed):
 - `disable-model-invocation: true` — manual-only (`/name`); for side-effecting actions
   (deploy, commit, send). Removes the description from context.
 - `user-invocable: false` — Claude-only background knowledge; not a meaningful command.
-- `allowed-tools` — pre-approve tools while active (e.g. `Read Write Edit Grep Glob`).
-- `context: fork` + `agent` — run the skill in an isolated subagent of that type.
+- `allowed-tools` — pre-approve tools while active (e.g. `Read, Write, Edit, Grep, Glob`).
+- `context: fork` + `agent` — a Claude Code field binding the skill to one subagent type;
+  **this plugin does not use it** — skills delegate at runtime via the `Task` tool instead.
 - `paths` — glob(s) that gate auto-loading to matching files.
 - `argument-hint`, `arguments`, `model`, `effort` — as documented.
 

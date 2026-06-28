@@ -1,6 +1,6 @@
 # 0026 — Tier-1 recall/specificity = mean routing-rate, not fraction-of-prompt-majorities
 
-Status: Accepted (refines the metric of [ADR 0016](0016-tier1-trigger-runner.md))
+Status: Accepted (refines the metric of [ADR 0016](0016-tier1-trigger-runner.md); extended by [ADR 0029](0029-tier1-routing-remediation.md))
 
 ## Context
 

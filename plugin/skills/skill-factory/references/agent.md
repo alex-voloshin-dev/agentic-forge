@@ -1,8 +1,8 @@
 # Authoring a subagent
 
 A subagent is a Markdown file `plugin/agents/<name>.md` with YAML frontmatter and a
-system-prompt body. Skills delegate to it via `context: fork` + `agent: <name>` or via
-the `Task` tool. Users do not call agents directly — keep the plugin skill-centric.
+system-prompt body. Skills delegate to it at runtime via the `Task` tool (named in their
+`allowed-tools`). Users do not call agents directly — keep the plugin skill-centric.
 
 ## When a subagent (not a skill)
 

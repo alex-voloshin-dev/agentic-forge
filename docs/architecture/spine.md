@@ -54,7 +54,7 @@ quality `reviewer`, `grader`, `security-engineer`, `qa-engineer`.
 
 A shippable plugin can't depend on the harness Workflow tool, so a phase-workflow is a
 **skill whose `SKILL.md` encodes the multi-stage fan-out procedure**, executed with the native
-subagent mechanism (`context: fork` + `agent`, the `Task` tool) — model-driven orchestration,
+subagent mechanism (the `Task` tool) — model-driven orchestration,
 the pattern agentic-forge already uses. **Deterministic glue** (stack detection, plan parsing,
 artifact-header validation, synthesis scaffolding) lives in `plugin/lib/agentic_forge/` and is
 unit-tested. New pattern references: **fan-out/fan-in** and **multi-aspect review**; reused:

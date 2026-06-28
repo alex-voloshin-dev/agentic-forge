@@ -1,4 +1,4 @@
-# Stage 6 — Design & onboarding domains (design)
+# Stage 6 — Design & onboarding domains
 
 Two skills: `ux-design` (UX specs for a feature) and `repo-onboarding` (analyze an unfamiliar
 codebase and seed the Stage-3 knowledge vault). Both have their own behavior, so both are

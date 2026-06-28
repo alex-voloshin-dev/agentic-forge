@@ -1,6 +1,6 @@
 # 0016 — Tier-1 trigger runner on live skill descriptions
 
-Status: Accepted
+Status: Accepted (metric refined by [ADR 0026](0026-tier1-mean-routing-rate.md))
 
 ## Context
 

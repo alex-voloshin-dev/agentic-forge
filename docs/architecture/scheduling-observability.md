@@ -1,4 +1,6 @@
-# Stage 7 (follow-on) — Scheduling & observability (design)
+# Stage 7 — Scheduling & observability
+
+Status: **Built** (ADR 0024).
 
 The L4 guardrail hooks shipped in ADR 0019; **scheduling and observability** were deferred as a
 follow-on because scheduling is headless *cadence*, not a guardrail (see ADR 0019). This increment

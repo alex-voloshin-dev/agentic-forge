@@ -19,8 +19,8 @@ fan out only the independent sub-parts.
 
 1. **Partition** the work into independent units (by direction / component / aspect). State the
    unit list explicitly — it is the contract for the fan-out.
-2. **Spawn** one subagent per unit (declare the role via `context: fork` + `agent` in
-   frontmatter; spawn the N units at runtime with the `Task` tool), each with a focused prompt
+2. **Spawn** one subagent per unit with the `Task` tool (declare `Task` in the skill's
+   `allowed-tools` and name the role per unit), each with a focused prompt
    and a **structured return contract** (so results compose) — a minimal unit envelope is
    `{unit, status, result, gaps[]}`; specializations refine `result` (e.g. review findings).
    Run concurrently; cap concurrency to the budget below.
