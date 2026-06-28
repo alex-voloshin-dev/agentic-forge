@@ -6,6 +6,43 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Fixed — full-plugin deep review (6 reviewers: skills, lib, tests, docs, agents/patterns/hooks, cross-cutting)
+
+A whole-plugin review (each finding reproduced against source). No blockers; the system was found
+healthy. Fixed across four areas:
+
+**Correctness.** `gate` now compares metrics with an epsilon, so a value exactly at its threshold
+isn't failed by binary-float representation (`0.85-0.05 == 0.7999…` was a spurious FAIL).
+`run_scheduled` returns non-zero when a job fails (the per-job `ok` was never aggregated, so a cron
+stayed green on failure). `release.next_version` strips a `-prerelease`/`+build` semver suffix
+before bumping (a `git describe` tag crashed it). `agent_eval._json_candidates` is O(n) (brace
+stack) instead of the per-`{` O(n²) rescan. Removed dead `majority_selection`; dropped a wrong
+`# pragma` on a tested branch.
+
+**Documentation.** Finished the `context: fork` → `Task` sweep ADR 0035 began — 6 remaining
+docs/patterns (incl. `skill-factory`'s teaching refs, which were instructing the unused idiom);
+dropped stale "(design)" from 5 shipped architecture-doc titles; fixed product-marketing's "six
+areas" (it lists three); pattern enumerations now include `knowledge-recall`/`worktree-parallel`;
+ADR back-references (0010/0016/0024/0026); `eval.yml` "majority-of-N" → mean-rate.
+
+**Skill contract uniformity.** All 8 non-spine handoff producers now instruct
+`handoff.validate_header(...)` + link `handoff.md` (matching the 5 spine producers); added the
+`type` frontmatter field to the 5 skills that omitted it (the ADR-0032 shape); skill-factory
+`allowed-tools` space-separated → comma.
+
+**Test integrity + scaling.** Enabled **branch coverage** (line-only 100% hid weakened-branch
+regressions — a `>`/`>=` flip survived); added mutation-killing tests (body-cap boundary,
+empty-description, recall title-vs-body weighting, validate_agent no-name); extended the security
+deny-list with `find <system-dir> … -delete` (targeted sub-paths stay allowed). Added a **weekly
+eval cron** so Tier-1/2 are continuously gated (not just spot-checked) + documented the router
+listing-budget ceiling. Closed the marketing-strategy / knowledge-recall eval holes;
+`pass_rate_of` handles `{passed, failed}` without a `total`; the budget counter clamps a negative.
+
+670 tests; `validate`/`ruff`/`mypy` green; branch coverage 97.6% (library ~100%). **Deferred**
+(low-value/churn, no behaviour change): de-duplicating the eval-runner readers + dev/ CLI
+scaffolding, `audit.jsonl` rotation/windowing, second eval cases for ux-design/repo-onboarding,
+tightening the remaining `!= []` schema-test assertions, and a `vault.add_note` upsert doc-note.
+
 ### Fixed — final independent review of the remediation diff
 
 A fresh 3-reviewer pass over the ultra-review remediation commits (`efd1061..HEAD`), each finding
