@@ -284,7 +284,8 @@ def bump_and_check(counter_path: Path | str, *, soft: int, hard: int) -> Decisio
     """
     path = Path(counter_path)
     try:
-        count = int(path.read_text(encoding="utf-8").strip())
+        # max(0, ...) so a hand-edited negative value can't silently disarm the cap
+        count = max(0, int(path.read_text(encoding="utf-8").strip()))
     except (FileNotFoundError, ValueError):
         count = 0
     count += 1

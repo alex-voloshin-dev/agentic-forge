@@ -13,13 +13,17 @@ on:
         description: "Model id for the eval runs"
         required: false
         default: "claude-opus-4-8"
+  schedule:
+    # Weekly full run so Tier-1/2 routing + quality regressions surface without a human labelling a
+    # PR (deep review: the upper tiers were otherwise only spot-checked). Skips if the token is unset.
+    - cron: "0 9 * * 1"  # Mondays 09:00 UTC
   pull_request:
     types: [labeled]
 
 jobs:
   quality:
     name: Tier 1-2 (trigger + quality)
-    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'eval'
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || github.event.label.name == 'eval'
     runs-on: ubuntu-latest
     env:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

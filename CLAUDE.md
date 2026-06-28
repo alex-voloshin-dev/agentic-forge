@@ -28,6 +28,9 @@ This file is the project constitution. Every contributor (human or agent) MUST f
    *not* save listing budget — it only hides a skill from the user's `/` menu while keeping
    it model-invocable with its description still in the listing; `disable-model-invocation:
    true` is what drops a skill from the listing (manual `/name` only).
+   The on-listing set today is ~2,450 tokens (17 skills) — at the ~1% ceiling with little headroom,
+   so **adding an on-listing skill requires a budget review**: tighten the longest descriptions or
+   move a router off-listing. A weekly CI cron re-runs Tier-1 so a routing regression surfaces.
 
 3. **Eval-driven, contract-first.** No component is built before its contract and its
    eval set exist. Order is always: (a) contract (purpose, triggers, inputs/outputs),

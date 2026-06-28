@@ -25,6 +25,17 @@
         "Each note has frontmatter (title, type, tags) and is reachable from a MOC",
         "validate_vault reports no broken links and no orphans"
       ]
+    },
+    {
+      "id": 3,
+      "prompt": "What do we know about our rate-limiting approach? Check our project notes (docs/knowledge/).",
+      "expected_output": "Recall mode: the vault has no note on rate limiting (none was captured), so the answer states nothing is recorded on it — it does NOT fabricate a decision, rationale, or links to non-existent notes.",
+      "files": [],
+      "assertions": [
+        "Operates in recall mode — reads the vault rather than capturing a new note",
+        "States that the vault has nothing recorded on rate limiting (no prior decision found)",
+        "Does NOT fabricate a decision, rationale, or [[wikilinks]] to non-existent notes"
+      ]
     }
   ],
   "component": {

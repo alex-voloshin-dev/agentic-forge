@@ -23,6 +23,18 @@
         "No unsupported claim is made — no invented benchmarks, percentages, or numbers beyond the brief's proof points",
         "The tone matches the brief (developer-friendly, concrete, no hype)"
       ]
+    },
+    {
+      "id": 3,
+      "prompt": "From positioning.md (in your working directory), produce a go-to-market strategy: the positioning statement, the channels to reach SMB developers, the key messaging, and the metrics to track.",
+      "expected_output": "A marketing-strategy artifact (type marketing-strategy) with a positioning statement grounded in positioning.md, concrete channels for SMB developers, messaging pillars, and measurable metrics — no invented figures.",
+      "files": ["eval/fixtures/marketing/positioning.md"],
+      "assertions": [
+        "Produces a valid marketing-strategy artifact (type marketing-strategy) with positioning and channels",
+        "The positioning is grounded in positioning.md, not generic boilerplate",
+        "Names concrete channels appropriate for SMB developers and measurable metrics",
+        "No fabricated figures or benchmarks beyond what positioning.md supports"
+      ]
     }
   ],
   "component": {

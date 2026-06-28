@@ -264,6 +264,13 @@ def test_bump_and_check_corrupt_counter(tmp_path: Path) -> None:
     assert c.read_text(encoding="utf-8") == "1"
 
 
+def test_bump_and_check_clamps_negative_counter(tmp_path: Path) -> None:
+    c = tmp_path / "count"
+    c.write_text("-100", encoding="utf-8")  # a hand-edited negative must not disarm the cap
+    bump_and_check(c, soft=1, hard=2)
+    assert c.read_text(encoding="utf-8") == "1"  # clamped to 0 then +1, re-armed (not -99)
+
+
 def test_module_exports() -> None:
     for name in guardrails.__all__:
         assert hasattr(guardrails, name)

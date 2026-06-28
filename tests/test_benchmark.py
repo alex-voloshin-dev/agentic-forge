@@ -25,6 +25,11 @@ def test_pass_rate_from_counts() -> None:
     assert benchmark.pass_rate_of({"summary": {"passed": 3, "total": 4}}) == 0.75
 
 
+def test_pass_rate_from_passed_failed_without_total() -> None:
+    # {passed, failed} with no explicit `total` — used to fall through to 0.0 (the m6 gap)
+    assert benchmark.pass_rate_of({"summary": {"passed": 4, "failed": 1}}) == 0.8
+
+
 def test_pass_rate_from_assertion_results() -> None:
     g = {"assertion_results": [{"passed": True}, {"passed": False}]}
     assert benchmark.pass_rate_of(g) == 0.5

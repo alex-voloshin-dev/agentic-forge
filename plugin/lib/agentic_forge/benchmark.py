@@ -24,6 +24,10 @@ def pass_rate_of(grading: dict[str, Any]) -> float:
     if total is not None:  # an explicit total (incl. 0) is authoritative
         passed = summary.get("passed") or 0
         return (float(passed) / float(total)) if total else 0.0
+    passed, failed = summary.get("passed"), summary.get("failed")
+    if passed is not None and failed is not None:  # {passed, failed} with no explicit total
+        denom = float(passed) + float(failed)
+        return float(passed) / denom if denom else 0.0
     # Fall back to the assertion_results list.
     results = grading.get("assertion_results") or []
     if not results:
