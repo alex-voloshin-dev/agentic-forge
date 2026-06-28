@@ -5,6 +5,7 @@ from pathlib import Path
 from agentic_forge import spine_e2e, stacks
 from agentic_forge.spine_e2e import (
     PHASES,
+    SPINE,
     Checkpoint,
     PhaseResult,
     all_passed,
@@ -14,10 +15,9 @@ from agentic_forge.spine_e2e import (
     check_plan,
     check_product,
     check_research,
-    check_wiring,
-    prepare_workspace,
+    prepare_scenario,
     repo_tests_pass,
-    run_e2e,
+    run_scenario,
     skill_body,
 )
 
@@ -162,40 +162,35 @@ def _noop_phase(system: str, user: str, repo: Path) -> str:
     return "did nothing"
 
 
-# --- prepare_workspace -------------------------------------------------------
+# --- spine workspace (prepare_scenario for the SPINE scenario) ---------------
 
 
-def test_prepare_workspace_copies_and_git_inits(tmp_path: Path) -> None:
-    repo = prepare_workspace(PLUGIN, tmp_path)
+def test_spine_workspace_copies_and_git_inits(tmp_path: Path) -> None:
+    repo = prepare_scenario(PLUGIN, tmp_path, SPINE)
     assert (repo / "taskstore.py").is_file()
     assert (repo / "FEATURE_REQUEST.md").is_file()  # research's starting input
     assert not (repo / "docs" / "sdlc" / "task-priorities" / "prd.md").exists()  # not seeded
     assert (repo / ".git").is_dir()
 
 
-def test_prepare_workspace_seed(tmp_path: Path) -> None:
-    repo = prepare_workspace(PLUGIN, tmp_path, seed=("eval/fixtures/spine/prd.md",))
-    assert (repo / "docs" / "sdlc" / "task-priorities" / "prd.md").is_file()
-
-
-def test_prepare_workspace_reusable(tmp_path: Path) -> None:
+def test_spine_workspace_reusable(tmp_path: Path) -> None:
     # Re-running against the same dest must not crash (rmtree the prior repo first).
-    prepare_workspace(PLUGIN, tmp_path)
-    repo = prepare_workspace(PLUGIN, tmp_path)
+    prepare_scenario(PLUGIN, tmp_path, SPINE)
+    repo = prepare_scenario(PLUGIN, tmp_path, SPINE)
     assert (repo / "taskstore.py").is_file()
 
 
-def test_prepared_workspace_detects_python(tmp_path: Path) -> None:
+def test_spine_workspace_detects_python(tmp_path: Path) -> None:
     # By-stack (ADR 0015): the E2E target repo must be detected as the stack the spine
     # implements, so develop/code-review load python-patterns + the right toolchain.
-    repo = prepare_workspace(PLUGIN, tmp_path)
+    repo = prepare_scenario(PLUGIN, tmp_path, SPINE)
     profile = stacks.primary(repo)
     assert profile.stack_id == "python"
     assert profile.pack == "python-patterns"
 
 
 def test_check_research_product_plan(tmp_path: Path) -> None:
-    repo = prepare_workspace(PLUGIN, tmp_path)
+    repo = prepare_scenario(PLUGIN, tmp_path, SPINE)
     sdlc = repo / "docs" / "sdlc" / "task-priorities"
     sdlc.mkdir(parents=True, exist_ok=True)
     assert not check_research(repo)[0].passed
@@ -213,7 +208,7 @@ def test_check_research_product_plan(tmp_path: Path) -> None:
 
 
 def test_check_architecture_pass_and_fail(tmp_path: Path) -> None:
-    repo = prepare_workspace(PLUGIN, tmp_path)
+    repo = prepare_scenario(PLUGIN, tmp_path, SPINE)
     assert not PhaseResult("a", check_architecture(repo)).passed  # nothing produced yet
     sdlc = repo / "docs" / "sdlc" / "task-priorities"
     sdlc.mkdir(parents=True, exist_ok=True)
@@ -223,7 +218,7 @@ def test_check_architecture_pass_and_fail(tmp_path: Path) -> None:
 
 
 def test_check_develop_pass_and_fail(tmp_path: Path) -> None:
-    repo = prepare_workspace(PLUGIN, tmp_path)
+    repo = prepare_scenario(PLUGIN, tmp_path, SPINE)
     # baseline has no priority -> fail; tests still run
     cps = check_develop(repo)
     assert not cps[0].passed  # no 'priority' yet
@@ -233,7 +228,7 @@ def test_check_develop_pass_and_fail(tmp_path: Path) -> None:
 
 
 def test_check_develop_failing_suite(tmp_path: Path) -> None:
-    repo = prepare_workspace(PLUGIN, tmp_path)
+    repo = prepare_scenario(PLUGIN, tmp_path, SPINE)
     # Has the priority marker but is broken Python -> import fails -> suite fails.
     broken = "def add(priority='x'):\n    return (  # broken\n"
     (repo / "taskstore.py").write_text(broken, encoding="utf-8")
@@ -243,18 +238,18 @@ def test_check_develop_failing_suite(tmp_path: Path) -> None:
 
 
 def test_check_develop_skip_tests(tmp_path: Path) -> None:
-    repo = prepare_workspace(PLUGIN, tmp_path)
+    repo = prepare_scenario(PLUGIN, tmp_path, SPINE)
     cps = check_develop(repo, run_tests=False)
     assert [c.name for c in cps] == ["priority implemented in taskstore"]
 
 
 def test_repo_tests_pass_true(tmp_path: Path) -> None:
-    repo = prepare_workspace(PLUGIN, tmp_path)
+    repo = prepare_scenario(PLUGIN, tmp_path, SPINE)
     assert repo_tests_pass(repo) is True
 
 
 def test_check_code_review_missing_invalid_and_valid(tmp_path: Path) -> None:
-    repo = prepare_workspace(PLUGIN, tmp_path)
+    repo = prepare_scenario(PLUGIN, tmp_path, SPINE)
     sdlc = repo / "docs" / "sdlc" / "task-priorities"
     assert not check_code_review(repo)[0].passed  # missing (dir absent)
     sdlc.mkdir(parents=True, exist_ok=True)
@@ -265,17 +260,17 @@ def test_check_code_review_missing_invalid_and_valid(tmp_path: Path) -> None:
     assert len(cps) == 2 and all(c.passed for c in cps)  # valid + verdict
 
 
-# --- run_e2e ----------------------------------------------------------------
+# --- run_scenario (spine) ---------------------------------------------------
 
 
-def test_run_e2e_all_pass_with_good_stub(tmp_path: Path) -> None:
-    results = run_e2e(PLUGIN, run_phase=_good_phase, workspace=tmp_path)
+def test_run_scenario_spine_all_pass_with_good_stub(tmp_path: Path) -> None:
+    results = run_scenario(PLUGIN, SPINE, run_phase=_good_phase, workspace=tmp_path)
     assert [r.phase for r in results] == list(PHASES)
     assert all_passed(results), [str(c) for r in results for c in r.checkpoints]
 
 
-def test_run_e2e_fails_with_noop_stub(tmp_path: Path) -> None:
-    results = run_e2e(PLUGIN, run_phase=_noop_phase, workspace=tmp_path)
+def test_run_scenario_spine_fails_with_noop_stub(tmp_path: Path) -> None:
+    results = run_scenario(PLUGIN, SPINE, run_phase=_noop_phase, workspace=tmp_path)
     assert not all_passed(results)
 
 
@@ -285,16 +280,6 @@ def test_run_e2e_fails_with_noop_stub(tmp_path: Path) -> None:
 def test_skill_body_strips_frontmatter() -> None:
     body = skill_body(PLUGIN, "architecture")
     assert "Architecture" in body and "name:" not in body.splitlines()[0]
-
-
-def test_check_wiring_clean() -> None:
-    assert check_wiring(PLUGIN) == []
-
-
-def test_check_wiring_reports_missing(tmp_path: Path) -> None:
-    problems = check_wiring(tmp_path)
-    assert any("missing skill" in p for p in problems)
-    assert any("missing fixture" in p for p in problems)
 
 
 def test_all_passed_empty_is_false() -> None:

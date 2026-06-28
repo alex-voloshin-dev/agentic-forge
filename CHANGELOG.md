@@ -69,9 +69,12 @@ literal `1.1.0` bump, not a value recomputed via `summarize`); and `check_develo
 lines so a `# priority=` TODO can't satisfy the marker (still judge-free per ADR 0030). 650 tests;
 library 100%, aggregate 98%.
 
-Still deferred (lowest value, harmless, no behaviour change): collapsing the three one-line
-`all_passed` / duplicate `DEFAULT_RUNS` definitions, and removing the `spine_e2e` back-compat trio
-(`run_e2e` / spine-only `check_wiring` / `prepare_workspace`), which stay tested and inert.
+All follow-ups since completed: the three one-line `all_passed` definitions collapsed to one generic
+`gate.all_passed` (over a `Passable` protocol) re-exported by the runners; `DEFAULT_RUNS` defined
+once in `agent_eval` and imported; and the `spine_e2e` back-compat trio (`run_e2e` / spine-only
+`check_wiring` / `prepare_workspace`) removed — its tests migrated to `run_scenario` /
+`scenario_wiring` / `prepare_scenario(SPINE)`. Nothing from the review remains outstanding. 647
+tests; library 100%, aggregate 98%.
 
 ### Changed — Tier-0 validator gates cross-tree links + runs the contract guards
 

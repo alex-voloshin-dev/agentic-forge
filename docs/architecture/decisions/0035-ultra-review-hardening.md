@@ -71,5 +71,6 @@ are here).
 - CLAUDE.md, meta-core, and the pattern/skill docs now match the implementation. Cosmetic cleanups
   (`__all__` backfill, de-duplicating `summary_line`/`all_passed`/`DEFAULT_RUNS`, removing dead
   `Change.raw` / `classify_incident(cosmetic=)` / the `spine_e2e` back-compat trio) and deeper
-  test-quality (mocking the live judge transport; de-tautologising the develop /
-  `expected_release_version` checkpoints) are recorded as follow-ups, not done here.
+  test-quality (mocking the judge transport; de-tautologising the develop /
+  `expected_release_version` checkpoints) were all completed in follow-up commits (see the
+  CHANGELOG) — nothing from the review remains outstanding.

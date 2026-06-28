@@ -31,6 +31,7 @@ from pathlib import Path
 from . import handoff, ops, release, vault
 from .agent_eval import Runner
 from .frontmatter import parse as parse_frontmatter
+from .gate import all_passed
 
 __all__ = [
     "FEATURE_SLUG",
@@ -40,7 +41,6 @@ __all__ = [
     "PHASES",
     "Checkpoint",
     "PhaseResult",
-    "prepare_workspace",
     "check_architecture",
     "repo_tests_pass",
     "check_develop",
@@ -66,9 +66,7 @@ __all__ = [
     "run_scenario",
     "SPINE",
     "SCENARIOS",
-    "run_e2e",
     "all_passed",
-    "check_wiring",
     "scenario_wiring",
 ]
 
@@ -122,29 +120,6 @@ def _copy_fixture(plugin_dir: Path, repo: Path, fixture: str | None) -> None:
         shutil.copytree(plugin_dir / fixture, repo)
     else:
         repo.mkdir(parents=True)
-
-
-def prepare_workspace(plugin_dir: Path, dest: Path, *, seed: tuple[str, ...] = ()) -> Path:
-    """Copy the spine fixture repo into ``dest/repo`` and git-init it (the spine scenario's prep).
-
-    The full six-phase run seeds nothing — `research` starts from the repo's `FEATURE_REQUEST.md`
-    and each phase produces the artifact the next consumes. ``seed`` optionally pre-places fixture
-    artifacts (by basename) under ``docs/sdlc/<slug>/`` to start a partial run. Domain scenarios
-    use :func:`prepare_scenario` (arbitrary seed destinations + a baseline tag).
-    """
-    repo = dest / "repo"
-    _copy_fixture(plugin_dir, repo, FIXTURE_REPO)
-    if seed:
-        sdlc = repo / "docs" / "sdlc" / FEATURE_SLUG
-        sdlc.mkdir(parents=True, exist_ok=True)
-        for rel in seed:
-            (sdlc / Path(rel).name).write_text(
-                (plugin_dir / rel).read_text(encoding="utf-8"), encoding="utf-8"
-            )
-    _git(repo, "init", "-q", "-b", "main")
-    _git(repo, "add", "-A")
-    _commit(repo, "baseline")
-    return repo
 
 
 def _valid(path: Path, artifact_type: str) -> bool:
@@ -708,27 +683,6 @@ SCENARIOS: dict[str, Scenario] = {
     "product-inception": _product_inception(),
     "market-brief": _market_brief(),
 }
-
-
-def run_e2e(plugin_dir: Path, *, run_phase: Runner, workspace: Path) -> list[PhaseResult]:
-    """Run the spine scenario (kept for back-compat; delegates to :func:`run_scenario`)."""
-    return run_scenario(plugin_dir, SPINE, run_phase=run_phase, workspace=workspace)
-
-
-def all_passed(results: list[PhaseResult]) -> bool:
-    return bool(results) and all(r.passed for r in results)
-
-
-def check_wiring(plugin_dir: Path) -> list[str]:
-    """Return spine-scenario setup problems without running anything (the dry-run check)."""
-    problems: list[str] = []
-    for phase in PHASES:
-        if not (plugin_dir / "skills" / phase / "SKILL.md").is_file():
-            problems.append(f"missing skill: {phase}")
-    for rel in (FIXTURE_REPO, PRD, PLAN):
-        if not (plugin_dir / rel).exists():
-            problems.append(f"missing fixture: {rel}")
-    return problems
 
 
 def scenario_wiring(plugin_dir: Path, scenario: Scenario) -> list[str]:

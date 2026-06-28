@@ -10,8 +10,9 @@ All functions are pure and deterministic so they are unit-testable without an LL
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
 __all__ = [
     "GateResult",
@@ -150,7 +151,13 @@ def evaluate(
     return results
 
 
-def all_passed(results: list[GateResult]) -> bool:
-    # An empty result list means nothing was measured — that is NOT a pass (mirrors
-    # tier1_runner.all_passed; guards callers that gate on evaluate() with no data supplied).
+class _Passable(Protocol):
+    @property
+    def passed(self) -> bool: ...
+
+
+def all_passed(results: Sequence[_Passable]) -> bool:
+    # An empty result list means nothing was measured — that is NOT a pass; guards callers that gate
+    # on evaluate() with no data. Generic over any result carrying `.passed` (GateResult /
+    # Tier1Report / PhaseResult) so the runners share ONE definition instead of three copies.
     return bool(results) and all(r.passed for r in results)

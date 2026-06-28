@@ -27,8 +27,9 @@ from pathlib import Path
 from typing import Any
 
 from agentic_forge import gate
-from agentic_forge.agent_eval import Runner
+from agentic_forge.agent_eval import DEFAULT_RUNS, Runner
 from agentic_forge.frontmatter import parse as parse_frontmatter
+from agentic_forge.gate import all_passed
 
 __all__ = [
     "DEFAULT_RUNS",
@@ -47,8 +48,6 @@ __all__ = [
     "check_wiring",
     "all_passed",
 ]
-
-DEFAULT_RUNS = 5
 
 ROUTER_INSTRUCTION = (
     "You are the skill router for Claude Code. Skills auto-load by how well their description "
@@ -307,7 +306,3 @@ def check_wiring(plugin_dir: Path) -> list[str]:
                 f"{trig.name}: tier1_trigger present but missing a recall/specificity threshold"
             )
     return problems
-
-
-def all_passed(reports: list[Tier1Report]) -> bool:
-    return bool(reports) and all(r.passed for r in reports)
