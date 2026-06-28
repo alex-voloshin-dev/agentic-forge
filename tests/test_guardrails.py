@@ -164,7 +164,9 @@ def test_redact_pem_private_key() -> None:
         "github_pat_aBcDeFgHiJkLmNoPqRsTuV",  # GitHub fine-grained PAT
         "glpat-aBcDeFgHiJkLmNoPqRsT",  # GitLab PAT
         "AIzaSyAbcdefghijklmnopqrstuvwxyz0123456",  # Google API key
-        "sk_live_abcdefghijklmnopqrstuvwx",  # Stripe
+        "sk_live_abcdefghijklmnopqrstuvwx",  # Stripe secret
+        "rk_live_abcdefghijklmnopqrstuvwx",  # Stripe restricted (was leaking — [sr]k_ now)
+        "rk_test_abcdefghijklmnopqrstuvwx",  # Stripe restricted test
         "eyJhbGciOiJIUzI1NiInR.eyJzdWIiOiIxMjM0NTY.SflKxwRJSMeKKF2QT",  # JWT
     ],
 )
@@ -178,6 +180,31 @@ def test_redact_bare_token_is_absent(raw: str) -> None:
 def test_redact_url_credentials() -> None:
     out = redact_secrets("psql postgres://admin:s3cr3tPassw0rd@db.host:5432/app")
     assert "s3cr3tPassw0rd" not in out and "db.host" in out  # creds gone, host preserved
+
+
+@pytest.mark.parametrize(
+    "benign",
+    [
+        "ls -la sk-something-hyphenated-flag-foobar",
+        "deploy to sk-region-us-east-1-prod-cluster",
+        "checkout sk-feature-work-in-progress-123456",
+    ],
+)
+def test_redact_does_not_blank_hyphenated_sk_args(benign: str) -> None:
+    # an arg that merely starts `sk-` (with internal hyphens) is NOT a secret shape -> must survive
+    # verbatim (regression: the broad `sk-[A-Za-z0-9-]{16,}` regex blanked these in the audit log).
+    assert redact_secrets(benign) == benign
+
+
+def test_classify_command_no_redos_on_long_chmod() -> None:
+    import time
+
+    # _PERMISSIVE_MODE used to backtrack quadratically on a long [ugoa] run, stalling the security
+    # hook for seconds on a crafted chmod. The anchored regex makes it linear — assert it's fast.
+    cmd = "chmod -R " + "ugoa" * 20000 + " /etc"
+    start = time.perf_counter()
+    classify_command(cmd)
+    assert time.perf_counter() - start < 2.0  # was ~5s pre-fix
 
 
 def test_redact_leaves_clean_text() -> None:

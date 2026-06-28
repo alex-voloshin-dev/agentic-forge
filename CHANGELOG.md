@@ -6,6 +6,26 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Fixed — final independent review of the remediation diff
+
+A fresh 3-reviewer pass over the ultra-review remediation commits (`efd1061..HEAD`), each finding
+reproduced against source, caught defects in the hardening itself:
+- **ReDoS** in the new `chmod` matcher (`_PERMISSIVE_MODE`): `[ugoa]*` backtracked quadratically on a
+  long run, so a crafted `chmod -R ugoa…ugoa /etc` stalled the security hook for seconds. Anchored
+  the symbolic clause (`(?<![\w+=])`) → linear; a regression test asserts it returns fast on an 80k
+  input.
+- **Audit-log over-redaction**: the broadened `sk-/rk-[A-Za-z0-9-]{16,}` blanked ordinary hyphenated
+  args (`sk-region-us-east-1-…`). Replaced with precise prefix-anchored patterns (`sk-ant-`,
+  `sk-proj-`, bare `sk-` hyphen-free ≥20, `[sr]k_(live|test)_`) — real keys still redact, benign args
+  survive; this also fixed a **Stripe `rk_live_`/`rk_test_` leak** the broad regex had missed.
+- **Doc accuracy**: `handoff.py` wrongly listed `deep-review` as a `review`-artifact producer — it
+  emits no handoff (only `code-review`/`security-review` do; deep-review reuses the finding *shape*).
+  Corrected, plus small currency fixes (test-count, two stale comments, a non-schema `bump` field in
+  `handoff.md`'s `release` row).
+
+The gate/dedup/logic reviewer found nothing actionable (every change verified correct with executed
+evidence). 653 tests green; `ruff`/`mypy`/`validate` clean; coverage 98%, `guardrails.py` 100%.
+
 ### Fixed — session ultra-review (multi-lens adversarial pass): correctness, gate-integrity, security
 
 A seven-reviewer review of the whole session (each finding verified against source; full gate
@@ -66,7 +86,7 @@ test-quality:* the LLM judge transports (`api_runner`/`claude_cli_runner`) are n
 a mocked transport (argv/request shape, retry, raise — `# pragma: no cover` removed, `agent_eval`
 back to 100%); `expected_release_version` is de-tautologised against a built git history (asserts the
 literal `1.1.0` bump, not a value recomputed via `summarize`); and `check_develop` drops comment-only
-lines so a `# priority=` TODO can't satisfy the marker (still judge-free per ADR 0030). 650 tests;
+lines so a `# priority=` TODO can't satisfy the marker (still judge-free per ADR 0030). 647 tests;
 library 100%, aggregate 98%.
 
 All follow-ups since completed: the three one-line `all_passed` definitions collapsed to one generic

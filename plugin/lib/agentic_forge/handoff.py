@@ -12,9 +12,10 @@ Artifact types and their producers (see docs/architecture/engine.md):
 - ``prd`` — product-spec phase.
 - ``tech-design`` — architect role.
 - ``plan`` — Plan-based work-planning phase.
-- ``review`` — reviewer role (the unit the bounded review loop branches on); also reused by the
-  ``security-review`` (security-lensed) and ``deep-review`` (adversarial fan-out) phases — all
-  three share this schema by design (verdict + severity-tagged findings).
+- ``review`` — reviewer role (the unit the bounded review loop branches on); also produced by the
+  ``security-review`` phase (security-lensed, same verdict + severity-tagged findings). The
+  ``deep-review`` / multi-aspect reviews reuse the finding *shape* (adding ``evidence``) but emit no
+  handoff artifact of their own.
 - ``test-strategy`` — ``qa-test-strategy`` phase (test levels, risks, prioritized cases).
 - ``release`` — ``release`` phase (semver version + Keep-a-Changelog groups).
 - ``incident`` — ``incident-response`` phase (severity sev1–4, timeline, remediation).

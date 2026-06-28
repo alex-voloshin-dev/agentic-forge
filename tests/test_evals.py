@@ -88,6 +88,6 @@ def test_tier1_trigger_requires_recall_and_specificity() -> None:
 
 
 def test_thresholds_rejects_unknown_key() -> None:
-    # a junk key must not satisfy minProperties (closes the empty-thresholds hole)
+    # a junk key is rejected by additionalProperties:false on thresholds (closes the junk-key hole)
     data = {**VALID, "thresholds": {"whatever": 1}}
     assert evals_mod.validate_evals(data) != []

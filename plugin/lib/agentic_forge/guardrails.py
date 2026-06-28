@@ -61,7 +61,9 @@ _RM_FORCE = re.compile(r"(?<![\w-])-\w*f\w*\b|--force\b")
 _CHMOD = re.compile(r"\bchmod\b")
 _CHMOD_RECURSIVE = re.compile(r"(?<![\w-])-\w*R\w*\b|--recursive\b")
 # a permissive mode: 777 (any leading digit) or a symbolic grant of write/all (a+rwx, o+w, +w).
-_PERMISSIVE_MODE = re.compile(r"(?<!\d)[0-7]?777\b|[ugoa]*\+[rwxX]*[wx][rwxX]*\b|a=rwx\b")
+# NB: the symbolic clause is anchored with (?<![\w+=]) so re.search can't retry [ugoa]* at every
+# position of a long run — without it a crafted `chmod -R ugoa…ugoa /etc` is quadratic ReDoS.
+_PERMISSIVE_MODE = re.compile(r"(?<!\d)[0-7]?777\b|(?<![\w+=])[ugoa]*\+[rwxX]*[wx][rwxX]*|a=rwx\b")
 
 _BLOCKERS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r":\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:"), "fork bomb"),
@@ -199,12 +201,15 @@ def choose_gate(cwd: Path | str) -> list[str] | None:
 # --- logging: redacted audit record ------------------------------------------
 
 _SECRETS = [
-    # Prefixed API keys/tokens. Internal hyphens are allowed so sk-ant-… (Anthropic) and sk-proj-…
-    # (OpenAI project) are caught, not just the bare sk-… form — these tokens are the highest-value
-    # leak, and this is Anthropic's own tooling writing to an on-disk audit log.
-    re.compile(r"\b(?:sk|rk)-[A-Za-z0-9-]{16,}"),
-    re.compile(r"\bsk_(?:live|test)_[A-Za-z0-9]{16,}\b"),  # Stripe
-    re.compile(r"\bgh[opsru]_[A-Za-z0-9]{20,}\b"),  # GitHub PAT / OAuth / server / refresh / user
+    # Prefixed API keys/tokens. Anthropic/OpenAI prefixes are matched explicitly (their bodies hold
+    # internal hyphens, e.g. sk-ant-api03-…); the bare sk- form requires a hyphen-free run so an
+    # ordinary hyphenated arg like `sk-region-us-east-1` is not blanked. Highest-value leak: this is
+    # Anthropic's own tooling writing to an on-disk audit log.
+    re.compile(r"\bsk-ant-[A-Za-z0-9_-]{16,}"),  # Anthropic
+    re.compile(r"\bsk-proj-[A-Za-z0-9_-]{16,}"),  # OpenAI project
+    re.compile(r"\bsk-[A-Za-z0-9]{20,}\b"),  # bare OpenAI (no internal hyphens)
+    re.compile(r"\b[sr]k_(?:live|test)_[A-Za-z0-9]{16,}\b"),  # Stripe secret + restricted keys
+    re.compile(r"\bgh[opsru]_[A-Za-z0-9]{20,}\b"),  # GitHub tokens (ghp/gho/ghs/ghr/ghu)
     re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b"),  # GitHub fine-grained PAT
     re.compile(r"\bglpat-[A-Za-z0-9_\-]{16,}\b"),  # GitLab PAT
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),  # AWS access-key id

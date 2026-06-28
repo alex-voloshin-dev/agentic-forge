@@ -25,7 +25,7 @@ slug is a short kebab-case name for the feature (e.g. `search`, `oauth-login`).
 | `plan.md` | `plan` skill → built-in `Plan` | `type, feature, status, tasks[] (id, deps), checkpoints[], deferred[]` |
 | `review.md` | `code-review` skill → `reviewer` | `type, target, iteration, verdict, findings[]` |
 | `test-strategy.md` | `qa-test-strategy` skill → `qa-engineer` | `type, feature, status, test_levels[], scope, risks[], cases[]` |
-| `release.md` | `release` skill | `type, feature, status, version, changelog[], bump, breaking[]` |
+| `release.md` | `release` skill | `type, feature, status, version, changelog[], breaking[]` |
 | `incident.md` | `incident-response` skill | `type, severity, status, impact, timeline[], remediation[]` |
 | `deploy-status.md` | `deploy-watch` skill | `type, environment, pipeline, alerts, action` |
 | `market-brief.md` | `marketing` skill (research) | `type, feature, status, segments[], competitors[], sources[]` |

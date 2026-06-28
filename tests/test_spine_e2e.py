@@ -294,7 +294,7 @@ def test_checkpoint_str() -> None:
 
 
 def test_phase_prompts_cover_all_phases() -> None:
-    # _phase_prompt is exercised via run_e2e, but assert each phase has distinct guidance.
+    # _phase_prompt is exercised via run_scenario, but assert each phase has distinct guidance.
     prompts = {ph: spine_e2e._phase_prompt(ph) for ph in PHASES}
     assert "research-brief.md (frontmatter" in prompts["research"]
     assert "prd.md (frontmatter" in prompts["product"]
