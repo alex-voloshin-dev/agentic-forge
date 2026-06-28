@@ -6,6 +6,18 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Added — Handoff-contract guard (quality-hardening 1/3)
+
+Implemented [ADR 0032](docs/architecture/decisions/0032-handoff-contract-guard.md): a deterministic
+guard (`skill_contract.py` — the `SKILL_HANDOFF` map + `handoff_contract_problems`) that every
+artifact-producing skill's `SKILL.md` documents the frontmatter fields its handoff schema requires.
+A field counts as documented when named in a backtick span (`field`, `field[]`, or a comma-list like
+`type, feature, status`) or as `field:` — bare prose doesn't count, so the common words
+`feature`/`status` aren't satisfied incidentally. It surfaced **5 real gaps** —
+`architecture`/`plan`/`product` omitted `status`, `marketing` omitted `feature`/`status`/`competitors`,
+`repo-onboarding` omitted `feature`/`status` — all fixed in the skill bodies. Guard green for all 13
+mapped skills; unit-tested (live-clean + synthetic pass/fail/edge); `skill_contract.py` 100% covered.
+
 ### Added — Quality-hardening plan (handoff guard, knowledge recall, develop parallelism)
 
 Design + decisions for three post-spine hardening increments — **design only, no code yet**:

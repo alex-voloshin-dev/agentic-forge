@@ -26,7 +26,7 @@ requirements (`product`), or implementation (`develop`).
    dependencies between tasks (a DAG — no cycles) and the build order.
 4. **Checkpoints & deferred.** Define verifiable checkpoints (milestones / definition of done
    per task) and an explicit list of deferred / out-of-scope items.
-5. **Write the plan.** Produce `plan.md` (frontmatter `tasks[]` with `id` + `deps`,
+5. **Write the plan.** Produce `plan.md` (frontmatter `type`, `feature`, `status`, `tasks[]` with `id` + `deps`,
    `checkpoints[]`, `deferred[]`; body = task detail) under `docs/sdlc/<feature-slug>/`;
    validate it (`handoff.validate_header(..., expected_type="plan")`). Every design component
    must be covered by a task.

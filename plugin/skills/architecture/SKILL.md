@@ -29,7 +29,7 @@ task breakdown (`plan`), or implementation (`develop`).
 3. **Weigh real alternatives** for each decision; honor stated constraints (a constraint that
    forces a trade-off becomes a risk).
 4. **Delegate the write-up** to the `architect` role (fork via the `Task` tool): it produces
-   `tech-design.md` (frontmatter `decisions`, `components`, `risks`) plus one `adr-*.md` per
+   `tech-design.md` (frontmatter `type`, `feature`, `status`, `decisions`, `components`, `risks`) plus one `adr-*.md` per
    decision (Context, Decision, Alternatives considered, Consequences), under
    `docs/sdlc/<feature-slug>/`.
 5. **Validate the handoff.** Confirm `tech-design.md` validates against its schema

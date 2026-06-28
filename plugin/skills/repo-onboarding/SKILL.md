@@ -35,7 +35,7 @@ python -c "from agentic_forge import vault; print(vault.validate_vault('.'))"
    `vault.add_note(repo, name, title, body, tags=..., moc=...)` — an architecture map, key
    components, conventions, risks — linked from a themed MOC. Then `vault.validate_vault(repo)` and
    fix any broken link or orphan.
-3. **Write the `onboarding` map** (`handoff` type `onboarding`: `components`, `entry_points`,
+3. **Write the `onboarding` map** (`handoff` type `onboarding`: `type`, `feature`, `status`, `components`, `entry_points`,
    `conventions`, `risks`) — the quick-start summary that points into the seeded vault.
 
 ## Output

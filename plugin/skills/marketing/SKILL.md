@@ -44,7 +44,7 @@ The failure mode of generated marketing is confident, low-signal fluff. So every
    `WebSearch` / `WebFetch`** (analyst reports, competitor sites, pricing pages) — or fork the
    `research` / `Explore` roles via `Task` for deeper tracks — **keeping every source URL**. Then
    apply the evidence discipline above (cite or mark every claim; no fabrication).
-3. **Synthesize** the handoff artifact (`handoff` type `market-brief` / `marketing-strategy`) or
+3. **Synthesize** the handoff artifact — `market-brief` (frontmatter `type`, `feature`, `status`, `competitors`, `segments`, `sources`) or `marketing-strategy` (`type`, `feature`, `status`, `positioning`, `channels`) — or
    the content files, grounded in the evidence and the upstream `prd.md` where relevant.
 4. **Verify claims** before finishing: every claim is cited or marked an assumption; no invented
    figures; content has no unsupported superlatives.

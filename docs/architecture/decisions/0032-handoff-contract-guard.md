@@ -1,6 +1,6 @@
 # 0032 — Handoff-contract guard: skill bodies must document their artifact's required fields
 
-Status: Accepted (design; implementation pending)
+Status: Accepted — **implemented** (`skill_contract.py` + guard test; surfaced + fixed 5 skill-body gaps).
 
 ## Context
 
