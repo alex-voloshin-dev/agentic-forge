@@ -17,6 +17,22 @@
         "Seeds the knowledge vault with notes that validate clean (validate_vault: linked, no orphans)",
         "Produces a valid onboarding artifact (type onboarding, non-empty components); nothing fabricated beyond the code"
       ]
+    },
+    {
+      "id": 2,
+      "prompt": "Using the same repo (app.py, worker.py, README.md in your working directory), produce the onboarding conventions and a concrete 'where do I add a new HTTP endpoint?' quick-start, grounded in the code.",
+      "expected_output": "An onboarding map whose conventions reflect the real code (the Flask route style in app.py, the worker's job pattern) and a concrete quick-start pointing to app.py for adding an endpoint — grounded, nothing invented.",
+      "files": [
+        "eval/fixtures/repo-onboarding/app.py",
+        "eval/fixtures/repo-onboarding/worker.py",
+        "eval/fixtures/repo-onboarding/README.md"
+      ],
+      "assertions": [
+        "Conventions reflect the real code (Flask routing in app.py; the worker's job pattern)",
+        "Gives a concrete 'add an HTTP endpoint' quick-start pointing at app.py",
+        "Grounded in the actual files — no invented frameworks, files, or endpoints",
+        "Produces a valid onboarding artifact (type onboarding) with non-empty conventions"
+      ]
     }
   ],
   "component": {

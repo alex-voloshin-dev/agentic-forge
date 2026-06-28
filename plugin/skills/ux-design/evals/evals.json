@@ -13,6 +13,18 @@
         "Stays at the spec level — flows/states/a11y, not a pixel or visual mockup",
         "Produces a valid ux-spec artifact (type ux-spec, non-empty flows)"
       ]
+    },
+    {
+      "id": 2,
+      "prompt": "For the feature in feature.md (in your working directory), specify the design-system components to reuse per screen and the accessibility behaviour for the primary flow (keyboard order, focus management, ARIA).",
+      "expected_output": "A ux-spec naming design-system components per screen and concrete accessibility behaviour (keyboard order, focus management, ARIA roles/labels) for the primary flow — spec level, no visual mockup.",
+      "files": ["eval/fixtures/ux-design/feature.md"],
+      "assertions": [
+        "Names design-system components to reuse for the screens (not bespoke one-off UI)",
+        "Specifies concrete accessibility behaviour: keyboard order, focus management, and ARIA roles/labels",
+        "Covers the primary flow's states (including empty/error) at the spec level",
+        "Produces a valid ux-spec artifact (type ux-spec) with non-empty flows and design_system refs"
+      ]
     }
   ],
   "component": {

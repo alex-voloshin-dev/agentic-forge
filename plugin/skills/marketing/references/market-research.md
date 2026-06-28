@@ -15,8 +15,8 @@ cited**. This is the evidence foundation the strategy and content build on.
    its positioning/approach and cite the source.
 4. **Sizing.** Give a market-size/TAM figure only if the evidence supports it, **with a citation**.
    If no reliable figure exists, say so explicitly — do not invent one.
-5. **Write the `market-brief`** (`handoff` type `market-brief`: `segments`, `competitors`,
-   `sizing`, `sources`).
+5. **Write the `market-brief`** (`handoff` type `market-brief`: `type`, `feature`, `status`,
+   `segments`, `competitors`, `sizing`, `sources`).
 
 ## Rubric (gradeable)
 

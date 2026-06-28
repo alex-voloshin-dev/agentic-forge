@@ -29,7 +29,7 @@ def test_missing_evals_array() -> None:
 
 def test_empty_evals_array() -> None:
     data = {**VALID, "evals": []}
-    assert evals_mod.validate_evals(data) != []
+    assert any(e.startswith("evals:") for e in evals_mod.validate_evals(data))
 
 
 def test_missing_component() -> None:
@@ -42,17 +42,17 @@ def test_missing_thresholds() -> None:
 
 def test_bad_component_type() -> None:
     data = {**VALID, "component": {"id": "x", "type": "nonsense", "purpose": "p"}}
-    assert evals_mod.validate_evals(data) != []
+    assert any("component/type" in e for e in evals_mod.validate_evals(data))
 
 
 def test_pass_rate_out_of_range() -> None:
     data = {**VALID, "thresholds": {"tier2_quality": {"min_pass_rate": 1.5}}}
-    assert evals_mod.validate_evals(data) != []
+    assert any("min_pass_rate" in e for e in evals_mod.validate_evals(data))
 
 
 def test_eval_id_must_be_integer() -> None:
     data = {**VALID, "evals": [{"id": "one", "prompt": "do x"}]}
-    assert evals_mod.validate_evals(data) != []
+    assert any("id" in e and "integer" in e for e in evals_mod.validate_evals(data))
 
 
 def test_load_evals_not_object(tmp_path) -> None:
@@ -79,15 +79,15 @@ def test_tier2_quality_requires_min_pass_rate() -> None:
     # a tier2_quality block with no min_pass_rate gates nothing -> reject at Tier 0 (no
     # vacuous-pass contract can ship). Closes the latent gate-integrity hole.
     data = {**VALID, "thresholds": {"tier2_quality": {"runs": 5}}}
-    assert evals_mod.validate_evals(data) != []
+    assert any("min_pass_rate" in e for e in evals_mod.validate_evals(data))
 
 
 def test_tier1_trigger_requires_recall_and_specificity() -> None:
     data = {**VALID, "thresholds": {"tier1_trigger": {"recall": 0.9}}}
-    assert evals_mod.validate_evals(data) != []
+    assert any("specificity" in e for e in evals_mod.validate_evals(data))
 
 
 def test_thresholds_rejects_unknown_key() -> None:
     # a junk key is rejected by additionalProperties:false on thresholds (closes the junk-key hole)
     data = {**VALID, "thresholds": {"whatever": 1}}
-    assert evals_mod.validate_evals(data) != []
+    assert any("whatever" in e or "Additional" in e for e in evals_mod.validate_evals(data))

@@ -212,6 +212,9 @@ def add_note(
 ) -> Path:
     """Write an atomic note and link it from ``moc`` (default the root MOC). Scaffolds if needed.
 
+    **Upsert:** an existing note of the same ``name`` is overwritten (frontmatter, tags, and any
+    hand edits included) — guard the caller if preserving existing content matters.
+
     A themed (non-root) ``moc`` is created on demand **and linked from the root MOC**, so it is
     reachable (never an orphan) and the vault stays valid.
     """

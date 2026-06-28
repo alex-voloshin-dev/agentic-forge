@@ -76,9 +76,12 @@ def render(d: Digest) -> str:
     return "\n".join(lines)
 
 
-def load_audit(repo: Path | str) -> list[str]:  # pragma: no cover
-    """Read the audit log lines (``[]`` if absent). Thin I/O seam; the digest logic is tested."""
+def load_audit(repo: Path | str, *, max_lines: int | None = None) -> list[str]:  # pragma: no cover
+    """Read the audit log lines (``[]`` if absent), optionally only the last ``max_lines`` — a
+    bounded window so a long-lived log doesn't load wholesale into the digest. Thin I/O seam; the
+    digest logic is tested."""
     path = Path(repo) / AUDIT_PATH
     if not path.is_file():
         return []
-    return path.read_text(encoding="utf-8").splitlines()
+    lines = path.read_text(encoding="utf-8").splitlines()
+    return lines[-max_lines:] if max_lines is not None else lines

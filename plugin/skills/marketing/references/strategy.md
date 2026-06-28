@@ -13,8 +13,8 @@ metrics — built on the `market-brief` and the product's `prd.md`.
 4. **Channels.** Pick the channels that fit the segment + product, with a one-line justification
    each (don't list every channel).
 5. **Messaging + metrics.** Messaging pillars tied to the positioning; the success metrics to track.
-6. **Write the `marketing-strategy`** (`handoff` type `marketing-strategy`: `positioning`,
-   `segments`, `channels`, `messaging`, `metrics`).
+6. **Write the `marketing-strategy`** (`handoff` type `marketing-strategy`: `type`, `feature`,
+   `status`, `positioning`, `segments`, `channels`, `messaging`, `metrics`).
 
 ## Rubric (gradeable)
 
