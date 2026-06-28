@@ -1,6 +1,6 @@
 # 0034 — develop parallelism: implement independent plan tasks across worktrees
 
-Status: Accepted (design; implementation pending)
+Status: Accepted — **implemented** (`planning.plan_batches` + the `develop` parallel flow + `patterns/worktree-parallel.md`).
 
 ## Context
 

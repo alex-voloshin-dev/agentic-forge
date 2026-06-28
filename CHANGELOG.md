@@ -6,6 +6,17 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Added — develop parallelism (quality-hardening 3/3)
+
+Implemented [ADR 0034](docs/architecture/decisions/0034-develop-parallelism.md):
+`planning.plan_batches(tasks)` computes the plan's dependency **levels** (independent tasks per
+level; raises on a cycle / unknown dep / duplicate id), and `develop` now batches the plan and, per
+level, **fans out one git worktree per task** concurrently, **integrates** the level (merge in a
+deterministic order, resolving conflicts) before the multi-aspect review, and advances
+level-by-level — keeping the single-worktree path when a plan has no parallelism. New
+`patterns/worktree-parallel.md`; `planning.py` 100% covered. Closes `spine.md`'s deferred "impl
+parallelism".
+
 ### Added — Knowledge recall in the spine (quality-hardening 2/3)
 
 Implemented [ADR 0033](docs/architecture/decisions/0033-knowledge-recall-in-spine.md): each spine

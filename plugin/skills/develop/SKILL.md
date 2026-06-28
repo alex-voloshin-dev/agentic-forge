@@ -28,21 +28,27 @@ designing (`architecture`), task breakdown (`plan`), or reviewing already-writte
    components it touches. Detect the target repo's stack —
    `stacks.primary(<repo>)` (`stacks.detect` for monorepos) — and note the profile (pack +
    toolchain); its commands are fallbacks, so **prefer the repo's own declared commands**.
-2. **Set up isolation.** Create a git worktree off the base branch (see
-   [patterns/worktree.md](../../patterns/worktree.md)) — **v1: one worktree, components
-   implemented sequentially** (parallel worktree-per-component is deferred). `git init` + an
-   initial commit first if the target is not yet a git repo.
+2. **Batch the work; set up isolation.** Compute the plan's dependency levels with
+   `planning.plan_batches(tasks)` — each level is a set of independent tasks. Process levels **in
+   order**; within a level, **fan out one git worktree per task** and run their implementations
+   **concurrently** (see [worktree-parallel.md](../../patterns/worktree-parallel.md) +
+   [worktree.md](../../patterns/worktree.md)); a one-task level (or a plan with no parallelism) is
+   the single-worktree case. `git init` + an initial commit first if the target is not yet a git repo.
 3. **Implement.** Delegate to the [`software-engineer`](../../agents/software-engineer.md) role
    (fork via `Task`), **passing the worktree path**; it re-derives the stack profile there (the
    same `stacks` helper, so the result matches step 1) and loads `engineering-standards` + the
    detected `<stack>-patterns` pack (e.g. `python-patterns`; if the profile has no pack, the
    standards + the profile's toolchain), writes the code and its tests in the worktree, and
    reports files/tests/assumptions. Keep the change scoped to the step.
-4. **Review gate.** Produce the diff yourself — `git -C <worktree> add -A && git -C <worktree>
-   diff --staged` (staging so new files are included) — and pass that diff text to the
-   [multi-aspect review](../../patterns/multi-aspect-review.md) (the `code-review` engine:
-   `reviewer` + `security-engineer` + the stack's lint/type tools from the profile/repo). The reviewers receive the
-   diff as input and need no git access. Aggregate to one approve/changes verdict.
+4. **Integrate, then review.** When a level's worktrees finish, **integrate** them — merge each
+   into the base branch in a deterministic order (e.g. by task id), resolving conflicts
+   ([worktree-parallel.md](../../patterns/worktree-parallel.md)). Then produce the integrated diff
+   — `git -C <repo> add -A && git -C <repo> diff --staged` (staging so new files are included) — and
+   pass that diff text to the [multi-aspect review](../../patterns/multi-aspect-review.md) (the
+   `code-review` engine: `reviewer` + `security-engineer` + the stack's lint/type tools from the
+   profile/repo). The reviewers receive the diff as input and need no git access. Aggregate to one
+   approve/changes verdict. **Advance to the next dependency level only after this one integrates,
+   is approved, and its QA is green.**
 5. **Loop back (bounded).** On `changes`, return the findings to step 3 and revise — bounded at
    **N = 3** (see [patterns/review-loop.md](../../patterns/review-loop.md)). If N = 3 is
    exhausted and the verdict is still `changes`, **do not proceed or merge** — surface the

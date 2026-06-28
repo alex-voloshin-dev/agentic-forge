@@ -67,7 +67,8 @@ pyproject.toml                        # uv / pytest / ruff / mypy config
 | `schedule.py` | Stage-7 scheduled-job registry + pure `due_jobs` due-logic + last-run state I/O (ADR 0024). |
 | `observability.py` | Stage-7 audit-log digest: parse the logging hook's JSONL → per-tool/session counts + report (ADR 0024). |
 | `connectors.py` | Real provider connectors behind the `ops` seams: `GhPipelineSource`, `GrafanaAlertSource` — pure parsers + thin fetch seams (ADR 0025). |
-| `skill_contract.py` | Guard that each artifact-producing skill's body documents the frontmatter fields its handoff schema requires; `SKILL_HANDOFF` map + `handoff_contract_problems` (ADR 0032). |
+| `skill_contract.py` | Guards on skill bodies: each artifact skill documents its handoff schema's required fields (`handoff_contract_problems`, ADR 0032), and each spine phase references the knowledge-recall step (`recall_problems`, ADR 0033). |
+| `planning.py` | Pure dependency batching of plan tasks into topological levels (`plan_batches`) for parallel `develop` (ADR 0034). |
 
 Everything here is dependency-light (pyyaml, jsonschema) and unit-tested. Skill scripts and
 hooks import from this package.
