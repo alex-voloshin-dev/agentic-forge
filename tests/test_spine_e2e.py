@@ -317,3 +317,42 @@ def test_phase_prompts_cover_all_phases() -> None:
     assert "plan.md (frontmatter" in prompts["plan"]
     assert "Implement the feature in taskstore.py" in prompts["develop"]
     assert "Write a verdict" in prompts["code-review"]
+
+
+def test_expected_release_version_from_real_git_history(tmp_path: Path) -> None:
+    # de-tautologised (H4): build the quality-gate's git history and assert the LITERAL bump,
+    # not a value recomputed via release.summarize (as check_release's own test does).
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "f.txt").write_text("base\n", encoding="utf-8")
+    spine_e2e._git(repo, "init", "-q", "-b", "main")
+    spine_e2e._git(repo, "add", "-A")
+    spine_e2e._commit(repo, "baseline")
+    spine_e2e._git(repo, "tag", "v1.0.0")
+    # no commits since the tag -> no release
+    assert spine_e2e.expected_release_version(repo, "1.0.0", "v1.0.0") is None
+    # a feat after the tag -> minor bump 1.0.0 -> 1.1.0 (independent of summarize being re-run here)
+    spine_e2e._commit(repo, "feat: add task priority", allow_empty=True)
+    spine_e2e._commit(repo, "fix: clamp invalid priority", allow_empty=True)
+    assert spine_e2e.expected_release_version(repo, "1.0.0", "v1.0.0") == "1.1.0"
+
+
+def test_check_develop_rejects_comment_only_marker(tmp_path: Path) -> None:
+    # H5: a `# priority=` comment must NOT satisfy the implementation marker (it's not code).
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "taskstore.py").write_text(
+        "# priority= TODO wire this up later\nclass TaskStore:\n    pass\n", encoding="utf-8"
+    )
+    cps = spine_e2e.check_develop(repo, run_tests=False)
+    assert cps[0].name == "priority implemented in taskstore" and not cps[0].passed
+
+
+def test_check_develop_accepts_code_marker_with_trailing_comment(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "taskstore.py").write_text(
+        "def add(self, t):\n    self.priority = t  # store the priority\n", encoding="utf-8"
+    )
+    cps = spine_e2e.check_develop(repo, run_tests=False)
+    assert cps[0].passed  # `.priority` on a real code line counts despite the trailing comment

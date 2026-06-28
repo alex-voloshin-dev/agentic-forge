@@ -363,7 +363,7 @@ def run_role(
     return RoleReport(role=role, runs=n, benchmark=bench, gate=result, gradings=gradings)
 
 
-def api_runner(model: str, *, max_tokens: int = 4096) -> Runner:  # pragma: no cover
+def api_runner(model: str, *, max_tokens: int = 4096) -> Runner:
     """Level-1 seam: one Anthropic Messages call per task (no tools; lightweight)."""
     import anthropic
 
@@ -390,7 +390,7 @@ def claude_cli_runner(
     max_turns: int | None = None,
     retries: int = 3,
     call_timeout: int = 900,
-) -> Runner:  # pragma: no cover
+) -> Runner:
     """Level-2 seam: run the role headlessly via `claude -p` (Claude Code auth).
 
     Uses whatever auth the `claude` CLI is configured with — a Claude subscription via

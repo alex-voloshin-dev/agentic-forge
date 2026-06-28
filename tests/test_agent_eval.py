@@ -9,9 +9,11 @@ import pytest
 from agentic_forge.agent_eval import (
     ROLES,
     RoleReport,
+    api_runner,
     build_grading_prompt,
     build_role_prompt,
     check_wiring,
+    claude_cli_runner,
     grade_output,
     is_write_role,
     load_fixtures,
@@ -21,6 +23,120 @@ from agentic_forge.agent_eval import (
 )
 
 PLUGIN = Path(__file__).resolve().parents[1] / "plugin"
+
+
+# --- judge transports (mocked; H2: the real runners were previously never executed) --
+
+
+def test_api_runner_builds_request_and_joins_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+    import types
+
+    calls: dict = {}
+
+    class _Block:
+        def __init__(self, text: str) -> None:
+            self.type = "text"
+            self.text = text
+
+    class _Msg:
+        content = [_Block("hello "), _Block("world"), types.SimpleNamespace(type="tool_use")]
+
+    class _Messages:
+        def create(self, **kw: object) -> _Msg:
+            calls.update(kw)
+            return _Msg()
+
+    class _Client:
+        messages = _Messages()
+
+    fake = types.ModuleType("anthropic")
+    fake.Anthropic = lambda: _Client()  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "anthropic", fake)
+
+    run = api_runner("claude-x", max_tokens=128)
+    out = run("SYS", "PROMPT", Path("."))
+    assert out == "hello world"  # only text blocks joined; the tool_use block is ignored
+    assert calls["model"] == "claude-x" and calls["max_tokens"] == 128
+    assert calls["system"] == "SYS"
+    assert calls["messages"] == [{"role": "user", "content": "PROMPT"}]
+
+
+def test_claude_cli_runner_argv_and_parse(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    captured: dict = {}
+
+    class _Done:
+        stdout = "VERDICT-OK"
+
+    def fake_run(cmd: list[str], **kw: object) -> _Done:
+        captured["cmd"] = cmd
+        captured["kw"] = kw
+        return _Done()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    run = claude_cli_runner(allowed_tools="Read,Grep", model="claude-x", max_turns=7)
+    assert run("SYS", "PROMPT", Path("/tmp")) == "VERDICT-OK"
+    cmd = captured["cmd"]
+    assert cmd[:6] == ["claude", "-p", "PROMPT", "--append-system-prompt", "SYS", "--output-format"]
+    assert "--allowedTools" in cmd and "Read,Grep" in cmd
+    assert "--model" in cmd and "claude-x" in cmd
+    assert "--max-turns" in cmd and "7" in cmd
+    assert captured["kw"]["cwd"] == "/tmp" and captured["kw"]["timeout"] == 900
+
+
+def test_claude_cli_runner_omits_optional_flags(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    captured: dict = {}
+
+    class _Done:
+        stdout = "x"
+
+    def fake_run(cmd: list[str], **kw: object) -> _Done:
+        captured["cmd"] = cmd
+        return _Done()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    run = claude_cli_runner(allowed_tools=None, model=None, max_turns=None)
+    run("S", "P", Path("."))
+    cmd = captured["cmd"]
+    assert "--allowedTools" not in cmd and "--model" not in cmd and "--max-turns" not in cmd
+
+
+def test_claude_cli_runner_retries_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+    import time
+
+    calls = {"n": 0}
+
+    class _Done:
+        stdout = "ok"
+
+    def flaky(cmd: list[str], **kw: object) -> _Done:
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise subprocess.CalledProcessError(1, cmd)
+        return _Done()
+
+    monkeypatch.setattr(subprocess, "run", flaky)
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+    assert claude_cli_runner(retries=3)("S", "P", Path(".")) == "ok"
+    assert calls["n"] == 3  # two failures, third succeeds
+
+
+def test_claude_cli_runner_raises_after_exhausting_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+    import time
+
+    def always_timeout(cmd: list[str], **kw: object) -> object:
+        raise subprocess.TimeoutExpired(cmd, 1)
+
+    monkeypatch.setattr(subprocess, "run", always_timeout)
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+    with pytest.raises(RuntimeError, match="claude call failed after 3 attempts"):
+        claude_cli_runner(retries=2)("S", "P", Path("."))
 
 
 # --- stub seams ----------------------------------------------------------------------

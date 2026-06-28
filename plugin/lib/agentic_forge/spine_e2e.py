@@ -194,9 +194,11 @@ def repo_tests_pass(repo: Path) -> bool:
 
 def check_develop(repo: Path, *, run_tests: bool = True) -> list[Checkpoint]:
     src = repo / "taskstore.py"
-    code = (src.read_text(encoding="utf-8") if src.is_file() else "").lower()
+    raw = src.read_text(encoding="utf-8") if src.is_file() else ""
     # An implementation marker, not a bare mention — the baseline docstring says "no notion of
-    # priority", which must NOT count as implemented.
+    # priority", which must NOT count. Comment-only lines are dropped so a `# priority=` TODO
+    # can't satisfy the marker either; it must appear in actual code.
+    code = "\n".join(ln for ln in raw.splitlines() if not ln.lstrip().startswith("#")).lower()
     has_priority = any(m in code for m in ("priority=", "priority:", ".priority"))
     cps = [Checkpoint("priority implemented in taskstore", has_priority)]
     if run_tests:
@@ -278,8 +280,10 @@ def check_security_review(
     return cps
 
 
-def expected_release_version(repo: Path, baseline: str, tag: str) -> str | None:  # pragma: no cover
-    """Compute the release bump from real git history (live seam — exercised only in a real run)."""
+def expected_release_version(repo: Path, baseline: str, tag: str) -> str | None:
+    """Compute the release bump from the commits since ``tag`` (real git history), or None when
+    there are none. Independent truth for the release checkpoint, unit-tested against a built
+    git repo."""
     messages = release.commits_since(repo, tag)
     return release.summarize(baseline, messages).version if messages else None
 
