@@ -198,9 +198,10 @@ Tier-3 scenarios), not a new tier.
 tests ✓; the **live `--runner claude` sweep was run** (recorded in the CHANGELOG) — every
 checkpoint *type* proved out, with `quality-gate` / `ops-incident` / `market-brief` fully green;
 full single-run chains are probabilistic at strict per-artifact schema validation (model
-frontmatter variance), so the live job stays on-demand. The runner now **retries a flaked phase
-once by default** (`--retries N`) to absorb that variance without lowering the bar. (3) ✓ — the
-eval-runbook line is updated. (4) ✓ — wired into `eval.yml`. (5) ✓ — Wave 2 (`product-inception`, `market-brief`) built
+frontmatter variance). With the prompt/skill fixes + the runner's default **per-phase retry**
+(`--retries N`), the live sweep now passes **all five scenarios** (`spine` 6/6 — one phase flaked,
+the retry absorbed it; `product-inception` 5/5; the other three green) without lowering the bar; the
+job stays on-demand. (3) ✓ — the eval-runbook line is updated. (4) ✓ — wired into `eval.yml`. (5) ✓ — Wave 2 (`product-inception`, `market-brief`) built
 to the same bar.
 
 ## Cost

@@ -53,6 +53,12 @@ all-green. The checkpoints are correct (the artifacts genuinely were invalid); t
 prompts/skill contracts (done) and a **per-phase retry** in the live runner (now implemented — see
 above). The live job stays on-demand/cost-gated, where re-running to a clean sweep belongs.
 
+**Clean sweep.** Re-run with `--retries 1` (plus the `ux-design` skill-contract fix), **all five
+scenarios PASS** on the subscription — `spine` 6/6 (one phase flaked, the retry absorbed it),
+`product-inception` 5/5 (`ux-design` now validates without a retry), and `quality-gate` /
+`ops-incident` / `market-brief` green as before. The retry closed the single-run variance without
+lowering any checkpoint.
+
 ### Added — Scheduling cadence persistence (per-job state + retry)
 
 Enriched headless scheduling
