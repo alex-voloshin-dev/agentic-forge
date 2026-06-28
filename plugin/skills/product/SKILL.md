@@ -18,6 +18,9 @@ acceptance criteria, user stories. Not for *what exists* (`research`), *how to b
 
 ## Process
 
+> **Recall first** — pull the project's relevant prior decisions from the knowledge vault (see
+> [knowledge-recall](../../patterns/knowledge-recall.md)); factor them in, and skip if the vault is empty.
+
 1. **Digest the inputs.** Load `research-brief.md`
    (`handoff.load_artifact(..., expected_type="research-brief")`) and assess the current product
    (repo, existing docs). Pick the `<feature-slug>`.

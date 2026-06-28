@@ -19,6 +19,9 @@ task breakdown (`plan`), or implementation (`develop`).
 
 ## Process
 
+> **Recall first** — pull the project's relevant prior decisions from the knowledge vault (see
+> [knowledge-recall](../../patterns/knowledge-recall.md)); factor them in, and skip if the vault is empty.
+
 1. **Read the inputs.** Load the `prd.md` handoff (`docs/sdlc/<feature-slug>/prd.md`) — use
    `agentic_forge.handoff.load_artifact(..., expected_type="prd")` — and study how the current
    system is built so the design fits reality.

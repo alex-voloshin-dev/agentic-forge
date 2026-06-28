@@ -6,6 +6,16 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Added — Knowledge recall in the spine (quality-hardening 2/3)
+
+Implemented [ADR 0033](docs/architecture/decisions/0033-knowledge-recall-in-spine.md): each spine
+phase (`research` / `product` / `architecture` / `plan` / `develop` / `code-review`) now opens its
+Process with a **"Recall first"** step — pull the project's relevant prior decisions from the
+knowledge vault (`vault.recall` / the `knowledge` skill), factor them in, and skip if the vault is
+empty — realizing the constitution's *workflows read the vault to enrich context*. The step is
+captured once in `patterns/knowledge-recall.md` and linked from each phase; a guard
+(`skill_contract.recall_problems`) asserts every spine body references it (unit-tested, live-clean).
+
 ### Added — Handoff-contract guard (quality-hardening 1/3)
 
 Implemented [ADR 0032](docs/architecture/decisions/0032-handoff-contract-guard.md): a deterministic

@@ -1,6 +1,6 @@
 # 0033 — Knowledge recall in the spine phases
 
-Status: Accepted (design; implementation pending)
+Status: Accepted — **implemented** (6 spine phases + `patterns/knowledge-recall.md` + a presence guard).
 
 ## Context
 

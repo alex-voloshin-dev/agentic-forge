@@ -38,5 +38,5 @@ edit.
 | [0030](0030-domain-e2e-scenarios.md) | Domain E2E: extend Tier-3 to Stage 4–6 via deterministic chain scenarios (not per-skill); generalize `spine_e2e` into a `Scenario` registry | Accepted (implemented) |
 | [0031](0031-scheduling-cadence-persistence.md) | Scheduling cadence persistence: per-job `JobState` (status/runs/failures) + bounded retry of failed jobs (extends 0024) | Accepted |
 | [0032](0032-handoff-contract-guard.md) | Handoff-contract guard: skill bodies must document their artifact's required fields | Accepted (implemented) |
-| [0033](0033-knowledge-recall-in-spine.md) | Knowledge recall in the spine phases (read the vault to enrich context) | Accepted (design; impl pending) |
+| [0033](0033-knowledge-recall-in-spine.md) | Knowledge recall in the spine phases (read the vault to enrich context) | Accepted (implemented) |
 | [0034](0034-develop-parallelism.md) | develop parallelism: independent plan tasks across worktrees (tested `plan_batches`) | Accepted (design; impl pending) |

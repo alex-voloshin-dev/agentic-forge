@@ -19,7 +19,13 @@ from .frontmatter import FrontmatterError, parse
 
 _BACKTICK_SPAN = re.compile(r"`([^`]*)`")
 
-__all__ = ["SKILL_HANDOFF", "required_fields", "handoff_contract_problems"]
+__all__ = [
+    "SKILL_HANDOFF",
+    "SPINE_SKILLS",
+    "required_fields",
+    "handoff_contract_problems",
+    "recall_problems",
+]
 
 # Skill name -> the handoff `type` it produces. An artifact-producing skill missing from this map
 # is a deliberate, reviewable omission (the guard test asserts the map's skills exist + validate).
@@ -86,4 +92,30 @@ def handoff_contract_problems(
             problems.append(
                 f"{skill} ({artifact_type}): body omits required field(s): {', '.join(missing)}"
             )
+    return problems
+
+
+# The SDLC spine phases that must recall vault context before acting (ADR 0033).
+SPINE_SKILLS: tuple[str, ...] = (
+    "research",
+    "product",
+    "architecture",
+    "plan",
+    "develop",
+    "code-review",
+)
+_RECALL_MARKER = "knowledge-recall"  # the pattern each spine phase must link
+
+
+def recall_problems(plugin_dir: Path | str, skills: tuple[str, ...] = SPINE_SKILLS) -> list[str]:
+    """Return a problem per spine skill whose body does not reference the knowledge-recall step
+    (ADR 0033). A presence check: the body must link the ``knowledge-recall`` pattern."""
+    plugin = Path(plugin_dir)
+    problems: list[str] = []
+    for skill in skills:
+        skill_md = plugin / "skills" / skill / "SKILL.md"
+        if not skill_md.is_file():
+            problems.append(f"{skill}: SKILL.md not found")
+        elif _RECALL_MARKER not in skill_md.read_text(encoding="utf-8"):
+            problems.append(f"{skill}: body does not reference the knowledge-recall step")
     return problems

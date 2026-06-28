@@ -19,6 +19,9 @@ as the spine's review step. Not for reviewing docs/design (use `deep-review`), w
 
 ## Process
 
+> **Recall first** — pull the project's relevant prior decisions from the knowledge vault (see
+> [knowledge-recall](../../patterns/knowledge-recall.md)); factor them in, and skip if the vault is empty.
+
 Follow [multi-aspect-review.md](../../patterns/multi-aspect-review.md):
 
 1. **Scope** the change — `git diff` for the branch/PR, or the diff under review (when invoked

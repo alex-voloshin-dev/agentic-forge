@@ -19,6 +19,9 @@ art, market/competitors, user needs, technical feasibility. Not for deciding req
 
 ## Process
 
+> **Recall first** — pull the project's relevant prior decisions from the knowledge vault (see
+> [knowledge-recall](../../patterns/knowledge-recall.md)); factor them in, and skip if the vault is empty.
+
 1. **Scope & gather.** State the question; collect what's already on hand (the request, repo,
    any existing docs). Pick a `<feature-slug>`.
 2. **Plan tracks.** Choose the research directions that apply — e.g. prior art / market,

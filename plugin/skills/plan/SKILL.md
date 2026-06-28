@@ -18,6 +18,9 @@ requirements (`product`), or implementation (`develop`).
 
 ## Process
 
+> **Recall first** — pull the project's relevant prior decisions from the knowledge vault (see
+> [knowledge-recall](../../patterns/knowledge-recall.md)); factor them in, and skip if the vault is empty.
+
 1. **Read the inputs.** Load `tech-design.md`
    (`handoff.load_artifact(..., expected_type="tech-design")`) and the `prd.md` for acceptance
    context. Pick the `<feature-slug>`.

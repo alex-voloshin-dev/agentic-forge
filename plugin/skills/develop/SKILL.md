@@ -19,6 +19,9 @@ designing (`architecture`), task breakdown (`plan`), or reviewing already-writte
 
 ## Process
 
+> **Recall first** — pull the project's relevant prior decisions from the knowledge vault (see
+> [knowledge-recall](../../patterns/knowledge-recall.md)); factor them in, and skip if the vault is empty.
+
 1. **Read inputs; fix the slug; detect the stack.** Load `plan.md` if present
    (`handoff.load_artifact(..., expected_type="plan")`) and/or `tech-design.md`; derive
    `<feature-slug>` from the artifact's `feature` header. Pick the current step and the
