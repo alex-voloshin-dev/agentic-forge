@@ -136,6 +136,28 @@ def _dangerous_chmod(command: str) -> bool:
     return any(_seg_dangerous_chmod(seg) for seg in _segments(command))
 
 
+_FIND = re.compile(r"\bfind\b")
+_FIND_DELETE = re.compile(r"(?<![\w-])-delete\b")
+# a bare top-level root as find's start path (NOT a sub-path like /opt/app or /etc/x, which are
+# targeted) — so `find /etc -delete` blocks but `find /opt/app -name '*.tmp' -delete` does not.
+_FIND_TARGET = re.compile(
+    r"(?:^|\s)(?:/\*?|~/?|\$HOME/?|\$\{HOME\}/?"
+    r"|/(?:usr|etc|bin|sbin|lib|lib64|boot|var|opt|root|home)/?)(?:\s|$)"
+)
+
+
+def _seg_dangerous_find(segment: str) -> bool:
+    if not (_FIND.search(segment) and _FIND_DELETE.search(segment)):
+        return False
+    return bool(_FIND_TARGET.search(segment.replace('"', " ").replace("'", " ")))
+
+
+def _dangerous_find(command: str) -> bool:
+    """True for `find <root-or-system-dir> … -delete` — deleting a whole system tree. A sub-path
+    (`/opt/app`, `/etc/x`) is targeted cleanup and is NOT blocked (accident-guard scope)."""
+    return any(_seg_dangerous_find(seg) for seg in _segments(command))
+
+
 def _seg_dangerous_push(segment: str) -> bool:
     if not _GIT_PUSH.search(segment):
         return False
@@ -162,6 +184,8 @@ def classify_command(command: str) -> Decision:
         return Decision(True, "blocked: recursive/forced delete of /, home, or a system dir")
     if _dangerous_chmod(command):
         return Decision(True, "blocked: recursive permissive chmod of /, home, or a system dir")
+    if _dangerous_find(command):
+        return Decision(True, "blocked: find -delete of /, home, or a system dir")
     for pattern, reason in _BLOCKERS:
         if pattern.search(command):
             return Decision(True, f"blocked: {reason}")

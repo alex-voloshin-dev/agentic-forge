@@ -76,6 +76,14 @@ def test_agent_bad_file_name(tmp_path) -> None:
     assert any("file name" in i.message for i in report.errors)
 
 
+def test_agent_without_name_frontmatter_is_ok(tmp_path) -> None:
+    # no `name` in frontmatter -> name defaults to the filename; the name check is skipped, not an
+    # error (covers the `if fm_name:` false branch in validate_agent).
+    md = _make_agent(tmp_path, frontmatter="description: A role.")
+    report = validate_agent(md)
+    assert not any(i.message.startswith("name:") for i in report.errors)
+
+
 def test_agent_malformed_frontmatter(tmp_path) -> None:
     agents = tmp_path / "agents"
     agents.mkdir()

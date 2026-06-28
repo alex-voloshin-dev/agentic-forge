@@ -189,6 +189,24 @@ def test_recall_empty_query(tmp_path: Path) -> None:
     assert recall(tmp_path, "the and of") == []  # all stopwords -> no tokens
 
 
+def test_recall_weights_title_over_body(tmp_path: Path) -> None:
+    # a title/tag hit weighs 3x a body hit — assert the EXACT scores so a 1.0-weight mutation fails
+    # (ordering alone wouldn't catch it: alphabetical tie-break keeps "atitle" first either way).
+    add_note(tmp_path, "atitle", "Priority Handling", "general notes here")
+    add_note(tmp_path, "bbody", "Misc Notes", "this mentions priority once")
+    ranked = dict(recall(tmp_path, "priority"))
+    # add_note repeats the title as the body H1, so a title word scores 3 (frontmatter title) + 1
+    # (body) = 4.0; a body-only word scores 1.0. A 1.0-weight mutation would make atitle 2.0.
+    assert ranked["atitle"] == 4.0
+    assert ranked["bbody"] == 1.0
+
+
+def test_recall_no_overlap_returns_empty(tmp_path: Path) -> None:
+    # tokens present but nothing matches -> [] (guards the `if score > 0` filter)
+    add_note(tmp_path, "n", "Alpha", "body text")
+    assert recall(tmp_path, "zzzznomatch") == []
+
+
 # --- session_summary ---------------------------------------------------------
 
 

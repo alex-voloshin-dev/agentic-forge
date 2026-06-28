@@ -59,6 +59,9 @@ _REPO = Path(__file__).resolve().parents[1]
         "chmod 777 -R /",  # flags after the mode
         "chmod -R a+rwx /",  # symbolic permissive mode
         "ls && rm -rf /usr",  # rm danger in a later segment
+        "find /etc -delete",  # whole system-tree delete
+        "find / -delete",
+        "find ~ -delete",
     ],
 )
 def test_classify_blocks_dangerous(cmd: str) -> None:
@@ -93,6 +96,9 @@ def test_classify_blocks_dangerous(cmd: str) -> None:
         "chmod -R 755 ./build",  # recursive but not permissive
         "chmod -R 777 ./local",  # 777 but a local relative path, not a system dir
         "git push origin develop:main",  # normal (non-force) push to main is routine
+        "find . -name '*.tmp' -delete",  # local targeted cleanup
+        "find /opt/app -name '*.log' -delete",  # sub-path cleanup, not a whole system tree
+        "find /etc -name '*.conf'",  # find without -delete
     ],
 )
 def test_classify_allows_safe(cmd: str) -> None:

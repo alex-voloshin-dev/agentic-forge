@@ -45,6 +45,14 @@ def test_missing_description(make_skill) -> None:
     assert any("description" in i.message for i in report.errors)
 
 
+def test_empty_or_whitespace_description_errors(make_skill) -> None:
+    # an empty/whitespace description must fail — guards the `not desc or not strip()` check (a
+    # `desc is None` mutant would pass it, and a blank description defeats router triggering).
+    for fm in ('name: demo\ndescription: ""', 'name: demo\ndescription: "   "'):
+        report = validate_skill(make_skill(frontmatter=fm))
+        assert any("description is required" in i.message for i in report.errors), fm
+
+
 def test_name_dir_mismatch(make_skill) -> None:
     skill = make_skill(name="demo", frontmatter="name: other\ndescription: d")
     report = validate_skill(skill)
@@ -64,6 +72,15 @@ def test_body_too_long(make_skill) -> None:
     skill = make_skill(body="line\n" * 600)
     report = validate_skill(skill)
     assert any("body is" in i.message for i in report.errors)
+
+
+def test_body_length_cap_boundary(make_skill) -> None:
+    # exactly 500 lines passes; 501 fails — guards the `>` vs `>=` boundary on the most-cited rule
+    # (a `>=` mutant would wrongly reject a legitimate 500-line body).
+    ok = validate_skill(make_skill(body="\n".join("x" for _ in range(500))))
+    assert not any("body is" in i.message for i in ok.errors)
+    over = validate_skill(make_skill(body="\n".join("x" for _ in range(501))))
+    assert any("body is 501 lines" in i.message for i in over.errors)
 
 
 def test_unknown_field_warns(make_skill) -> None:

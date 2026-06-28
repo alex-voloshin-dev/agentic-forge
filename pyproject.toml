@@ -67,6 +67,9 @@ ignore_missing_imports = true
 # Gate the dev/ eval runners too, not just the library — their aggregation/exit-code logic
 # decides ship/no-ship and must not regress uncovered (ultra-review MAJOR).
 source = ["agentic_forge", "dev"]
+# Branch coverage: line-only 100% hid weakened-branch regressions (a `>`/`>=` flip survived the
+# suite). Branch mode forces both arms of each conditional to be exercised.
+branch = true
 # Note: on some bind-mounted filesystems coverage cannot delete its parallel data
 # files. If you hit "Operation not permitted", set COVERAGE_FILE to a local path,
 # e.g. COVERAGE_FILE=/tmp/.coverage pytest --cov.
