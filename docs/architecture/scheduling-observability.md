@@ -34,6 +34,9 @@ Users who don't use GitHub Actions can invoke the same CLI from OS cron.
 - State = a small JSON of per-job `JobState` (`last_run`, `status`, `runs`, `failures`) under
   `${CLAUDE_PROJECT_DIR}/.agentic-forge/`; legacy flat `{name: last_run}` files migrate on load
   (cadence persistence — ADR 0031).
+- `health(jobs, state)` + `format_health(report)` — **pure**: a per-job health view (status /
+  runs / consecutive failures / last-run, or `never-run`) from the persisted state — the
+  scheduled-job observability rollup ADR 0031 left open.
 
 ## Observability — `lib/agentic_forge/observability.py`
 
@@ -48,7 +51,8 @@ The `logging` guardrail hook already writes a redacted audit JSONL (tool, brief,
 
 - `dev/run_scheduled.py` — compute due jobs (`schedule.due_jobs`), run each (seam), and record each
   outcome (`schedule.record_run`; a failed job is retried next poll, not fatal). `--dry` lists what
-  *would* run without running it (the roadmap's "dry-run green").
+  *would* run without running it (the roadmap's "dry-run green"); `--health` prints the per-job run
+  history (status / runs / failures) without running anything.
 - `dev/audit_digest.py` — print `observability.digest` of the audit log (a window flag).
 
 ## CI

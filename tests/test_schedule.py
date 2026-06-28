@@ -12,6 +12,8 @@ from agentic_forge.schedule import (
     Job,
     JobState,
     due_jobs,
+    format_health,
+    health,
     load_state,
     record_run,
     save_state,
@@ -155,3 +157,29 @@ def test_load_state_drops_bad_values(tmp_path: Path) -> None:
     # a string and a bool are not valid state values; an uncoercible mapping is dropped too
     p.write_text('{"d": 1.0, "s": "x", "b": true, "m": {"last_run": "nope"}}', encoding="utf-8")
     assert load_state(tmp_path) == {"d": JobState(last_run=1.0, status="ok", runs=1)}
+
+
+# --- health report ---------------------------------------------------------------------
+
+
+def test_health_never_run_ok_and_failed() -> None:
+    state = {
+        "deploy-digest": JobState(last_run=5.0, status="ok", runs=3, failures=0),
+        "audit-digest": JobState(last_run=9.0, status="failed", runs=2, failures=1),
+    }
+    by_name = {h.name: h for h in health(JOBS, state)}
+    assert by_name["kb-maintenance"].status == "never-run"  # no recorded state
+    assert by_name["deploy-digest"].status == "ok" and by_name["deploy-digest"].runs == 3
+    assert by_name["audit-digest"].status == "failed" and by_name["audit-digest"].failures == 1
+
+
+def test_format_health_reports_failing_and_unrun() -> None:
+    state = {"deploy-digest": JobState(last_run=1.0, status="failed", runs=1, failures=1)}
+    out = format_health(health(JOBS, state))
+    assert "Scheduled-job health" in out and "1 failing" in out
+    assert "deploy-digest (daily) — failed" in out
+    assert "never run" in out  # the jobs with no recorded state
+
+
+def test_format_health_empty() -> None:
+    assert format_health([]) == "No scheduled jobs."

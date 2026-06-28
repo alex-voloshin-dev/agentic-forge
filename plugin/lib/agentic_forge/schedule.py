@@ -25,9 +25,12 @@ __all__ = [
     "STATE_PATH",
     "Job",
     "JobState",
+    "JobHealth",
     "JOBS",
     "due_jobs",
     "record_run",
+    "health",
+    "format_health",
     "load_state",
     "save_state",
 ]
@@ -186,6 +189,51 @@ def save_state(repo: Path | str, state: dict[str, JobState]) -> Path:
     }
     path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
     return path
+
+
+@dataclass(frozen=True)
+class JobHealth:
+    """A scheduled job's health, derived from its persisted state for reporting (observability)."""
+
+    name: str
+    cadence: str
+    status: str  # "ok" | "failed" | "never-run"
+    runs: int
+    failures: int
+    last_run: float
+
+
+def health(jobs: tuple[Job, ...], state: dict[str, JobState]) -> list[JobHealth]:
+    """Pair each registered job with its persisted state into a health view (pure). A job with no
+    recorded state is reported as ``never-run`` — the observability rollup ADR 0031 left open."""
+    report: list[JobHealth] = []
+    for job in jobs:
+        st = state.get(job.name)
+        if st is None:
+            report.append(JobHealth(job.name, job.cadence, "never-run", 0, 0, 0.0))
+        else:
+            report.append(
+                JobHealth(
+                    job.name, job.cadence, st.status or "ok", st.runs, st.failures, st.last_run
+                )
+            )
+    return report
+
+
+def format_health(report: list[JobHealth]) -> str:
+    """Render a compact per-job health report for the CLI / CI."""
+    if not report:
+        return "No scheduled jobs."
+    failing = sum(1 for h in report if h.status == "failed")
+    lines = [f"Scheduled-job health ({len(report)} jobs, {failing} failing):"]
+    for h in report:
+        detail = (
+            "never run"
+            if h.status == "never-run"
+            else f"{h.status}  runs={h.runs} failures={h.failures} last={int(h.last_run)}"
+        )
+        lines.append(f"  {h.name} ({h.cadence}) — {detail}")
+    return "\n".join(lines)
 
 
 # Guard: every registered job must use a known cadence (caught at import, not in production).

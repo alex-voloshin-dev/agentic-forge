@@ -6,6 +6,14 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Added — Scheduled-job health report
+
+`schedule.health(jobs, state)` + `format_health(...)` surface the per-job run history that cadence
+persistence (ADR 0031) records — status, run count, consecutive failures, last-run, or `never-run`
+— and `dev/run_scheduled.py --health` prints it without running anything. This is the scheduled-job
+observability rollup ADR 0031 left open (the data was persisted; this is the consumer). Pure +
+tested; `schedule.py` stays **100% covered**.
+
 ### Added — Per-phase retry in the Tier-3 runner
 
 `run_scenario(..., retries=1)` (and `dev/run_spine_e2e.py --retries N`, default 1) re-runs a phase

@@ -62,11 +62,17 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--repo", type=Path, default=Path("."))
     parser.add_argument("--dry", action="store_true", help="list due jobs without running them")
     parser.add_argument("--force", action="store_true", help="run every job regardless of cadence")
+    parser.add_argument(
+        "--health", action="store_true", help="print scheduled-job health (run history) and exit"
+    )
     args = parser.parse_args(argv[1:])
 
     repo = args.repo.resolve()
     now = time.time()
     state = schedule.load_state(repo)
+    if args.health:
+        print(schedule.format_health(schedule.health(schedule.JOBS, state)))
+        return 0
     due = list(schedule.JOBS) if args.force else schedule.due_jobs(schedule.JOBS, state, now)
 
     if not due:
