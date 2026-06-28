@@ -38,10 +38,14 @@ eval cron** so Tier-1/2 are continuously gated (not just spot-checked) + documen
 listing-budget ceiling. Closed the marketing-strategy / knowledge-recall eval holes;
 `pass_rate_of` handles `{passed, failed}` without a `total`; the budget counter clamps a negative.
 
-670 tests; `validate`/`ruff`/`mypy` green; branch coverage 97.6% (library ~100%). **Deferred**
-(low-value/churn, no behaviour change): de-duplicating the eval-runner readers + dev/ CLI
-scaffolding, `audit.jsonl` rotation/windowing, second eval cases for ux-design/repo-onboarding,
-tightening the remaining `!= []` schema-test assertions, and a `vault.add_note` upsert doc-note.
+670 tests; `validate`/`ruff`/`mypy` green; branch coverage 97.6% (library ~100%).
+
+**Follow-ups since completed:** `audit.jsonl` windowing (`load_audit(max_lines=…)`); the
+ux-design/repo-onboarding second eval cases; the `vault.add_note` upsert doc-note; the `!= []`
+schema-test tightening (now pin the offending field); the marketing reference field-lists; the
+hooks event→matcher→script mapping test; and the eval-harness/dev-CLI de-duplication
+(`evals.eval_case_problems` + `dev/_eval_cli.warn_if_api_key_set`). Only the trivial
+`parse(read_text())` reader one-liners were left as-is (not worth the cross-module import churn).
 
 ### Fixed — final independent review of the remediation diff
 
