@@ -61,3 +61,21 @@ def test_duplicate_id_raises() -> None:
 def test_missing_id_raises() -> None:
     with pytest.raises(ValueError, match="missing an 'id'"):
         plan_batches([{"deps": []}])
+
+
+def test_numeric_ids_sort_numerically_not_lexically() -> None:
+    assert plan_batches([_t(10), _t(2), _t(1)]) == [["1", "2", "10"]]
+
+
+def test_deterministic_regardless_of_input_order() -> None:
+    tasks = [_t("T4", "T2", "T3"), _t("T1"), _t("T3", "T1"), _t("T2", "T1")]
+    assert plan_batches(tasks) == [["T1"], ["T2", "T3"], ["T4"]]
+
+
+def test_explicit_none_deps() -> None:
+    assert plan_batches([{"id": "T1", "deps": None}]) == [["T1"]]
+
+
+def test_duplicate_after_coercion_raises() -> None:
+    with pytest.raises(ValueError, match="duplicate task id"):
+        plan_batches([_t(1), _t("1")])

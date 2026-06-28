@@ -34,15 +34,17 @@ designing (`architecture`), task breakdown (`plan`), or reviewing already-writte
    **concurrently** (see [worktree-parallel.md](../../patterns/worktree-parallel.md) +
    [worktree.md](../../patterns/worktree.md)); a one-task level (or a plan with no parallelism) is
    the single-worktree case. `git init` + an initial commit first if the target is not yet a git repo.
-3. **Implement.** Delegate to the [`software-engineer`](../../agents/software-engineer.md) role
-   (fork via `Task`), **passing the worktree path**; it re-derives the stack profile there (the
-   same `stacks` helper, so the result matches step 1) and loads `engineering-standards` + the
-   detected `<stack>-patterns` pack (e.g. `python-patterns`; if the profile has no pack, the
-   standards + the profile's toolchain), writes the code and its tests in the worktree, and
-   reports files/tests/assumptions. Keep the change scoped to the step.
+3. **Implement (per task, concurrently).** For each task in the level, fork a
+   [`software-engineer`](../../agents/software-engineer.md) (via `Task`) into **its own worktree**;
+   each re-derives the stack profile there (the same `stacks` helper, so the result matches step 1)
+   and loads `engineering-standards` + the detected `<stack>-patterns` pack (e.g. `python-patterns`;
+   if the profile has no pack, the standards + the profile's toolchain), writes the code and its
+   tests in its worktree, and reports files/tests/assumptions. Keep each change scoped to its task.
 4. **Integrate, then review.** When a level's worktrees finish, **integrate** them — merge each
    into the base branch in a deterministic order (e.g. by task id), resolving conflicts
-   ([worktree-parallel.md](../../patterns/worktree-parallel.md)). Then produce the integrated diff
+   ([worktree-parallel.md](../../patterns/worktree-parallel.md)); if a conflict can't be resolved
+   mechanically, route it to a `software-engineer` (under the N = 3 budget) or surface it and stop —
+   integration has the same stop discipline as review/QA. Then produce the integrated diff
    — `git -C <repo> add -A && git -C <repo> diff --staged` (staging so new files are included) — and
    pass that diff text to the [multi-aspect review](../../patterns/multi-aspect-review.md) (the
    `code-review` engine: `reviewer` + `security-engineer` + the stack's lint/type tools from the
@@ -53,14 +55,15 @@ designing (`architecture`), task breakdown (`plan`), or reviewing already-writte
    **N = 3** (see [patterns/review-loop.md](../../patterns/review-loop.md)). If N = 3 is
    exhausted and the verdict is still `changes`, **do not proceed or merge** — surface the
    unresolved findings to the user and stop. On `approve`, proceed.
-6. **QA.** Delegate to the [`qa-engineer`](../../agents/qa-engineer.md) role (passing the
-   worktree path): strengthen the suite (existing + new unit + end-to-end) and run it. A
+6. **QA.** Delegate to the [`qa-engineer`](../../agents/qa-engineer.md) role against the
+   **integrated base** (where the level now lives; for a single-task level that is its worktree):
+   strengthen the suite (existing + new unit + end-to-end) and run it. A
    surfaced defect re-enters at step 3 → step 4 (re-review) → step 6, under the **same N = 3
    budget**; if still failing at the budget, surface the defect and stop. Never weaken a test
    to pass.
-7. **Hand off and clean up.** On `approve` + green suite: the worktree holds the reviewed,
+7. **Hand off and clean up.** On `approve` + green suite: the integrated base holds the reviewed,
    tested change, ready to merge. Report the change summary. **develop owns the worktree
-   lifecycle — remove the worktree (`git worktree remove`) once the change is merged or
+   lifecycle — remove *each* worktree (`git worktree remove`) once its change is merged or
    abandoned, even on failure** (worktree.md).
 
 ## Output

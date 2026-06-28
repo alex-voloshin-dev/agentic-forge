@@ -37,7 +37,7 @@ python -c "from agentic_forge import ops; help(ops.deploy_status)"
    `deploy-status` mapping: `pipeline` health (`ops.rollout_health`: failing on a failed deploy or
    a `critical` alert; degraded on an in-flight deploy or a `warning`; else healthy), the deploy
    list, the `triage_alerts` counts, and a `recommended_action`.
-3. **Record.** Write a `deploy-status` handoff artifact (`handoff` type `deploy-status`) and a
+3. **Record.** Write a `deploy-status` handoff artifact (`handoff` type `deploy-status`: `environment`, `pipeline`, `deploys`, `alerts`, `action`) and a
    short report; lead with the health and the recommended action.
 4. **Recommend, don't act.** Never trigger a rollback or deploy — surface the action for a human.
 

@@ -29,9 +29,11 @@ def test_live_plugin_contracts_clean() -> None:
 def test_mapping_skills_exist_and_types_known() -> None:
     from agentic_forge import handoff
 
-    for skill, artifact_type in SKILL_HANDOFF.items():
+    for skill, value in SKILL_HANDOFF.items():
         assert (PLUGIN / "skills" / skill / "SKILL.md").is_file(), skill
-        assert artifact_type in handoff.SCHEMAS, artifact_type
+        types = (value,) if isinstance(value, str) else value
+        for artifact_type in types:
+            assert artifact_type in handoff.SCHEMAS, artifact_type
 
 
 def test_required_fields_excludes_type() -> None:
@@ -63,9 +65,9 @@ def test_accepts_comma_list_and_bracket_forms(tmp_path: Path) -> None:
 
 
 def test_accepts_colon_form(tmp_path: Path) -> None:
-    _make_skill(
-        tmp_path, "s", "`type`, `feature`, `status`; then goals: ... and acceptance: ..."
-    )
+    # line-anchored `field:` form (a frontmatter/list line) is accepted
+    body = "`type`, `feature`, `status`\ngoals: the goals\nacceptance: criteria"
+    _make_skill(tmp_path, "s", body)
     assert handoff_contract_problems(tmp_path, {"s": "prd"}) == []
 
 
@@ -90,3 +92,27 @@ def test_malformed_frontmatter_reported(tmp_path: Path) -> None:
     d.mkdir(parents=True)
     (d / "SKILL.md").write_text("no frontmatter at all", encoding="utf-8")
     assert handoff_contract_problems(tmp_path, {"s": "prd"})  # FrontmatterError surfaced
+
+
+def test_marketing_maps_to_both_artifact_types() -> None:
+    assert SKILL_HANDOFF["marketing"] == ("market-brief", "marketing-strategy")
+
+
+def test_multi_type_skill_checks_every_type(tmp_path: Path) -> None:
+    # documents the first type fully but omits the second type's required `positioning`
+    _make_skill(tmp_path, "s", "frontmatter `type`, `feature`, `status`, `competitors`, `channels`")
+    problems = handoff_contract_problems(tmp_path, {"s": ("market-brief", "marketing-strategy")})
+    assert any("marketing-strategy" in p and "positioning" in p for p in problems)
+
+
+def test_hyphen_path_token_does_not_satisfy_field(tmp_path: Path) -> None:
+    # `feature-slug` must NOT satisfy required field `feature`
+    body = "writes `docs/sdlc/<feature-slug>/prd.md` with `goals`, `acceptance`"
+    _make_skill(tmp_path, "s", body)
+    assert any("feature" in p for p in handoff_contract_problems(tmp_path, {"s": "prd"}))
+
+
+def test_mid_prose_colon_does_not_satisfy_field(tmp_path: Path) -> None:
+    # an inline "status: done" must NOT satisfy `status` (colon match is line-anchored)
+    _make_skill(tmp_path, "s", "`type`, `feature`, `goals`, `acceptance`; note its status: done")
+    assert any("status" in p for p in handoff_contract_problems(tmp_path, {"s": "prd"}))

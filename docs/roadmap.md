@@ -287,12 +287,12 @@ Cross-cutting increments beyond the staged plan, recorded by ADR + CHANGELOG:
   failed job on the next poll (bounded by `MAX_RETRIES`) and the runner records each outcome;
   legacy state files migrate on load. Plus a scheduled-job **health report** (`--health`).
   Anchored/drift-free schedules and per-environment keys are deferred behind the same state shape.
-- **Quality-hardening increments** — **Designed, not built** (ADR 0032/0033/0034,
+- **Quality-hardening increments** — **Built** (ADR 0032/0033/0034,
   [architecture/quality-hardening.md](architecture/quality-hardening.md)): a **handoff-contract
   guard** (skill bodies must document their artifact's required fields — the root cause behind the
   live-sweep `ux-design` flakiness), **knowledge recall** wired into the spine phases (read the
   vault to enrich context), and **develop parallelism** (independent plan tasks across worktrees via
-  a tested `plan_batches`). Independent → implementable in parallel, closed by a final deep review.
+  a tested `plan_batches`). Independent increments; built and closed by a deep multi-reviewer review.
 
 ---
 

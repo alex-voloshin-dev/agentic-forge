@@ -2,8 +2,8 @@
 
 Run N **independent** subagents in parallel over a partition of the work, then **synthesize**
 their structured results into one. This is the backbone of every Stage 2 phase-workflow:
-research parallelises tracks, `develop` reviews by aspect (component implementation is
-sequential in v1; parallel-by-component is deferred), broad searches sweep several ways at once. The orchestrating skill owns the partition,
+research parallelises tracks, `develop` reviews by aspect and implements independent plan tasks
+in parallel across worktrees (ADR 0034), broad searches sweep several ways at once. The orchestrating skill owns the partition,
 the concurrency budget, and the synthesis.
 
 ## When to use

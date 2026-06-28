@@ -4,8 +4,9 @@ Status: Accepted — **implemented** (6 spine phases + `patterns/knowledge-recal
 
 ## Context
 
-`CLAUDE.md` states the knowledge base "ties it together: workflows write to it, **and read from it
-to enrich their context** over time." Today the write/seed side exists (`repo-onboarding` seeds the
+`CLAUDE.md` says the plugin "deploys and maintains an Obsidian-format markdown vault … **and reads
+it to enrich context**" — workflows should consume the vault, not only write it. Today the write/seed
+side exists (`repo-onboarding` seeds the
 vault; `knowledge` captures notes) and a session-start hook injects a vault summary — but the
 **spine phases themselves do not recall** the relevant prior notes before acting. So a phase can
 re-decide something the project already settled. See [quality-hardening.md](../quality-hardening.md),

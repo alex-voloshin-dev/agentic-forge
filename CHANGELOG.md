@@ -6,6 +6,32 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Fixed — quality-hardening deep review (5-lens adversarial pass)
+
+A five-reviewer review (each verified against source; full gate re-run clean) found real gaps in the
+three increments — all fixed:
+
+- **#1 guard:** `marketing` produces **two** artifact types — `SKILL_HANDOFF` now maps a tuple
+  (`market-brief`, `marketing-strategy`) and the guard checks every type (`marketing-strategy`'s
+  `positioning`/`channels` were previously unchecked). Tightened `_documents` so `feature-slug` no
+  longer satisfies `feature` (hyphen boundary) and an inline `status:` no longer satisfies `status`
+  (colon match line-anchored); `deploy-watch`'s write step now spells its `deploy-status` fields.
+- **#3 develop:** `plan_batches` now sorts ids **numerically** (`1, 2, 10`, not lexical `1, 10, 2`)
+  so the "by task id" merge order is intuitive; develop steps 3/6/7 are now **level-aware** (fork a
+  software-engineer into **each** task's worktree; QA on the **integrated base**; remove **each**
+  worktree); a **bounded integration-conflict stop** (route to a software-engineer under N = 3 or
+  surface and stop) was added to develop + `worktree-parallel.md`.
+- **#2 recall guard:** now parses the **body** and matches the actual pattern **link** — a bare
+  `knowledge-recall` mention in a comment/frontmatter no longer passes.
+- **Currency:** un-stale'd `fan-out-fan-in.md` ("develop is sequential"), the `quality-hardening.md`
+  + `roadmap.md` status ("Designed, not built" → Built), ADR 0033's mis-quote of `CLAUDE.md`, and the
+  `spine.md` thin-slice note.
+
+New tests for every fix (numeric sort + determinism, multi-type, matcher tightening, gamed recall,
+bounded paths); `skill_contract.py` + `planning.py` 100% covered; full gate green. Deferred
+(pre-existing, noted by 2 reviewers): folding the guards + `../` cross-tree link resolution into
+`dev/validate.py` — the guards already block via pytest.
+
 ### Added — develop parallelism (quality-hardening 3/3)
 
 Implemented [ADR 0034](docs/architecture/decisions/0034-develop-parallelism.md):

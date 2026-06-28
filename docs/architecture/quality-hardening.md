@@ -1,6 +1,6 @@
 # Quality-hardening increments (post-spine)
 
-Status: **Designed, not built.** Three independent increments that strengthen what the live Tier-3
+Status: **Built — all three shipped** (ADR 0032/0033/0034; live-clean guards, gate green; hardened by a deep multi-reviewer review). Three independent increments that strengthen what the live Tier-3
 sweep and the constitution exposed as soft — **no new SDLC domains**. Each has its own ADR; this
 doc is the plan (scope, contracts, deterministic checkpoints, exit criteria, sequencing).
 Implement after this is agreed (contract → evals → implementation → gate), then a final deep review.

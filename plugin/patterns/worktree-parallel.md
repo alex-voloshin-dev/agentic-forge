@@ -20,7 +20,9 @@ parallelism (a single chain) degrades to the plain one-worktree flow — no orch
    each scoped to its task, each loading the stack pack + `engineering-standards`.
 3. **Integrate (per level).** Merge the level's worktrees back into the base in a **deterministic
    order** (e.g. by task id), resolving conflicts as they surface — integration is where cross-task
-   conflicts live, so it is explicit, not silent.
+   conflicts live, so it is explicit, not silent. If a conflict can't be resolved mechanically,
+   route it back to the task's `software-engineer` (bounded by the review loop's N = 3) or surface
+   it and stop — the same stop discipline as review/QA.
 4. **Review the integrated level** with the [multi-aspect review](multi-aspect-review.md); loop back
    (bounded — [review-loop.md](review-loop.md)) on `changes`; run QA. Advance to the next level only
    when this one is integrated, approved, and green.

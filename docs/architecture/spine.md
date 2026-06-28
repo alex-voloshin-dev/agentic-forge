@@ -114,6 +114,7 @@ Build order (your choice): **`architecture → develop → code-review`** as wor
 Python fixture repo. `develop` is the flagship (git infra → implement the step in a single
 worktree → multi-aspect review fan-out → QA) and exercises the riskiest machinery. Minimum new
 roles for the slice: `security-engineer` and `qa-engineer` (review + QA); implementation uses
+<!-- develop now batches independent plan tasks across parallel worktrees (ADR 0034); the single-worktree slice above is the original thin-slice narrative. -->
 the renamed `software-engineer` (was `implementer`). Stack engineers stay deferred to the
 by-stack step. Prove the slice end to end, record Tier-1/2/3, then add
 `research`, `product`, `plan`, and the by-stack mechanism.

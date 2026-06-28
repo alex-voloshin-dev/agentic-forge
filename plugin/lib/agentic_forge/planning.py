@@ -14,6 +14,12 @@ from typing import Any
 __all__ = ["plan_batches"]
 
 
+def _sort_key(tid: str) -> tuple[int, int, str]:
+    """Natural order: numeric ids sort by value (1, 2, 10 — not lexical 1, 10, 2), then the rest
+    lexically. Keeps the 'deterministic by task id' merge order intuitive for numeric plans."""
+    return (0, int(tid), "") if tid.isdigit() else (1, 0, tid)
+
+
 def _task_id(task: dict[str, Any]) -> str:
     if "id" not in task:
         raise ValueError(f"plan task is missing an 'id': {task!r}")
@@ -46,7 +52,7 @@ def plan_batches(tasks: list[dict[str, Any]]) -> list[list[str]]:
     done: set[str] = set()
     remaining = set(ids)
     while remaining:
-        level = sorted(tid for tid in remaining if deps[tid] <= done)
+        level = sorted((tid for tid in remaining if deps[tid] <= done), key=_sort_key)
         if not level:  # nothing newly runnable -> a cycle among what's left
             raise ValueError(f"dependency cycle among tasks: {sorted(remaining)}")
         batches.append(level)
