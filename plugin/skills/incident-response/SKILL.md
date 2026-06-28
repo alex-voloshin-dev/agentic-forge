@@ -33,8 +33,10 @@ python -c "from agentic_forge import ops; print(ops.classify_incident(outage=Tru
 2. **Classify severity.** `ops.classify_incident(outage=…, data_loss=…, degraded=…, workaround=…)`
    → `sev1` (outage / data loss), `sev2` (degraded, no workaround), `sev3` (degraded, workaround),
    `sev4` (cosmetic / latent). Use the derived level — do not eyeball it.
-3. **Assemble the record.** Write an `incident` handoff (`handoff` type `incident`: `severity`,
-   `status`, `impact`, `timeline` — at least the detection event — `remediation`, `action_items`).
+3. **Assemble the record.** Write an `incident` handoff (frontmatter `type` (= `incident`),
+   `severity`, `status`, `impact`, `timeline` — at least the detection event — `remediation`,
+   `action_items`), then validate it (`handoff.validate_header(header, expected_type="incident")`;
+   see [handoff.md](../../patterns/handoff.md)).
 4. **Mitigate first, then root-cause.** Prioritize the fastest safe mitigation (a workaround or a
    rollback) over a root-cause fix. For an actual code fix or a security angle, fork the relevant
    role (`software-engineer` / `security-engineer`) via `Task`; keep the incident record updated.

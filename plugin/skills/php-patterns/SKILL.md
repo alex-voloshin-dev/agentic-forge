@@ -29,7 +29,7 @@ Run PHPStan/Psalm and PHP-CS-Fixer on the change before declaring done; never si
 - **`declare(strict_types=1)`** as the first statement of every file (directly after `<?php`);
   **type declarations** on params, returns, and properties. Follow **PSR-12** style and **PSR-4**
   autoloading (via Composer).
-- Modern PHP (8.0–8.1): **constructor property promotion**, **enums**, **readonly** properties,
+- Modern PHP (8.1+): **constructor property promotion**, **enums**, **readonly** properties,
   the **`match`** expression, named arguments, null-safe **`?->`**.
 - **Parameterised queries** (PDO prepared statements) — never build SQL by string concatenation;
   validate `$_GET`/`$_POST`/external input at the boundary.

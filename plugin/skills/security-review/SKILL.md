@@ -26,9 +26,11 @@ change review (`code-review` already runs `security-engineer` per diff), impleme
 2. **Delegate the review.** Fork the `security-engineer` role (via `Task`) with the target and the
    threat surface to examine: input validation, authz/authn, injection, secrets handling,
    dependency risk, unsafe deserialization. The role brings the security expertise.
-3. **Aggregate into a verdict.** Collect findings into a `review` handoff (`handoff` type `review`:
-   `target`, `iteration`, `verdict`, `findings` with `severity`/`location`/`suggestion`). Any
-   `blocker`/`major` finding makes the verdict `changes`; otherwise `approve`.
+3. **Aggregate into a verdict.** Collect findings into a `review` handoff (frontmatter `type`
+   (= `review`), `target`, `iteration`, `verdict`, `findings` with `severity`/`location`/`suggestion`),
+   then validate it (`handoff.validate_header(header, expected_type="review")`; see
+   [handoff.md](../../patterns/handoff.md)). Any `blocker`/`major` finding makes the verdict
+   `changes`; otherwise `approve`.
 4. **Report, don't fix.** Surface findings with concrete locations and remediations; do not modify
    code. Do not invent vulnerabilities on safe code — an approve with at most nits is a valid result.
 

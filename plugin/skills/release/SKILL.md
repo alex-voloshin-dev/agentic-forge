@@ -37,9 +37,11 @@ python -c "from agentic_forge import release; print(release.commits_since('.'))"
    `groups` (Keep-a-Changelog: Added / Changed / Deprecated / Removed / Fixed / Security), and the
    `breaking` descriptions. Conventional-commit prefixes drive the grouping; `chore`/`docs` and
    other uncategorised commits are kept out of the changelog as noise.
-3. **Render the artifact.** Write a `release` handoff artifact (`handoff` type `release`:
-   `feature`, `status`, `version`, `changelog`, `breaking`) plus human-readable notes. Flag every
-   breaking change prominently. Do not invent entries beyond the commits.
+3. **Render the artifact.** Write a `release` handoff artifact (frontmatter `type` (= `release`),
+   `feature`, `status`, `version`, `changelog`, `breaking`) plus human-readable notes, then validate
+   it (`handoff.validate_header(header, expected_type="release")`; see
+   [handoff.md](../../patterns/handoff.md)). Flag every breaking change prominently. Do not invent
+   entries beyond the commits.
 4. **Tag only on request.** Never create or push a tag unless explicitly asked; propose the
    command and let the user run it. Never rewrite history.
 

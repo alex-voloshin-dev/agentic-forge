@@ -26,8 +26,10 @@ reviewing already-written code (`code-review`), or assembling a release (`releas
    the question "what are the risk areas, the right test levels, and the cases that matter?" The
    role brings the test-design expertise; pass it the context, not just the prompt.
 3. **Synthesize the strategy.** Aggregate into a `test-strategy` handoff artifact (`handoff` type
-   `test-strategy`: `type`, `feature`, `status`, `scope`, `risks`, `test_levels`, `cases`). Cover the real
-   risk areas (boundaries, invalid/abusive input, concurrency, rounding/precision, failure modes).
+   `test-strategy`: `type`, `feature`, `status`, `scope`, `risks`, `test_levels`, `cases`), then
+   validate it (`handoff.validate_header(header, expected_type="test-strategy")`; see
+   [handoff.md](../../patterns/handoff.md)). Cover the real risk areas (boundaries, invalid/abusive
+   input, concurrency, rounding/precision, failure modes).
 4. **Prioritize.** Order cases so boundaries and error/abuse paths come first; call out the levels
    (unit / integration / e2e / perf / security) the change actually warrants — not a blanket list.
 
