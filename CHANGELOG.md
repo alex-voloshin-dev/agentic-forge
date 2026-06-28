@@ -57,12 +57,21 @@ re-run clean) found and fixed real defects:
   quality-hardening "designed → built"; `guardrails.md` documents the accident-guard scope.
 
 Decisions recorded in [ADR 0035](docs/architecture/decisions/0035-ultra-review-hardening.md).
-Regression tests for every fix; `dev/validate.py`, `pytest`, `ruff`, `mypy` all green; aggregate
-coverage 98%. Deferred (cosmetic, no behaviour change): `__all__` backfill (9 modules),
-de-duplicating `summary_line`/`all_passed`/`DEFAULT_RUNS`, removing dead `Change.raw` /
-`classify_incident(cosmetic=)` / the `spine_e2e` back-compat trio; and deeper test-quality (mocking
-the live judge transport; strengthening the develop / `expected_release_version` checkpoints beyond
-their self-referential fixtures).
+Regression tests for every fix; `dev/validate.py`, `pytest`, `ruff`, `mypy` all green.
+
+**Follow-ups completed in the same review** — *cleanups:* `__all__` on the 9 lib modules that
+lacked it, `summary_line` hoisted into `gate.format_tier2_summary` (the lower-bound formula in one
+place), dead `Change.raw` field + inert `classify_incident(cosmetic=)` param removed. *Deeper
+test-quality:* the LLM judge transports (`api_runner`/`claude_cli_runner`) are now unit-tested with
+a mocked transport (argv/request shape, retry, raise — `# pragma: no cover` removed, `agent_eval`
+back to 100%); `expected_release_version` is de-tautologised against a built git history (asserts the
+literal `1.1.0` bump, not a value recomputed via `summarize`); and `check_develop` drops comment-only
+lines so a `# priority=` TODO can't satisfy the marker (still judge-free per ADR 0030). 650 tests;
+library 100%, aggregate 98%.
+
+Still deferred (lowest value, harmless, no behaviour change): collapsing the three one-line
+`all_passed` / duplicate `DEFAULT_RUNS` definitions, and removing the `spine_e2e` back-compat trio
+(`run_e2e` / spine-only `check_wiring` / `prepare_workspace`), which stay tested and inert.
 
 ### Changed — Tier-0 validator gates cross-tree links + runs the contract guards
 
