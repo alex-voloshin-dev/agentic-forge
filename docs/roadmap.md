@@ -24,7 +24,7 @@ architecture before we invest in breadth.
 | 5 | Product & marketing domains | Built — product already covered by the `product` spine skill; `marketing` router skill (market-research / strategy / content) shipped, evidence-first, Tier-1/Tier-2 gated (ADR 0022, [product-marketing.md](architecture/product-marketing.md)) |
 | 6 | Design & onboarding domains | Built — `ux-design` (ux-spec, specs not pixels) + `repo-onboarding` (analyze a codebase + seed the vault); Tier-1/Tier-2 gated (ADR 0023, [design-onboarding.md](architecture/design-onboarding.md)) |
 | 7 | Guardrails, observability, scheduling (L4) | Built — four guardrail hooks (ADR 0019) + scheduling & observability (ADR 0024): declarative job registry + audit-log digest + cron CI |
-| — | Post-spine increments | Built — real provider connectors (ADR 0025) + Tier-1 mean-rate metric (ADR 0026); see [Post-spine increments](#post-spine-increments-beyond-the-staged-plan) |
+| — | Post-spine increments | Built — increments through ADR 0035 (connectors, Tier-1 mean-rate, domain E2E, cadence persistence, quality-hardening, **ultra-review hardening — closed**); see [Post-spine increments](#post-spine-increments-beyond-the-staged-plan) |
 
 ---
 
@@ -293,6 +293,17 @@ Cross-cutting increments beyond the staged plan, recorded by ADR + CHANGELOG:
   live-sweep `ux-design` flakiness), **knowledge recall** wired into the spine phases (read the
   vault to enrich context), and **develop parallelism** (independent plan tasks across worktrees via
   a tested `plan_batches`). Independent increments; built and closed by a deep multi-reviewer review.
+- **Ultra-review hardening** — **Built / closed** (ADR 0035). A multi-lens adversarial review of the
+  whole session, followed by an independent final pass over its own remediation diff, fixing real
+  gate-integrity, security, and doc-honesty defects: the eval gate now **fails** a vacuous Tier-2
+  contract (schema `required` sub-fields) instead of rubber-stamping it; `gate.all_passed([])` is
+  False and the `dev/` runners are coverage-gated; secret redaction covers modern token shapes
+  (incl. `sk-ant-…`, Stripe `rk_`) without over-redacting, and the danger deny-list runs **per shell
+  segment** and is ReDoS-free; the LLM-judge transports + the `expected_release_version` / develop
+  checkpoints are now genuinely tested (not tautological); and CLAUDE.md, the ADR index, and the
+  pattern/skill docs were corrected to match the code (delegation via `Task`, not unused
+  `context: fork`). Every finding verified against source; **653 tests** green, library 100% /
+  aggregate 98% coverage. Nothing from the review remains open.
 
 ---
 
