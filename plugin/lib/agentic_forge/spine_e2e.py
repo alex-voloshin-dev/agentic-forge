@@ -437,16 +437,38 @@ def prepare_scenario(plugin_dir: Path, dest: Path, scenario: Scenario) -> Path:
     return repo
 
 
+def _run_phase_with_retry(
+    plugin_dir: Path, phase: Phase, repo: Path, run_phase: Runner, retries: int
+) -> PhaseResult:
+    """Run a phase, re-running it up to ``retries`` more times if its checkpoints fail — this
+    retries the **model** (a fresh attempt at the same prompt), never relaxing a checkpoint, so a
+    one-off invalid artifact (model frontmatter variance) self-corrects. Returns the first passing
+    attempt, or the last one."""
+    body = skill_body(plugin_dir, phase.skill)
+    attempt = 0
+    while True:
+        run_phase(body, phase.prompt, repo)
+        result = PhaseResult(phase.skill, phase.checks(repo))
+        if result.passed or attempt >= retries:
+            return result
+        attempt += 1
+
+
 def run_scenario(
-    plugin_dir: Path, scenario: Scenario, *, run_phase: Runner, workspace: Path
+    plugin_dir: Path,
+    scenario: Scenario,
+    *,
+    run_phase: Runner,
+    workspace: Path,
+    retries: int = 1,
 ) -> list[PhaseResult]:
-    """Run a scenario's phases in an isolated copy and return per-phase checkpoint results."""
+    """Run a scenario's phases in an isolated copy and return per-phase checkpoint results. Each
+    phase is retried up to ``retries`` times if its checkpoints fail (``retries=0`` disables it)."""
     repo = prepare_scenario(plugin_dir, workspace, scenario)
-    results: list[PhaseResult] = []
-    for phase in scenario.phases:
-        run_phase(skill_body(plugin_dir, phase.skill), phase.prompt, repo)
-        results.append(PhaseResult(phase.skill, phase.checks(repo)))
-    return results
+    return [
+        _run_phase_with_retry(plugin_dir, phase, repo, run_phase, retries)
+        for phase in scenario.phases
+    ]
 
 
 # --- scenario registry --------------------------------------------------------

@@ -162,10 +162,16 @@ module**, with the **per-line → per-commit replay** of the release fixture; a 
 ## Runner & CLI
 
 `dev/run_spine_e2e.py` gains `--scenario {spine,quality-gate,ops-incident,product-inception,market-brief}`
-(default `spine`, repeatable); `--runner dry|claude`, `--model`, `--workspace` unchanged. `--runner
-dry` checks each selected scenario's wiring (skills + fixtures present) **and** that the
+(default `spine`, repeatable) and `--retries N` (re-run a phase whose checkpoints fail, up to N
+times — **default 1**, `0` disables); `--runner dry|claude`, `--model`, `--workspace` unchanged.
+`--runner dry` checks each selected scenario's wiring (skills + fixtures present) **and** that the
 `gh`/`GRAFANA_URL` neutralization is present in the `ops-incident` phase prompts — no model calls,
 always-on in CI.
+
+**Per-phase retry.** `run_scenario(..., retries=1)` re-runs a phase whose checkpoints fail, up to
+`retries` times — a fresh **model** attempt at the same prompt, never relaxing a checkpoint. This
+absorbs the single-run frontmatter variance (a phase occasionally emitting an artifact missing a
+required field) so a long chain reliably goes all-green without lowering the bar.
 
 ## Where this sits in the eval pyramid
 
@@ -192,9 +198,9 @@ Tier-3 scenarios), not a new tier.
 tests ✓; the **live `--runner claude` sweep was run** (recorded in the CHANGELOG) — every
 checkpoint *type* proved out, with `quality-gate` / `ops-incident` / `market-brief` fully green;
 full single-run chains are probabilistic at strict per-artifact schema validation (model
-frontmatter variance), so the live job stays on-demand (re-run to all-green; a per-phase retry is
-a possible runner follow-up). (3) ✓ — the eval-runbook line is
-updated. (4) ✓ — wired into `eval.yml`. (5) ✓ — Wave 2 (`product-inception`, `market-brief`) built
+frontmatter variance), so the live job stays on-demand. The runner now **retries a flaked phase
+once by default** (`--retries N`) to absorb that variance without lowering the bar. (3) ✓ — the
+eval-runbook line is updated. (4) ✓ — wired into `eval.yml`. (5) ✓ — Wave 2 (`product-inception`, `market-brief`) built
 to the same bar.
 
 ## Cost

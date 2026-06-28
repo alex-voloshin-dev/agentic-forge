@@ -513,3 +513,33 @@ def test_run_market_brief_all_pass(tmp_path: Path) -> None:
     )
     assert [r.phase for r in results] == ["marketing"]
     assert all_passed(results), [str(c) for r in results for c in r.checkpoints]
+
+
+def test_run_scenario_retries_flaky_phase(tmp_path: Path) -> None:
+    calls = [0]
+
+    def flaky(system: str, user: str, repo: Path) -> str:
+        calls[0] += 1
+        if calls[0] >= 2:  # first attempt writes nothing (invalid); the retry succeeds
+            (_sdlc_dir(user, repo) / "market-brief.md").write_text(MARKET_BRIEF, encoding="utf-8")
+        return "done"
+
+    results = run_scenario(
+        PLUGIN, SCENARIOS["market-brief"], run_phase=flaky, workspace=tmp_path, retries=1
+    )
+    assert all_passed(results) and calls[0] == 2  # failed once, retried, passed
+
+
+def test_run_scenario_no_retry_when_disabled(tmp_path: Path) -> None:
+    calls = [0]
+
+    def flaky(system: str, user: str, repo: Path) -> str:
+        calls[0] += 1
+        if calls[0] >= 2:
+            (_sdlc_dir(user, repo) / "market-brief.md").write_text(MARKET_BRIEF, encoding="utf-8")
+        return "done"
+
+    results = run_scenario(
+        PLUGIN, SCENARIOS["market-brief"], run_phase=flaky, workspace=tmp_path, retries=0
+    )
+    assert not all_passed(results) and calls[0] == 1  # no retry, stays failed

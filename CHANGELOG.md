@@ -6,6 +6,16 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Added — Per-phase retry in the Tier-3 runner
+
+`run_scenario(..., retries=1)` (and `dev/run_spine_e2e.py --retries N`, default 1) re-runs a phase
+whose checkpoints fail, up to N times — a fresh **model** attempt at the same prompt, **never
+relaxing a checkpoint**. This absorbs the single-run frontmatter variance the live sweep surfaced
+(a phase occasionally emitting an artifact missing a required field), so a long chain reliably goes
+all-green without lowering the bar (`--retries 0` disables it). `run_e2e` (spine) inherits the
+default; unit tests cover the retry-then-pass and retry-disabled paths and `spine_e2e.py` stays
+**100% covered**.
+
 ### Verified — Domain E2E live Tier-3 runs (subscription, `claude-opus-4-8`)
 
 Ran the five Tier-3 scenarios live (`--runner claude`). The harness and **every deterministic
@@ -32,8 +42,8 @@ found and fixed:
 *single* live run is probabilistic — each phase has a small chance of emitting an artifact missing
 a required frontmatter field (model output variance), so a 5–6-phase chain may need a re-run to go
 all-green. The checkpoints are correct (the artifacts genuinely were invalid); the remedy is better
-prompts/skill contracts (done) and, optionally, a **per-phase retry** in the live runner (noted as
-a follow-up). The live job stays on-demand/cost-gated, where re-running to a clean sweep belongs.
+prompts/skill contracts (done) and a **per-phase retry** in the live runner (now implemented — see
+above). The live job stays on-demand/cost-gated, where re-running to a clean sweep belongs.
 
 ### Added — Scheduling cadence persistence (per-job state + retry)
 

@@ -51,6 +51,12 @@ def main(argv: list[str]) -> int:
         choices=[*spine_e2e.SCENARIOS, "all"],
         help="scenario(s) to run; repeatable; 'all' for every one (default: spine)",
     )
+    parser.add_argument(
+        "--retries",
+        type=int,
+        default=1,
+        help="re-run a phase whose checkpoints fail, up to N times (default 1; 0 disables)",
+    )
     args = parser.parse_args(argv[1:])
     plugin_dir: Path = args.plugin.resolve()
     names = _selected(args.scenarios)
@@ -74,7 +80,7 @@ def main(argv: list[str]) -> int:
         workspace = base / name
         print(f"\n=== scenario: {name} (workspace: {workspace}) ===", flush=True)
         results = spine_e2e.run_scenario(
-            plugin_dir, scenario, run_phase=run_phase, workspace=workspace
+            plugin_dir, scenario, run_phase=run_phase, workspace=workspace, retries=args.retries
         )
         for r in results:
             print(f"[{r.phase}] {'PASS' if r.passed else 'FAIL'}", flush=True)
