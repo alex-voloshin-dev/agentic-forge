@@ -17,7 +17,7 @@ __all__ = ["plan_batches"]
 def _sort_key(tid: str) -> tuple[int, int, str]:
     """Natural order: numeric ids sort by value (1, 2, 10 — not lexical 1, 10, 2), then the rest
     lexically. Keeps the 'deterministic by task id' merge order intuitive for numeric plans."""
-    return (0, int(tid), "") if tid.isdigit() else (1, 0, tid)
+    return (0, int(tid), "") if (tid.isascii() and tid.isdigit()) else (1, 0, tid)
 
 
 def _task_id(task: dict[str, Any]) -> str:

@@ -14,9 +14,11 @@ session — except where blocking is the whole point (security, test-gate).
 ## The hooks
 
 - **security** (`PreToolUse` / Bash, `security.py`) — blocks clearly-dangerous commands via a
-  conservative deny-list: `rm -rf` of `/` or `~`, fork bombs, `curl|sh`, `mkfs`/`dd` to a device,
-  `chmod 777 /`, raw-disk writes, force-push to a protected branch. Exit 2 blocks; everything else
-  is allowed (false positives cause friction, so it blocks only unambiguous hazards).
+  conservative deny-list, evaluated **per shell segment** (so `ls /usr && rm -rf build` is not
+  misread as `rm -rf /usr`): recursive/forced `rm` or permissive `chmod` of `/`/`~`/a system dir,
+  fork bombs, a network download piped into a shell/interpreter, `mkfs`/`dd` to a device, raw-disk
+  writes, and force-push (`--force` or a `+refspec`) to a protected branch. Exit 2 blocks;
+  everything else is allowed (false positives cause friction, so it blocks only unambiguous hazards).
 - **test-gate** (`PreToolUse` / Bash, `commit_gate.py`) — on `git commit`/`git push`, runs the
   **fast** gate (`dev/validate.py` if present, else the detected stack's lint via `stacks.py`) and
   blocks on failure, so broken code isn't committed. Skippable via `AGENTIC_FORGE_SKIP_TEST_GATE`;
@@ -34,6 +36,21 @@ session — except where blocking is the whole point (security, test-gate).
   file; logging reuses the redaction in `guardrails.py`.
 - **Exit-code contract** — `2` = block (reason on stderr, fed back to the model); `0` = allow (a
   non-blocking warning may still print to stderr).
+
+## Scope: an accident-guard, not an adversarial sandbox
+
+The security deny-list and secret redaction stop **unambiguous hazards and accidental leaks**, not
+a determined adversary. Known, accepted limits:
+
+- **Bypassable by obfuscation.** Command-substitution downloads (`bash -c "$(curl …)"`) and a bare
+  `git push --force` with no explicit target (the destination branch isn't knowable from the
+  command string) are not caught. The list errs toward *allow* to avoid friction.
+- **The test-gate runs repo-local code by design.** `commit_gate` executes the project's own
+  `dev/validate.py` (or the stack lint) from the session `cwd`; the trust boundary is Claude
+  Code's `cwd`, not the hook. Don't point a session at an untrusted repo and then commit.
+- **Redaction covers common token shapes** (`sk-…`/`sk-ant-…`, `gh*_`/`github_pat_`/`glpat-`,
+  AWS/Google/Slack keys, JWTs, `user:pass@` URLs, Bearer/Authorization, `KEY=value`) but is not
+  exhaustive — treat `audit.jsonl` as sensitive and keep it out of shared locations.
 
 ## Eval model
 

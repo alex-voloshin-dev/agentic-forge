@@ -18,7 +18,8 @@ This file is the project constitution. Every contributor (human or agent) MUST f
 
 1. **Skill-centric.** Skills are the primary unit and express *workflows*. Users do not
    call agents or commands by hand — skills auto-load by `name` + `description`. Agents are
-   executors that skills delegate to (`context: fork` + `agent`); hooks are guardrails.
+   executors that skills delegate to via the `Task` tool (declared in `allowed-tools`,
+   referencing the subagent role by name); hooks are guardrails.
 
 2. **Router discipline.** The skill listing has a hard context budget (~1% of the model
    window); descriptions of rarely used skills get dropped. So we keep a SMALL set of
@@ -38,8 +39,9 @@ This file is the project constitution. Every contributor (human or agent) MUST f
      lint, body <= 500 lines, references resolve, `pytest` green, `ruff` + `mypy` clean,
      script coverage >= 80%.
    - Tier 1 (trigger): should-trigger recall >= 0.9, should-not-trigger specificity >= 0.9.
-   - Tier 2 (quality, LLM-judge, N >= 5 runs): (mean - sigma) pass-rate >= 0.8; token/time
-     overhead within budget; A/B not worse than previous version.
+   - Tier 2 (quality, LLM-judge, N >= 5 runs): (mean - sigma) pass-rate >= 0.8. (Token/time
+     overhead budgets and with/without-skill A/B deltas are scaffolded in `benchmark`/`gate` but
+     not yet wired into the runners — pass-rate is what gates today; see meta-core.md.)
    - Tier 3 (E2E): workflow scenarios pass with all checkpoints green.
    Thresholds are starting points; recalibrate per component and record the rationale.
 
@@ -54,7 +56,7 @@ This file is the project constitution. Every contributor (human or agent) MUST f
 ## Layers
 
 - L0 Meta-core: `skill-factory` + eval-harness + `lib/` + Tier-0 validator. Builds everything else.
-- L1 Engine: subagent roles + native patterns (router, fan-out/fan-in, review loop, Ralph, worktree).
+- L1 Engine: subagent roles + native patterns (router, fan-out/fan-in, review loop, Ralph (deferred), worktree).
 - L2 Workflow skills: a phase-workflow per SDLC phase (fan out → synthesize a handoff artifact), depth via references.
 - L3 Knowledge base: Obsidian vault, recall skill, session-start injection.
 - L4 Guardrails & observability: hooks (security, test-gate, logging, budgets).
@@ -72,7 +74,7 @@ plugin/
   eval/{README.md, fixtures/}             # harness docs + agent eval fixtures
   schemas/                  # JSON Schema for evals.json + contract
 tests/                      # pytest for lib + hooks + harness
-dev/{validate.py, run_agent_evals.py}   # Tier-0 gate + agent Tier-2 runner (CLI)
+dev/{validate.py, run_agent_evals.py, run_skill_evals.py, run_tier1_evals.py, run_spine_e2e.py, run_scheduled.py, audit_digest.py}  # Tier 0/1/2/3 gates + scheduling/observability CLIs
 docs/                       # product vision, architecture, ADRs, roadmap
 CHANGELOG.md                # what changed, by milestone
 ```

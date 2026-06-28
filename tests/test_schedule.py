@@ -83,6 +83,20 @@ def test_due_jobs_backs_off_after_max_retries() -> None:
     assert due_jobs((JS[0],), state, now=now) == []  # retries exhausted -> wait for cadence
 
 
+def test_due_jobs_backs_off_exactly_at_max_retries() -> None:
+    now = 1_000_000.0
+    # the off-by-one boundary: failed exactly MAX_RETRIES times == exhausted -> NOT due.
+    state = {"d": JobState(last_run=now - 1, status="failed", runs=9, failures=MAX_RETRIES)}
+    assert due_jobs((JS[0],), state, now=now) == []
+
+
+def test_due_jobs_retries_one_below_max_retries() -> None:
+    now = 1_000_000.0
+    # one short of the cap is still retried (cap is exactly MAX_RETRIES failed attempts).
+    state = {"d": JobState(last_run=now - 1, status="failed", runs=9, failures=MAX_RETRIES - 1)}
+    assert [j.name for j in due_jobs((JS[0],), state, now=now)] == ["d"]
+
+
 # --- record_run ------------------------------------------------------------------------
 
 

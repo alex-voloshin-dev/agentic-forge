@@ -3,7 +3,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from agentic_forge.validation import validate_agent, validate_manifest, validate_plugin
+from agentic_forge.validation import (
+    Issue,
+    Report,
+    validate_agent,
+    validate_manifest,
+    validate_plugin,
+    validate_skill,
+)
 
 AGENT_EVALS = {
     "skill_name": "foo",
@@ -76,6 +83,52 @@ def test_agent_malformed_frontmatter(tmp_path) -> None:
     md.write_text("no frontmatter here", encoding="utf-8")
     report = validate_agent(md)
     assert not report.ok
+
+
+# --- validate_skill error branches + Report rendering ---
+
+def _make_skill(tmp_path: Path, body: str, *, evals: str | None = "valid") -> Path:
+    d = tmp_path / "skills" / "s"
+    d.mkdir(parents=True)
+    (d / "SKILL.md").write_text(body, encoding="utf-8")
+    if evals in ("valid", "bad"):
+        ed = d / "evals"
+        ed.mkdir()
+        content = (
+            "{bad json"
+            if evals == "bad"
+            else json.dumps(
+                {
+                    "skill_name": "s",
+                    "evals": [{"id": 1, "prompt": "p", "assertions": ["a"]}],
+                    "component": {"id": "s", "type": "skill", "purpose": "p"},
+                    "thresholds": {"tier2_quality": {"min_pass_rate": 0.8, "runs": 5}},
+                }
+            )
+        )
+        (ed / "evals.json").write_text(content, encoding="utf-8")
+    return d
+
+
+def test_skill_malformed_frontmatter(tmp_path) -> None:
+    # the skill-side FrontmatterError branch (twin of the agent test above)
+    report = validate_skill(_make_skill(tmp_path, "no frontmatter here", evals=None))
+    assert not report.ok
+
+
+def test_skill_malformed_evals_json(tmp_path) -> None:
+    # the skill-side EvalsError branch in _check_evals
+    body = "---\nname: s\ndescription: A test skill.\n---\nBody.\n"
+    report = validate_skill(_make_skill(tmp_path, body, evals="bad"))
+    assert not report.ok
+
+
+def test_report_render_and_issue_str() -> None:
+    report = Report()
+    report.error("loc", "boom")
+    rendered = report.render()
+    assert "ERROR" in rendered and "boom" in rendered and "1 error" in rendered
+    assert str(Issue("warning", "l", "m")) == "[WARNING] l: m"
 
 
 # --- validate_manifest ---

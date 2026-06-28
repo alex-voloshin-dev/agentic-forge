@@ -58,10 +58,20 @@ _RM = re.compile(r"\brm\b")
 _RM_RECURSIVE = re.compile(r"(?<![\w-])-\w*[rR]\w*\b|--recursive\b")
 _RM_FORCE = re.compile(r"(?<![\w-])-\w*f\w*\b|--force\b")
 
+_CHMOD = re.compile(r"\bchmod\b")
+_CHMOD_RECURSIVE = re.compile(r"(?<![\w-])-\w*R\w*\b|--recursive\b")
+# a permissive mode: 777 (any leading digit) or a symbolic grant of write/all (a+rwx, o+w, +w).
+_PERMISSIVE_MODE = re.compile(r"(?<!\d)[0-7]?777\b|[ugoa]*\+[rwxX]*[wx][rwxX]*\b|a=rwx\b")
+
 _BLOCKERS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r":\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:"), "fork bomb"),
     (
-        re.compile(r"\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(ba)?sh\b"),
+        # a network download piped (through any intermediate stage) into a shell/interpreter:
+        # curl|sh, curl|zsh, curl|tee x|sh, wget|python — bounded to one command (no ; or &).
+        re.compile(
+            r"\b(?:curl|wget|fetch)\b[^\n;&]*\|\s*(?:sudo\s+)?"
+            r"(?:(?:ba|z|k|da)?sh|python3?|perl|ruby|node)\b"
+        ),
         "pipe a network download into a shell",
     ),
     (
@@ -70,44 +80,86 @@ _BLOCKERS: list[tuple[re.Pattern[str], str]] = [
         re.compile(r"\bmkfs(\.\w+)?\b[^\n;&|]*/dev/|\bdd\b[^\n;&|]*\bof=/dev/"),
         "overwrite a filesystem/disk device",
     ),
-    (re.compile(r"\bchmod\b\s+-\w*R\w*\s+0?777\s+/(\s|$)"), "world-writable chmod on /"),
     (re.compile(r">\|?\s*/dev/(sd[a-z]|nvme\d|disk\d|mapper/)"), "write to a raw disk device"),
 ]
-_GIT_PUSH = re.compile(r"\bgit\s+push\b")
+# git push, tolerating global flags before the subcommand: `git -C dir push`, `git -c k=v push`,
+# `git --no-pager push` (the old `git\s+push` missed these).
+_GIT_PUSH = re.compile(r"\bgit\s+(?:-[cC]\s+\S+\s+|--\S+\s+|-\w\s+)*push\b")
 _FORCE_FLAG = re.compile(r"--force\b|--force-with-lease\b|(?<![\w-])-\w*f\w*\b")
-# a protected branch as a standalone arg/refspec — NOT release-2024, my-release, feature/main-fix
-_PROTECTED_REF = re.compile(r"(?:^|\s)\+?(?:main|master|release)(?::|\s|$)")
-_PLUS_PROTECTED = re.compile(r"(?:^|\s)\+(?:main|master|release)(?::|\s|$)")
+# a protected branch as a standalone arg OR a refspec destination (RHS of `src:dst`): `origin
+# main`, `HEAD:main`, `develop:main` all match — but NOT release-2024 / feature/main-fix.
+_PROTECTED_DEST = re.compile(r"(?:^|\s|:)\+?(?:main|master|release)(?::|\s|$)")
+# a `+`-forced refspec whose destination is protected (force-push without the --force flag).
+_PLUS_PROTECTED = re.compile(r"(?:^|\s)\+(?:\S*:)?(?:main|master|release)(?::|\s|$)")
+
+_SEGMENT_SEP = re.compile(r"&&|\|\||[;\n|]")
 
 
-def _dangerous_rm(command: str) -> bool:
-    """True for a recursive+forced ``rm`` whose target is the root, home, or a system dir."""
-    if not _RM.search(command):
+def _segments(command: str) -> list[str]:
+    """Split a command line into segments on shell separators (`;`, `&&`, `||`, `|`, newline) so a
+    co-occurrence check only fires when its parts live in ONE command — e.g. `ls /usr && rm -rf
+    build` must not be read as `rm -rf /usr`."""
+    return [seg for seg in _SEGMENT_SEP.split(command) if seg.strip()]
+
+
+def _seg_dangerous_rm(segment: str) -> bool:
+    if not _RM.search(segment):
         return False
-    unquoted = command.replace('"', " ").replace("'", " ")  # so "/" and '/usr' are seen
+    unquoted = segment.replace('"', " ").replace("'", " ")  # so "/" and '/usr' are seen
     return bool(
-        _RM_RECURSIVE.search(command)
-        and _RM_FORCE.search(command)
+        _RM_RECURSIVE.search(segment)
+        and _RM_FORCE.search(segment)
         and _DANGER_TARGET.search(unquoted)
     )
 
 
-def _dangerous_push(command: str) -> bool:
-    """True for a force-push (``--force``/``-f`` or a ``+refspec``) to a protected branch."""
-    if not _GIT_PUSH.search(command):
+def _dangerous_rm(command: str) -> bool:
+    """True for a recursive+forced ``rm`` whose target is the root, home, or a system dir."""
+    return any(_seg_dangerous_rm(seg) for seg in _segments(command))
+
+
+def _seg_dangerous_chmod(segment: str) -> bool:
+    if not _CHMOD.search(segment):
         return False
-    if _PLUS_PROTECTED.search(command):
+    unquoted = segment.replace('"', " ").replace("'", " ")
+    return bool(
+        _CHMOD_RECURSIVE.search(segment)
+        and _PERMISSIVE_MODE.search(segment)
+        and _DANGER_TARGET.search(unquoted)
+    )
+
+
+def _dangerous_chmod(command: str) -> bool:
+    """True for a recursive chmod granting write/all perms on the root, home, or a system dir."""
+    return any(_seg_dangerous_chmod(seg) for seg in _segments(command))
+
+
+def _seg_dangerous_push(segment: str) -> bool:
+    if not _GIT_PUSH.search(segment):
+        return False
+    if _PLUS_PROTECTED.search(segment):
         return True
-    return bool(_FORCE_FLAG.search(command) and _PROTECTED_REF.search(command))
+    return bool(_FORCE_FLAG.search(segment) and _PROTECTED_DEST.search(segment))
+
+
+def _dangerous_push(command: str) -> bool:
+    """True for a force-push (``--force``/``-f`` or a ``+refspec``) to a protected branch. A bare
+    `git push --force` (no explicit target) is intentionally NOT blocked — the destination branch
+    is not knowable from the command string (accident-guard scope; see guardrails.md)."""
+    return any(_seg_dangerous_push(seg) for seg in _segments(command))
 
 
 def classify_command(command: str) -> Decision:
     """Block (Decision.block) a clearly-dangerous Bash command; otherwise ALLOW.
 
     Conservative by design — a false block causes friction, so only unambiguous hazards match.
+    Co-occurrence checks (rm/chmod/push) run per shell segment so an unrelated clause cannot
+    poison the line (e.g. `ls /usr && rm -rf build` is allowed).
     """
     if _dangerous_rm(command):
         return Decision(True, "blocked: recursive/forced delete of /, home, or a system dir")
+    if _dangerous_chmod(command):
+        return Decision(True, "blocked: recursive permissive chmod of /, home, or a system dir")
     for pattern, reason in _BLOCKERS:
         if pattern.search(command):
             return Decision(True, f"blocked: {reason}")
@@ -118,8 +170,11 @@ def classify_command(command: str) -> Decision:
 
 # --- test-gate: fast gate before commit/push ---------------------------------
 
-# git commit/push in command position (not "echo 'git commit'")
-_COMMIT_PUSH = re.compile(r"(?:^|[\n;&|]\s*)git\s+(?:commit|push)\b")
+# git commit/push in command position (not "echo 'git commit'"), tolerating an env-var prefix
+# (`VAR=val git commit`) and git global flags (`git -c k=v commit`, `git -C dir commit`).
+_COMMIT_PUSH = re.compile(
+    r"(?:^|[\n;&|]\s*)(?:\w+=\S+\s+)*git\s+(?:-[cC]\s+\S+\s+|--\S+\s+|-\w\s+)*(?:commit|push)\b"
+)
 
 
 def is_commit_or_push(command: str) -> bool:
@@ -144,11 +199,20 @@ def choose_gate(cwd: Path | str) -> list[str] | None:
 # --- logging: redacted audit record ------------------------------------------
 
 _SECRETS = [
-    re.compile(r"\b(sk|rk)-[A-Za-z0-9]{16,}\b"),
-    re.compile(r"\bghp_[A-Za-z0-9]{20,}\b"),
-    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
-    re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),
+    # Prefixed API keys/tokens. Internal hyphens are allowed so sk-ant-… (Anthropic) and sk-proj-…
+    # (OpenAI project) are caught, not just the bare sk-… form — these tokens are the highest-value
+    # leak, and this is Anthropic's own tooling writing to an on-disk audit log.
+    re.compile(r"\b(?:sk|rk)-[A-Za-z0-9-]{16,}"),
+    re.compile(r"\bsk_(?:live|test)_[A-Za-z0-9]{16,}\b"),  # Stripe
+    re.compile(r"\bgh[opsru]_[A-Za-z0-9]{20,}\b"),  # GitHub PAT / OAuth / server / refresh / user
+    re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b"),  # GitHub fine-grained PAT
+    re.compile(r"\bglpat-[A-Za-z0-9_\-]{16,}\b"),  # GitLab PAT
+    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),  # AWS access-key id
+    re.compile(r"\bAIza[0-9A-Za-z_\-]{35}\b"),  # Google API key
+    re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),  # Slack
+    re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),  # JWT
     re.compile(r"-----BEGIN[^-]*PRIVATE KEY-----[\s\S]*?-----END[^-]*-----"),
+    re.compile(r"(?<=://)[^/\s:@]+:[^/\s@]+(?=@)"),  # user:password in a URL
     re.compile(r"(?i)\bauthorization\b\s*:\s*\S+(\s+\S{4,})?"),
     re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._\-]{16,}"),
     # key=value / key: value assignments. No leading \b on the keyword so AWS_SECRET_ACCESS_KEY

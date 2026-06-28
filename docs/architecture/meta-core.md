@@ -108,7 +108,9 @@ The meta-core adds the **policy layer**:
 - `gate.tier2_quality(benchmark, thresholds)` passes only when the pass-rate **lower
   bound** `mean − stddev` over the required number of runs meets `min_pass_rate`, and the
   token/time overhead delta (when timing is supplied) stays within budget. Gating on the
-  lower bound absorbs LLM run-to-run noise.
+  lower bound absorbs LLM run-to-run noise. *(Today the runners pass only `gradings` to
+  `summarize`, so the overhead/A-B delta branches are dormant scaffolding — pass-rate is the
+  live Tier-2 gate; wiring timing + with/without A-B is tracked future work.)*
 - `gate.trigger_metrics(...)` + `gate.tier1_trigger(...)` score auto-loading: recall over
   should-trigger prompts, specificity over should-not-trigger prompts.
 

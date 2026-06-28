@@ -193,6 +193,21 @@ def test_grafana_source_degrades_on_error(monkeypatch: pytest.MonkeyPatch) -> No
     assert GrafanaAlertSource("https://g.example").active_alerts("prod") == []
 
 
+def test_grafana_source_refuses_non_http_scheme(monkeypatch: pytest.MonkeyPatch) -> None:
+    # a file:// (or other non-http) GRAFANA_URL must NOT be fetched (SSRF / token-leak guard):
+    # the seam returns [] without ever calling the fetch.
+    called = False
+
+    def spy(url: str, token: str) -> str:
+        nonlocal called
+        called = True
+        return "[]"
+
+    monkeypatch.setattr(connectors, "_grafana_alerts", spy)
+    assert GrafanaAlertSource("file:///etc/passwd", "tok").active_alerts("prod") == []
+    assert not called  # short-circuited before the fetch
+
+
 def test_alert_source_grafana_when_url_set() -> None:
     env = {"GRAFANA_URL": "https://g.example", "GRAFANA_TOKEN": "tok"}
     src = alert_source(env=env.get)

@@ -64,7 +64,14 @@ module = ["anthropic"]
 ignore_missing_imports = true
 
 [tool.coverage.run]
-source = ["agentic_forge"]
+# Gate the dev/ eval runners too, not just the library — their aggregation/exit-code logic
+# decides ship/no-ship and must not regress uncovered (ultra-review MAJOR).
+source = ["agentic_forge", "dev"]
 # Note: on some bind-mounted filesystems coverage cannot delete its parallel data
 # files. If you hit "Operation not permitted", set COVERAGE_FILE to a local path,
-# e.g. COVERAGE_FILE=/tmp/.coverage pytest --cov=agentic_forge.
+# e.g. COVERAGE_FILE=/tmp/.coverage pytest --cov.
+
+[tool.coverage.report]
+# Tier-0 coverage floor (CLAUDE.md principle 5), enforced on the aggregate of the measured
+# source above so local `pytest --cov` and CI agree. The real number sits far higher.
+fail_under = 80

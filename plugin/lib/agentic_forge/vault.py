@@ -121,7 +121,7 @@ def _inbound_counts(vault: Vault) -> dict[str, int]:
     for note in vault.notes.values():
         for target in note.links:
             key = target.lower()
-            if key in counts:
+            if key in counts and key != note.name.lower():  # a self-link must not mask an orphan
                 counts[key] += 1
     return counts
 

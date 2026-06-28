@@ -43,6 +43,23 @@ def test_classify_breaking_change_trailer_marks_breaking() -> None:
     assert c.breaking is True and c.group == "Changed"
 
 
+def test_classify_breaking_change_hyphen_footer_marks_breaking() -> None:
+    # the spec's BREAKING-CHANGE: synonym (uppercase footer) is still honoured
+    c = classify("refactor: x\n\nBREAKING-CHANGE: env renamed")
+    assert c.breaking is True
+
+
+def test_classify_breaking_phrase_in_description_is_not_breaking() -> None:
+    # the phrase in prose (lowercase, mid-line, no footer) must NOT escalate the bump
+    c = classify("fix: handle breaking change in upstream JSON format")
+    assert c.breaking is False and c.group == "Fixed"
+
+
+def test_summarize_breaking_phrase_in_description_stays_patch() -> None:
+    s = summarize("2.3.4", ["fix: handle breaking change in upstream JSON"])
+    assert (s.version, s.bump) == ("2.3.5", "patch")
+
+
 def test_classify_non_conventional_is_other() -> None:
     c = classify("update the README")
     assert c.type == "other" and c.group is None and c.description == "update the README"

@@ -112,7 +112,7 @@ def due_jobs(jobs: tuple[Job, ...], state: dict[str, JobState], now: float) -> l
             out.append(job)
         elif (now - st.last_run) >= interval:
             out.append(job)
-        elif st.status == "failed" and st.failures <= MAX_RETRIES:
+        elif st.status == "failed" and st.failures < MAX_RETRIES:
             out.append(job)
     return out
 

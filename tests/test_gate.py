@@ -88,6 +88,26 @@ def test_tier2_no_benchmark() -> None:
     assert not res.passed
 
 
+def test_tier2_no_threshold_is_not_vacuous_pass() -> None:
+    # a tier2_quality block with no min_pass_rate must NOT pass a zero-rate benchmark
+    bm = _benchmark(0.0, 0.0, 5)
+    res = gate.tier2_quality(bm, {"tier2_quality": {}})
+    assert not res.passed
+    assert any("min_pass_rate" in r for r in res.reasons)
+
+
+def test_tier2_boundary_lower_bound_equal_passes() -> None:
+    # lower bound exactly equal to the threshold passes (>= intent, no off-by-one)
+    bm = _benchmark(0.8, 0.0, 5)
+    res = gate.tier2_quality(bm, {"tier2_quality": {"min_pass_rate": 0.8, "runs": 5}})
+    assert res.passed, res.reasons
+
+
+def test_all_passed_empty_is_false() -> None:
+    # nothing measured is not a pass (guards evaluate() called with no data)
+    assert gate.all_passed([]) is False
+
+
 # --- evaluate orchestration ---
 
 def test_tier2_fail_time_overhead() -> None:

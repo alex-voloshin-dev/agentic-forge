@@ -13,7 +13,8 @@ Artifact types and their producers (see docs/architecture/engine.md):
 - ``tech-design`` — architect role.
 - ``plan`` — Plan-based work-planning phase.
 - ``review`` — reviewer role (the unit the bounded review loop branches on); also reused by the
-  ``security-review`` phase (a security-lensed review with verdict + severity-tagged findings).
+  ``security-review`` (security-lensed) and ``deep-review`` (adversarial fan-out) phases — all
+  three share this schema by design (verdict + severity-tagged findings).
 - ``test-strategy`` — ``qa-test-strategy`` phase (test levels, risks, prioritized cases).
 - ``release`` — ``release`` phase (semver version + Keep-a-Changelog groups).
 - ``incident`` — ``incident-response`` phase (severity sev1–4, timeline, remediation).

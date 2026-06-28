@@ -216,6 +216,12 @@ class GrafanaAlertSource:
     token: str = ""
 
     def active_alerts(self, environment: str) -> list[Alert]:
+        from urllib.parse import urlparse
+
+        # Only fetch over http(s): refuse file://, ftp://, etc. so a misconfigured GRAFANA_URL
+        # cannot turn the seam into an SSRF / local-file read or leak the Bearer token elsewhere.
+        if urlparse(self.base_url).scheme not in ("http", "https"):
+            return []
         try:
             payload = _grafana_alerts(self.base_url, self.token)
         except OSError:

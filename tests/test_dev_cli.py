@@ -88,3 +88,89 @@ def test_run_scheduled_none_due_after_run(tmp_path: Path, capsys: pytest.Capture
 def test_audit_digest_cli_empty(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     assert audit_digest.main(["audit", "--repo", str(tmp_path)]) == 0
     assert "no tool-use records" in capsys.readouterr().out
+
+
+# --- real-runner aggregation / exit-code paths (stubbed transport; no model calls) -----------
+# These cover each runner's pass/fail/error aggregation loop — the gate-decision logic that the
+# dry-run path does NOT exercise (ultra-review MAJOR: the runners decide ship/no-ship).
+
+
+class _FakeReport:
+    def __init__(self, passed: bool) -> None:
+        self.passed = passed
+
+    def summary_line(self) -> str:
+        return "fake summary"
+
+
+class _FakePhase:
+    def __init__(self, passed: bool) -> None:
+        self.phase = "develop"
+        self.passed = passed
+        self.checkpoints: list = []
+
+
+def test_run_skill_evals_real_path_pass(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")  # also covers the subscription warning branch
+    monkeypatch.setattr(run_skill_evals, "_build_runners", lambda *a, **k: (object(), object()))
+    monkeypatch.setattr(run_skill_evals.skill_eval, "run_skill", lambda *a, **k: _FakeReport(True))
+    assert run_skill_evals.main(["run", "--runner", "claude", "--skill", "python-patterns"]) == 0
+
+
+def test_run_skill_evals_real_path_fail_then_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(run_skill_evals, "_build_runners", lambda *a, **k: (object(), object()))
+    monkeypatch.setattr(run_skill_evals.skill_eval, "run_skill", lambda *a, **k: _FakeReport(False))
+    assert run_skill_evals.main(["run", "--runner", "claude", "--skill", "python-patterns"]) == 1
+
+    def boom(*a, **k):
+        raise RuntimeError("kaboom")
+
+    monkeypatch.setattr(run_skill_evals.skill_eval, "run_skill", boom)  # the per-skill ERROR branch
+    assert run_skill_evals.main(["run", "--runner", "claude", "--skill", "python-patterns"]) == 1
+
+
+def test_run_agent_evals_real_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(run_agent_evals, "_build_runners", lambda *a, **k: (object(), object()))
+    monkeypatch.setattr(run_agent_evals.agent_eval, "run_role", lambda *a, **k: _FakeReport(True))
+    assert run_agent_evals.main(["run", "--runner", "claude"]) == 0
+    monkeypatch.setattr(run_agent_evals.agent_eval, "run_role", lambda *a, **k: _FakeReport(False))
+    assert run_agent_evals.main(["run", "--runner", "claude"]) == 1
+
+
+def test_run_agent_evals_real_path_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(run_agent_evals, "_build_runners", lambda *a, **k: (object(), object()))
+
+    def boom(*a, **k):
+        raise RuntimeError("x")
+
+    monkeypatch.setattr(run_agent_evals.agent_eval, "run_role", boom)
+    assert run_agent_evals.main(["run", "--runner", "claude"]) == 1
+
+
+def test_run_tier1_evals_real_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(run_tier1_evals, "_build_router", lambda *a, **k: object())
+    monkeypatch.setattr(
+        run_tier1_evals.tier1_runner, "run_tier1", lambda *a, **k: [_FakeReport(True)]
+    )
+    assert run_tier1_evals.main(["run", "--runner", "claude"]) == 0
+    monkeypatch.setattr(
+        run_tier1_evals.tier1_runner, "run_tier1", lambda *a, **k: [_FakeReport(False)]
+    )
+    assert run_tier1_evals.main(["run", "--runner", "claude"]) == 1
+
+
+def test_run_spine_e2e_real_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        run_spine_e2e.agent_eval, "claude_cli_runner", lambda *a, **k: (lambda *x, **y: "")
+    )
+    monkeypatch.setattr(
+        run_spine_e2e.spine_e2e, "run_scenario", lambda *a, **k: [_FakePhase(True)]
+    )
+    assert run_spine_e2e.main(["run", "--runner", "claude", "--scenario", "spine"]) == 0
+    monkeypatch.setattr(
+        run_spine_e2e.spine_e2e, "run_scenario", lambda *a, **k: [_FakePhase(False)]
+    )
+    assert run_spine_e2e.main(["run", "--runner", "claude", "--scenario", "spine"]) == 1

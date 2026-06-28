@@ -73,3 +73,21 @@ def test_load_evals_bad_json(tmp_path) -> None:
     except evals_mod.EvalsError:
         return
     raise AssertionError("expected EvalsError")
+
+
+def test_tier2_quality_requires_min_pass_rate() -> None:
+    # a tier2_quality block with no min_pass_rate gates nothing -> reject at Tier 0 (no
+    # vacuous-pass contract can ship). Closes the latent gate-integrity hole.
+    data = {**VALID, "thresholds": {"tier2_quality": {"runs": 5}}}
+    assert evals_mod.validate_evals(data) != []
+
+
+def test_tier1_trigger_requires_recall_and_specificity() -> None:
+    data = {**VALID, "thresholds": {"tier1_trigger": {"recall": 0.9}}}
+    assert evals_mod.validate_evals(data) != []
+
+
+def test_thresholds_rejects_unknown_key() -> None:
+    # a junk key must not satisfy minProperties (closes the empty-thresholds hole)
+    data = {**VALID, "thresholds": {"whatever": 1}}
+    assert evals_mod.validate_evals(data) != []

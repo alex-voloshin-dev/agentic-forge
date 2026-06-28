@@ -6,6 +6,64 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Fixed — session ultra-review (multi-lens adversarial pass): correctness, gate-integrity, security
+
+A seven-reviewer review of the whole session (each finding verified against source; full gate
+re-run clean) found and fixed real defects:
+
+**Correctness (deterministic cores):**
+- `release`: `BREAKING CHANGE` detection was unanchored + case-insensitive, so `fix: handle
+  breaking change in upstream` falsely bumped a **major** release. Now matches the spec footer
+  `^BREAKING[ -]CHANGE:` (multiline, uppercase) only.
+- `schedule`: retry bound was off by one (`failures <= MAX_RETRIES` allowed `MAX_RETRIES + 1`
+  attempts) — now `<`, capping at exactly `MAX_RETRIES`.
+- `planning`: a Unicode-digit task id (`"²"`, where `str.isdigit()` is True but `int()` raises)
+  crashed `plan_batches` — now guarded with `isascii()`.
+- `vault`: a note's self-`[[link]]` masked it from the orphan check — self-references no longer
+  count toward inbound links.
+
+**Gate integrity (a malformed contract could PASS unmeasured):**
+- `gate.tier2_quality` returned PASS when `min_pass_rate` was absent (an empty `tier2_quality: {}`
+  gated nothing, even at mean 0.0) — a missing threshold now FAILS. The schema now `require`s
+  `min_pass_rate` (tier2) / `recall`+`specificity` (tier1) and rejects unknown `thresholds` keys (a
+  junk key could satisfy `minProperties`). `gate.all_passed([])` now returns False (no data is not a
+  pass), mirroring `tier1_runner`.
+- **Coverage gates `dev/` too** (`source = [agentic_forge, dev]`, `fail_under = 80` in pyproject; CI
+  `--cov`): the eval runners' aggregation/exit-code logic — which decides ship/no-ship — was
+  unmeasured (56–66%). New stub-transport tests cover each runner's pass/fail/error path;
+  `validation.py` error branches now covered (library 100%, aggregate 98%).
+
+**Security (`guardrails`):**
+- **Secret redaction** missed most modern token shapes — bare `sk-ant-…` Anthropic keys (and
+  `gh*_`, `github_pat_`, `glpat-`, Google `AIza…`, Stripe, JWTs, `user:pass@` URLs) leaked verbatim
+  into `audit.jsonl`. Broadened the patterns; new tests assert the **raw token is absent**.
+- Dangerous-command checks now run **per shell segment**, fixing a false-block (`ls /usr && rm -rf
+  build` was hard-blocked) and closing bypasses: force-push refspec destinations (`… HEAD:main`),
+  global flags (`git -C dir push`), pipe-to-shell via other interpreters / intermediate stages
+  (`curl|zsh`, `curl|tee|sh`, `wget|python`), and recursive permissive `chmod` of a system dir. The
+  test-gate now also detects `git -c …` / env-prefixed commits.
+- `GrafanaAlertSource` refuses a non-`http(s)` `GRAFANA_URL` (no `file://` SSRF / token leak on
+  misconfig).
+
+**Documentation honesty / currency:**
+- `CLAUDE.md` principle 1 described delegation via `context: fork` + `agent` frontmatter that **no
+  skill uses** — corrected to the real `Task`-tool + named-role convention; principle 4 + meta-core
+  now mark Tier-2 overhead + A/B as scaffolded-not-wired (pass-rate is the live gate); the `dev/`
+  layout lists all 7 CLIs; Ralph marked deferred.
+- `tier1_runner` docstring corrected from "majority-of-N" to the shipped mean-rate metric (ADR
+  0026); `worktree.md` stale "develop is sequential" note removed; `handoff.md` artifact table
+  extended from 5 to all 13 types; `handoff.py` notes `deep-review` as a third `review` producer;
+  `develop` review-engine wording corrected; `qa-test-strategy` field list adds `type`; README
+  quality-hardening "designed → built"; `guardrails.md` documents the accident-guard scope.
+
+Decisions recorded in [ADR 0035](docs/architecture/decisions/0035-ultra-review-hardening.md).
+Regression tests for every fix; `dev/validate.py`, `pytest`, `ruff`, `mypy` all green; aggregate
+coverage 98%. Deferred (cosmetic, no behaviour change): `__all__` backfill (9 modules),
+de-duplicating `summary_line`/`all_passed`/`DEFAULT_RUNS`, removing dead `Change.raw` /
+`classify_incident(cosmetic=)` / the `spine_e2e` back-compat trio; and deeper test-quality (mocking
+the live judge transport; strengthening the develop / `expected_release_version` checkpoints beyond
+their self-referential fixtures).
+
 ### Changed — Tier-0 validator gates cross-tree links + runs the contract guards
 
 `dev/validate.py` now (a) resolves **cross-tree relative markdown links** (`](../...)` / `](./...)`

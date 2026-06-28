@@ -48,8 +48,8 @@ designing (`architecture`), task breakdown (`plan`), or reviewing already-writte
    — `git -C <repo> add -A && git -C <repo> diff --staged` (staging so new files are included) — and
    pass that diff text to the [multi-aspect review](../../patterns/multi-aspect-review.md) (the
    `code-review` engine: `reviewer` + `security-engineer` + the stack's lint/type tools from the
-   profile/repo). The reviewers receive the diff as input and need no git access. Aggregate to one
-   approve/changes verdict. **Advance to the next dependency level only after this one integrates,
+   profile/repo). The LLM reviewers receive the diff as input and need no git access; the lint/type
+   aspect runs the stack tools on the integrated files. Aggregate to one approve/changes verdict. **Advance to the next dependency level only after this one integrates,
    is approved, and its QA is green.**
 5. **Loop back (bounded).** On `changes`, return the findings to step 3 and revise — bounded at
    **N = 3** (see [patterns/review-loop.md](../../patterns/review-loop.md)). If N = 3 is
@@ -69,9 +69,9 @@ designing (`architecture`), task breakdown (`plan`), or reviewing already-writte
 ## Output
 
 The worktree change (tests green), a structured change summary (files, tests, assumptions), and
-the review verdict. The main checkout is never modified. (The canonical `review.md` handoff is
-the `code-review` phase's artifact, not develop's; develop's gate is the verdict that drives
-the loop.)
+the review verdict. The main checkout is never modified. (develop's gate is the review
+**verdict** that drives the loop; the canonical `review.md` handoff artifact belongs to the
+dedicated `code-review` phase, though the review engine may emit one into the worktree.)
 
 ## Definition of done
 

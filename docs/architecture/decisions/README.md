@@ -40,3 +40,4 @@ edit.
 | [0032](0032-handoff-contract-guard.md) | Handoff-contract guard: skill bodies must document their artifact's required fields | Accepted (implemented) |
 | [0033](0033-knowledge-recall-in-spine.md) | Knowledge recall in the spine phases (read the vault to enrich context) | Accepted (implemented) |
 | [0034](0034-develop-parallelism.md) | develop parallelism: independent plan tasks across worktrees (tested `plan_batches`) | Accepted (implemented) |
+| [0035](0035-ultra-review-hardening.md) | Ultra-review hardening: fail vacuous eval tiers, gate `dev/` coverage, per-segment deny-list + broader redaction, constitution matches code | Accepted (implemented) |

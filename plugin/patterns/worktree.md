@@ -60,8 +60,8 @@ A plain branch switch mutates the single working directory and disrupts whatever
 progress. A worktree gives a **physically separate directory**, so the main checkout stays
 usable and multiple changes can proceed at once. For fan-out by component, create **one
 worktree per unit** — the same lifecycle repeated — so parallel software-engineers never collide
-(see [fan-out-fan-in.md](fan-out-fan-in.md)). *(Deferred: `develop` v1 uses a single worktree
-with sequential implementation; this is the parallel mode for later.)*
+(see [fan-out-fan-in.md](fan-out-fan-in.md) and [worktree-parallel.md](worktree-parallel.md), the
+per-task fan-out `develop` uses to implement independent plan tasks concurrently).
 
 See also: [handoff.md](handoff.md) (the software-engineer reads `plan.md`) and
 [review-loop.md](review-loop.md) (the worktree diff is what the reviewer critiques).

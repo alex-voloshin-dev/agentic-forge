@@ -79,7 +79,12 @@ def tier2_quality(benchmark: dict[str, Any], thresholds: dict[str, Any]) -> Gate
         return GateResult("tier2_quality", False, ["no with_skill pass_rate in benchmark"])
 
     min_pr = want.get("min_pass_rate")
-    if min_pr is not None:
+    if min_pr is None:
+        # A tier2_quality block with no pass-rate threshold gates nothing — treat as misconfigured
+        # rather than a vacuous PASS (the schema also requires min_pass_rate, so this is defence in
+        # depth for a contract that reached the gate another way).
+        reasons.append("tier2_quality declared without a min_pass_rate threshold")
+    else:
         lower_bound = mean - stddev
         if lower_bound < min_pr:
             reasons.append(f"pass-rate lower bound {lower_bound:.3f} < required {min_pr}")
@@ -116,4 +121,6 @@ def evaluate(
 
 
 def all_passed(results: list[GateResult]) -> bool:
-    return all(r.passed for r in results)
+    # An empty result list means nothing was measured — that is NOT a pass (mirrors
+    # tier1_runner.all_passed; guards callers that gate on evaluate() with no data supplied).
+    return bool(results) and all(r.passed for r in results)

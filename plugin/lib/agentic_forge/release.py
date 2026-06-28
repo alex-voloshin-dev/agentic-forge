@@ -40,7 +40,7 @@ _TYPE_GROUP: dict[str, str] = {
 GROUP_ORDER: tuple[str, ...] = ("Added", "Changed", "Deprecated", "Removed", "Fixed", "Security")
 
 _HEADER = re.compile(r"^(?P<type>[a-zA-Z]+)(?:\([^)]*\))?(?P<bang>!)?:\s*(?P<desc>.+?)\s*$")
-_BREAKING = re.compile(r"BREAKING[ -]CHANGE", re.IGNORECASE)
+_BREAKING = re.compile(r"^BREAKING[ -]CHANGE:", re.MULTILINE)
 
 
 @dataclass(frozen=True)

@@ -98,6 +98,16 @@ def test_validate_orphan(tmp_path: Path) -> None:
     assert any("lonely: orphan" in p for p in validate_vault(tmp_path))
 
 
+def test_validate_self_link_does_not_mask_orphan(tmp_path: Path) -> None:
+    scaffold(tmp_path)
+    # a note whose ONLY inbound link is its own self-reference is still an orphan
+    (vault_path(tmp_path) / "island.md").write_text(
+        "---\ntitle: Island\ntype: note\ntags: []\n---\n# Island\n\nSee [[island]].\n",
+        encoding="utf-8",
+    )
+    assert any("island: orphan" in p for p in validate_vault(tmp_path))
+
+
 def test_validate_missing_root_moc(tmp_path: Path) -> None:
     vp = vault_path(tmp_path)
     vp.mkdir(parents=True)

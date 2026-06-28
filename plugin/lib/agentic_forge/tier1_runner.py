@@ -5,7 +5,9 @@ Build the real always-on skill listing — every **model-invocable** skill's ``n
 each skill that declares ``tier1_trigger``, ask the router to classify each of its trigger
 prompts against that live listing. Grading is deterministic: a ``should_trigger`` prompt must
 select the skill (recall); a ``should_not_trigger`` prompt must NOT (specificity).
-**Majority-of-N** sampling (default 5) absorbs router stochasticity. Gated through the shared
+Each prompt's **routing rate** over N samples (default 5) is averaged into recall/specificity —
+the mean per-prompt rate (ADR 0026), which absorbs router stochasticity without the majority-vote
+cliff. Gated through the shared
 pure functions :func:`gate.trigger_metrics` + :func:`gate.tier1_trigger` (recall/specificity
 ≥ 0.9 from the contract).
 

@@ -46,11 +46,12 @@
     "thresholds": {
       "type": "object",
       "minProperties": 1,
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "tier1_trigger": {
           "type": "object",
           "additionalProperties": false,
+          "required": ["recall", "specificity"],
           "properties": {
             "recall": { "type": "number", "minimum": 0, "maximum": 1 },
             "specificity": { "type": "number", "minimum": 0, "maximum": 1 }
@@ -59,6 +60,7 @@
         "tier2_quality": {
           "type": "object",
           "additionalProperties": false,
+          "required": ["min_pass_rate"],
           "properties": {
             "min_pass_rate": { "type": "number", "minimum": 0, "maximum": 1 },
             "runs": { "type": "integer", "minimum": 1 },
