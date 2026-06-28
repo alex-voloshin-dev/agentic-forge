@@ -12,7 +12,6 @@ from agentic_forge.tier1_runner import (
     eval_skill,
     load_listing,
     load_triggers,
-    majority_selection,
     parse_selection,
     render_listing,
     run_tier1,
@@ -92,18 +91,6 @@ def test_render_and_system_prompt() -> None:
 def test_parse_selection(reply: str, expected: str) -> None:
     names = sorted(ON_LISTING)
     assert parse_selection(reply, names) == expected
-
-
-# --- majority_selection ------------------------------------------------------
-
-
-def test_majority_selection_takes_the_mode(tmp_path: Path) -> None:
-    replies = iter(["research", "product", "research"])
-
-    def run(system: str, prompt: str, workdir: Path) -> str:
-        return next(replies)
-
-    assert majority_selection(run, "sys", "p", ["research", "product"], 3, tmp_path) == "research"
 
 
 def test_selection_rate_is_fraction_for_target(tmp_path: Path) -> None:

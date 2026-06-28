@@ -108,6 +108,19 @@ def test_all_passed_empty_is_false() -> None:
     assert gate.all_passed([]) is False
 
 
+def test_tier2_float_error_at_threshold_passes() -> None:
+    # 0.85 - 0.05 == 0.7999999999999999 must NOT fail the 0.8 gate (binary-float tolerance)
+    res = gate.tier2_quality(_benchmark(0.85, 0.05, 5), {"tier2_quality": {"min_pass_rate": 0.8}})
+    assert res.passed, res.reasons
+
+
+def test_tier1_float_error_at_threshold_passes() -> None:
+    # mean([.7,.8,.9]) == 0.7999999999999999 must pass recall >= 0.8
+    m = gate.trigger_metrics([0.7, 0.8, 0.9], [0.0])
+    res = gate.tier1_trigger(m, {"tier1_trigger": {"recall": 0.8, "specificity": 0.9}})
+    assert res.passed, res.reasons
+
+
 # --- evaluate orchestration ---
 
 def test_tier2_fail_time_overhead() -> None:

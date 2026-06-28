@@ -79,6 +79,18 @@ def test_run_scheduled_force_runs_and_records(tmp_path: Path) -> None:
     assert (tmp_path / ".agentic-forge" / "schedule-state.json").is_file()
 
 
+def test_run_scheduled_returns_1_when_a_job_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # a failing action must make the CLI exit non-zero so a cron/CI gating on it sees the failure.
+    def boom(repo: Path) -> str:
+        raise RuntimeError("action failed")
+
+    monkeypatch.setitem(run_scheduled._ACTIONS, "kb_maintenance", boom)
+    assert run_scheduled.main(["run", "--repo", str(tmp_path), "--force"]) == 1
+    assert (tmp_path / ".agentic-forge" / "schedule-state.json").is_file()  # still records outcomes
+
+
 def test_run_scheduled_none_due_after_run(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     run_scheduled.main(["run", "--repo", str(tmp_path), "--force"])  # records all jobs now
     assert run_scheduled.main(["run", "--repo", str(tmp_path)]) == 0  # nothing due yet

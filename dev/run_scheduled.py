@@ -84,6 +84,7 @@ def main(argv: list[str]) -> int:
             print(f"  {job.name} ({job.cadence}) — {job.description}")
         return 0
 
+    all_ok = True
     for job in due:
         action = _ACTIONS.get(job.action)
         print(f"## {job.name}")
@@ -93,9 +94,10 @@ def main(argv: list[str]) -> int:
         except Exception as exc:  # noqa: BLE001 — record the failure (retried next poll), don't crash the run
             ok = False
             print(f"FAILED: {exc}")
+        all_ok = all_ok and ok
         state = schedule.record_run(state, job.name, now, ok=ok)
     schedule.save_state(repo, state)
-    return 0
+    return 0 if all_ok else 1  # non-zero so a cron/CI gating on exit code sees job failures
 
 
 if __name__ == "__main__":

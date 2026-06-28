@@ -24,6 +24,10 @@ __all__ = [
     "all_passed",
 ]
 
+# Float-comparison tolerance: a metric exactly at its threshold must not FAIL due to binary-float
+# representation (e.g. 0.85 - 0.05 == 0.7999999999999999, not 0.8).
+_EPS = 1e-9
+
 
 @dataclass
 class GateResult:
@@ -70,8 +74,8 @@ def tier1_trigger(measured: dict[str, float | None], thresholds: dict[str, Any])
         got = measured.get(key)
         if got is None:
             reasons.append(f"missing measured {key}")
-        elif got < target:
-            reasons.append(f"{key} {got:.3f} < required {target}")
+        elif got < target - _EPS:
+            reasons.append(f"{key} {got:.3f} < required {target:.3f}")
     return GateResult("tier1_trigger", not reasons, reasons)
 
 
@@ -97,8 +101,8 @@ def tier2_quality(benchmark: dict[str, Any], thresholds: dict[str, Any]) -> Gate
         reasons.append("tier2_quality declared without a min_pass_rate threshold")
     else:
         lower_bound = mean - stddev
-        if lower_bound < min_pr:
-            reasons.append(f"pass-rate lower bound {lower_bound:.3f} < required {min_pr}")
+        if lower_bound < min_pr - _EPS:
+            reasons.append(f"pass-rate lower bound {lower_bound:.3f} < required {min_pr:.3f}")
 
     req_runs = want.get("runs")
     if req_runs is not None and n < req_runs:

@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import json
 import re
-from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -40,7 +39,6 @@ __all__ = [
     "render_listing",
     "build_router_system",
     "parse_selection",
-    "majority_selection",
     "selection_rate",
     "load_triggers",
     "eval_skill",
@@ -158,17 +156,6 @@ def parse_selection(reply: str, names: list[str]) -> str:
     return "none"
 
 
-def majority_selection(
-    run_fn: Runner, system: str, prompt: str, names: list[str], runs: int, workdir: Path
-) -> str:
-    """The modal router choice for ``prompt`` over ``runs`` calls (absorbs stochasticity).
-
-    Use an odd ``runs`` (default 5) so the top choice has no two-way tie.
-    """
-    picks = [parse_selection(run_fn(system, prompt, workdir), names) for _ in range(runs)]
-    return Counter(picks).most_common(1)[0][0]
-
-
 def selection_rate(
     run_fn: Runner,
     system: str,
@@ -181,8 +168,8 @@ def selection_rate(
 ) -> float:
     """The fraction of ``runs`` router calls that select ``target`` for ``prompt`` (0.0–1.0).
 
-    The smooth alternative to :func:`majority_selection` for the Tier-1 metric (ADR 0026): no 50%
-    majority cliff, so a borderline prompt yields a stable rate instead of a flickering bool.
+    The Tier-1 metric (ADR 0026): a smooth per-prompt rate with no 50% majority cliff, so a
+    borderline prompt yields a stable rate instead of a flickering boolean.
     """
     hits = sum(
         parse_selection(run_fn(system, prompt, workdir), names) == target for _ in range(runs)

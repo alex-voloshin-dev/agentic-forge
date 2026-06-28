@@ -60,6 +60,14 @@ def test_summarize_breaking_phrase_in_description_stays_patch() -> None:
     assert (s.version, s.bump) == ("2.3.5", "patch")
 
 
+def test_summarize_strips_prerelease_and_build_metadata() -> None:
+    # a pre-release / build-metadata tag from `git describe` must not crash; the semver suffix is
+    # dropped and the core is bumped (was a ValueError before).
+    assert summarize("v1.2.3-rc.1", ["feat: add x"]).version == "v1.3.0"
+    assert summarize("1.2.3+build", ["fix: y"]).version == "1.2.4"
+    assert summarize("2.0.0-beta", ["fix: z"]).version == "2.0.1"
+
+
 def test_classify_non_conventional_is_other() -> None:
     c = classify("update the README")
     assert c.type == "other" and c.group is None and c.description == "update the README"

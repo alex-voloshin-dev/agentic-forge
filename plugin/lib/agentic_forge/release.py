@@ -100,9 +100,11 @@ def _bump_level(changes: list[Change]) -> str:
 def next_version(current: str, changes: list[Change]) -> str:
     """Apply the strongest bump implied by ``changes`` to ``current`` (``MAJOR.MINOR.PATCH``,
     an optional leading ``v`` preserved). Pre-1.0.0, a breaking change bumps minor, not major
-    (semver's 0.y.z rule). ``none`` (no changes) returns ``current`` unchanged."""
+    (semver's 0.y.z rule). ``none`` (no changes) returns ``current`` unchanged. A trailing
+    ``-prerelease`` / ``+build`` suffix on ``current`` is dropped before bumping (semver)."""
     prefix = "v" if current.startswith("v") else ""
     core = current[1:] if prefix else current
+    core = re.split(r"[-+]", core, maxsplit=1)[0]  # drop a -prerelease / +build suffix
     try:
         major, minor, patch = (int(p) for p in core.split("."))
     except ValueError as exc:

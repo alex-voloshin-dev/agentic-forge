@@ -30,7 +30,7 @@ def parse(text: str) -> tuple[dict[str, Any], str]:
 
     try:
         data = yaml.safe_load(match.group(1))
-    except yaml.YAMLError as exc:  # pragma: no cover - exercised via tests
+    except yaml.YAMLError as exc:
         raise FrontmatterError(f"invalid YAML in frontmatter: {exc}") from exc
 
     if data is None:

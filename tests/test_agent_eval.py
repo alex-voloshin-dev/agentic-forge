@@ -139,6 +139,17 @@ def test_claude_cli_runner_raises_after_exhausting_retries(monkeypatch: pytest.M
         claude_cli_runner(retries=2)("S", "P", Path("."))
 
 
+def test_json_candidates_linear_on_brace_heavy_input() -> None:
+    import time
+
+    from agentic_forge.agent_eval import _json_candidates
+
+    # the old per-'{' rescan was O(n^2) (~13s on 50k braces); the brace-stack version is linear.
+    start = time.perf_counter()
+    _json_candidates("{" * 20000)
+    assert time.perf_counter() - start < 1.0
+
+
 # --- stub seams ----------------------------------------------------------------------
 
 

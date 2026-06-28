@@ -78,30 +78,31 @@ def _json_candidates(text: str) -> list[str]:
     candidates: list[str] = [
         m.group(1) for m in re.finditer(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     ]
-    for i, ch in enumerate(text):
-        if ch != "{":
-            continue
-        depth = 0
-        in_str = False
-        esc = False
-        for j in range(i, len(text)):
-            c = text[j]
-            if in_str:
-                if esc:
-                    esc = False
-                elif c == "\\":
-                    esc = True
-                elif c == '"':
-                    in_str = False
+    # Single left-to-right pass with a brace stack: O(n), where the old per-'{' rescan was O(n^2)
+    # (a brace-heavy adversarial reply could stall a Tier-2 sweep). Spans are ordered outer-first
+    # (by start index) to match the old scan order, so grade_output still tries the outermost
+    # object first; braces inside strings are ignored.
+    spans: list[tuple[int, str]] = []
+    stack: list[int] = []
+    in_str = False
+    esc = False
+    for i, c in enumerate(text):
+        if in_str:
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
             elif c == '"':
-                in_str = True
-            elif c == "{":
-                depth += 1
-            elif c == "}":
-                depth -= 1
-                if depth == 0:
-                    candidates.append(text[i : j + 1])
-                    break
+                in_str = False
+            continue
+        if c == '"':
+            in_str = True
+        elif c == "{":
+            stack.append(i)
+        elif c == "}" and stack:
+            start = stack.pop()
+            spans.append((start, text[start : i + 1]))
+    candidates.extend(span for _, span in sorted(spans, key=lambda s: s[0]))
     return candidates
 
 
