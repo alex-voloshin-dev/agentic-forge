@@ -149,13 +149,11 @@ def classify_incident(
     data_loss: bool = False,
     degraded: bool = False,
     workaround: bool = False,
-    cosmetic: bool = False,
 ) -> str:
     """Map incident signals to a severity (:data:`~agentic_forge.handoff.INCIDENT_SEVERITIES`).
 
     ``sev1`` outage or data loss; ``sev2`` degraded with no workaround; ``sev3`` degraded with a
-    workaround; ``sev4`` otherwise (cosmetic / latent). ``cosmetic`` is accepted for call-site
-    clarity but does not change the result — anything not outage/degraded is ``sev4``.
+    workaround; ``sev4`` otherwise (cosmetic / latent — anything not outage/degraded).
     """
     if outage or data_loss:
         return "sev1"

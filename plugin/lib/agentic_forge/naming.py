@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import re
 
+__all__ = ["NAME_MAX_LEN", "is_valid_name", "validate_name"]
+
 NAME_MAX_LEN = 64
 _ALLOWED = re.compile(r"^[a-z0-9-]+$")
 

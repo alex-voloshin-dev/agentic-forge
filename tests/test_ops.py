@@ -139,8 +139,7 @@ def test_deploy_status_unknown_env_is_healthy_and_empty() -> None:
         ({"data_loss": True}, "sev1"),
         ({"degraded": True}, "sev2"),
         ({"degraded": True, "workaround": True}, "sev3"),
-        ({"cosmetic": True}, "sev4"),
-        ({}, "sev4"),
+        ({}, "sev4"),  # no flags -> sev4 (the former inert `cosmetic=` param was removed)
         ({"outage": True, "workaround": True}, "sev1"),  # outage dominates
     ],
 )

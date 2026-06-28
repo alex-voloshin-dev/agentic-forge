@@ -32,6 +32,46 @@ from . import handoff, ops, release, vault
 from .agent_eval import Runner
 from .frontmatter import parse as parse_frontmatter
 
+__all__ = [
+    "FEATURE_SLUG",
+    "FIXTURE_REPO",
+    "PRD",
+    "PLAN",
+    "PHASES",
+    "Checkpoint",
+    "PhaseResult",
+    "prepare_workspace",
+    "check_architecture",
+    "repo_tests_pass",
+    "check_develop",
+    "check_code_review",
+    "check_research",
+    "check_product",
+    "check_plan",
+    "check_test_strategy",
+    "check_security_review",
+    "expected_release_version",
+    "check_release",
+    "check_deploy_status",
+    "check_incident",
+    "check_onboarding",
+    "check_ux_spec",
+    "check_market_brief",
+    "CHECKS",
+    "skill_body",
+    "SeedItem",
+    "Phase",
+    "Scenario",
+    "prepare_scenario",
+    "run_scenario",
+    "SPINE",
+    "SCENARIOS",
+    "run_e2e",
+    "all_passed",
+    "check_wiring",
+    "scenario_wiring",
+]
+
 FEATURE_SLUG = "task-priorities"
 FIXTURE_REPO = "eval/fixtures/spine/target-repo"
 PRD = "eval/fixtures/spine/prd.md"

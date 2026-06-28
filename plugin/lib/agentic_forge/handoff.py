@@ -35,6 +35,21 @@ import jsonschema
 
 from .frontmatter import FrontmatterError, parse
 
+__all__ = [
+    "STATUSES",
+    "VERDICTS",
+    "SEVERITIES",
+    "INCIDENT_SEVERITIES",
+    "SCHEMAS",
+    "ARTIFACT_TYPES",
+    "HandoffError",
+    "Artifact",
+    "schema_for",
+    "validate_header",
+    "parse_artifact",
+    "load_artifact",
+]
+
 # Recommended status vocabulary for feature artifacts (documented guidance, NOT enforced — the
 # schema accepts any non-empty status string, since real artifacts use varied lifecycle labels
 # such as "complete"/"ready"). Downstream phases that branch on status should map liberally.

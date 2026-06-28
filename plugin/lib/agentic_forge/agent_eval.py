@@ -27,6 +27,26 @@ from . import benchmark, gate
 from .evals import load_evals
 from .frontmatter import parse as parse_frontmatter
 
+__all__ = [
+    "ROLES",
+    "DEFAULT_RUNS",
+    "GRADING_INSTRUCTIONS",
+    "Runner",
+    "RoleReport",
+    "is_write_role",
+    "load_fixtures",
+    "materialize_fixtures",
+    "build_role_prompt",
+    "build_grading_prompt",
+    "parse_grading",
+    "grade_output",
+    "check_wiring",
+    "run_eval_cases",
+    "run_role",
+    "api_runner",
+    "claude_cli_runner",
+]
+
 ROLES: tuple[str, ...] = (
     "reviewer",
     "grader",
@@ -100,17 +120,8 @@ class RoleReport:
         return self.gate.passed
 
     def summary_line(self) -> str:
-        ws = (self.benchmark.get("run_summary") or {}).get("with_skill") or {}
-        pr = ws.get("pass_rate") or {}
-        mean = pr.get("mean", 0.0)
-        stddev = pr.get("stddev", 0.0)
-        lower = mean - stddev
-        status = "PASS" if self.passed else "FAIL"
-        detail = "" if self.passed else " — " + "; ".join(self.gate.reasons)
-        return (
-            f"{self.role}: {status} "
-            f"(mean={mean:.3f}, stddev={stddev:.3f}, lower_bound={lower:.3f}, "
-            f"n={ws.get('n', 0)}){detail}"
+        return gate.format_tier2_summary(
+            self.role, passed=self.passed, benchmark=self.benchmark, reasons=self.gate.reasons
         )
 
 

@@ -16,6 +16,21 @@ from . import evals as evals_mod
 from . import naming, skill_contract
 from .frontmatter import FrontmatterError, parse
 
+__all__ = [
+    "DESCRIPTION_MAX_LEN",
+    "COMPATIBILITY_MAX_LEN",
+    "BODY_MAX_LINES",
+    "STANDARD_FIELDS",
+    "CLAUDE_CODE_FIELDS",
+    "KNOWN_FIELDS",
+    "Issue",
+    "Report",
+    "validate_skill",
+    "validate_agent",
+    "validate_manifest",
+    "validate_plugin",
+]
+
 DESCRIPTION_MAX_LEN = 1024
 COMPATIBILITY_MAX_LEN = 500
 BODY_MAX_LINES = 500

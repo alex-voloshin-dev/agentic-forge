@@ -13,6 +13,8 @@ from typing import Any
 
 import jsonschema
 
+__all__ = ["EvalsError", "load_evals", "validate_evals"]
+
 # plugin/lib/agentic_forge/evals.py -> plugin/schemas/evals.schema.json
 _SCHEMA_PATH = Path(__file__).resolve().parents[2] / "schemas" / "evals.schema.json"
 

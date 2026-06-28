@@ -48,7 +48,6 @@ class Change:
     """One classified commit: its type, whether it is breaking, its changelog group, and the
     human description (the header text after the ``type:`` prefix, or the whole first line)."""
 
-    raw: str
     type: str  # conventional type (lower-cased) or "other"
     breaking: bool
     group: str | None  # Keep-a-Changelog group, or None when uncategorised
@@ -75,13 +74,12 @@ def classify(message: str) -> Change:
     breaking = bool(_BREAKING.search(message))
     match = _HEADER.match(first)
     if not match:
-        return Change(raw=first, type="other", breaking=breaking, group=None, description=first)
+        return Change(type="other", breaking=breaking, group=None, description=first)
     ctype = match.group("type").lower()
     if match.group("bang"):
         breaking = True
     desc = match.group("desc").strip()
     return Change(
-        raw=first,
         type=ctype,
         breaking=breaking,
         group=_TYPE_GROUP.get(ctype),

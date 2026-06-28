@@ -13,6 +13,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+__all__ = [
+    "GateResult",
+    "trigger_metrics",
+    "tier1_trigger",
+    "tier2_quality",
+    "format_tier2_summary",
+    "evaluate",
+    "all_passed",
+]
+
 
 @dataclass
 class GateResult:
@@ -102,6 +112,26 @@ def tier2_quality(benchmark: dict[str, Any], thresholds: dict[str, Any]) -> Gate
         reasons.append(f"time overhead {delta['time_seconds']}s > max {max_seconds}s")
 
     return GateResult("tier2_quality", not reasons, reasons)
+
+
+def format_tier2_summary(
+    label: str, *, passed: bool, benchmark: dict[str, Any], reasons: list[str]
+) -> str:
+    """One-line Tier-2 result: ``<label>: PASS/FAIL (mean=…, stddev=…, lower_bound=…, n=…)``.
+
+    Shared by the role and skill runners so the lower-bound formula lives in one place (here, next
+    to :func:`tier2_quality`)."""
+    ws = (benchmark.get("run_summary") or {}).get("with_skill") or {}
+    pr = ws.get("pass_rate") or {}
+    mean = pr.get("mean", 0.0)
+    stddev = pr.get("stddev", 0.0)
+    status = "PASS" if passed else "FAIL"
+    detail = "" if passed else " — " + "; ".join(reasons)
+    return (
+        f"{label}: {status} "
+        f"(mean={mean:.3f}, stddev={stddev:.3f}, lower_bound={mean - stddev:.3f}, "
+        f"n={ws.get('n', 0)}){detail}"
+    )
 
 
 def evaluate(

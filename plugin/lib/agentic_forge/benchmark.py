@@ -11,6 +11,8 @@ from __future__ import annotations
 import statistics
 from typing import Any
 
+__all__ = ["pass_rate_of", "summarize"]
+
 
 def pass_rate_of(grading: dict[str, Any]) -> float:
     """Extract a 0..1 pass rate from a single grading.json mapping."""

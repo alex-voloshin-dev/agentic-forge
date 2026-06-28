@@ -7,6 +7,8 @@ from typing import Any
 
 import yaml
 
+__all__ = ["FrontmatterError", "parse"]
+
 _FRONTMATTER = re.compile(r"\A---[ \t]*\n(.*?)\n---[ \t]*\n?(.*)\Z", re.DOTALL)
 
 
