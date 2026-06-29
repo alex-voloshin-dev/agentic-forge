@@ -9,6 +9,7 @@ import pytest
 from agentic_forge.agent_eval import (
     ROLES,
     RoleReport,
+    RunOutput,
     api_runner,
     build_grading_prompt,
     build_role_prompt,
@@ -68,7 +69,7 @@ def test_claude_cli_runner_argv_and_parse(monkeypatch: pytest.MonkeyPatch) -> No
     captured: dict = {}
 
     class _Done:
-        stdout = "VERDICT-OK"
+        stdout = '{"result": "VERDICT-OK", "usage": {"input_tokens": 30, "output_tokens": 12}}'
 
     def fake_run(cmd: list[str], **kw: object) -> _Done:
         captured["cmd"] = cmd
@@ -77,9 +78,13 @@ def test_claude_cli_runner_argv_and_parse(monkeypatch: pytest.MonkeyPatch) -> No
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     run = claude_cli_runner(allowed_tools="Read,Grep", model="claude-x", max_turns=7)
-    assert run("SYS", "PROMPT", Path("/tmp")) == "VERDICT-OK"
+    out = run("SYS", "PROMPT", Path("/tmp"))
+    assert out == "VERDICT-OK"  # the JSON `result` field is the reply text
+    usage = out.usage  # type: ignore[attr-defined]
+    assert usage == {"input_tokens": 30, "output_tokens": 12, "total_tokens": 42}
     cmd = captured["cmd"]
     assert cmd[:6] == ["claude", "-p", "PROMPT", "--append-system-prompt", "SYS", "--output-format"]
+    assert cmd[6] == "json"  # JSON output so usage is parseable
     assert "--allowedTools" in cmd and "Read,Grep" in cmd
     assert "--model" in cmd and "claude-x" in cmd
     assert "--max-turns" in cmd and "7" in cmd
@@ -92,7 +97,7 @@ def test_claude_cli_runner_omits_optional_flags(monkeypatch: pytest.MonkeyPatch)
     captured: dict = {}
 
     class _Done:
-        stdout = "x"
+        stdout = '{"result": "x"}'
 
     def fake_run(cmd: list[str], **kw: object) -> _Done:
         captured["cmd"] = cmd
@@ -112,7 +117,7 @@ def test_claude_cli_runner_retries_then_succeeds(monkeypatch: pytest.MonkeyPatch
     calls = {"n": 0}
 
     class _Done:
-        stdout = "ok"
+        stdout = '{"result": "ok"}'
 
     def flaky(cmd: list[str], **kw: object) -> _Done:
         calls["n"] += 1
@@ -137,6 +142,62 @@ def test_claude_cli_runner_raises_after_exhausting_retries(monkeypatch: pytest.M
     monkeypatch.setattr(time, "sleep", lambda s: None)
     with pytest.raises(RuntimeError, match="claude call failed after 3 attempts"):
         claude_cli_runner(retries=2)("S", "P", Path("."))
+
+
+def test_run_output_is_str_and_carries_usage() -> None:
+    out = RunOutput("hi", {"input_tokens": 2, "output_tokens": 3, "total_tokens": 5})
+    assert isinstance(out, str) and out == "hi"  # behaves as the reply text everywhere
+    assert out.usage == {"input_tokens": 2, "output_tokens": 3, "total_tokens": 5}
+    assert RunOutput("plain").usage is None  # no usage reported -> None
+
+
+def test_api_runner_captures_usage(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+    import types
+
+    class _Block:
+        type = "text"
+
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+    class _Msg:
+        content = [_Block("answer")]
+        usage = types.SimpleNamespace(input_tokens=40, output_tokens=8)
+
+    class _Client:
+        messages = types.SimpleNamespace(create=lambda **kw: _Msg())
+
+    fake = types.ModuleType("anthropic")
+    fake.Anthropic = lambda: _Client()  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "anthropic", fake)
+
+    out = api_runner("m")("S", "P", Path("."))
+    assert out == "answer"
+    usage = out.usage  # type: ignore[attr-defined]
+    assert usage == {"input_tokens": 40, "output_tokens": 8, "total_tokens": 48}
+
+
+def test_claude_cli_runner_degrades_on_non_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    class _Done:
+        stdout = "not json at all"  # an unexpected/old CLI output must not crash the sweep
+
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: _Done())
+    out = claude_cli_runner()("S", "P", Path("."))
+    assert out == "not json at all" and out.usage is None  # type: ignore[attr-defined]
+
+
+def test_claude_cli_runner_json_without_result_degrades(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    class _Done:
+        stdout = '{"unexpected": "shape"}'  # valid JSON but no `result` field
+
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: _Done())
+    out = claude_cli_runner()("S", "P", Path("."))
+    assert out == '{"unexpected": "shape"}' and out.usage is None  # type: ignore[attr-defined]
 
 
 def test_json_candidates_linear_on_brace_heavy_input() -> None:

@@ -43,9 +43,10 @@ This file is the project constitution. Every contributor (human or agent) MUST f
      script coverage >= 80%.
    - Tier 1 (trigger): should-trigger recall >= 0.9, should-not-trigger specificity >= 0.9.
    - Tier 2 (quality, LLM-judge, N >= 5 runs): (mean - sigma) pass-rate >= 0.8. The opt-in
-     `--baseline` skill run also gates the with/without A/B pass-rate lift (`min_lift`) and the
-     wall-clock time overhead (`max_overhead_seconds`); token overhead and version-over-version
-     A/B stay deferred — see meta-core.md / ADR 0036.
+     `--baseline` skill run also gates the with/without A/B pass-rate lift (`min_lift`), the
+     wall-clock time overhead (`max_overhead_seconds`), and the token overhead
+     (`max_overhead_tokens`); version-over-version A/B stays deferred — see meta-core.md / ADR
+     0036 + 0038.
    - Tier 3 (E2E): workflow scenarios pass with all checkpoints green.
    Thresholds are starting points; recalibrate per component and record the rationale.
 

@@ -102,9 +102,10 @@ this much (the "A/B not worse / better by X" bar) — and `max_overhead_seconds`
 wall-clock per run must stay within budget. **Calibrate before you gate:** run `--baseline` a few
 times, read the reported `delta.pass_rate` / `delta.time_seconds`, then set each bar from the
 measurement — never guess a number, and never lower it later to make a run pass (improve the skill
-instead). Token overhead (`max_overhead_tokens`) is reserved but **not yet wired** — the runner's
-transport returns text only, so no token counts are captured; version-over-version A/B is likewise
-deferred (it needs a stored benchmark history).
+instead). **Token overhead** (`max_overhead_tokens`) is also live: both transports report usage
+(the `api` runner from the Messages response; `claude` via `--output-format json`) through a
+`RunOutput` reply, so `--baseline` populates `delta.tokens` too (ADR 0038). Calibrate it the same
+way. Only version-over-version A/B stays deferred (it needs a stored benchmark history).
 
 ### Authoring assertions: the grader is read-only (ADR 0020)
 

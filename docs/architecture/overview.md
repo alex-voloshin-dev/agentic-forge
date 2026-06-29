@@ -93,9 +93,10 @@ Quality is enforced the same way at every layer:
   length, reference resolution, `pytest`, `ruff`, `mypy`, script coverage ≥ 80%.
 - **Tier 1 — trigger**: should-trigger recall ≥ 0.9, should-not-trigger specificity ≥ 0.9.
 - **Tier 2 — quality** (LLM judge, N ≥ 5): pass-rate lower bound (mean − σ) ≥ 0.8. The opt-in
-  `--baseline` skill run also gates the with/without A/B pass-rate lift and the wall-clock time
-  overhead (token overhead + version-over-version A/B stay deferred — see CLAUDE.md §4 /
-  meta-core.md / [ADR 0036](decisions/0036-tier2-ab-overhead-wiring.md)). For subagent **roles**,
+  `--baseline` skill run also gates the with/without A/B pass-rate lift, the wall-clock time
+  overhead, and the token overhead (only version-over-version A/B stays deferred — see CLAUDE.md §4 /
+  meta-core.md / [ADR 0036](decisions/0036-tier2-ab-overhead-wiring.md) +
+  [0038](decisions/0038-token-overhead-wiring.md)). For subagent **roles**,
   only the lower-bound pass-rate applies — there is no with/without baseline, trigger surface,
   or overhead delta to compare (see [ADR 0011](decisions/0011-agent-eval-runner.md)).
 - **Tier 3 — E2E**: workflow scenarios with checkpoints (added with L2).

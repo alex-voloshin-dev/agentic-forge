@@ -146,6 +146,72 @@ def test_run_eval_cases_baseline_produces_ab_lift() -> None:
     assert "time_seconds" in rs["delta"]  # time-overhead delta present
 
 
+# --- token overhead: RunOutput usage flows into the delta (ADR 0038) ---------
+
+
+def _component_with_usage(system: str, prompt: str, workdir: Path) -> str:
+    # with the skill: GOOD + 100 tokens/case; baseline: BAD + 40 tokens/case.
+    good = "WITHSKILL" in system
+    total = 100 if good else 40
+    usage = {"input_tokens": total, "output_tokens": 0, "total_tokens": total}
+    return agent_eval.RunOutput("GOOD" if good else "BAD", usage)
+
+
+def test_token_overhead_delta_from_run_output_usage() -> None:
+    bench, _, _ = agent_eval.run_eval_cases(
+        system_body="WITHSKILL",
+        grader_body="g",
+        cases=_CASES,
+        thresholds=_THRESH,
+        plugin_dir=PLUGIN,
+        run_fn=_component_with_usage,
+        grader_fn=_grader_keyed_on_output,
+        runs=3,
+        isolate=False,
+        baseline_system_body="(no marker)",
+    )
+    rs = bench["run_summary"]
+    assert rs["with_skill"]["tokens"] == 100.0  # component tokens captured from RunOutput.usage
+    assert rs["without_skill"]["tokens"] == 40.0
+    assert rs["delta"]["tokens"] == 60.0  # token-overhead delta now live
+
+
+def test_token_overhead_gate_fires_through_the_runner() -> None:
+    _, result, _ = agent_eval.run_eval_cases(
+        system_body="WITHSKILL",
+        grader_body="g",
+        cases=_CASES,
+        thresholds={"tier2_quality": {"min_pass_rate": 0.0, "runs": 3, "max_overhead_tokens": 50}},
+        plugin_dir=PLUGIN,
+        run_fn=_component_with_usage,
+        grader_fn=_grader_keyed_on_output,
+        runs=3,
+        isolate=False,
+        baseline_system_body="(no marker)",
+    )
+    assert not result.passed  # overhead 100-40=60 > max 50
+    assert any("token overhead" in r for r in result.reasons)
+
+
+def test_no_token_overhead_without_usage() -> None:
+    # a text-only component (plain str) reports no usage -> no tokens / no token delta.
+    bench, _, _ = agent_eval.run_eval_cases(
+        system_body="WITHSKILL",
+        grader_body="g",
+        cases=_CASES,
+        thresholds=_THRESH,
+        plugin_dir=PLUGIN,
+        run_fn=_component_keyed_on_marker,
+        grader_fn=_grader_keyed_on_output,
+        runs=3,
+        isolate=False,
+        baseline_system_body="(no marker)",
+    )
+    rs = bench["run_summary"]
+    assert "tokens" not in rs["with_skill"] and "tokens" not in rs["delta"]
+    assert "time_seconds" in rs["delta"]  # time overhead still captured
+
+
 # --- skill_eval: the without-skill baseline system ---------------------------
 
 

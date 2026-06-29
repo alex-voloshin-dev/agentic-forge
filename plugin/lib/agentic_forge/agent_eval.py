@@ -33,6 +33,7 @@ __all__ = [
     "DEFAULT_RUNS",
     "GRADING_INSTRUCTIONS",
     "Runner",
+    "RunOutput",
     "RoleReport",
     "is_write_role",
     "load_fixtures",
@@ -59,7 +60,63 @@ ROLES: tuple[str, ...] = (
 DEFAULT_RUNS = 5
 
 # Seam: given (system_prompt, user_prompt, workdir) return the model/agent's text output.
+# A transport may return a RunOutput (a str subclass) to also report token usage; everything else
+# treats the reply as a plain str, so the seam type is unchanged.
 Runner = Callable[[str, str, Path], str]
+
+
+class RunOutput(str):
+    """A model reply that may carry token usage. It **is** a ``str`` — every existing consumer
+    (grading, JSON parsing, equality, the ``Runner`` type) treats it as the reply text — so a
+    transport can opt into reporting usage with no signature change. The Tier-2 timing capture
+    reads ``.usage`` (``{input_tokens, output_tokens, total_tokens}``) when present to compute the
+    token-overhead delta (ADR 0036/0038). A plain ``str`` (stubs, a text-only transport) carries
+    no usage, so token-overhead stays unmeasured for it.
+    """
+
+    usage: dict[str, int] | None
+
+    def __new__(cls, text: str, usage: dict[str, int] | None = None) -> RunOutput:
+        obj = super().__new__(cls, text)
+        obj.usage = usage
+        return obj
+
+
+def _usage_from_counts(input_tokens: int, output_tokens: int) -> dict[str, int]:
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": input_tokens + output_tokens,
+    }
+
+
+def _usage_tokens(output: str) -> int | None:
+    """Total tokens for one model reply, or None if the transport reported no usage."""
+    usage = getattr(output, "usage", None)
+    if isinstance(usage, dict):
+        return int(usage.get("total_tokens", 0) or 0)
+    return None
+
+
+def _parse_cli_json(stdout: str) -> RunOutput:
+    """Parse `claude -p --output-format json` stdout into the reply text + token usage.
+
+    The expected shape is ``{"result": "<text>", "usage": {"input_tokens", "output_tokens", …}}``.
+    Degrades to the raw stdout with no usage if it is not that result-bearing JSON, so an odd or
+    older CLI output can never crash a Tier-2 sweep (ADR 0038)."""
+    try:
+        data = json.loads(stdout)
+    except (json.JSONDecodeError, TypeError):
+        return RunOutput(stdout)
+    if not isinstance(data, dict) or "result" not in data:
+        return RunOutput(stdout)
+    usage = data.get("usage")
+    if isinstance(usage, dict):
+        counts = _usage_from_counts(
+            int(usage.get("input_tokens", 0) or 0), int(usage.get("output_tokens", 0) or 0)
+        )
+        return RunOutput(str(data["result"]), counts)
+    return RunOutput(str(data["result"]))
 
 GRADING_INSTRUCTIONS = (
     "Grade the WORK OUTPUT against each assertion independently; no partial credit. If the "
@@ -196,7 +253,9 @@ def parse_grading(text: str) -> dict[str, Any]:
             data = json.loads(cand)
         except json.JSONDecodeError:
             continue
-        if isinstance(data, dict):
+        # _json_candidates only yields `{...}` object spans, so a parsed candidate is always a
+        # dict; the guard is defensive depth, and its false edge is unreachable (no-branch).
+        if isinstance(data, dict):  # pragma: no branch
             return data
     raise ValueError("no valid JSON object found in grader output")
 
@@ -259,9 +318,11 @@ def _run_passes(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Execute ``cases`` ``runs`` times under ``system_body``; return ``(gradings, timing)``.
 
-    ``timing`` carries one ``{"duration_ms": …}`` per run (wall-clock for that run's cases) so the
-    caller can compute the Tier-2 time-overhead delta. Token counts are not captured — the
-    :data:`Runner` seam returns text only (token-overhead is deferred; see ADR 0036).
+    ``timing`` carries one entry per run: ``{"duration_ms": …}`` (wall-clock for that run's cases),
+    plus ``"total_tokens"`` when the transport reports usage (a :class:`RunOutput` — see ADR 0038).
+    Only the component (``run_fn``) tokens are summed, not the grader's, so the Tier-2 A-B delta
+    reflects the skill's own token cost. A text-only transport reports no usage, so ``total_tokens``
+    is simply absent and token-overhead stays unmeasured.
     """
     default_work = workdir or plugin_dir
     gradings: list[dict[str, Any]] = []
@@ -270,6 +331,8 @@ def _run_passes(
         run_results: list[dict[str, Any]] = []
         run_total = 0
         run_passed = 0
+        run_tokens = 0
+        saw_usage = False
         started = time.monotonic()
         for case in cases:
             work = Path(tempfile.mkdtemp(prefix="af-eval-")) if isolate else default_work
@@ -281,6 +344,10 @@ def _run_passes(
                 output = run_fn(
                     system_body, build_role_prompt(case, fixture_text, in_workdir=isolate), work
                 )
+                tokens = _usage_tokens(output)
+                if tokens is not None:
+                    saw_usage = True
+                    run_tokens += tokens
                 graded = grade_output(
                     case.get("assertions") or [], output, grader_body, grader_fn, work
                 )
@@ -292,7 +359,10 @@ def _run_passes(
             # — so a grader that omits or duplicates results can't skew the run's pass-rate.
             run_total += graded["summary"]["total"]
             run_passed += graded["summary"]["passed"]
-        timing.append({"duration_ms": (time.monotonic() - started) * 1000.0})
+        entry: dict[str, Any] = {"duration_ms": (time.monotonic() - started) * 1000.0}
+        if saw_usage:
+            entry["total_tokens"] = run_tokens
+        timing.append(entry)
         gradings.append(
             {
                 "assertion_results": run_results,
@@ -424,8 +494,18 @@ def api_runner(model: str, *, max_tokens: int = 4096) -> Runner:
             system=system,
             messages=[{"role": "user", "content": prompt}],
         )
-        return "".join(
+        text = "".join(
             block.text for block in message.content if getattr(block, "type", None) == "text"
+        )
+        usage = getattr(message, "usage", None)
+        if usage is None:
+            return RunOutput(text)
+        return RunOutput(
+            text,
+            _usage_from_counts(
+                int(getattr(usage, "input_tokens", 0) or 0),
+                int(getattr(usage, "output_tokens", 0) or 0),
+            ),
         )
 
     return run
@@ -455,7 +535,7 @@ def claude_cli_runner(
     import time
 
     def run(system: str, prompt: str, workdir: Path) -> str:
-        cmd = ["claude", "-p", prompt, "--append-system-prompt", system, "--output-format", "text"]
+        cmd = ["claude", "-p", prompt, "--append-system-prompt", system, "--output-format", "json"]
         if allowed_tools is not None:
             cmd += ["--allowedTools", allowed_tools]
         if model:
@@ -474,7 +554,7 @@ def claude_cli_runner(
                     timeout=call_timeout,
                 )
                 print(".", end="", flush=True, file=sys.stderr)
-                return completed.stdout
+                return _parse_cli_json(completed.stdout)
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
                 last_exc = exc
                 if attempt < retries:

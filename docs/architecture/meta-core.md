@@ -108,12 +108,13 @@ The meta-core adds the **policy layer**:
   shape, including the with/without pass-rate delta and the time overhead delta.
 - `gate.tier2_quality(benchmark, thresholds)` passes only when the pass-rate **lower
   bound** `mean − stddev` over the required number of runs meets `min_pass_rate`, the with/without
-  A-B lift meets `min_lift`, and the time overhead stays within `max_overhead_seconds`. Gating on
-  the lower bound absorbs LLM run-to-run noise. *(The runners always capture per-run wall-clock
-  timing; the skill runner's opt-in `--baseline` (ADR 0036) reruns each case without the skill to
-  populate the with/without delta, so the `min_lift` / `max_overhead_seconds` branches are live.
-  Token overhead — needs the transport to surface usage — and version-over-version A-B — needs a
-  stored benchmark history — remain deferred; pass-rate is the always-on Tier-2 gate.)*
+  A-B lift meets `min_lift`, and the time and token overheads stay within `max_overhead_seconds` /
+  `max_overhead_tokens`. Gating on the lower bound absorbs LLM run-to-run noise. *(The runners
+  always capture per-run wall-clock timing; the skill runner's opt-in `--baseline` (ADR 0036)
+  reruns each case without the skill to populate the with/without delta, and the transports report
+  token usage via `RunOutput` (ADR 0038), so the `min_lift` / `max_overhead_seconds` /
+  `max_overhead_tokens` branches are all live. Only version-over-version A-B — needs a stored
+  benchmark history — remains deferred; pass-rate is the always-on Tier-2 gate.)*
 - `gate.trigger_metrics(...)` + `gate.tier1_trigger(...)` score auto-loading: recall over
   should-trigger prompts, specificity over should-not-trigger prompts.
 

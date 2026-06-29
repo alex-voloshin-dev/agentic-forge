@@ -6,6 +6,28 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Added — token-overhead wiring (ADR 0038)
+
+Closed the token-overhead half that ADR 0036 deferred, so `max_overhead_tokens` is now a live
+Tier-2 gate — without the cross-cutting seam change that deferral was about.
+
+- **`RunOutput(str)`** — a `str` subclass that optionally carries `.usage`
+  (`{input_tokens, output_tokens, total_tokens}`). Because it *is* a `str`, every existing consumer
+  (grading, parsing, the `Runner` type) is unchanged; only the Tier-2 timing capture reads `.usage`.
+  Stubs / text-only replies stay plain `str`, so token-overhead is silently absent for them.
+- **Transports report usage:** `api_runner` from the Messages response `.usage`; `claude_cli_runner`
+  switches to `--output-format json` and parses `{result, usage}`, degrading to raw text + no usage
+  if the output isn't result-bearing JSON (so an odd/old CLI can't crash a sweep).
+- **`_run_passes` accumulates the component's tokens per run** (not the grader's) into the timing
+  entry; `benchmark.summarize` → `delta.tokens` → `gate.tier2_quality(max_overhead_tokens)` was
+  already built, so the whole chain lights up under `--baseline`.
+- Restored library 100% branch coverage: `parse_grading`'s provably-unreachable defensive
+  `isinstance` guard is marked `# pragma: no branch` (its candidates are always `{...}` objects).
+- Docs: ADR 0038; CLAUDE.md §4 / `overview.md` / `meta-core.md` / `eval-runbook.md` / `benchmark`
+  drop the "token-overhead deferred" caveat (only version-over-version A/B remains deferred). New
+  tests: `RunOutput`, usage capture in both transports + JSON-degrade fallbacks, and token-overhead
+  flowing into `delta.tokens` + firing the gate.
+
 ### Changed — review/skeptic passes for artifact-writer workflows (ADR 0037)
 
 A loop-integration audit (bounded review loop + Ralph) across the 14 SDLC workflow skills — each

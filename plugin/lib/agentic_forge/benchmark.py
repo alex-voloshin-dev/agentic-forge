@@ -45,9 +45,9 @@ def _stats(values: list[float]) -> dict[str, float | int]:
 
 
 def _has_tokens(timing: list[dict[str, Any]]) -> bool:
-    """True if any timing entry carries a token count. Wall-clock-only timing (the live runner,
-    whose transport returns text without usage) omits ``total_tokens`` — so token means/deltas are
-    suppressed rather than reported as a misleading 0.0 (ADR 0036; token-overhead is deferred)."""
+    """True if any timing entry carries a token count. A transport that reports usage (a
+    ``RunOutput`` — ADR 0038) populates ``total_tokens``; a text-only reply omits it, so token
+    means/deltas are suppressed rather than reported as a misleading 0.0 (ADR 0036)."""
     return any("total_tokens" in t for t in timing)
 
 
@@ -71,8 +71,9 @@ def summarize(
     """Build a benchmark.json-shaped mapping from grading.json (and optional timing.json) lists.
 
     Pass `*_timing` lists of `{duration_ms}` (with an optional `total_tokens`) to populate the
-    time mean and the with-vs-without overhead delta that `gate.tier2_quality` checks. ``tokens``
-    is reported only when a count is present (the live runner captures wall-clock only — ADR 0036).
+    time/token means and the with-vs-without overhead delta that `gate.tier2_quality` checks.
+    ``tokens`` is reported only when a count is present — transports that report usage supply it
+    (ADR 0038); a text-only reply omits it (ADR 0036).
     """
     ws = _stats([pass_rate_of(g) for g in with_skill])
     ws_summary: dict[str, Any] = {
