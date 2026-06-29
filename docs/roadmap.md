@@ -24,7 +24,8 @@ architecture before we invest in breadth.
 | 5 | Product & marketing domains | Built — product already covered by the `product` spine skill; `marketing` router skill (market-research / strategy / content) shipped, evidence-first, Tier-1/Tier-2 gated (ADR 0022, [product-marketing.md](architecture/product-marketing.md)) |
 | 6 | Design & onboarding domains | Built — `ux-design` (ux-spec, specs not pixels) + `repo-onboarding` (analyze a codebase + seed the vault); Tier-1/Tier-2 gated (ADR 0023, [design-onboarding.md](architecture/design-onboarding.md)) |
 | 7 | Guardrails, observability, scheduling (L4) | Built — four guardrail hooks (ADR 0019) + scheduling & observability (ADR 0024): declarative job registry + audit-log digest + cron CI |
-| — | Post-spine increments | Built — increments through ADR 0035 (connectors, Tier-1 mean-rate, domain E2E, cadence persistence, quality-hardening, **ultra-review hardening — closed**); see [Post-spine increments](#post-spine-increments-beyond-the-staged-plan) |
+| — | Post-spine increments | Built — increments through ADR 0040 (connectors, Tier-1 mean-rate, domain E2E, cadence persistence, quality-hardening, ultra-review, **eval A/B + token-overhead, review passes, diagnostics channel + review-scan**); see [Post-spine increments](#post-spine-increments-beyond-the-staged-plan) |
+| — | Planned increments | **Planned** — PR watcher, external reviewer (codex), settings/config, multi-model tiers; see [Planned increments](#planned-increments-not-yet-built) |
 
 ---
 
@@ -304,6 +305,93 @@ Cross-cutting increments beyond the staged plan, recorded by ADR + CHANGELOG:
   pattern/skill docs were corrected to match the code (delegation via `Task`, not unused
   `context: fork`). Every finding verified against source; the suite is green, library 100% /
   aggregate 98% coverage. Nothing from the review remains open.
+- **Eval-pyramid + diagnostics increments** — **Built** (ADR 0036–0040). The Tier-2 **A/B lift +
+  time/token overhead** are now wired into the runners behind an opt-in `--baseline` (ADR 0036 +
+  0038: a `RunOutput` usage seam, only version-over-version A/B still deferred); a bounded
+  **adversarial skeptic review pass** was added to the artifact-writer workflows `product` /
+  `marketing` / `ux-design` (ADR 0037); and an opt-in **self-diagnostics channel** captures the
+  plugin's own errors / denials / anomalies → `diagnostics.jsonl` + a "top problems" digest
+  (ADR 0039), including a deterministic **review-loop non-convergence scan** over `review.md`
+  artifacts (ADR 0040).
+
+---
+
+## Planned increments (not yet built)
+
+The next cross-cutting increments, captured here for analysis **before any code** (per the principle
+above — open design questions are resolved first; each gets its own ADR + eval gate when picked up).
+**Suggested build order:** settings (3) is foundational — it configures the others — so build it
+first, then the external reviewer (2) and multi-model support (4) it gates, then the PR watcher (1,
+the largest, which composes connectors + the fix loop + outward actions).
+
+### 1 — PR watcher (monitor a GitHub PR, fix loop)
+
+- **Goal:** an automated agent that watches a GitHub PR and, **hourly**, reads its review comments +
+  merge conflicts and runs a **bounded fix loop** — for each reviewer comment, either fix it or
+  reject it with a reasoned reply, then resolve the thread; and resolve merge conflicts.
+- **Fit / deps:** composes a **GitHub PR connector** (review threads, mergeability, push — extends
+  `connectors.py`, which already has the Actions source), the **`develop` fix loop** + worktree
+  isolation (apply fixes on the PR branch), the **review-loop** bound, the **diagnostics** channel
+  (record comments it can't resolve), and the **scheduler** — but **hourly** is finer than the
+  current daily/weekly/monthly cadences, so it needs an `hourly` cadence (or a dedicated hourly
+  GitHub-Actions cron; the "no daemon" constraint of ADR 0024 still holds — a cron-triggered
+  headless run).
+- **Open questions (largest item — most to resolve):**
+  - **Outward-action policy** — posting replies, resolving threads, and pushing commits are GitHub
+    *writes*: how much autonomy (auto-push vs propose), what auth/permissions, what guardrail (the
+    "confirm outward actions" discipline applies strongly).
+  - **Comment classification** — actionable-fix vs discussion vs already-addressed; the
+    fix-vs-reject decision (a judgment for the `reviewer` role or a new agent).
+  - **Idempotency / loop safety** — don't re-fix a resolved comment; don't thrash the PR (bounded).
+  - **Conflict resolution** — mechanical vs `software-engineer`; when to give up and surface.
+- **Risks:** runaway outward actions; mis-resolving a valid comment; permissions. **Mitigation:**
+  opt-in, a dry-run mode, bounded, human-gated writes, a diagnostic on anything non-resolvable.
+
+### 2 — External reviewer (codex) as a subagent
+
+- **Goal:** run an external reviewer CLI — `codex` only, for now — as a subagent, usable to review
+  code, a plan, and product / technical documents.
+- **Fit / deps:** a new reviewer **seam** beside the internal `reviewer` role, mirroring the
+  `claude_cli_runner` transport (a `codex_cli_runner`: shell out, parse its output into the
+  canonical findings shape — `severity` / `location` / `issue` / `suggestion`). Plugs into
+  `review-loop` / `multi-aspect-review` / `adversarial-review` as an **independent lens** (a
+  different model raises recall — exactly what adversarial-review wants). Toggled by (3).
+- **Open questions:** parsing codex output reliably into the `review` shape; where it plugs in (an
+  extra lens in `deep-review`? an alternative reviewer in `develop`'s loop? both); graceful
+  degradation when the CLI is absent/unauthed (the connectors pattern); cost vs independence; a
+  seam that admits other external reviewers later.
+- **Risks:** brittle output parsing; CLI unavailability. **Mitigation:** a pure parser + a thin
+  fetch seam, degrade gracefully, opt-in.
+
+### 3 — Plugin settings & configuration
+
+- **Goal:** one structured, validated settings mechanism for the plugin's knobs — enable the
+  diagnostics / log collector, enable the external reviewer (+ which), set the review passes (the
+  review-loop `N`), model tiers (see 4), and migrate the scattered env vars
+  (`AGENTIC_FORGE_DIAGNOSTICS` / `…_SUBAGENT_SOFT|HARD` / `…_SKIP_TEST_GATE`).
+- **Fit / deps:** config today is ad-hoc env vars. This adds a tested `lib/settings.py` (pure
+  load / merge / validate) reading a per-repo `.agentic-forge/config.*` with precedence
+  **defaults < file < env** (keep env overrides for back-compat) + a JSON schema. **Foundational**
+  for 1 / 2 / 4, which read their toggles from it.
+- **Open questions:** format (TOML vs JSON) + location; the curated key set; per-skill vs global
+  review `N`; never crash on a bad config (degrade to defaults + emit a diagnostic).
+- **Risks:** config sprawl / precedence confusion. **Mitigation:** a small key set, defaults =
+  today's behaviour, one documented precedence order.
+
+### 4 — Multi-model support (tier by task complexity)
+
+- **Goal:** use cheaper models (sonnet / haiku) for simpler work and the strongest (opus) for hard
+  work — e.g. routing / grading / recall / simple synthesis on a cheap tier; implementation /
+  design / security / adversarial review on opus.
+- **Fit / deps:** the `model` frontmatter field already exists and the runners take `--model`; this
+  makes tiering a **deliberate, configurable policy** — a default tier per role / skill (read from
+  3), honoured by `Task` delegations and the runners. The `--baseline` A/B (ADR 0036) measures the
+  quality / cost trade-off per tier.
+- **Open questions:** which work is "simple enough" for a cheap tier (validated by Tier-2 *at that
+  tier* — it must still clear the bar, else the role isn't eligible); mechanism (per-component
+  `model` vs a settings tier map vs both); re-recording the model-dependent Tier-1 / Tier-2 per tier.
+- **Risks:** a cheaper model silently dropping below the gate. **Mitigation:** the eval-driven rule
+  protects it — only downgrade a role / skill where its Tier-2 still passes at the cheaper tier.
 
 ---
 
