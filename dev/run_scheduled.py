@@ -47,6 +47,19 @@ def _diagnostics_digest(repo: Path) -> str:
     return diagnostics.render(diagnostics.digest(diagnostics.load(repo)))
 
 
+def _review_scan(repo: Path) -> str:
+    # Scan review.md artifacts for non-converged loops; record each as a diagnostics anomaly
+    # (gated by AGENTIC_FORGE_DIAGNOSTICS, like the rest of the channel — ADR 0040).
+    if not diagnostics.enabled():
+        return "review-scan: diagnostics disabled (set AGENTIC_FORGE_DIAGNOSTICS to capture)"
+    events = diagnostics.scan_reviews(repo)
+    for event in events:
+        diagnostics.record_event(repo, event)
+    if not events:
+        return "review-scan: all review loops converged (or none found)"
+    return f"review-scan: recorded {len(events)} non-converged review loop(s)"
+
+
 def _deploy_digest(repo: Path) -> str:
     # Connectors auto-detect: GhPipelineSource (gh on PATH) + GrafanaAlertSource (GRAFANA_URL set).
     # Both degrade to empty in-memory sources, so this stays graceful when nothing is configured.
@@ -66,6 +79,7 @@ _ACTIONS = {
     "deploy_digest": _deploy_digest,
     "audit_digest": _audit_digest,
     "diagnostics_digest": _diagnostics_digest,
+    "review_scan": _review_scan,
 }
 
 

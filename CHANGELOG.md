@@ -6,6 +6,24 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Added — review-loop non-convergence scan (diagnostics increment 2, ADR 0040)
+
+Captured the anomaly ADR 0039 deferred: a bounded review loop that exhausts its budget without
+converging (in `develop`, `architecture`'s optional review, and the `product`/`marketing`/`ux-design`
+skeptic passes). Because the loop runs in the model's flow (no code boundary to emit from), it's
+caught by a deterministic **artifact scan** — approach (a):
+
+- `diagnostics.scan_reviews(repo)` walks `docs/sdlc/**/review.md`, loads each via
+  `handoff.load_artifact(expected_type="review")` (malformed / non-review files skipped, never
+  raises), and emits an `anomaly` for any loop with `verdict == "changes"` at `iteration >= cap`
+  (default 3 — the canonical review-loop bound). The decision is the pure `review_anomaly`; the walk
+  is the thin I/O seam. A `changes` verdict *below* the cap is in-progress, not flagged.
+- A `review-scan` scheduled job (daily) runs it and records anomalies into the existing
+  `diagnostics.jsonl` (gated by `AGENTIC_FORGE_DIAGNOSTICS`); `diagnostics-digest` rolls recurring
+  non-convergence (grouped by `target`) into "top problems".
+- Docs: ADR 0040; scheduling-observability. 7 new tests; `diagnostics.py` 100%, coverage 98.29%.
+  Still deferred: opt-in outward routing of the digest (ADR 0039).
+
 ### Added — self-diagnostics channel (ADR 0039)
 
 A troubleshooting channel that collects the plugin's own **errors + behaviour anomalies** so

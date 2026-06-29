@@ -22,11 +22,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from . import guardrails
+from . import guardrails, handoff
 
 __all__ = [
     "DIAGNOSTICS_PATH",
     "KINDS",
+    "DEFAULT_REVIEW_CAP",
     "Problem",
     "Digest",
     "enabled",
@@ -38,10 +39,14 @@ __all__ = [
     "digest",
     "render",
     "load",
+    "review_anomaly",
+    "scan_reviews",
 ]
 
 DIAGNOSTICS_PATH = ".agentic-forge/diagnostics.jsonl"
 KINDS = ("block", "warning", "error", "anomaly")
+DEFAULT_REVIEW_CAP = 3  # the canonical bounded review-loop budget (review-loop.md / ADR 0040)
+REVIEW_GLOB = "docs/sdlc/**/review.md"  # where review handoff artifacts live
 _ENV_FLAG = "AGENTIC_FORGE_DIAGNOSTICS"
 _MAX_LEN = 500  # cap each string so a giant traceback can't bloat the log
 _SEVERITY_ORDER = {"blocker": 0, "major": 1, "minor": 2, "nit": 3}
@@ -266,3 +271,49 @@ def load(repo: Path | str, *, max_lines: int | None = None) -> list[str]:
         return []
     lines = path.read_text(encoding="utf-8").splitlines()
     return lines[-max_lines:] if max_lines is not None else lines
+
+
+def review_anomaly(
+    header: dict[str, Any], *, cap: int = DEFAULT_REVIEW_CAP, ts: str
+) -> dict[str, Any] | None:
+    """If a ``review`` handoff header shows a bounded loop that exhausted its budget without
+    converging — verdict still ``changes`` at ``iteration >= cap`` — return a diagnostics anomaly
+    event; otherwise ``None`` (pure; ADR 0040). A ``changes`` verdict *below* the cap is a loop
+    still in progress, not a non-convergence."""
+    if str(header.get("verdict", "")).strip().lower() != "changes":
+        return None
+    try:
+        iteration = int(header.get("iteration", 0))
+    except (TypeError, ValueError):
+        return None
+    if iteration < cap:
+        return None
+    target = str(header.get("target", "?"))
+    return make_event(
+        ts=ts,
+        kind="anomaly",
+        component="review-loop",
+        severity="major",
+        message=f"review loop did not converge after {iteration} iteration(s) on {target}",
+        context={"target": target, "iteration": str(iteration)},
+    )
+
+
+def scan_reviews(
+    repo: Path | str, *, cap: int = DEFAULT_REVIEW_CAP, now: str | None = None
+) -> list[dict[str, Any]]:
+    """Walk the repo's ``review.md`` handoff artifacts and return a diagnostics anomaly for each
+    bounded review loop that exhausted its budget without converging (ADR 0040). Thin I/O over the
+    pure :func:`review_anomaly`; malformed / non-``review`` files are skipped, so it never raises.
+    The caller records the returned events (gated by :func:`enabled`)."""
+    ts = now or datetime.now(UTC).isoformat()
+    events: list[dict[str, Any]] = []
+    for path in sorted(Path(repo).glob(REVIEW_GLOB)):
+        try:
+            artifact = handoff.load_artifact(path, expected_type="review")
+        except Exception:
+            continue  # malformed / not a review artifact — can't assess, skip
+        event = review_anomaly(artifact.header, cap=cap, ts=ts)
+        if event is not None:
+            events.append(event)
+    return events

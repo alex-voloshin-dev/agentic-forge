@@ -133,6 +133,19 @@ def test_runner_records_diagnostic_when_enabled(
     assert log.is_file() and "kaboom" in log.read_text()  # the crash was recorded
 
 
+def test_review_scan_action(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("AGENTIC_FORGE_DIAGNOSTICS", "1")
+    assert "converged (or none found)" in run_scheduled._review_scan(tmp_path)  # empty -> no events
+    feat = tmp_path / "docs" / "sdlc" / "feat"
+    feat.mkdir(parents=True)
+    (feat / "review.md").write_text(
+        "---\ntype: review\ntarget: feat.py\niteration: 3\nverdict: changes\n---\nx\n",
+        encoding="utf-8",
+    )
+    assert "recorded 1" in run_scheduled._review_scan(tmp_path)  # non-converged loop captured
+    assert (tmp_path / ".agentic-forge" / "diagnostics.jsonl").is_file()
+
+
 # --- real-runner aggregation / exit-code paths (stubbed transport; no model calls) -----------
 # These cover each runner's pass/fail/error aggregation loop — the gate-decision logic that the
 # dry-run path does NOT exercise (ultra-review MAJOR: the runners decide ship/no-ship).

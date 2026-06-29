@@ -176,3 +176,49 @@ def test_load_absent_and_window(tmp_path: Path) -> None:
             ts=str(i), kind="error", component="c", message="m"), env=_ON)
     assert len(diagnostics.load(tmp_path)) == 5
     assert len(diagnostics.load(tmp_path, max_lines=2)) == 2  # bounded window
+
+
+# --- review-loop non-convergence scan (ADR 0040) -----------------------------
+
+
+def test_review_anomaly_flags_only_exhausted_loops() -> None:
+    base = {"type": "review", "target": "auth.py", "verdict": "changes"}
+    assert diagnostics.review_anomaly({**base, "iteration": 3}, ts="t") is not None  # exhausted
+    assert diagnostics.review_anomaly({**base, "iteration": 2}, ts="t") is None  # still in progress
+    approved = {"type": "review", "target": "auth.py", "verdict": "approve", "iteration": 3}
+    assert diagnostics.review_anomaly(approved, ts="t") is None  # converged
+    assert diagnostics.review_anomaly({**base, "iteration": "x"}, ts="t") is None  # bad iteration
+
+
+def test_review_anomaly_event_shape() -> None:
+    ev = diagnostics.review_anomaly(
+        {"type": "review", "target": "auth.py", "verdict": "changes", "iteration": 3}, ts="t"
+    )
+    assert ev is not None
+    assert ev["kind"] == "anomaly" and ev["component"] == "review-loop"
+    assert ev["context"]["target"] == "auth.py" and "auth.py" in ev["message"]
+
+
+def _write_review(repo: Path, feature: str, *, verdict: str, iteration: int) -> None:
+    d = repo / "docs" / "sdlc" / feature
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "review.md").write_text(
+        f"---\ntype: review\ntarget: {feature}.py\niteration: {iteration}\nverdict: {verdict}\n"
+        f"---\nbody\n",
+        encoding="utf-8",
+    )
+
+
+def test_scan_reviews_finds_only_non_converged(tmp_path: Path) -> None:
+    _write_review(tmp_path, "feat-a", verdict="changes", iteration=3)  # exhausted -> anomaly
+    _write_review(tmp_path, "feat-b", verdict="approve", iteration=2)  # converged -> ignored
+    _write_review(tmp_path, "feat-c", verdict="changes", iteration=1)  # in progress -> ignored
+    bad = tmp_path / "docs" / "sdlc" / "bad"
+    bad.mkdir(parents=True)
+    (bad / "review.md").write_text("not an artifact", encoding="utf-8")  # malformed -> skipped
+    events = diagnostics.scan_reviews(tmp_path, now="t")
+    assert len(events) == 1 and events[0]["context"]["target"] == "feat-a.py"
+
+
+def test_scan_reviews_empty_repo(tmp_path: Path) -> None:
+    assert diagnostics.scan_reviews(tmp_path) == []

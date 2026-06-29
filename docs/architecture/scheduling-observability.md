@@ -28,6 +28,7 @@ Users who don't use GitHub Actions can invoke the same CLI from OS cron.
   - `deploy-digest` (daily): `ops.deploy_status` summary per configured environment.
   - `audit-digest` (daily): roll up the guardrail audit log (below).
   - `diagnostics-digest` (daily): roll up the diagnostics log into top recurring problems (ADR 0039).
+  - `review-scan` (daily): scan `review.md` artifacts for non-converged review loops (ADR 0040).
 - `due_jobs(jobs, state, now)` — **pure**: returns the jobs that should run — never-run, cadence
   elapsed, **or the last run failed and it is within `MAX_RETRIES`** (a bounded retry on the next
   poll, then back off to cadence). Deterministic + fully tested (timestamps passed in, never
@@ -63,6 +64,12 @@ the dev eval runners (uncaught exceptions, gate FAILs) `emit` a redacted event t
 **opt-in, never blocks, never leaks secrets** (`guardrails.redact_secrets`), and **local-only** (no
 outward routing). `digest(lines)` groups events by **signature** into ranked "top problems";
 `render` reports them. Pure logic + a thin I/O seam, mirroring observability.
+
+Some anomalies have no code boundary to emit from — they live in the model's flow. **Review-loop
+non-convergence** (a bounded loop that exhausts its budget without an `approve`) is captured by a
+deterministic **scan** instead (ADR 0040): `scan_reviews(repo)` walks the `review.md` handoff
+artifacts and emits an anomaly for any whose `verdict` is still `changes` at `iteration >= cap`. The
+`review-scan` scheduled job runs it; the pure `review_anomaly` decision is unit-tested.
 
 ## CLIs
 

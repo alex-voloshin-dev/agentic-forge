@@ -97,6 +97,12 @@ JOBS: tuple[Job, ...] = (
         "Roll up the diagnostics log (errors / denials / anomalies) into top problems.",
         "diagnostics_digest",
     ),
+    Job(
+        "review-scan",
+        "daily",
+        "Scan review.md artifacts for non-converged review loops and record them (ADR 0040).",
+        "review_scan",
+    ),
 )
 
 
