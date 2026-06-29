@@ -12,6 +12,10 @@ assessment lives in the installed `agentic_forge.ops` module; external state arr
 **adapter seam** (`PipelineSource` / `AlertSource`), so this skill is provider-agnostic. (Design:
 [quality-ops.md](../../../docs/architecture/quality-ops.md).)
 
+> **Scope:** a **point-in-time snapshot** — one assessment pass over the current state, not a
+> continuous watch; re-run it to re-check. Continuous poll-until-terminal-state is out of scope
+> for now.
+
 ## When to use
 
 When the task is to assess a deploy/rollout/pipeline's health or status for an environment. **Not**

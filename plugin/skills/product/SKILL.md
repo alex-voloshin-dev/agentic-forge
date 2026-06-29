@@ -1,7 +1,7 @@
 ---
 name: product
 description: Produce PRODUCT REQUIREMENTS from research — take an existing research brief and turn it INTO a PRD / product spec (goals, non-goals, success metrics, acceptance criteria) with user stories, and assess the current product. Use to write a PRD, define requirements / goals / acceptance criteria, specify what to build, write user stories, or turn a research brief INTO a product spec. The brief is an INPUT that already exists — producing it is research; this is the speccing step that consumes it. Not the technical design (architecture), task planning (plan), or implementing (develop).
-allowed-tools: Read, Grep, Glob, Write
+allowed-tools: Read, Grep, Glob, Task, Write
 ---
 
 # Product (phase workflow)
@@ -34,6 +34,13 @@ acceptance criteria, user stories. Not for *what exists* (`research`), *how to b
    `acceptance`; body = context + user stories) under `docs/sdlc/<feature-slug>/`; validate it
    (`handoff.validate_header(..., expected_type="prd")`). Keep every requirement traceable to
    the brief.
+6. **Skeptic pass (bounded).** Before handing off, fork a fresh `reviewer` (via `Task`) to
+   challenge the draft adversarially — every acceptance criterion **testable**, every success
+   metric **measurable**, the **non-goals complete**, and each requirement **traceable to the
+   brief** — then revise worst-first. Bounded, exits on approve (see
+   [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
+   [review-loop.md](../../patterns/review-loop.md)). Don't hand off a PRD with untestable
+   acceptance criteria.
 
 ## Output
 
@@ -45,4 +52,5 @@ metrics, acceptance, and user stories — the input to `architecture`.
 - `prd.md` validates against the prd handoff schema (goals + acceptance present).
 - Non-goals and success metrics are stated; user stories cover the goals.
 - Requirements trace to the research brief; ambiguities were elicited, not invented.
+- A bounded skeptic pass checked acceptance-criteria testability and metric measurability.
 - Only product requirements — no technical design or code.

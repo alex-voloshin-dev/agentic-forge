@@ -6,6 +6,31 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Changed — review/skeptic passes for artifact-writer workflows (ADR 0037)
+
+A loop-integration audit (bounded review loop + Ralph) across the 14 SDLC workflow skills — each
+finding verified against source — found the review loop correctly integrated where it is
+load-bearing (`develop` full; `architecture` optional; `code-review`/`security-review` as review
+*producers*) and Ralph correctly absent everywhere (deferred engine-wide). It surfaced three
+artifact-writers with no review step and two doc-honesty gaps, now fixed:
+
+- **`product`, `marketing`, `ux-design` gain a bounded adversarial skeptic pass.** Each forks a
+  fresh `reviewer` (via `Task`) to attack its own draft, then revises — bounded, exits on approve
+  (the adversarial-review method, bounded by review-loop; ADR 0037). Lenses: `product` — acceptance testability / metric
+  measurability / non-goal completeness / brief-traceability; `marketing` — claims cited-or-marked,
+  no invented figures, no unsupported superlatives (upgrading its prior self-check into a forked
+  pass); `ux-design` — accessibility + flow/state completeness.
+- **`product` and `ux-design` gain `Task`** in `allowed-tools` (they could not fork a reviewer
+  before). Marketing already had it. **No description changed**, so Tier-1 routing is unaffected.
+- **`security-review` links `review-loop.md`** in its Output — symmetry with `code-review`: both
+  emit the `review` artifact that `develop`'s bounded loop consumes.
+- **`deploy-watch` states its scope honestly**: a point-in-time snapshot, not a continuous watch
+  (re-run to re-check); continuous poll-until-terminal-state is out of scope (the future home of a
+  Ralph poll-loop, recorded in the ADR).
+- No eval-contract changes: the writers' existing Tier-2 assertions / `product`'s Tier-3 checkpoint
+  already gate the *outcomes* the skeptic pass improves; a live Tier-2 re-run (ideally the ADR-0036
+  `--baseline` A/B) is how to confirm the lift. Tier-0 green; Tier-1 untouched.
+
 ### Added — Tier-2 A/B + overhead wiring (ADR 0036)
 
 Wired the two cheap, always-available halves of the previously-dormant Tier-2 overhead/A-B

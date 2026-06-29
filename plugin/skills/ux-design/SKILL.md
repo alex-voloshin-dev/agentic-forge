@@ -1,7 +1,7 @@
 ---
 name: ux-design
 description: Design the UX for a feature — the user flows, the screens and their states (empty / loading / error / success), accessibility requirements (WCAG — keyboard, focus, contrast, ARIA), and design-system component references — as a ux-spec handed to develop. Use to design the user experience / user flows / screens and states / wireframe specs / accessibility for a feature. Not the technical architecture (architecture), implementing it (develop), or the product requirements / PRD (product).
-allowed-tools: Read, Grep, Glob, Write, Edit
+allowed-tools: Read, Grep, Glob, Task, Write, Edit
 ---
 
 # UX design (phase workflow)
@@ -35,6 +35,13 @@ the product requirements (`product`).
    and the **list** fields `flows`, `screens`, `accessibility`, `design_system` (each a YAML list —
    not prose; quote any value containing a colon), then validate it
    (`handoff.validate_header(header, expected_type="ux-spec")`) — the input `develop` builds from.
+7. **Adversarial review (bounded).** Fork fresh `reviewer`s (via `Task`) on two lenses —
+   **accessibility** (keyboard/focus order, contrast, ARIA/live-regions present and correct) and
+   **flow/state completeness** (every screen has empty/loading/error/success; no dead-end flow) —
+   verify each finding against the spec, then revise. Bounded, exits on approve (see
+   [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
+   [review-loop.md](../../patterns/review-loop.md)). These are exactly the states and a11y items
+   engineers forget.
 
 ## Output
 
@@ -45,4 +52,5 @@ references. No pixels or visual mockups — specs only.
 
 - The key user flows and per-screen states (incl. empty + error) are specified.
 - Concrete accessibility requirements are stated (keyboard, focus, contrast, ARIA).
+- A bounded accessibility + flow-completeness review pass was run before handoff.
 - Output is a spec (a valid `ux-spec` artifact), not a visual/pixel mockup.

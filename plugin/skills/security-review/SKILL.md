@@ -37,7 +37,9 @@ change review (`code-review` already runs `security-engineer` per diff), impleme
 ## Output
 
 A `review` handoff (security lens): the verdict plus severity-tagged findings with locations and
-fixes. Hand off to `develop` to remediate. No files are modified.
+fixes. Hand off to `develop` to remediate — its `verdict`/`iteration` fields drive `develop`'s
+bounded [review loop](../../patterns/review-loop.md) (the same `review` artifact `code-review`
+emits). No files are modified.
 
 ## Definition of done
 

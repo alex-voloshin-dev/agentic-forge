@@ -48,8 +48,13 @@ The failure mode of generated marketing is confident, low-signal fluff. So every
    the content files, grounded in the evidence and the upstream `prd.md` where relevant. Validate the
    chosen header (`handoff.validate_header(header, expected_type="market-brief")` or
    `"marketing-strategy"`; see [handoff.md](../../patterns/handoff.md)).
-4. **Verify claims** before finishing: every claim is cited or marked an assumption; no invented
-   figures; content has no unsupported superlatives.
+4. **Adversarial claims pass (bounded).** Fork a fresh `reviewer`/skeptic (via `Task`) to attack
+   the draft against the evidence discipline above — every claim **cited or marked an assumption**,
+   **no invented figures**, competitors named specifically, **no unsupported superlatives** — then
+   fix what it flags. Bounded, exits on approve (see
+   [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
+   [review-loop.md](../../patterns/review-loop.md)). This is the guard against the fluff failure
+   mode above.
 
 ## Definition of done
 
