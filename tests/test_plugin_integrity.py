@@ -41,6 +41,15 @@ def test_plugin_passes_tier0() -> None:
     assert report.ok, report.render()
 
 
+def test_validated_tiers_match_the_agent_set() -> None:
+    # The runtime tier policy (ADR 0046) must name exactly the real agents: a missing entry lets a
+    # new agent default silently; a stale entry is dead config nothing else flags.
+    from agentic_forge import models
+
+    stems = {p.stem for p in (PLUGIN / "agents").glob("*.md")}
+    assert set(models.VALIDATED_TIERS) == stems
+
+
 def test_skill_factory_is_complete() -> None:
     sf = PLUGIN / "skills" / "skill-factory"
     missing = [rel for rel in SKILL_FACTORY_FILES if not (sf / rel).is_file()]

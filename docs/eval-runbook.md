@@ -227,6 +227,24 @@ assume a downgrade is free; re-record the numbers at the new tier. Recommended s
 routing / grading / recall / simple synthesis → `simple` or `cheap`; implementation / design /
 security / adversarial review → `default`. Default (no `models`) = opus everywhere (unchanged).
 
+### Promoting a tier into runtime delegation (ADR 0046)
+
+`settings.models` above is the **eval-time** lever — it validates a candidate tier. To make a
+validated tier actually take effect at **runtime** (when a skill forks a role via `Task`), promote it
+into the committed policy and sync the agent frontmatter:
+
+1. **Validate** the candidate at the cheaper tier (set `settings.models`, run the role's Tier-2 gate;
+   it must clear `mean − stddev ≥ 0.8` at that tier). Record the numbers.
+2. **Promote** — edit `models.VALIDATED_TIERS[<role>]` to the validated tier (e.g. `"grader":
+   "cheap"`). This is the committed runtime policy that ships with the agents.
+3. **Sync** — `python dev/sync_models.py --apply` rewrites each agent's `model:` frontmatter from the
+   policy (`default` → `inherit`, else the concrete model id).
+4. **Gate** — `python dev/validate.py` (Tier-0) **enforces** frontmatter == policy, so a drift or an
+   un-synced promotion fails the build. `dev/sync_models.py` (no `--apply`) is the CI-friendly check.
+
+The committed policy ships **all-`default`** (every agent `model: inherit`), so there is no runtime
+downgrade until you deliberately promote one through this gated flow.
+
 ## Recording results
 
 Tier-2 numbers are run artifacts, not contract fields, so they are not committed into

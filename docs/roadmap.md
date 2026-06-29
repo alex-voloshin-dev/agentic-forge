@@ -387,6 +387,11 @@ the largest, which composes connectors + the fix loop + outward actions).
 
 ### 4 — Multi-model support (tier by task complexity)
 
+> **Status:** built (ADR 0043) and **runtime-complete (ADR 0046)** — the validated tier now drives
+> the agent `model:` frontmatter via a committed `VALIDATED_TIERS` policy (Tier-0-enforced,
+> `dev/sync_models.py`-synced), so live `Task` delegation runs each role at its gate-validated tier.
+> Ships all-`default` (no downgrade); promote a tier via the gated flow in the eval-runbook.
+
 - **Goal:** use cheaper models (sonnet / haiku) for simpler work and the strongest (opus) for hard
   work — e.g. routing / grading / recall / simple synthesis on a cheap tier; implementation /
   design / security / adversarial review on opus.

@@ -18,6 +18,7 @@ import run_scheduled  # noqa: E402
 import run_skill_evals  # noqa: E402
 import run_spine_e2e  # noqa: E402
 import run_tier1_evals  # noqa: E402
+import sync_models as sync_models_cli  # noqa: E402
 import validate as validate_cli  # noqa: E402
 
 
@@ -493,3 +494,60 @@ def test_pr_watch_job_runs_live_when_configured(
         run_scheduled, "_run_pr_watch_live", lambda repo, specs: f"ran {len(specs)}"
     )
     assert run_scheduled._pr_watch(tmp_path) == "ran 1"  # enabled + repos -> live branch
+
+
+# --- sync_models CLI (runtime model routing, ADR 0046) -----------------------
+
+
+def _agent_file(d: Path, role: str, model_line: str | None) -> Path:
+    fm = f"---\nname: {role}\ndescription: x\ntools: Read\n"
+    if model_line is not None:
+        fm += f"model: {model_line}\n"
+    fm += "---\nBody.\n"
+    p = d / f"{role}.md"
+    p.write_text(fm, encoding="utf-8")
+    return p
+
+
+def test_sync_models_check_clean_skips_malformed(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    _agent_file(tmp_path, "grader", "inherit")  # matches policy (default -> inherit)
+    (tmp_path / "broken.md").write_text("no frontmatter here", encoding="utf-8")  # skipped
+    assert sync_models_cli.main(["sync"], agents_dir=tmp_path) == 0
+    assert "all agents match" in capsys.readouterr().out
+
+
+def test_sync_models_check_reports_drift(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    _agent_file(tmp_path, "grader", "claude-opus-4-8")  # drift: policy expects inherit
+    assert sync_models_cli.main(["sync"], agents_dir=tmp_path) == 1  # check fails on drift
+    assert "drift grader" in capsys.readouterr().err
+
+
+def test_sync_models_apply_rewrites(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    p = _agent_file(tmp_path, "grader", "claude-opus-4-8")
+    assert sync_models_cli.main(["sync", "--apply"], agents_dir=tmp_path) == 0
+    assert "model: inherit" in p.read_text(encoding="utf-8")  # rewritten to the policy value
+    assert "synced grader" in capsys.readouterr().out
+
+
+def test_sync_models_apply_without_model_line_errors(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    _agent_file(tmp_path, "grader", None)  # no model: line -> drift (None != inherit)
+    assert sync_models_cli.main(["sync", "--apply"], agents_dir=tmp_path) == 1
+    assert "no 'model:' line" in capsys.readouterr().err
+
+
+def test_sync_models_apply_never_corrupts_body(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    # frontmatter lacks model:, the body documents one -> --apply must NOT rewrite the body and must
+    # report failure (exit 1), not a false "synced" (regression for the ADR 0046 review MAJOR).
+    p = tmp_path / "grader.md"
+    p.write_text(
+        "---\nname: grader\ndescription: x\n---\nExample:\nmodel: cheap\n", encoding="utf-8"
+    )
+    assert sync_models_cli.main(["sync", "--apply"], agents_dir=tmp_path) == 1
+    assert "model: cheap" in p.read_text(encoding="utf-8")  # body line intact, not corrupted
+    assert "no 'model:' line" in capsys.readouterr().err

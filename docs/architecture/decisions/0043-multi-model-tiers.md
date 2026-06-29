@@ -43,7 +43,9 @@ tiering is **opt-in and gate-validated**.
 5. **Runtime Task delegation** (a skill body forking a role) can declare a model via the `model`
    frontmatter field (a documented Claude Code extension). This increment wires the deterministic,
    gate-validated **eval** path; auto-threading the resolved tier into live `Task` calls is left to
-   the skill bodies / future work.
+   the skill bodies / future work. **Update: closed by [ADR 0046](0046-runtime-model-routing.md)** —
+   a committed `VALIDATED_TIERS` policy drives the agent `model:` frontmatter (Tier-0-enforced,
+   sync-tool-regenerated), so the validated tier now reaches live delegation.
 
 ## Alternatives considered
 
@@ -63,4 +65,5 @@ tiering is **opt-in and gate-validated**.
 - No behaviour change by default; recorded Tier-2 numbers stand until a tier is configured (then
   re-record at that tier).
 - Recommended tiers + the validate-before-flip rule are documented; runtime Task tiering via the
-  `model` frontmatter is available, full auto-threading deferred.
+  `model` frontmatter is available — **auto-threading now closed by [ADR 0046](0046-runtime-model-routing.md)**
+  (a committed, Tier-0-enforced policy drives the frontmatter).

@@ -31,7 +31,7 @@ def _make_agent(
     agents = tmp_path / "agents"
     agents.mkdir(parents=True, exist_ok=True)
     if frontmatter is None:
-        frontmatter = f"name: {name}\ndescription: A test subagent role."
+        frontmatter = f"name: {name}\ndescription: A test subagent role.\nmodel: inherit"
     md = agents / f"{name}.md"
     md.write_text(f"---\n{frontmatter}\n---\nYou are a test agent.\n", encoding="utf-8")
     if with_evals:
@@ -82,6 +82,21 @@ def test_agent_without_name_frontmatter_is_ok(tmp_path) -> None:
     md = _make_agent(tmp_path, frontmatter="description: A role.")
     report = validate_agent(md)
     assert not any(i.message.startswith("name:") for i in report.errors)
+
+
+def test_agent_model_drift_errors(tmp_path) -> None:
+    # model frontmatter != the validated tier policy (foo -> default -> inherit) -> Tier-0 error
+    md = _make_agent(
+        tmp_path, frontmatter="name: foo\ndescription: A role.\nmodel: claude-opus-4-8"
+    )
+    report = validate_agent(md)
+    assert any("validated tier policy" in i.message for i in report.errors)
+
+
+def test_agent_missing_model_errors(tmp_path) -> None:
+    md = _make_agent(tmp_path, frontmatter="name: foo\ndescription: A role.")  # no model: line
+    report = validate_agent(md)
+    assert any("missing 'model'" in i.message for i in report.errors)
 
 
 def test_agent_malformed_frontmatter(tmp_path) -> None:

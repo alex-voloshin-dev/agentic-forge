@@ -6,6 +6,30 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Added — runtime model routing: the validated tier reaches live `Task` delegation (ADR 0046)
+
+Closes the part of ADR 0043 (§5) left deferred: a gate-validated model tier now actually reaches
+**runtime subagent delegation**, not just the eval runners. The lever is the agent `model:`
+frontmatter (what Claude Code reads when a skill forks a role via `Task`).
+
+- **`models.VALIDATED_TIERS`** — the committed runtime tier policy per role, shipping **all-`default`**
+  (no downgrade out of the box). A role is promoted to a cheaper tier here only after it passes the
+  eval gate at that tier.
+- **`models.frontmatter_model(role)`** — resolves the policy to a `model:` value: `inherit` for the
+  `default` tier (follow the session model — safe, respects `/model`), else the concrete validated
+  model id (the same `TIERS` the eval path uses). Plus `set_frontmatter_model` (pure line-rewriter).
+- **Tier-0 enforces frontmatter == policy** (`validate_agent`): an agent whose `model:` ≠
+  `frontmatter_model(role)` fails the gate, so live routing can't silently drift from what was
+  validated. `model:` is now effectively required on every agent.
+- **`dev/sync_models.py`** (`--check` default / `--apply`) regenerates the `model:` frontmatter from
+  the policy — `--apply` rewrites, `--check` (and Tier-0) flags drift. Promote-a-tier flow documented
+  in `docs/eval-runbook.md`.
+- **No behaviour change by default:** all six agents stay `model: inherit` (policy all-`default`);
+  Tier-0 + `sync_models --check` are green on the real plugin.
+- Docs: ADR 0046; ADR 0043 §5 / roadmap updated to point at the closure. New tests
+  (`frontmatter_model`, `set_frontmatter_model`, the Tier-0 drift/missing checks, the `sync_models`
+  CLI); `models.py` 100%, coverage 98.37%.
+
 ### Added — PR watcher 1b: scheduled job over repos + mechanical conflict resolution (ADR 0045)
 
 Completes the three items ADR 0044 deferred to 1b: the scheduled job's "which PRs to watch" wiring,

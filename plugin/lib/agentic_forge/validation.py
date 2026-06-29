@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import evals as evals_mod
-from . import naming, skill_contract
+from . import models, naming, skill_contract
 from .frontmatter import FrontmatterError, parse
 
 __all__ = [
@@ -262,6 +262,19 @@ def validate_agent(agent_md: Path) -> Report:
     if fm_name:
         for err in naming.validate_name(str(fm_name), dir_name=name):
             report.error(rel, f"name: {err}")
+
+    # Runtime model routing (ADR 0046): the `model:` frontmatter must equal the committed,
+    # gate-validated tier policy, so live `Task` delegation can't drift from what was validated.
+    expected_model = models.frontmatter_model(name)
+    actual_model = fm.get("model")
+    if actual_model is None:
+        report.error(rel, f"missing 'model' frontmatter (expected '{expected_model}')")
+    elif str(actual_model) != expected_model:
+        report.error(
+            rel,
+            f"model '{actual_model}' != the validated tier policy (expected '{expected_model}'); "
+            "run `python dev/sync_models.py --apply`",
+        )
 
     # Agents are gated like skills: a sibling eval contract is mandatory.
     evals_path = agent_md.parent / "evals" / f"{name}.evals.json"
