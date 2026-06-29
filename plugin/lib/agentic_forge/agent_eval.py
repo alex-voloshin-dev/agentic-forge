@@ -40,6 +40,7 @@ __all__ = [
     "materialize_fixtures",
     "build_role_prompt",
     "build_grading_prompt",
+    "json_objects",
     "parse_grading",
     "grade_output",
     "check_wiring",
@@ -246,8 +247,10 @@ def build_grading_prompt(assertions: list[str], output: str) -> str:
     return f"ASSERTIONS:\n{numbered}\n\nWORK OUTPUT:\n{output}\n\n{GRADING_INSTRUCTIONS}"
 
 
-def parse_grading(text: str) -> dict[str, Any]:
-    """Extract the JSON grading object from a grader's (possibly prose/fence-wrapped) reply."""
+def json_objects(text: str) -> list[dict[str, Any]]:
+    """Every JSON object parseable from ``text`` (prose/fence-tolerant, outer-first). Used where a
+    reply may contain several JSON objects and the caller must pick the right-shaped one."""
+    objects: list[dict[str, Any]] = []
     for cand in _json_candidates(text):
         try:
             data = json.loads(cand)
@@ -256,7 +259,15 @@ def parse_grading(text: str) -> dict[str, Any]:
         # _json_candidates only yields `{...}` object spans, so a parsed candidate is always a
         # dict; the guard is defensive depth, and its false edge is unreachable (no-branch).
         if isinstance(data, dict):  # pragma: no branch
-            return data
+            objects.append(data)
+    return objects
+
+
+def parse_grading(text: str) -> dict[str, Any]:
+    """Extract the (first) JSON grading object from a possibly prose/fence-wrapped grader reply."""
+    objects = json_objects(text)
+    if objects:
+        return objects[0]
     raise ValueError("no valid JSON object found in grader output")
 
 

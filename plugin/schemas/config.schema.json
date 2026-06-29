@@ -41,7 +41,11 @@
       "description": "External reviewer CLI (increment 2). `command` is the executable name only (e.g. \"codex\") — not a shell line, and never an API key/secret (this file is committed).",
       "properties": {
         "enabled": { "type": "boolean" },
-        "command": { "type": "string", "minLength": 1 }
+        "command": {
+          "type": "string",
+          "description": "A bare executable name on PATH (e.g. \"codex\") — not a path or shell line.",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+        }
       }
     },
     "models": {

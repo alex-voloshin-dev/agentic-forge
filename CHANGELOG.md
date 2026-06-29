@@ -6,6 +6,37 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Added — external reviewer (codex) as a subagent (planned-increment 2, ADR 0042)
+
+An external reviewer CLI (`codex`, for now) can be run as an independent review lens — for code, a
+plan, or a product / technical document. A different model catches what a same-family `reviewer`
+pass misses (adversarial-review.md).
+
+- **`lib/agentic_forge/external_review.py`** — a pure parser + a thin subprocess seam (connectors
+  style): `build_prompt(target, kind)` (kind ∈ code|plan|product|technical, asks for the canonical
+  review JSON), `is_available` (`shutil.which`), `run_external` (injected subprocess seam; the real
+  call excluded from coverage; **never raises**), `parse_review` (lenient — reuses
+  `agent_eval.parse_grading` to extract + normalise `{verdict, findings}`), and `review(...)`.
+  Degrades to `None` when the CLI is absent / disabled / unparseable.
+- **`dev/external_review.py`** CLI — reads `settings` (`external_reviewer.command`; refuses unless
+  `enabled` or `--force`), reviews a target file, prints verdict + findings, and can write a
+  schema-valid `review.md` handoff (`--out`) so a codex review feeds the review-loop / review-scan.
+  Exit 0 on approve / skipped, 1 on `changes` / unparseable.
+- Gated by the increment-3 settings (`external_reviewer.{enabled,command}`); off by default.
+  Documented as an optional lens in `adversarial-review.md`. Other external reviewers can be added
+  behind the same `command` seam later.
+- **Security/correctness review (2 lenses) — fixed before commit:** the seam now runs codex
+  **read-only** (`exec --sandbox read-only`, built in a unit-tested `_argv` so the safeguard can't
+  silently regress — a reviewer must never mutate the repo); `command` is schema-constrained to a
+  bare executable name (no arbitrary-binary-from-committed-config); `parse_review` scans *all* JSON
+  objects (tolerates a leading `codex exec` session object) and clamps severities + sanitises
+  findings (no markdown injection into `review.md`, which now also carries `findings[]` in the
+  header); the CLI guards a missing `--target` and gained `--iteration`. The trust boundary
+  (target → third-party agent; prompt-injection bounded to advisory findings by the sandbox) is
+  documented in ADR 0042 / `adversarial-review.md`.
+- Docs: ADR 0042. New tests (`test_external_review.py` + CLI + `agent_eval.json_objects`);
+  `external_review.py` 100%, coverage 98.33%.
+
 ### Added — plugin settings & configuration (planned-increment 3, ADR 0041)
 
 A single, validated configuration surface for the plugin's knobs — the foundation the external

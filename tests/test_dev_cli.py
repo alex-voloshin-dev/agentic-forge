@@ -11,6 +11,7 @@ sys.path.insert(0, str(_REPO / "dev"))
 
 import audit_digest  # noqa: E402
 import diagnostics_digest  # noqa: E402
+import external_review as external_review_cli  # noqa: E402
 import run_agent_evals  # noqa: E402
 import run_scheduled  # noqa: E402
 import run_skill_evals  # noqa: E402
@@ -108,6 +109,96 @@ def test_run_scheduled_none_due_after_run(tmp_path: Path, capsys: pytest.Capture
 def test_audit_digest_cli_empty(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     assert audit_digest.main(["audit", "--repo", str(tmp_path)]) == 0
     assert "no tool-use records" in capsys.readouterr().out
+
+
+# --- external_review CLI (ADR 0042) ------------------------------------------
+
+_CHANGES = {"verdict": "changes", "findings": [
+    {"severity": "major", "location": "a:1", "issue": "bug", "suggestion": "fix"},
+    {"severity": "nit", "location": "b:2", "issue": "style"},  # no suggestion -> render branch
+]}
+_APPROVE = {"verdict": "approve", "findings": []}
+
+
+def _target(tmp_path: Path) -> Path:
+    t = tmp_path / "diff.txt"
+    t.write_text("some code", encoding="utf-8")
+    return t
+
+
+def _ext(monkeypatch: pytest.MonkeyPatch, *, available: bool, result: object) -> None:
+    monkeypatch.setattr(external_review_cli.external_review, "is_available", lambda c: available)
+    monkeypatch.setattr(external_review_cli.external_review, "review", lambda *a, **k: result)
+
+
+def _run_ext(tmp_path: Path, *extra: str) -> int:
+    argv = ["x", "--repo", str(tmp_path), "--target", str(_target(tmp_path)), *extra]
+    return external_review_cli.main(argv)
+
+
+def test_external_review_disabled_skips(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    assert _run_ext(tmp_path) == 0  # off by default, no --force
+    assert "disabled" in capsys.readouterr().out
+
+
+def test_external_review_cli_absent_skips(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    _ext(monkeypatch, available=False, result=None)
+    assert _run_ext(tmp_path, "--force") == 0
+    assert "not found" in capsys.readouterr().out
+
+
+def test_external_review_verdict_exit_codes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _ext(monkeypatch, available=True, result=_APPROVE)
+    assert _run_ext(tmp_path, "--force") == 0  # approve -> 0
+    _ext(monkeypatch, available=True, result=_CHANGES)
+    assert _run_ext(tmp_path, "--force") == 1  # changes -> 1
+
+
+def test_external_review_unparseable_returns_1(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _ext(monkeypatch, available=True, result=None)
+    assert _run_ext(tmp_path, "--force") == 1
+
+
+def test_external_review_writes_valid_review_md(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from agentic_forge import handoff
+
+    _ext(monkeypatch, available=True, result=_CHANGES)
+    out = tmp_path / "review.md"
+    assert _run_ext(tmp_path, "--out", str(out), "--force") == 1
+    art = handoff.load_artifact(out, expected_type="review")  # the emitted handoff is schema-valid
+    assert art.header["verdict"] == "changes"
+    assert art.header["findings"] and art.header["findings"][0]["severity"] == "major"  # in header
+
+
+def test_external_review_missing_target_returns_1(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    missing = str(tmp_path / "nope.txt")
+    rc = external_review_cli.main(["x", "--repo", str(tmp_path), "--target", missing, "--force"])
+    assert rc == 1 and "not found" in capsys.readouterr().err  # graceful, no crash
+
+
+def test_external_review_command_override_reaches_review(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    seen: dict[str, str] = {}
+
+    def fake_review(target: str, kind: str, *, command: str, workdir: object) -> object:
+        seen["command"] = command
+        return _APPROVE
+
+    monkeypatch.setattr(external_review_cli.external_review, "is_available", lambda c: True)
+    monkeypatch.setattr(external_review_cli.external_review, "review", fake_review)
+    assert _run_ext(tmp_path, "--command", "my-reviewer", "--force") == 0
+    assert seen["command"] == "my-reviewer"
 
 
 def test_diagnostics_digest_cli_empty(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:

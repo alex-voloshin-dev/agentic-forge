@@ -200,6 +200,13 @@ def test_claude_cli_runner_json_without_result_degrades(monkeypatch: pytest.Monk
     assert out == '{"unexpected": "shape"}' and out.usage is None  # type: ignore[attr-defined]
 
 
+def test_json_objects_returns_all_objects() -> None:
+    from agentic_forge.agent_eval import json_objects
+
+    assert json_objects('{"a": 1} prose {"b": 2}') == [{"a": 1}, {"b": 2}]  # all, outer-first
+    assert json_objects("no json here") == []
+
+
 def test_json_candidates_linear_on_brace_heavy_input() -> None:
     import time
 
