@@ -36,6 +36,7 @@ __all__ = [
     "discover_skills_with_tier2",
     "is_off_listing",
     "build_skill_system",
+    "build_skill_baseline_system",
     "skill_tools",
     "is_write_skill",
     "run_skill",
@@ -129,6 +130,20 @@ def build_skill_system(plugin_dir: Path, skill: str) -> str:
     return _body(_skill_md(plugin_dir, skill))
 
 
+def build_skill_baseline_system(plugin_dir: Path, skill: str) -> str:
+    """The without-skill A-B baseline (ADR 0036): the SAME executor with the skill under test
+    removed, so the with/without delta isolates the skill's marginal contribution rather than a
+    model swap. For an off-listing knowledge skill that's the base role (+ engineering-standards,
+    unless the skill under test *is* engineering-standards); for an on-listing skill it's the bare
+    base model (empty system)."""
+    if is_off_listing(plugin_dir, skill):
+        parts = [_body(_role_md(plugin_dir, BASE_ROLE))]
+        if skill != STANDARDS_SKILL:
+            parts.append(_body(_skill_md(plugin_dir, STANDARDS_SKILL)))
+        return "\n\n".join(parts)
+    return ""
+
+
 def skill_tools(plugin_dir: Path, skill: str) -> str:
     """The tools the executing component needs (software-engineer's for knowledge skills)."""
     if is_off_listing(plugin_dir, skill):
@@ -181,12 +196,18 @@ def run_skill(
     runs: int | None = None,
     workdir: Path | None = None,
     isolate: bool = False,
+    with_baseline: bool = False,
 ) -> SkillReport:
     """Run a skill's Tier-2 eval: N runs over its cases, graded, aggregated, and gated.
 
     Isolation is **forced on** for skills whose execution writes (every off-listing knowledge
     skill — it runs the software-engineer — and any on-listing skill with Write/Edit), so a run
     can never touch the real repo, regardless of the caller's ``isolate`` flag.
+
+    ``with_baseline`` (opt-in, ~2x cost) additionally runs each case under the without-skill
+    baseline (:func:`build_skill_baseline_system`) so the benchmark carries the A-B pass-rate lift
+    and the time-overhead delta, which the contract can gate via ``min_lift`` /
+    ``max_overhead_seconds`` (ADR 0036).
     """
     contract = load_evals(_skill_evals(plugin_dir, skill))
     system = build_skill_system(plugin_dir, skill)
@@ -199,6 +220,7 @@ def run_skill(
     contract_runs = (thresholds.get("tier2_quality") or {}).get("runs") or agent_eval.DEFAULT_RUNS
     n = runs if runs is not None else contract_runs
     cases = contract.get("evals") or []
+    baseline = build_skill_baseline_system(plugin_dir, skill) if with_baseline else None
     bench, result, gradings = agent_eval.run_eval_cases(
         system_body=system,
         grader_body=grader_body,
@@ -210,5 +232,6 @@ def run_skill(
         runs=n,
         isolate=isolate,
         workdir=workdir,
+        baseline_system_body=baseline,
     )
     return SkillReport(skill=skill, runs=n, benchmark=bench, gate=result, gradings=gradings)

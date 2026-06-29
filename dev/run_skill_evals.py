@@ -8,6 +8,7 @@ Usage:
     python dev/run_skill_evals.py --runner claude           # real run via your Claude subscription
     python dev/run_skill_evals.py --runner api              # real run via API key (per-token)
     python dev/run_skill_evals.py --skill python-patterns   # one skill (repeatable)
+    python dev/run_skill_evals.py --runner claude --baseline  # + without-skill A-B (~2x cost)
 
 `dry` needs no credentials and never calls a model: it checks every skill's contract, cases,
 fixtures, and (for knowledge skills) that the base role + engineering-standards are present.
@@ -67,6 +68,11 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--model", default="claude-opus-4-8")
     parser.add_argument("--runs", type=int, default=None)
     parser.add_argument("--workdir", type=Path, default=None)
+    parser.add_argument(
+        "--baseline",
+        action="store_true",
+        help="also run a without-skill baseline for the A-B lift + time-overhead delta (~2x cost)",
+    )
     args = parser.parse_args(argv[1:])
 
     plugin_dir: Path = args.plugin.resolve()
@@ -111,6 +117,7 @@ def main(argv: list[str]) -> int:
                 run_grader_fn=grader_fn,
                 runs=args.runs,
                 workdir=args.workdir,
+                with_baseline=args.baseline,
             )
         except Exception as exc:  # keep going so one skill's failure doesn't lose the rest
             print(f"{skill}: ERROR — {exc}", flush=True)

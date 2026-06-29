@@ -18,6 +18,7 @@ import json
 import re
 import shutil
 import tempfile
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -244,32 +245,32 @@ def check_wiring(role: str, plugin_dir: Path) -> list[str]:
     return problems
 
 
-def run_eval_cases(
-    *,
+def _run_passes(
     system_body: str,
-    grader_body: str,
     cases: list[dict[str, Any]],
-    thresholds: dict[str, Any],
-    plugin_dir: Path,
+    *,
     run_fn: Runner,
+    grader_body: str,
     grader_fn: Runner,
+    plugin_dir: Path,
     runs: int,
     isolate: bool,
-    workdir: Path | None = None,
-) -> tuple[dict[str, Any], gate.GateResult, list[dict[str, Any]]]:
-    """Shared Tier-2 core: run ``cases`` ``runs`` times under ``system_body``, grade each output
-    against its assertions, aggregate, and gate. Returns ``(benchmark, gate_result, gradings)``.
+    workdir: Path | None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Execute ``cases`` ``runs`` times under ``system_body``; return ``(gradings, timing)``.
 
-    ``isolate`` gives each case a fresh temp workdir (removed after) so a write component never
-    sees another run's files or the real repo. Used by both the role runner (:func:`run_role`)
-    and the skill runner (``skill_eval.run_skill``).
+    ``timing`` carries one ``{"duration_ms": …}`` per run (wall-clock for that run's cases) so the
+    caller can compute the Tier-2 time-overhead delta. Token counts are not captured — the
+    :data:`Runner` seam returns text only (token-overhead is deferred; see ADR 0036).
     """
     default_work = workdir or plugin_dir
     gradings: list[dict[str, Any]] = []
+    timing: list[dict[str, Any]] = []
     for _ in range(runs):
         run_results: list[dict[str, Any]] = []
         run_total = 0
         run_passed = 0
+        started = time.monotonic()
         for case in cases:
             work = Path(tempfile.mkdtemp(prefix="af-eval-")) if isolate else default_work
             try:
@@ -291,6 +292,7 @@ def run_eval_cases(
             # — so a grader that omits or duplicates results can't skew the run's pass-rate.
             run_total += graded["summary"]["total"]
             run_passed += graded["summary"]["passed"]
+        timing.append({"duration_ms": (time.monotonic() - started) * 1000.0})
         gradings.append(
             {
                 "assertion_results": run_results,
@@ -301,8 +303,67 @@ def run_eval_cases(
                 },
             }
         )
+    return gradings, timing
 
-    bench = benchmark.summarize(gradings)
+
+def run_eval_cases(
+    *,
+    system_body: str,
+    grader_body: str,
+    cases: list[dict[str, Any]],
+    thresholds: dict[str, Any],
+    plugin_dir: Path,
+    run_fn: Runner,
+    grader_fn: Runner,
+    runs: int,
+    isolate: bool,
+    workdir: Path | None = None,
+    baseline_system_body: str | None = None,
+) -> tuple[dict[str, Any], gate.GateResult, list[dict[str, Any]]]:
+    """Shared Tier-2 core: run ``cases`` ``runs`` times under ``system_body``, grade each output
+    against its assertions, aggregate, and gate. Returns ``(benchmark, gate_result, gradings)``.
+
+    Per-run wall-clock timing is always captured and fed to the benchmark. When
+    ``baseline_system_body`` is given, every case is ALSO run under it — the same executor with the
+    skill under test removed — to produce the with/without A-B pass-rate lift and the time-overhead
+    delta that :func:`gate.tier2_quality` checks (ADR 0036). A subagent role passes no baseline
+    (it has no "without itself").
+
+    ``isolate`` gives each case a fresh temp workdir (removed after) so a write component never
+    sees another run's files or the real repo. Used by both the role runner (:func:`run_role`)
+    and the skill runner (``skill_eval.run_skill``).
+    """
+    gradings, timing = _run_passes(
+        system_body,
+        cases,
+        run_fn=run_fn,
+        grader_body=grader_body,
+        grader_fn=grader_fn,
+        plugin_dir=plugin_dir,
+        runs=runs,
+        isolate=isolate,
+        workdir=workdir,
+    )
+    if baseline_system_body is not None:
+        base_gradings, base_timing = _run_passes(
+            baseline_system_body,
+            cases,
+            run_fn=run_fn,
+            grader_body=grader_body,
+            grader_fn=grader_fn,
+            plugin_dir=plugin_dir,
+            runs=runs,
+            isolate=isolate,
+            workdir=workdir,
+        )
+        bench = benchmark.summarize(
+            gradings,
+            base_gradings,
+            with_skill_timing=timing,
+            without_skill_timing=base_timing,
+        )
+    else:
+        bench = benchmark.summarize(gradings, with_skill_timing=timing)
     result = gate.tier2_quality(bench, thresholds)
     return bench, result, gradings
 

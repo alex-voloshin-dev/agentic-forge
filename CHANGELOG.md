@@ -6,6 +6,35 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Added — Tier-2 A/B + overhead wiring (ADR 0036)
+
+Wired the two cheap, always-available halves of the previously-dormant Tier-2 overhead/A-B
+scaffolding (ADR 0035 deferred deleting it): the **with/without A-B pass-rate lift** and the
+**wall-clock time overhead**. The 4-tier pyramid's Tier-2 overhead/A-B is now a real, exercised code
+path instead of a "scaffolded but not wired" caveat.
+
+- **Timing capture (always-on).** `agent_eval.run_eval_cases` now records per-run wall-clock and
+  feeds it to `benchmark.summarize`, so every Tier-2 benchmark reports `with_skill.time_seconds`.
+  The case loop was extracted into `_run_passes` (returns `(gradings, timing)`).
+- **Opt-in without-skill baseline.** `run_eval_cases(baseline_system_body=…)` reruns each case under
+  a baseline to produce `run_summary.delta`; `skill_eval.run_skill(with_baseline=True)` +
+  `dev/run_skill_evals.py --baseline` expose it (off by default — ~2× cost). The baseline is the
+  same executor with the skill under test removed (`build_skill_baseline_system`): base role +
+  standards for a knowledge skill, the bare base model for an on-listing skill. Skills only — roles
+  have no "without itself" (ADR 0011).
+- **`min_lift` gate.** `gate.tier2_quality` fails when a contract sets `min_lift` and the measured
+  A-B `delta.pass_rate` falls short (the "A-B not worse / better by X" bar); it **skips** when no
+  baseline ran, so normal single-pass runs are unaffected. Added to the contract schema
+  (`tier2_quality.min_lift`).
+- **Honest tokens.** `benchmark.summarize` reports `tokens` / `delta.tokens` only when a timing entry
+  carries a count — a wall-clock-only run no longer shows a misleading `tokens: 0.0`.
+- **Deferred, with reasons (ADR 0036):** token overhead (needs the `Runner` transport to surface
+  usage) and version-over-version A-B (needs a stored benchmark history). `max_overhead_tokens` stays
+  reserved in the schema.
+- Docs: ADR 0036; CLAUDE.md §4 / `overview.md` / `meta-core.md` drop the "not yet wired" caveat and
+  state what is wired vs deferred; `eval-runbook.md` gains an A/B + `--baseline` calibrate-then-gate
+  section. 13 new tests in `tests/test_tier2_ab_overhead.py` (694 total).
+
 ### Fixed — third deep-review pass (6 reviewers): test integrity, robustness, doc currency
 
 A third whole-plugin review. No blockers; the system was found healthy and the prior rounds' fixes

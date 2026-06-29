@@ -115,6 +115,11 @@ def tier2_quality(benchmark: dict[str, Any], thresholds: dict[str, Any]) -> Gate
     max_seconds = want.get("max_overhead_seconds")
     if max_seconds is not None and "time_seconds" in delta and delta["time_seconds"] > max_seconds:
         reasons.append(f"time overhead {delta['time_seconds']}s > max {max_seconds}s")
+    # A-B lift: with the skill, the pass-rate must beat no-skill by at least min_lift (ADR 0036).
+    # Skips when no baseline was run (no delta), so a normal single-pass run is unaffected.
+    min_lift = want.get("min_lift")
+    if min_lift is not None and "pass_rate" in delta and delta["pass_rate"] < min_lift - _EPS:
+        reasons.append(f"A/B pass-rate lift {delta['pass_rate']:.3f} < required {min_lift:.3f}")
 
     return GateResult("tier2_quality", not reasons, reasons)
 

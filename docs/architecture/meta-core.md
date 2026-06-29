@@ -104,14 +104,16 @@ does that (isolated subagent runs, assertion grading to `grading.json`, timing c
 The meta-core adds the **policy layer**:
 
 - `benchmark.summarize(with_skill, without_skill, with_skill_timing=…, without_skill_timing=…)`
-  turns `grading.json` (and optional `timing.json`) lists into the aggregate `benchmark.json`
-  shape, including the with/without pass-rate delta and the token/time overhead delta.
+  turns `grading.json` (and optional per-run timing) lists into the aggregate `benchmark.json`
+  shape, including the with/without pass-rate delta and the time overhead delta.
 - `gate.tier2_quality(benchmark, thresholds)` passes only when the pass-rate **lower
-  bound** `mean − stddev` over the required number of runs meets `min_pass_rate`, and the
-  token/time overhead delta (when timing is supplied) stays within budget. Gating on the
-  lower bound absorbs LLM run-to-run noise. *(Today the runners pass only `gradings` to
-  `summarize`, so the overhead/A-B delta branches are dormant scaffolding — pass-rate is the
-  live Tier-2 gate; wiring timing + with/without A-B is tracked future work.)*
+  bound** `mean − stddev` over the required number of runs meets `min_pass_rate`, the with/without
+  A-B lift meets `min_lift`, and the time overhead stays within `max_overhead_seconds`. Gating on
+  the lower bound absorbs LLM run-to-run noise. *(The runners always capture per-run wall-clock
+  timing; the skill runner's opt-in `--baseline` (ADR 0036) reruns each case without the skill to
+  populate the with/without delta, so the `min_lift` / `max_overhead_seconds` branches are live.
+  Token overhead — needs the transport to surface usage — and version-over-version A-B — needs a
+  stored benchmark history — remain deferred; pass-rate is the always-on Tier-2 gate.)*
 - `gate.trigger_metrics(...)` + `gate.tier1_trigger(...)` score auto-loading: recall over
   should-trigger prompts, specificity over should-not-trigger prompts.
 

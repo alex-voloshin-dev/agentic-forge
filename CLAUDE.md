@@ -42,9 +42,10 @@ This file is the project constitution. Every contributor (human or agent) MUST f
      lint, body <= 500 lines, references resolve, `pytest` green, `ruff` + `mypy` clean,
      script coverage >= 80%.
    - Tier 1 (trigger): should-trigger recall >= 0.9, should-not-trigger specificity >= 0.9.
-   - Tier 2 (quality, LLM-judge, N >= 5 runs): (mean - sigma) pass-rate >= 0.8. (Token/time
-     overhead budgets and with/without-skill A/B deltas are scaffolded in `benchmark`/`gate` but
-     not yet wired into the runners — pass-rate is what gates today; see meta-core.md.)
+   - Tier 2 (quality, LLM-judge, N >= 5 runs): (mean - sigma) pass-rate >= 0.8. The opt-in
+     `--baseline` skill run also gates the with/without A/B pass-rate lift (`min_lift`) and the
+     wall-clock time overhead (`max_overhead_seconds`); token overhead and version-over-version
+     A/B stay deferred — see meta-core.md / ADR 0036.
    - Tier 3 (E2E): workflow scenarios pass with all checkpoints green.
    Thresholds are starting points; recalibrate per component and record the rationale.
 

@@ -44,6 +44,13 @@ def _stats(values: list[float]) -> dict[str, float | int]:
     return {"mean": mean, "stddev": stddev, "n": len(values)}
 
 
+def _has_tokens(timing: list[dict[str, Any]]) -> bool:
+    """True if any timing entry carries a token count. Wall-clock-only timing (the live runner,
+    whose transport returns text without usage) omits ``total_tokens`` — so token means/deltas are
+    suppressed rather than reported as a misleading 0.0 (ADR 0036; token-overhead is deferred)."""
+    return any("total_tokens" in t for t in timing)
+
+
 def _mean_tokens(timing: list[dict[str, Any]]) -> float:
     values = [float(t.get("total_tokens", 0)) for t in timing]
     return statistics.fmean(values) if values else 0.0
@@ -63,8 +70,9 @@ def summarize(
 ) -> dict[str, Any]:
     """Build a benchmark.json-shaped mapping from grading.json (and optional timing.json) lists.
 
-    Pass `*_timing` lists of `{total_tokens, duration_ms}` to populate token/time means and
-    the with-vs-without overhead delta that `gate.tier2_quality` checks.
+    Pass `*_timing` lists of `{duration_ms}` (with an optional `total_tokens`) to populate the
+    time mean and the with-vs-without overhead delta that `gate.tier2_quality` checks. ``tokens``
+    is reported only when a count is present (the live runner captures wall-clock only — ADR 0036).
     """
     ws = _stats([pass_rate_of(g) for g in with_skill])
     ws_summary: dict[str, Any] = {
@@ -72,8 +80,9 @@ def summarize(
         "n": ws["n"],
     }
     if with_skill_timing is not None:
-        ws_summary["tokens"] = _mean_tokens(with_skill_timing)
         ws_summary["time_seconds"] = _mean_seconds(with_skill_timing)
+        if _has_tokens(with_skill_timing):
+            ws_summary["tokens"] = _mean_tokens(with_skill_timing)
 
     run_summary: dict[str, Any] = {"with_skill": ws_summary}
 
@@ -85,11 +94,13 @@ def summarize(
         }
         delta: dict[str, float] = {"pass_rate": ws["mean"] - wo["mean"]}
         if without_skill_timing is not None:
-            wo_summary["tokens"] = _mean_tokens(without_skill_timing)
             wo_summary["time_seconds"] = _mean_seconds(without_skill_timing)
+            if _has_tokens(without_skill_timing):
+                wo_summary["tokens"] = _mean_tokens(without_skill_timing)
         if with_skill_timing is not None and without_skill_timing is not None:
-            delta["tokens"] = ws_summary["tokens"] - wo_summary["tokens"]
             delta["time_seconds"] = ws_summary["time_seconds"] - wo_summary["time_seconds"]
+            if "tokens" in ws_summary and "tokens" in wo_summary:
+                delta["tokens"] = ws_summary["tokens"] - wo_summary["tokens"]
         run_summary["without_skill"] = wo_summary
         run_summary["delta"] = delta
 

@@ -65,7 +65,8 @@
             "min_pass_rate": { "type": "number", "minimum": 0, "maximum": 1 },
             "runs": { "type": "integer", "minimum": 1 },
             "max_overhead_tokens": { "type": "integer", "minimum": 0 },
-            "max_overhead_seconds": { "type": "number", "minimum": 0 }
+            "max_overhead_seconds": { "type": "number", "minimum": 0 },
+            "min_lift": { "type": "number", "minimum": 0, "maximum": 1 }
           }
         },
         "tier3_e2e": {

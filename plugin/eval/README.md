@@ -51,5 +51,12 @@ skill-creator runs ──> grading.json + timing.json (per run)
                   GateResult per tier  ──> pass/fail
 ```
 
+The agentic-forge role/skill runners (ADR 0011 / 0017) implement this directly: they always
+capture per-run **wall-clock** timing, and the skill runner's opt-in `--baseline` populates the
+with/without delta (A-B pass-rate lift + time overhead, gated by `min_lift` /
+`max_overhead_seconds`). The `token` half of the delta is filled only when a token-bearing
+`timing.json` is supplied — those runners' transport returns text, so token-overhead is deferred
+(ADR 0036).
+
 Run artifacts (`grading.json`, `timing.json`, `benchmark.json`, iteration dirs) are
 generated and git-ignored. The only hand-authored eval file is `evals/evals.json`.

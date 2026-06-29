@@ -83,6 +83,29 @@ contract's `runs`. Same transports (`--runner dry|claude|api`). **It is the most
 — a full software-engineer coding session per case × N — so scope local runs with `--skill` /
 `--runs`; CI cost-gates it on the subscription token.
 
+#### A/B lift + time overhead — `--baseline` (opt-in, ADR 0036)
+
+Per-run wall-clock timing is always captured (every benchmark reports `with_skill.time_seconds`).
+Adding `--baseline` *also* reruns each case under the **without-skill** baseline — the same executor
+with the skill under test removed (for a knowledge skill: the software-engineer + standards, minus
+the pack; for an on-listing skill: the bare base model) — so the benchmark gains a
+`run_summary.delta` with the with/without **pass-rate lift** and the **time overhead**. This roughly
+**doubles cost**, so it is off by default:
+
+```bash
+python dev/run_skill_evals.py --skill python-patterns --runner claude --baseline
+```
+
+A contract opts into gating these via two `tier2_quality` fields, **evaluated only when a baseline
+ran** (a normal run ignores them): `min_lift` — the skill's pass-rate must beat no-skill by at least
+this much (the "A/B not worse / better by X" bar) — and `max_overhead_seconds` — the added
+wall-clock per run must stay within budget. **Calibrate before you gate:** run `--baseline` a few
+times, read the reported `delta.pass_rate` / `delta.time_seconds`, then set each bar from the
+measurement — never guess a number, and never lower it later to make a run pass (improve the skill
+instead). Token overhead (`max_overhead_tokens`) is reserved but **not yet wired** — the runner's
+transport returns text only, so no token counts are captured; version-over-version A/B is likewise
+deferred (it needs a stored benchmark history).
+
 ### Authoring assertions: the grader is read-only (ADR 0020)
 
 Grading always runs with **read-only** tools (`Read, Grep, Glob`) — the grader has no `Bash`, so
