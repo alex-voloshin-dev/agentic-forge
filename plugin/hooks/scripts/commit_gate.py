@@ -18,7 +18,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
 
-from agentic_forge import guardrails  # noqa: E402
+from agentic_forge import diagnostics, guardrails  # noqa: E402
 
 
 def gate_decision(payload: dict[str, Any]) -> guardrails.Decision:
@@ -45,11 +45,20 @@ def gate_decision(payload: dict[str, Any]) -> guardrails.Decision:
 
 def main() -> int:
     try:
-        decision = gate_decision(json.load(sys.stdin))
-    except Exception:
-        return 0  # fail open
+        payload = json.load(sys.stdin)
+        decision = gate_decision(payload)
+    except Exception as exc:  # fail open, but record the hook crash (ADR 0039)
+        diagnostics.emit(
+            ".", kind="error", component="commit-gate",
+            message=f"{type(exc).__name__}: {exc}", severity="blocker",
+        )
+        return 0
     if decision.block:
         print(f"agentic-forge test-gate {decision.message}", file=sys.stderr)
+        diagnostics.emit(
+            str(payload.get("cwd") or "."), kind="block", component="commit-gate",
+            message=decision.message, severity="major", session_id=payload.get("session_id"),
+        )
         return 2
     return 0
 

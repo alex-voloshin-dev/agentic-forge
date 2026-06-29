@@ -14,7 +14,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
 
-from agentic_forge import guardrails  # noqa: E402
+from agentic_forge import diagnostics, guardrails  # noqa: E402
 
 
 def write_audit(payload: dict[str, Any], cwd: str) -> Path:
@@ -28,11 +28,16 @@ def write_audit(payload: dict[str, Any], cwd: str) -> Path:
 
 
 def main() -> int:
+    cwd = "."
     try:
         payload = json.load(sys.stdin)
-        write_audit(payload, str(payload.get("cwd") or "."))
-    except Exception:
-        pass  # observability must never block a session
+        cwd = str(payload.get("cwd") or ".")
+        write_audit(payload, cwd)
+    except Exception as exc:  # observability must never block a session — but record the crash
+        diagnostics.emit(
+            cwd, kind="error", component="audit-hook",
+            message=f"{type(exc).__name__}: {exc}", severity="major",
+        )
     return 0
 
 

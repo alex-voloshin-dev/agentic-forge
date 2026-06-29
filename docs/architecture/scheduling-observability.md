@@ -27,6 +27,7 @@ Users who don't use GitHub Actions can invoke the same CLI from OS cron.
   - `kb-maintenance` (weekly): `vault.validate_vault` + a health report; flag broken links/orphans.
   - `deploy-digest` (daily): `ops.deploy_status` summary per configured environment.
   - `audit-digest` (daily): roll up the guardrail audit log (below).
+  - `diagnostics-digest` (daily): roll up the diagnostics log into top recurring problems (ADR 0039).
 - `due_jobs(jobs, state, now)` — **pure**: returns the jobs that should run — never-run, cadence
   elapsed, **or the last run failed and it is within `MAX_RETRIES`** (a bounded retry on the next
   poll, then back off to cadence). Deterministic + fully tested (timestamps passed in, never
@@ -45,9 +46,23 @@ Users who don't use GitHub Actions can invoke the same CLI from OS cron.
 The `logging` guardrail hook already writes a redacted audit JSONL (tool, brief, ts) under
 `.agentic-forge/`. This module **reads** it:
 
-- `digest(lines, *, since=None)` — **pure**: parse the JSONL records → a summary (counts by tool,
-  number of blocks, budget warnings, errors, time window). Deterministic + tested.
+- `digest(lines)` — **pure**: parse the JSONL records → a summary (total tool uses, counts by tool
+  descending, distinct sessions, busiest tool). Deterministic + tested.
 - `render(digest)` — a compact text report for the CLI / CI job.
+
+This is the **usage** view (what ran). Errors, denials, and behaviour anomalies are a *separate*
+channel — see Diagnostics below (ADR 0039); the earlier sketch of folding blocks/warnings/errors
+into this usage digest was dropped in favour of that dedicated channel.
+
+## Diagnostics — `lib/agentic_forge/diagnostics.py` (ADR 0039)
+
+Self-troubleshooting: collect the plugin's own **errors + behaviour anomalies** so maintainers can
+fix it. The guardrail hooks (security / commit_gate denials, budget warn/block, hook crashes) and
+the dev eval runners (uncaught exceptions, gate FAILs) `emit` a redacted event to
+`.agentic-forge/diagnostics.jsonl` **when capture is enabled** (`AGENTIC_FORGE_DIAGNOSTICS`). It is
+**opt-in, never blocks, never leaks secrets** (`guardrails.redact_secrets`), and **local-only** (no
+outward routing). `digest(lines)` groups events by **signature** into ranked "top problems";
+`render` reports them. Pure logic + a thin I/O seam, mirroring observability.
 
 ## CLIs
 
@@ -56,6 +71,8 @@ The `logging` guardrail hook already writes a redacted audit JSONL (tool, brief,
   *would* run without running it (the roadmap's "dry-run green"); `--health` prints the per-job run
   history (status / runs / failures) without running anything.
 - `dev/audit_digest.py` — print `observability.digest` of the audit log (a window flag).
+- `dev/diagnostics_digest.py` — print `diagnostics.digest` of the diagnostics log (the "top
+  problems" rollup of errors / denials / anomalies).
 
 ## CI
 

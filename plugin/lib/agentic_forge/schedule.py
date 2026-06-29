@@ -91,6 +91,12 @@ JOBS: tuple[Job, ...] = (
         "Roll up the guardrail audit log (tool usage).",
         "audit_digest",
     ),
+    Job(
+        "diagnostics-digest",
+        "daily",
+        "Roll up the diagnostics log (errors / denials / anomalies) into top problems.",
+        "diagnostics_digest",
+    ),
 )
 
 

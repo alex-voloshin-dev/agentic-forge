@@ -121,9 +121,14 @@ def main(argv: list[str]) -> int:
             )
         except Exception as exc:  # keep going so one skill's failure doesn't lose the rest
             print(f"{skill}: ERROR — {exc}", flush=True)
+            _eval_cli.record_failure(f"skill-eval:{skill}", f"{type(exc).__name__}: {exc}")
             all_passed = False
             continue
         print(report.summary_line(), flush=True)
+        if not report.passed:
+            _eval_cli.record_failure(
+                f"skill-eval:{skill}", "; ".join(report.gate.reasons), kind="anomaly"
+            )
         all_passed = all_passed and report.passed
     return 0 if all_passed else 1
 

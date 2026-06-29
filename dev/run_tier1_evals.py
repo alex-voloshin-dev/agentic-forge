@@ -78,12 +78,21 @@ def main(argv: list[str]) -> int:
 
     run_fn = _build_router(args.runner, args.model)
     print(f"running Tier-1 via {args.runner} (model={args.model}, runs={args.runs})...", flush=True)
-    with tempfile.TemporaryDirectory() as tmp:
-        reports = tier1_runner.run_tier1(
-            plugin_dir, run_fn, skills=args.skills, runs=args.runs, workdir=Path(tmp)
-        )
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            reports = tier1_runner.run_tier1(
+                plugin_dir, run_fn, skills=args.skills, runs=args.runs, workdir=Path(tmp)
+            )
+    except Exception as exc:  # a crash (e.g. mis-wired plugin) — record it, then fail
+        print(f"Tier-1 ERROR — {exc}", flush=True)
+        _eval_cli.record_failure("tier1-eval", f"{type(exc).__name__}: {exc}")
+        return 1
     for report in reports:
         print(report.summary_line(), flush=True)
+        if not report.passed:
+            _eval_cli.record_failure(
+                f"tier1-eval:{report.skill}", "; ".join(report.reasons), kind="anomaly"
+            )
     return 0 if tier1_runner.all_passed(reports) else 1
 
 

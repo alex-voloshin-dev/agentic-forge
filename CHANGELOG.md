@@ -6,6 +6,31 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Added — self-diagnostics channel (ADR 0039)
+
+A troubleshooting channel that collects the plugin's own **errors + behaviour anomalies** so
+maintainers can fix it — distinct from the `audit.jsonl` *usage* log. Increment 1: guardrail +
+pipeline emitters, local sink + digest (no outward routing).
+
+- **`lib/agentic_forge/diagnostics.py`** — a redacted event (`{ts, kind ∈ block|warning|error|
+  anomaly, severity, component, signature, message, context, session_id}`), an `emit` /
+  `record_event` writer to `.agentic-forge/diagnostics.jsonl` (gitignored), and pure `digest` /
+  `render` that group by **signature** (a stable fingerprint, volatile bits normalised) into ranked
+  "top recurring problems". Mirrors `observability.py`.
+- **Opt-in, never-block, redacted, local-only:** off unless `AGENTIC_FORGE_DIAGNOSTICS` is set;
+  every emitter swallows its own errors; all strings pass through `guardrails.redact_secrets`; no
+  auto-exfiltration.
+- **Emitters at the deterministic boundaries:** the guardrail hooks (security / commit_gate
+  denials, budget warn/block, hook crashes — these previously vanished) and the dev eval runners
+  (uncaught exceptions + gate FAILs, via `_eval_cli.record_failure`). Pure lib stays untouched.
+- **Rollup:** `dev/diagnostics_digest.py` CLI + a `diagnostics-digest` scheduled job (daily) through
+  the existing cron CI — same pattern as `audit-digest`.
+- **Fixed the ADR-0024 drift:** the observability doc promised a usage digest over
+  blocks/warnings/errors that was never wired; that rollup now lives in this dedicated channel, and
+  the doc is corrected. Deferred (increment 2+): workflow non-convergence capture; opt-in outward
+  routing of the digest.
+- 20 new tests; coverage 98.26%, library 100%.
+
 ### Added — token-overhead wiring (ADR 0038)
 
 Closed the token-overhead half that ADR 0036 deferred, so `max_overhead_tokens` is now a live

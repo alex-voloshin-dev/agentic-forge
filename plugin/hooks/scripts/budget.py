@@ -17,7 +17,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
 
-from agentic_forge import guardrails  # noqa: E402
+from agentic_forge import diagnostics, guardrails  # noqa: E402
 
 _SOFT = int(os.environ.get("AGENTIC_FORGE_SUBAGENT_SOFT", "25"))
 _HARD = int(os.environ.get("AGENTIC_FORGE_SUBAGENT_HARD", "50"))
@@ -38,11 +38,23 @@ def decide(
 
 def main() -> int:
     try:
-        decision = decide(json.load(sys.stdin))
-    except Exception:
-        return 0  # fail open
+        payload = json.load(sys.stdin)
+        decision = decide(payload)
+    except Exception as exc:  # fail open, but record the hook crash (ADR 0039)
+        diagnostics.emit(
+            ".", kind="error", component="budget-hook",
+            message=f"{type(exc).__name__}: {exc}", severity="blocker",
+        )
+        return 0
     if decision.message:
         print(f"agentic-forge budget hook {decision.message}", file=sys.stderr)
+        diagnostics.emit(
+            str(payload.get("cwd") or "."),
+            kind="block" if decision.block else "warning",
+            component="budget-hook", message=decision.message,
+            severity="major" if decision.block else "minor",
+            session_id=payload.get("session_id"),
+        )
     return 2 if decision.block else 0
 
 

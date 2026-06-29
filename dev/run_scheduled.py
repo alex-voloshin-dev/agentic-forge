@@ -22,7 +22,14 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO_ROOT / "plugin" / "lib"))
 
-from agentic_forge import connectors, observability, ops, schedule, vault  # noqa: E402
+from agentic_forge import (  # noqa: E402
+    connectors,
+    diagnostics,
+    observability,
+    ops,
+    schedule,
+    vault,
+)
 
 
 def _kb_maintenance(repo: Path) -> str:
@@ -34,6 +41,10 @@ def _kb_maintenance(repo: Path) -> str:
 
 def _audit_digest(repo: Path) -> str:
     return observability.render(observability.digest(observability.load_audit(repo)))
+
+
+def _diagnostics_digest(repo: Path) -> str:
+    return diagnostics.render(diagnostics.digest(diagnostics.load(repo)))
 
 
 def _deploy_digest(repo: Path) -> str:
@@ -54,6 +65,7 @@ _ACTIONS = {
     "kb_maintenance": _kb_maintenance,
     "deploy_digest": _deploy_digest,
     "audit_digest": _audit_digest,
+    "diagnostics_digest": _diagnostics_digest,
 }
 
 

@@ -64,7 +64,8 @@ This file is the project constitution. Every contributor (human or agent) MUST f
 - L1 Engine: subagent roles + native patterns (router, fan-out/fan-in, review loop, Ralph (deferred), worktree).
 - L2 Workflow skills: a phase-workflow per SDLC phase (fan out → synthesize a handoff artifact), depth via references.
 - L3 Knowledge base: Obsidian vault, recall skill, session-start injection.
-- L4 Guardrails & observability: hooks (security, test-gate, logging, budgets).
+- L4 Guardrails & observability: hooks (security, test-gate, logging, budgets); scheduling + audit
+  digest; an opt-in self-diagnostics channel (`diagnostics.py`, ADR 0039) for errors/anomalies.
 
 ## Repository layout
 
@@ -79,7 +80,7 @@ plugin/
   eval/{README.md, fixtures/}             # harness docs + agent eval fixtures
   schemas/                  # JSON Schema for evals.json + contract
 tests/                      # pytest for lib + hooks + harness
-dev/{validate.py, run_agent_evals.py, run_skill_evals.py, run_tier1_evals.py, run_spine_e2e.py, run_scheduled.py, audit_digest.py}  # Tier 0/1/2/3 gates + scheduling/observability CLIs
+dev/{validate.py, run_agent_evals.py, run_skill_evals.py, run_tier1_evals.py, run_spine_e2e.py, run_scheduled.py, audit_digest.py, diagnostics_digest.py}  # Tier 0/1/2/3 gates + scheduling/observability/diagnostics CLIs
 docs/                       # product vision, architecture, ADRs, roadmap
 CHANGELOG.md                # what changed, by milestone
 ```

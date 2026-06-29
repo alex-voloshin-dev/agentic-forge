@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,7 @@ _REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO / "dev"))
 
 import audit_digest  # noqa: E402
+import diagnostics_digest  # noqa: E402
 import run_agent_evals  # noqa: E402
 import run_scheduled  # noqa: E402
 import run_skill_evals  # noqa: E402
@@ -108,6 +110,29 @@ def test_audit_digest_cli_empty(tmp_path: Path, capsys: pytest.CaptureFixture) -
     assert "no tool-use records" in capsys.readouterr().out
 
 
+def test_diagnostics_digest_cli_empty(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    assert diagnostics_digest.main(["diag", "--repo", str(tmp_path)]) == 0
+    assert "no events" in capsys.readouterr().out
+
+
+def test_runner_records_diagnostic_when_enabled(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # With the flag on, a runner crash is captured into ./.agentic-forge/diagnostics.jsonl.
+    monkeypatch.setenv("AGENTIC_FORGE_DIAGNOSTICS", "1")
+    monkeypatch.chdir(tmp_path)  # so the emitter's "." resolves to an isolated dir
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(run_skill_evals, "_build_runners", lambda *a, **k: (object(), object()))
+
+    def boom(*a: object, **k: object) -> object:
+        raise RuntimeError("kaboom")
+
+    monkeypatch.setattr(run_skill_evals.skill_eval, "run_skill", boom)
+    assert run_skill_evals.main(["run", "--runner", "claude", "--skill", "python-patterns"]) == 1
+    log = tmp_path / ".agentic-forge" / "diagnostics.jsonl"
+    assert log.is_file() and "kaboom" in log.read_text()  # the crash was recorded
+
+
 # --- real-runner aggregation / exit-code paths (stubbed transport; no model calls) -----------
 # These cover each runner's pass/fail/error aggregation loop — the gate-decision logic that the
 # dry-run path does NOT exercise (ultra-review MAJOR: the runners decide ship/no-ship).
@@ -116,6 +141,11 @@ def test_audit_digest_cli_empty(tmp_path: Path, capsys: pytest.CaptureFixture) -
 class _FakeReport:
     def __init__(self, passed: bool) -> None:
         self.passed = passed
+        # Mirror the real report contract the runners read on a FAIL (diagnostics, ADR 0039):
+        # role/skill reports expose `gate.reasons`; tier1 reports expose `reasons` + `skill`.
+        self.reasons = ["fake reason"]
+        self.skill = "fake-skill"
+        self.gate = types.SimpleNamespace(reasons=["fake reason"])
 
     def summary_line(self) -> str:
         return "fake summary"
@@ -178,6 +208,17 @@ def test_run_tier1_evals_real_path(monkeypatch: pytest.MonkeyPatch) -> None:
         run_tier1_evals.tier1_runner, "run_tier1", lambda *a, **k: [_FakeReport(False)]
     )
     assert run_tier1_evals.main(["run", "--runner", "claude"]) == 1
+
+
+def test_run_tier1_evals_crash_returns_1(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(run_tier1_evals, "_build_router", lambda *a, **k: object())
+
+    def boom(*a: object, **k: object) -> object:
+        raise RuntimeError("mis-wired plugin")
+
+    monkeypatch.setattr(run_tier1_evals.tier1_runner, "run_tier1", boom)
+    assert run_tier1_evals.main(["run", "--runner", "claude"]) == 1  # crash -> recorded -> fail
 
 
 def test_run_spine_e2e_real_path(monkeypatch: pytest.MonkeyPatch) -> None:
