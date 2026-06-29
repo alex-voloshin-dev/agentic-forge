@@ -29,7 +29,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO_ROOT / "plugin" / "lib"))
 
 import _eval_cli  # noqa: E402
-from agentic_forge import agent_eval, tier1_runner  # noqa: E402
+from agentic_forge import agent_eval, models, settings, tier1_runner  # noqa: E402
 
 
 def _build_router(runner: str, model: str) -> agent_eval.Runner:
@@ -76,8 +76,10 @@ def main(argv: list[str]) -> int:
 
     _eval_cli.warn_if_api_key_set(args.runner)
 
-    run_fn = _build_router(args.runner, args.model)
-    print(f"running Tier-1 via {args.runner} (model={args.model}, runs={args.runs})...", flush=True)
+    models_cfg = settings.resolve(plugin_dir.parent).models  # router tier (ADR 0043)
+    model = models.model_for("router", models_cfg, default=args.model)
+    run_fn = _build_router(args.runner, model)
+    print(f"running Tier-1 via {args.runner} (model={model}, runs={args.runs})...", flush=True)
     try:
         with tempfile.TemporaryDirectory() as tmp:
             reports = tier1_runner.run_tier1(

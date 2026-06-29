@@ -25,7 +25,7 @@ architecture before we invest in breadth.
 | 6 | Design & onboarding domains | Built — `ux-design` (ux-spec, specs not pixels) + `repo-onboarding` (analyze a codebase + seed the vault); Tier-1/Tier-2 gated (ADR 0023, [design-onboarding.md](architecture/design-onboarding.md)) |
 | 7 | Guardrails, observability, scheduling (L4) | Built — four guardrail hooks (ADR 0019) + scheduling & observability (ADR 0024): declarative job registry + audit-log digest + cron CI |
 | — | Post-spine increments | Built — increments through ADR 0040 (connectors, Tier-1 mean-rate, domain E2E, cadence persistence, quality-hardening, ultra-review, **eval A/B + token-overhead, review passes, diagnostics channel + review-scan**); see [Post-spine increments](#post-spine-increments-beyond-the-staged-plan) |
-| — | Planned increments | **Planned** — PR watcher, external reviewer (codex), settings/config, multi-model tiers; see [Planned increments](#planned-increments-not-yet-built) |
+| — | Planned increments | settings/config (ADR 0041), external reviewer / codex (0042), multi-model tiers (0043) **built**; **PR watcher** remaining — see [Planned increments](#planned-increments-not-yet-built) |
 
 ---
 
@@ -323,6 +323,10 @@ above — open design questions are resolved first; each gets its own ADR + eval
 **Suggested build order:** settings (3) is foundational — it configures the others — so build it
 first, then the external reviewer (2) and multi-model support (4) it gates, then the PR watcher (1,
 the largest, which composes connectors + the fix loop + outward actions).
+
+> **Status:** 3 (settings, ADR 0041), 2 (external reviewer / codex, ADR 0042), and 4 (multi-model
+> tiers, ADR 0043) are **built, reviewed, and gated** (each ADR + Tier-0 + an adversarial review
+> pass). **1 (PR watcher) remains** — the largest; its open questions below are unresolved.
 
 ### 1 — PR watcher (monitor a GitHub PR, fix loop)
 

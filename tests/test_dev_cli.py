@@ -337,3 +337,56 @@ def test_run_spine_e2e_real_path(monkeypatch: pytest.MonkeyPatch) -> None:
         run_spine_e2e.spine_e2e, "run_scenario", lambda *a, **k: [_FakePhase(False)]
     )
     assert run_spine_e2e.main(["run", "--runner", "claude", "--scenario", "spine"]) == 1
+
+
+# --- model tiering wired into the runners (ADR 0043) -------------------------
+
+
+def test_agent_eval_uses_model_tier_from_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agentic_forge import models as models_lib
+
+    seen: dict[str, str] = {}
+    # settings assigns the reviewer the "simple" tier -> the runner must build it on sonnet
+    monkeypatch.setattr(
+        run_agent_evals.settings,
+        "resolve",
+        lambda *a, **k: types.SimpleNamespace(models={"reviewer": "simple"}),
+    )
+
+    def fake_build(runner: str, role: str, plugin_dir: object, model: str) -> tuple[object, object]:
+        seen[role] = model
+        return (object(), object())
+
+    monkeypatch.setattr(run_agent_evals, "_build_runners", fake_build)
+    monkeypatch.setattr(run_agent_evals.agent_eval, "run_role", lambda *a, **k: _FakeReport(True))
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    run_agent_evals.main(["x", "--runner", "claude", "--role", "reviewer"])
+    assert seen["reviewer"] == models_lib.TIERS["simple"]  # the configured tier was applied
+
+
+def test_tier1_eval_uses_router_tier_from_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agentic_forge import models as models_lib
+
+    seen: dict[str, str] = {}
+    # settings assigns the router the "cheap" tier -> the Tier-1 run must use haiku
+    monkeypatch.setattr(
+        run_tier1_evals.settings,
+        "resolve",
+        lambda *a, **k: types.SimpleNamespace(models={"router": "cheap"}),
+    )
+
+    def fake_router(runner: str, model: str) -> object:
+        seen["model"] = model
+        return object()
+
+    monkeypatch.setattr(run_tier1_evals, "_build_router", fake_router)
+    monkeypatch.setattr(
+        run_tier1_evals.tier1_runner, "run_tier1", lambda *a, **k: [_FakeReport(True)]
+    )
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    run_tier1_evals.main(["x", "--runner", "claude"])
+    assert seen["model"] == models_lib.TIERS["cheap"]  # the router tier reached _build_router

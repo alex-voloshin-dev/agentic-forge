@@ -6,6 +6,28 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Added — multi-model support / model tiering (planned-increment 4, ADR 0043)
+
+Per-component model tiering — cheaper models (sonnet / haiku) for simpler work, opus for hard work
+— configured in `settings.models`, with the eval gates validating any downgrade.
+
+- **`lib/agentic_forge/models.py`** — `TIERS` (`default`→opus-4-8, `simple`→sonnet-4-6,
+  `cheap`→haiku-4-5) and `model_for(component, models, *, default)`: a per-component entry in
+  `settings.models` wins (a tier name → its model, or a model id used as-is); otherwise the global
+  `default`. Pure + 100% tested.
+- **Safe by default:** an empty `settings.models` resolves every component to the global default
+  (opus) — no behaviour change. Opt in per component, e.g. `"models": {"grader": "simple",
+  "router": "cheap"}`.
+- **The eval runners resolve per-component and the gates enforce the tier:** `run_agent_evals` /
+  `run_skill_evals` / `run_tier1_evals` run each role / skill / router at `model_for(...)`. So a
+  cheaper tier is **validated by Tier-1 / Tier-2** — if it drops below the bar, the gate fails (the
+  eval-driven "only downgrade where it still passes" rule, enforced mechanically; the ADR-0036
+  `--baseline` A/B measures the quality/cost trade-off).
+- Recommended tiers + the validate-before-flip rule are documented (ADR 0043 / eval-runbook); the
+  `model` frontmatter stays available for runtime Task delegation (full auto-threading deferred).
+- Docs: ADR 0043. 5 new tests (`test_models.py` + a runner-tier integration test); `models.py` 100%,
+  coverage 98.34%.
+
 ### Added — external reviewer (codex) as a subagent (planned-increment 2, ADR 0042)
 
 An external reviewer CLI (`codex`, for now) can be run as an independent review lens — for code, a

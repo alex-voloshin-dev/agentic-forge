@@ -34,7 +34,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO_ROOT / "plugin" / "lib"))
 
 import _eval_cli  # noqa: E402
-from agentic_forge import agent_eval, skill_eval  # noqa: E402
+from agentic_forge import agent_eval, models, settings, skill_eval  # noqa: E402
 
 
 def _build_runners(
@@ -105,11 +105,13 @@ def main(argv: list[str]) -> int:
 
     _eval_cli.warn_if_api_key_set(args.runner)
 
+    models_cfg = settings.resolve(plugin_dir.parent).models  # per-component tiers (ADR 0043)
     all_passed = True
     for skill in skills:
-        print(f"[{skill}] running via {args.runner} (model={args.model})...", flush=True)
+        model = models.model_for(skill, models_cfg, default=args.model)
+        print(f"[{skill}] running via {args.runner} (model={model})...", flush=True)
         try:
-            run_fn, grader_fn = _build_runners(args.runner, skill, plugin_dir, args.model)
+            run_fn, grader_fn = _build_runners(args.runner, skill, plugin_dir, model)
             report = skill_eval.run_skill(
                 skill,
                 plugin_dir,

@@ -210,6 +210,23 @@ dry-run wiring check, and runs the real `--runner claude` Tier-2 when the token 
 present. A failing gate fails the job. Note: a personal subscription token is a single point
 of failure; for team CI prefer a team/enterprise account's token.
 
+## Model tiers (ADR 0043)
+
+`--model` sets the **global default** model. To run a *specific* component on a cheaper tier, set
+`models` in `.agentic-forge/config.json` (keyed by role / skill / `router`; value is a tier name —
+`default` / `simple` / `cheap` — or a model id):
+
+```json
+{ "models": { "grader": "simple", "router": "cheap" } }
+```
+
+The runners resolve each component via `models.model_for(...)`, so the **Tier-1 / Tier-2 gate
+validates the choice**: a cheaper tier ships only if that component still clears its bar at that
+tier (use `--baseline` to weigh the quality/cost trade-off). **Validate before you flip** — never
+assume a downgrade is free; re-record the numbers at the new tier. Recommended starting candidates:
+routing / grading / recall / simple synthesis → `simple` or `cheap`; implementation / design /
+security / adversarial review → `default`. Default (no `models`) = opus everywhere (unchanged).
+
 ## Recording results
 
 Tier-2 numbers are run artifacts, not contract fields, so they are not committed into
