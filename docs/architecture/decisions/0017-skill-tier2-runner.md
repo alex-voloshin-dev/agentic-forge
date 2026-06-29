@@ -65,3 +65,12 @@ manifests when a role **applies** them. So testing a pack means running the role
   N runs); cost-gated in CI, `--runs` configurable for local use.
 - `agent_eval` gains `run_eval_cases` (shared core); `run_role`'s external behaviour and
   `RoleReport` are unchanged. Builds on ADR 0011; does not supersede it.
+
+## Note (count grew with later stages)
+
+The "twelve skills" above is the set that declared `tier2_quality` at the time of this decision. The
+machinery is unchanged, but later stages added own-behaviour skills that also declare it — Stage-4
+ops/release (`deploy-watch`, `incident-response`, `release`; ADR 0021), Stage-5 `marketing` (ADR
+0022), and Stage-6 `repo-onboarding` / `ux-design` (ADR 0023). The runner (`skill_eval.py`) runs
+Tier-2 for **every** skill that declares the threshold, so the live count is higher than twelve;
+the decision and its execution model are as written.

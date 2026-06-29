@@ -82,3 +82,11 @@ to fix), distinct from target-repo incidents (which `incident-response` / `deplo
   never sends anything outward.
 - Deferred (increment 2+): workflow non-convergence (review-loop budget) capture, and opt-in
   outward routing of the digest.
+
+## Note (Context describes the pre-0039 state)
+
+The Context above describes the world **before** this ADR — at that point `audit_log` / `security`
+failed open with a silent `except: pass`. This decision (and follow-ups) changed that: those hooks
+now record the crash via `diagnostics.emit(...)` in their `except` blocks rather than swallowing it
+silently. So the current code does **not** match the "silent `except: pass`" line — that line is the
+problem this ADR removed, not a description of today's behaviour.

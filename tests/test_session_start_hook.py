@@ -10,7 +10,7 @@ sys.path.insert(0, str(_REPO / "plugin" / "hooks" / "scripts"))
 
 import session_start  # noqa: E402
 
-from agentic_forge import vault  # noqa: E402
+from agentic_forge import diagnostics, vault  # noqa: E402
 
 
 def test_build_context_no_vault(tmp_path: Path) -> None:
@@ -42,6 +42,21 @@ def test_main_bad_stdin_is_safe(monkeypatch, capsys) -> None:
     monkeypatch.setattr(sys, "stdin", io.StringIO("not json at all"))
     assert session_start.main() == 0  # never blocks the session
     assert capsys.readouterr().out.strip() == ""
+
+
+def test_main_records_diagnostics_on_error(tmp_path: Path, monkeypatch) -> None:
+    # A crash inside the hook must still fail open (exit 0) but be recorded, not silent (ADR 0039).
+    monkeypatch.setenv("AGENTIC_FORGE_DIAGNOSTICS", "1")
+
+    def _boom(_cwd: str) -> str:
+        raise RuntimeError("vault exploded")
+
+    monkeypatch.setattr(session_start, "build_context", _boom)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"cwd": str(tmp_path)})))
+    assert session_start.main() == 0  # never blocks the session
+
+    events = [json.loads(line) for line in diagnostics.load(tmp_path)]
+    assert any(e["component"] == "session-start" and e["kind"] == "error" for e in events)
 
 
 def test_hooks_json_valid_session_start() -> None:

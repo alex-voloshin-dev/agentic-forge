@@ -36,7 +36,11 @@ plugin/
     schedule.py observability.py      # Stage 7: scheduled-job registry + audit digest (ADR 0024)
     connectors.py                     # real provider connectors behind the ops seams (ADR 0025)
     skill_contract.py planning.py     # quality-hardening: handoff/recall guards + plan batches (ADR 0032/0034)
-  schemas/evals.schema.json           # the component contract schema (superset)
+    diagnostics.py                    # opt-in self-diagnostics channel: errors/anomalies (ADR 0039)
+    settings.py models.py             # plugin config (ADR 0041/0049) + model tiering/routing (ADR 0043/0046)
+    external_review.py pr_watch.py    # external-reviewer seam (ADR 0042) + PR-watcher core (ADR 0044/0045)
+    ralph.py                          # bounded autonomous Ralph-loop core (ADR 0048)
+  schemas/{evals,config}.schema.json  # the component contract schema (superset) + the config schema
   eval/{README.md, fixtures/}         # harness architecture + agent eval fixtures (L1)
   hooks/{hooks.json, scripts/*.py}    # L3 session-start + L4 guardrail hooks (ADR 0018/0019)
 dev/{validate.py, run_agent_evals.py, run_tier1_evals.py, run_skill_evals.py, run_spine_e2e.py, run_scheduled.py, audit_digest.py, diagnostics_digest.py, external_review.py, pr_watch.py, ralph.py, sync_models.py}  # Tier 0/1/2/3 CLIs + scheduling/observability/diagnostics + external-review + PR-watcher + Ralph + model-routing
@@ -70,6 +74,12 @@ pyproject.toml                        # uv / pytest / ruff / mypy config
 | `connectors.py` | Real provider connectors behind the `ops` seams: `GhPipelineSource`, `GrafanaAlertSource` — pure parsers + thin fetch seams (ADR 0025). |
 | `skill_contract.py` | Guards on skill bodies: each artifact skill documents its handoff schema's required fields (`handoff_contract_problems`, ADR 0032), and each spine phase references the knowledge-recall step (`recall_problems`, ADR 0033). |
 | `planning.py` | Pure dependency batching of plan tasks into topological levels (`plan_batches`) for parallel `develop` (ADR 0034). |
+| `diagnostics.py` | Opt-in self-diagnostics channel: collect the plugin's *own* errors/denials/anomalies into a redacted, gitignored `diagnostics.jsonl` + pure `digest`/`render` (ADR 0039). Contrast `observability.py` (usage) — this is what went *wrong*. |
+| `settings.py` | One resolver for the plugin's knobs over a layered precedence (built-in < user `~/.agentic-forge/config.json` < repo `.agentic-forge/config.json` < env); `resolve()` never raises, validates against `config.schema.json` (ADR 0041/0049). |
+| `models.py` | Model tiering: resolve which model a component runs on (cheaper tiers for simpler work), opt-in via `settings.models` and gate-validated, mapping the validated tier to each agent's `model:` frontmatter (ADR 0043/0046). |
+| `external_review.py` | External-reviewer seam: run a third-party reviewer CLI (codex) as an independent lens — pure `build_prompt`/`parse_review` + a thin subprocess seam that never raises (ADR 0042). |
+| `pr_watch.py` | PR-watcher core: parse a GitHub PR's review state and drive the bounded fix loop over `gh`/`git`/fix seams; never merges, never force-pushes (ADR 0044/0045). |
+| `ralph.py` | Bounded autonomous Ralph-loop core: the pure iteration state + continue/done/exhausted/stalled decision over injected run/done/progress seams; the live wiring is `dev/ralph.py` (ADR 0048). |
 
 Everything here is dependency-light (pyyaml, jsonschema) and unit-tested. Skill scripts and
 hooks import from this package.

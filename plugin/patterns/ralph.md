@@ -10,6 +10,11 @@ context-bloated session. It complements the [review loop](review-loop.md): revie
 *single artifact* via a reviewer's approve signal; Ralph drives a *whole task* via repeated fresh
 executions (and you typically review-loop the result before merging).
 
+> **Note — this is a CLI-driven pattern, not a skill-composed one.** Unlike the other engine
+> patterns, no `SKILL.md` links here: the loop is driven by the `dev/ralph.py` driver over the
+> `lib/ralph.py` core (ADR 0048), not orchestrated inside a skill. Its zero skill references are by
+> design, not a missing wire.
+
 ## Participants
 
 - **Executor** — a fresh-context [`software-engineer`](../agents/software-engineer.md) run per

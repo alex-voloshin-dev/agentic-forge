@@ -31,6 +31,8 @@ documentation discipline in the root `CLAUDE.md`).
     hooks; plus [scheduling & observability](architecture/scheduling-observability.md) (built).
   - [Connectors](architecture/connectors.md) — real provider connectors behind the ops/marketing
     seams (post-spine).
+  - [Plugin extensions](architecture/extensions.md) — the cross-cutting, opt-in seams added after
+    the layers: config, model tiering/routing, the external reviewer, and the PR watcher.
   - [Decision records](architecture/decisions/README.md) — the ADRs behind every major
     choice.
   - [Configuration](configuration.md) — the plugin's config files (user-level + per-repo),

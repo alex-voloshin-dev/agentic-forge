@@ -39,8 +39,10 @@ This file is the project constitution. Every contributor (human or agent) MUST f
 
 4. **The eval pyramid.**
    - Tier 0 (static, always blocks): `dev/validate.py` (skills-ref-style validation), frontmatter
-     lint, body <= 500 lines, references resolve, `pytest` green, `ruff` + `mypy` clean,
-     script coverage >= 80%.
+     lint, body <= 500 lines, references resolve, doc-sync (the meta-core lib table + the ADR index
+     match the tree), `pytest` green, `ruff` + `mypy` clean, script coverage >= 80%. (`validate.py`
+     covers the structural + doc-sync checks; `pytest`/`ruff`/`mypy`/`--cov-fail-under=80` are
+     enforced via the CI Tier-0 job in `ci.yml`, not by `validate.py` itself.)
    - Tier 1 (trigger): should-trigger recall >= 0.9, should-not-trigger specificity >= 0.9.
    - Tier 2 (quality, LLM-judge, N >= 5 runs): (mean - sigma) pass-rate >= 0.8. Tier-2 is
      declared by self-contained skills and all six roles; the SDLC-spine skills carry only
@@ -64,11 +66,15 @@ This file is the project constitution. Every contributor (human or agent) MUST f
 ## Layers
 
 - L0 Meta-core: `skill-factory` + eval-harness + `lib/` + Tier-0 validator. Builds everything else.
-- L1 Engine: subagent roles + native patterns (router, fan-out/fan-in, review loop, Ralph loop, worktree).
+- L1 Engine: subagent roles + native patterns (router, fan-out/fan-in, multi-aspect/adversarial
+  review, review loop, Ralph loop, worktree(-parallel), knowledge-recall, handoff).
 - L2 Workflow skills: a phase-workflow per SDLC phase (fan out → synthesize a handoff artifact), depth via references.
 - L3 Knowledge base: Obsidian vault, recall skill, session-start injection.
 - L4 Guardrails & observability: hooks (security, test-gate, logging, budgets); scheduling + audit
   digest; an opt-in self-diagnostics channel (`diagnostics.py`, ADR 0039) for errors/anomalies.
+- Plugin extensions (cross-cutting, opt-in; not a new layer — see `docs/architecture/extensions.md`):
+  plugin config (`settings.py`, ADR 0041/0049), model tiering + runtime routing (`models.py`, ADR
+  0043/0046), the external-reviewer seam (ADR 0042), and the PR watcher (ADR 0044/0045).
 
 ## Repository layout
 
@@ -77,7 +83,7 @@ plugin/
   .claude-plugin/plugin.json
   skills/<name>/{SKILL.md, references/, assets/, scripts/, evals/evals.json}
   agents/<name>.md          # + agents/evals/<name>.evals.json (agent contracts)
-  patterns/                 # engine pattern references (handoff, review/adversarial review, fan-out/fan-in, worktree(-parallel), knowledge-recall)
+  patterns/                 # engine pattern references (handoff, multi-aspect/adversarial review, review-loop, fan-out/fan-in, worktree(-parallel), knowledge-recall, ralph)
   hooks/{hooks.json, scripts/*.py}        # L3 session-start + L4 guardrail hooks (security, test-gate, logging, budgets)
   lib/agentic_forge/        # shared, importable, tested
   eval/{README.md, fixtures/}             # harness docs + agent eval fixtures

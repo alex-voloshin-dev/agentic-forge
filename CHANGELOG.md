@@ -6,6 +6,41 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Added — Tier-0 doc-sync gate (consistency review pass)
+
+A fresh-eyes consistency review found the only real drift was documentation lagging the last ~10
+ADRs. To stop it recurring, `validation.validate_docs` adds two deterministic, LLM-free checks to
+the Tier-0 gate (run by `dev/validate.py` from the repo root):
+
+- the `docs/architecture/meta-core.md` shared-library table must list exactly the modules in
+  `plugin/lib/agentic_forge/` — a new or removed module now fails the gate until the table matches;
+- every ADR under `docs/architecture/decisions/` must be linked from that dir's `README.md` index,
+  and every index link must resolve.
+
+`tests/test_validation_docs.py` covers both directions of each check plus a live-repo smoke test.
+
+### Changed — documentation synced to the current tree (review pass)
+
+- `docs/architecture/meta-core.md` — the shared-library table and repo-layout block now cover the
+  six post-Stage-7 modules (`diagnostics`, `settings`, `models`, `external_review`, `pr_watch`,
+  `ralph`); the table is now gate-enforced (above).
+- `docs/architecture/extensions.md` (new) — narrative home for the cross-cutting, opt-in plugin
+  extensions (config ADR 0041/0049, model tiering/routing ADR 0043/0046, the external reviewer ADR
+  0042, the PR watcher ADR 0044/0045); linked from `overview.md` and the `docs/README.md` map.
+- `CLAUDE.md` — Layers section lists the plugin extensions and the full engine-pattern set; Tier-0
+  description notes the doc-sync check and clarifies which gate enforces coverage/lint/types.
+- `connectors.py` docstring now documents both real connectors (`GhPipelineSource` **and**
+  `GrafanaAlertSource`), not just the pipeline one.
+- Append-only correction notes on ADR 0017 (the Tier-2-declaring skill count grew with later
+  stages) and ADR 0039 (its Context describes the pre-0039 state; hooks now record crashes), plus a
+  CLI-driven-pattern note on `patterns/ralph.md` and a `.NET / C#` label fix in `dotnet-patterns`.
+
+### Fixed — session-start hook records its own crashes (ADR 0039 parity)
+
+`session_start.py` was the only guardrail/injection hook that failed fully silent on error. It now
+emits a redacted `diagnostics` event (still fail-open, exit 0) like every other hook, so a vault or
+injection bug surfaces in the diagnostics digest instead of vanishing.
+
 ### Fixed — guardrail hooks import on a dependency-light, version-robust path (ADR 0050)
 
 Claude Code runs the L4 hooks as `python3 <hook>.py`, using whatever `python3` is first on PATH. On

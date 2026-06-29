@@ -38,7 +38,7 @@ The .NET stack pack (C#): loaded by the `software-engineer` / `qa-engineer` role
   path plus a boundary and an **exception** case. Deterministic — no real network/clock; fake
   the clock. Never weaken or delete a test to go green.
 
-## Pitfalls (C#-specific, high-value)
+## Pitfalls (.NET / C#-specific, high-value)
 
 - **`async void`** (except event handlers) — its exceptions escape the caller and can crash the
   process; **blocking on async** (`.Result`/`.Wait()` → deadlock in a sync context).

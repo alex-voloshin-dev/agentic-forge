@@ -29,6 +29,7 @@ __all__ = [
     "validate_agent",
     "validate_manifest",
     "validate_plugin",
+    "validate_docs",
 ]
 
 DESCRIPTION_MAX_LEN = 1024
@@ -281,6 +282,53 @@ def validate_agent(agent_md: Path) -> Report:
     _check_evals(
         evals_path, f"agents/evals/{name}.evals.json", report, "agent", agent_md.parent.parent
     )
+
+    return report
+
+
+# Doc-sync (ADR 0017/0039 review pass): two living docs must track the tree, or they silently rot —
+# the meta-core lib table and the ADR index. A markdown table row `| `name.py` | ... |`.
+_LIB_TABLE_ROW = re.compile(r"^\|\s*`([a-z0-9_]+)\.py`\s*\|", re.MULTILINE)
+# A link to an ADR file from the index: `](0007-....md)`.
+_ADR_LINK = re.compile(r"\]\((\d{4}-[a-z0-9-]+\.md)\)")
+_ADR_FILE = re.compile(r"^\d{4}-[a-z0-9-]+\.md$")
+
+
+def validate_docs(repo_root: Path) -> Report:
+    """Doc-sync checks that keep the two living indexes from drifting out of the tree:
+
+    1. the `docs/architecture/meta-core.md` shared-library table lists exactly the modules in
+       `plugin/lib/agentic_forge/` (no missing row, no stale row);
+    2. every ADR file under `docs/architecture/decisions/` is linked from that dir's `README.md`
+       index, and every index link resolves.
+
+    Cheap, deterministic, LLM-free — part of the Tier-0 gate when run from the repo root.
+    """
+    report = Report()
+
+    # 1) lib table <-> lib modules.
+    meta_core = repo_root / "docs" / "architecture" / "meta-core.md"
+    lib_dir = repo_root / "plugin" / "lib" / "agentic_forge"
+    if meta_core.is_file() and lib_dir.is_dir():
+        loc = "docs/architecture/meta-core.md"
+        documented = set(_LIB_TABLE_ROW.findall(meta_core.read_text(encoding="utf-8")))
+        actual = {p.stem for p in lib_dir.glob("*.py") if p.stem != "__init__"}
+        for missing in sorted(actual - documented):
+            report.error(loc, f"lib module '{missing}.py' is not in the meta-core library table")
+        for stale in sorted(documented - actual):
+            report.error(loc, f"meta-core library table lists '{stale}.py', which no longer exists")
+
+    # 2) every ADR is indexed, and every index link resolves.
+    decisions = repo_root / "docs" / "architecture" / "decisions"
+    index = decisions / "README.md"
+    if decisions.is_dir() and index.is_file():
+        loc = "docs/architecture/decisions/README.md"
+        linked = set(_ADR_LINK.findall(index.read_text(encoding="utf-8")))
+        on_disk = {p.name for p in decisions.glob("*.md") if _ADR_FILE.match(p.name)}
+        for missing in sorted(on_disk - linked):
+            report.error(loc, f"ADR '{missing}' is not linked from the decisions index")
+        for dangling in sorted(linked - on_disk):
+            report.error(loc, f"decisions index links '{dangling}', which does not exist")
 
     return report
 

@@ -18,7 +18,7 @@ from pathlib import Path
 # tested vault helpers. <plugin>/hooks/scripts/session_start.py -> <plugin>/lib
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
 
-from agentic_forge import vault  # noqa: E402
+from agentic_forge import diagnostics, vault  # noqa: E402
 
 
 def build_context(cwd: str) -> str:
@@ -27,9 +27,10 @@ def build_context(cwd: str) -> str:
 
 
 def main() -> int:
+    cwd = "."
     try:
         payload = json.load(sys.stdin)
-        cwd = payload.get("cwd") or "."
+        cwd = str(payload.get("cwd") or ".")
         context = build_context(cwd)
         if context.strip():
             print(
@@ -42,8 +43,13 @@ def main() -> int:
                     }
                 )
             )
-    except Exception:
-        # A knowledge injection must never block session start — fail silent, exit 0.
+    except Exception as exc:
+        # A knowledge injection must never block session start — fail open (exit 0), but record the
+        # crash so a vault/injection bug isn't silent (parity with the other hooks, ADR 0039).
+        diagnostics.emit(
+            cwd, kind="error", component="session-start",
+            message=f"{type(exc).__name__}: {exc}", severity="minor",
+        )
         return 0
     return 0
 

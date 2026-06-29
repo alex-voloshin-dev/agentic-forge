@@ -1,11 +1,17 @@
 """Real provider connectors — concrete implementations of the ``ops.py`` seams (ADR 0025).
 
-Phase 1: :class:`GhPipelineSource` — GitHub Actions workflow runs (``gh run list --json``) as a
-:class:`~agentic_forge.ops.PipelineSource`. The parsing (:func:`parse_gh_runs`) is pure and fully
-tested against fixture ``gh`` JSON; the ``gh`` call (:func:`_gh_run_list`) is a thin seam
-(``# pragma: no cover``). :func:`pipeline_source` auto-detects ``gh`` on PATH and otherwise falls
-back to an empty in-memory source, so callers degrade gracefully. See
-docs/architecture/connectors.md.
+Two seams are backed by a real provider:
+
+- :class:`GhPipelineSource` — GitHub Actions workflow runs (``gh run list --json``) as a
+  :class:`~agentic_forge.ops.PipelineSource` (parser :func:`parse_gh_runs`, factory
+  :func:`pipeline_source`).
+- :class:`GrafanaAlertSource` — Grafana alert rules as an :class:`~agentic_forge.ops.AlertSource`
+  (parser :func:`parse_grafana_alerts`, factory :func:`alert_source`).
+
+Each follows the same shape: the parsing is pure and fully tested against fixture JSON; the live
+call (:func:`_gh_run_list` / the Grafana fetch) is a thin seam (``# pragma: no cover``); and the
+factory auto-detects the provider and otherwise falls back to an empty in-memory source, so callers
+degrade gracefully. See docs/architecture/connectors.md.
 """
 
 from __future__ import annotations

@@ -16,7 +16,7 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO_ROOT / "plugin" / "lib"))
 
-from agentic_forge.validation import validate_plugin  # noqa: E402
+from agentic_forge.validation import validate_docs, validate_plugin  # noqa: E402
 
 
 def main(argv: list[str]) -> int:
@@ -25,6 +25,11 @@ def main(argv: list[str]) -> int:
         print(f"error: plugin directory not found: {plugin_dir}", file=sys.stderr)
         return 1
     report = validate_plugin(plugin_dir)
+    # Doc-sync checks need the repo root (docs/ lives a level above plugin/). Run them when the
+    # plugin sits in a repo with the docs tree — skipped when validating a standalone plugin dir.
+    repo_root = plugin_dir.parent
+    if (repo_root / "docs" / "architecture" / "meta-core.md").is_file():
+        report.extend(validate_docs(repo_root))
     print(report.render())
     return 0 if report.ok else 1
 
