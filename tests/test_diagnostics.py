@@ -12,17 +12,6 @@ _OFF: dict[str, str] = {}
 _SECRET = "ghp_aaaaaaaaaaaaaaaaaaaaaaaa"  # a GitHub-token shape redact_secrets blanks
 
 
-# --- enabled flag ------------------------------------------------------------
-
-
-def test_enabled_recognises_truthy_values() -> None:
-    for v in ("1", "true", "YES", "on"):
-        assert diagnostics.enabled({"AGENTIC_FORGE_DIAGNOSTICS": v})
-    for v in ("", "0", "false", "no"):
-        assert not diagnostics.enabled({"AGENTIC_FORGE_DIAGNOSTICS": v})
-    assert not diagnostics.enabled({})  # absent -> off by default
-
-
 # --- signature ---------------------------------------------------------------
 
 
@@ -85,6 +74,15 @@ def test_record_event_io_error_returns_none(tmp_path: Path) -> None:
     blocker = tmp_path / "afile"
     blocker.write_text("not a dir")  # repo path is a FILE -> mkdir under it fails
     assert diagnostics.record_event(blocker, _event(), env=_ON) is None
+
+
+def test_record_event_enabled_via_config_file(tmp_path: Path) -> None:
+    # the headline ADR-0041 capability: the committed config FILE (not just the env var) enables it
+    cfg = tmp_path / ".agentic-forge"
+    cfg.mkdir(parents=True)
+    (cfg / "config.json").write_text('{"diagnostics": {"enabled": true}}', encoding="utf-8")
+    path = diagnostics.record_event(tmp_path, _event(), env={})  # no env override -> file decides
+    assert path is not None and path.is_file()
 
 
 # --- emit (the emitter entry point) ------------------------------------------

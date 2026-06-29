@@ -22,8 +22,10 @@ coverage.xml
 **/benchmark.json
 **/timing.json
 
-# L4 guardrail audit log (runtime artifact written by the logging hook)
-.agentic-forge/
+# L4 runtime artifacts (audit/diagnostics logs, scheduler state) — but the committed config stays.
+# NOTE: ignore the dir's *contents* (not the dir), else git can't re-include config.json below.
+.agentic-forge/*
+!.agentic-forge/config.json
 eval-report.html
 
 # OS / editor

@@ -132,16 +132,17 @@ def test_budget_ignores_non_task() -> None:
 
 def test_budget_main_blocks(monkeypatch, tmp_path: Path, capsys) -> None:
     monkeypatch.setattr(budget.tempfile, "gettempdir", lambda: str(tmp_path))
-    monkeypatch.setattr(budget, "_SOFT", 0)
-    monkeypatch.setattr(budget, "_HARD", 0)
-    _stdin(monkeypatch, {"tool_name": "Task", "session_id": "s"})
+    monkeypatch.setenv("AGENTIC_FORGE_SUBAGENT_SOFT", "0")  # caps now come from settings (ADR 0041)
+    monkeypatch.setenv("AGENTIC_FORGE_SUBAGENT_HARD", "0")
+    # cwd=tmp_path keeps settings resolution hermetic (no repo-local config.json bleed-in)
+    _stdin(monkeypatch, {"tool_name": "Task", "session_id": "s", "cwd": str(tmp_path)})
     assert budget.main() == 2  # first spawn already over hard cap 0
     assert "budget hook" in capsys.readouterr().err
 
 
 def test_budget_main_allows_under_cap(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(budget.tempfile, "gettempdir", lambda: str(tmp_path))
-    _stdin(monkeypatch, {"tool_name": "Task", "session_id": "under"})
+    _stdin(monkeypatch, {"tool_name": "Task", "session_id": "under", "cwd": str(tmp_path)})
     assert budget.main() == 0  # first spawn, under the default caps
 
 

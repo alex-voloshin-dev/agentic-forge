@@ -6,6 +6,29 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Added — plugin settings & configuration (planned-increment 3, ADR 0041)
+
+A single, validated configuration surface for the plugin's knobs — the foundation the external
+reviewer (increment 2) and multi-model tiering (increment 4) build on.
+
+- **`lib/agentic_forge/settings.py`** resolves a `Settings` from `.agentic-forge/config.json`
+  (validated against `schemas/config.schema.json`, Draft-7) with precedence **defaults < file < env**.
+  `resolve(repo, env=…)` never raises — a missing file is defaults; a malformed / schema-invalid
+  file is defaults + a stderr warning. It does **not** import diagnostics (which reads settings —
+  avoids a cycle).
+- **The config file is committed** — `.gitignore` uses `.agentic-forge/*` + `!.agentic-forge/config.json`
+  (the `/*` form is required so git can re-include the file under an otherwise-ignored dir); the
+  runtime logs/state in that dir stay ignored.
+- **Unified the existing consumers:** `diagnostics` (the log-collector toggle), `budget` (subagent
+  `soft`/`hard` caps), and `commit_gate` (`skip`) now read settings instead of `os.environ`
+  directly — the same env vars still work (now via settings' env precedence), and the **config file**
+  can set them durably. `diagnostics.enabled` was removed (the enable-check now lives in
+  `record_event` via settings); the `review-scan` job uses `review.passes` as its loop-budget cap.
+- **Forward keys declared** for the next increments: `review.passes`, `external_reviewer.{enabled,
+  command}` (codex), and `models` (tier → model map) — inert until increments 2 / 4 consume them.
+- Docs: ADR 0041. 12 new tests (`test_settings.py` + migrated guardrail/diagnostics tests);
+  `settings.py` 100%, coverage 98.33%.
+
 ### Added — review-loop non-convergence scan (diagnostics increment 2, ADR 0040)
 
 Captured the anomaly ADR 0039 deferred: a bounded review loop that exhausts its budget without

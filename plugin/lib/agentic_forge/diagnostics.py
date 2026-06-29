@@ -14,7 +14,6 @@ Pure (deterministic, fully tested): ``signature`` / ``make_event`` / ``parse_lin
 from __future__ import annotations
 
 import json
-import os
 import re
 from collections import Counter
 from dataclasses import dataclass
@@ -22,7 +21,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from . import guardrails, handoff
+from . import guardrails, handoff, settings
 
 __all__ = [
     "DIAGNOSTICS_PATH",
@@ -30,7 +29,6 @@ __all__ = [
     "DEFAULT_REVIEW_CAP",
     "Problem",
     "Digest",
-    "enabled",
     "signature",
     "make_event",
     "record_event",
@@ -47,19 +45,11 @@ DIAGNOSTICS_PATH = ".agentic-forge/diagnostics.jsonl"
 KINDS = ("block", "warning", "error", "anomaly")
 DEFAULT_REVIEW_CAP = 3  # the canonical bounded review-loop budget (review-loop.md / ADR 0040)
 REVIEW_GLOB = "docs/sdlc/**/review.md"  # where review handoff artifacts live
-_ENV_FLAG = "AGENTIC_FORGE_DIAGNOSTICS"
 _MAX_LEN = 500  # cap each string so a giant traceback can't bloat the log
 _SEVERITY_ORDER = {"blocker": 0, "major": 1, "minor": 2, "nit": 3}
 # Volatile bits (hex/object ids, absolute paths, bare numbers) normalised out so the SAME problem
 # fingerprints to one stable signature across runs (different temp paths / line counts / pids).
 _VOLATILE = re.compile(r"0x[0-9a-fA-F]+|/[^\s'\"]+|\b\d+\b")
-
-
-def enabled(env: dict[str, str] | None = None) -> bool:
-    """True when diagnostics capture is switched on. Off by default — the channel may capture
-    inputs/exceptions, so a maintainer opts in via ``AGENTIC_FORGE_DIAGNOSTICS=1``."""
-    src = os.environ if env is None else env
-    return str(src.get(_ENV_FLAG, "")).strip().lower() in ("1", "true", "yes", "on")
 
 
 def signature(component: str, kind: str, message: str) -> str:
@@ -106,10 +96,11 @@ def make_event(
 def record_event(
     repo: Path | str, event: dict[str, Any], *, env: dict[str, str] | None = None
 ) -> Path | None:
-    """Append ``event`` to the project diagnostics log **iff capture is enabled**; return the path
-    written, or ``None`` (disabled, or any I/O error). Never raises — diagnostics must not break a
-    caller. The enabled-check lives here too, so nothing is ever written when the flag is off."""
-    if not enabled(env):
+    """Append ``event`` to the project diagnostics log **iff capture is enabled** (per
+    :func:`settings.resolve`); return the path written, or ``None`` (disabled, or any I/O error).
+    Never raises — diagnostics must not break a caller, and is the single write gate, so nothing is
+    ever written when diagnostics is off."""
+    if not settings.resolve(repo, env=env).diagnostics_enabled:
         return None
     try:
         path = Path(repo) / DIAGNOSTICS_PATH
@@ -134,11 +125,9 @@ def emit(
     env: dict[str, str] | None = None,
 ) -> bool:
     """The emitter entry point for the impure boundaries (hooks / CLIs): stamp + build + record a
-    diagnostic in one non-blocking call. Returns True iff written. Stamps ``ts`` itself (UTC ISO)
-    unless ``now`` is given. Swallows everything — a diagnostics failure must never block its
-    caller."""
-    if not enabled(env):
-        return False
+    diagnostic in one non-blocking call. Returns True iff written (``record_event`` is the enable
+    gate). Stamps ``ts`` itself (UTC ISO) unless ``now`` is given. Swallows everything — a
+    diagnostics failure must never block its caller."""
     try:
         ts = now or datetime.now(UTC).isoformat()
         event = make_event(

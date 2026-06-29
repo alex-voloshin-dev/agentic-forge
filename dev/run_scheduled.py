@@ -28,6 +28,7 @@ from agentic_forge import (  # noqa: E402
     observability,
     ops,
     schedule,
+    settings,
     vault,
 )
 
@@ -49,10 +50,11 @@ def _diagnostics_digest(repo: Path) -> str:
 
 def _review_scan(repo: Path) -> str:
     # Scan review.md artifacts for non-converged loops; record each as a diagnostics anomaly
-    # (gated by AGENTIC_FORGE_DIAGNOSTICS, like the rest of the channel — ADR 0040).
-    if not diagnostics.enabled():
-        return "review-scan: diagnostics disabled (set AGENTIC_FORGE_DIAGNOSTICS to capture)"
-    events = diagnostics.scan_reviews(repo)
+    # (gated by diagnostics settings; the loop budget N is review.passes — ADR 0040 / 0041).
+    resolved = settings.resolve(repo)
+    if not resolved.diagnostics_enabled:
+        return "review-scan: diagnostics disabled (enable it in .agentic-forge/config.json)"
+    events = diagnostics.scan_reviews(repo, cap=resolved.review_passes)
     for event in events:
         diagnostics.record_event(repo, event)
     if not events:

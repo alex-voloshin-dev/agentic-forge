@@ -1,0 +1,53 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "agentic-forge plugin config",
+  "description": "Per-repo plugin configuration at .agentic-forge/config.json (ADR 0041). All keys are optional; omitted keys fall back to built-in defaults. Env vars override this file. This file is COMMITTED — do not put secrets (API keys, tokens) in it; use env vars for those.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "diagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" }
+      }
+    },
+    "subagent_budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Task-spawn caps; soft should be <= hard (soft warns, hard blocks).",
+      "properties": {
+        "soft": { "type": "integer", "minimum": 0 },
+        "hard": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "test_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "skip": { "type": "boolean" }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "passes": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "external_reviewer": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "External reviewer CLI (increment 2). `command` is the executable name only (e.g. \"codex\") — not a shell line, and never an API key/secret (this file is committed).",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "command": { "type": "string", "minLength": 1 }
+      }
+    },
+    "models": {
+      "type": "object",
+      "description": "Tier/role -> model id (increment 4). E.g. {\"default\": \"claude-opus-4-8\", \"simple\": \"claude-sonnet-4-6\"}.",
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    }
+  }
+}
