@@ -302,7 +302,7 @@ Cross-cutting increments beyond the staged plan, recorded by ADR + CHANGELOG:
   segment** and is ReDoS-free; the LLM-judge transports + the `expected_release_version` / develop
   checkpoints are now genuinely tested (not tautological); and CLAUDE.md, the ADR index, and the
   pattern/skill docs were corrected to match the code (delegation via `Task`, not unused
-  `context: fork`). Every finding verified against source; **653 tests** green, library 100% /
+  `context: fork`). Every finding verified against source; the suite is green, library 100% /
   aggregate 98% coverage. Nothing from the review remains open.
 
 ---

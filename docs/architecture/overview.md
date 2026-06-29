@@ -46,8 +46,8 @@ Claude Code merged custom commands into skills, so the unit set is deliberately 
 - **Script** — deterministic, unit-tested Python. Shared code in `plugin/lib/`,
   skill-specific in `skills/<name>/scripts/`.
 - **Pattern reference** — an on-demand Markdown guide to an engine pattern (fan-out/fan-in,
-  multi-aspect-review, adversarial-review, review loop, worktree, handoff) that workflow skills
-  link to. Lives in `plugin/patterns/`.
+  multi-aspect-review, adversarial-review, review loop, worktree, worktree-parallel, handoff,
+  knowledge-recall) that workflow skills link to. Lives in `plugin/patterns/`.
 - **Knowledge note** — Obsidian markdown in the target repo's vault.
 - **Eval contract** — `evals/evals.json` per component; the readiness source of truth.
 
@@ -92,8 +92,9 @@ Quality is enforced the same way at every layer:
 - **Tier 0 — static** (always blocks, no LLM): standard validation, frontmatter lint, body
   length, reference resolution, `pytest`, `ruff`, `mypy`, script coverage ≥ 80%.
 - **Tier 1 — trigger**: should-trigger recall ≥ 0.9, should-not-trigger specificity ≥ 0.9.
-- **Tier 2 — quality** (LLM judge, N ≥ 5): pass-rate lower bound (mean − σ) ≥ 0.8, within
-  token/time overhead budgets, not worse than the previous version. For subagent **roles**,
+- **Tier 2 — quality** (LLM judge, N ≥ 5): pass-rate lower bound (mean − σ) ≥ 0.8. (Token/time
+  overhead budgets and a with/without-skill A/B delta are scaffolded but **not yet wired into the
+  runners** — pass-rate is what gates today; see CLAUDE.md §4 / meta-core.md.) For subagent **roles**,
   only the lower-bound pass-rate applies — there is no with/without baseline, trigger surface,
   or overhead delta to compare (see [ADR 0011](decisions/0011-agent-eval-runner.md)).
 - **Tier 3 — E2E**: workflow scenarios with checkpoints (added with L2).

@@ -1,4 +1,4 @@
-# Stage 2 — SDLC spine (design)
+# Stage 2 — SDLC spine
 
 Status: **Built** — the six-phase spine is implemented and proven end-to-end (Tier-3), and
 by-stack ships a `*-patterns` pack for every registered stack. Workflow model; decisions in

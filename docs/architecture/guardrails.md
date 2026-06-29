@@ -17,7 +17,8 @@ session — except where blocking is the whole point (security, test-gate).
   conservative deny-list, evaluated **per shell segment** (so `ls /usr && rm -rf build` is not
   misread as `rm -rf /usr`): recursive/forced `rm` or permissive `chmod` of `/`/`~`/a system dir,
   fork bombs, a network download piped into a shell/interpreter, `mkfs`/`dd` to a device, raw-disk
-  writes, and force-push (`--force` or a `+refspec`) to a protected branch. Exit 2 blocks;
+  writes, a `find <root/system-dir> … -delete` (whole-tree delete), and force-push (`--force` or a
+  `+refspec`) to a protected branch. Exit 2 blocks;
   everything else is allowed (false positives cause friction, so it blocks only unambiguous hazards).
 - **test-gate** (`PreToolUse` / Bash, `commit_gate.py`) — on `git commit`/`git push`, runs the
   **fast** gate (`dev/validate.py` if present, else the detected stack's lint via `stacks.py`) and

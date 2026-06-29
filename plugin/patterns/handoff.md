@@ -23,14 +23,14 @@ slug is a short kebab-case name for the feature (e.g. `search`, `oauth-login`).
 | `prd.md` | `product` skill | `type, feature, status, goals[], non_goals[], metrics[], acceptance[]` |
 | `tech-design.md` + `adr-*.md` | `architecture` skill → `architect` | `type, feature, status, decisions[], components[], risks[]` |
 | `plan.md` | `plan` skill → built-in `Plan` | `type, feature, status, tasks[] (id, deps), checkpoints[], deferred[]` |
-| `review.md` | `code-review` skill → `reviewer` | `type, target, iteration, verdict, findings[]` |
+| `review.md` | `code-review` / `security-review` → `reviewer` | `type, target, iteration, verdict, findings[]` |
 | `test-strategy.md` | `qa-test-strategy` skill → `qa-engineer` | `type, feature, status, test_levels[], scope, risks[], cases[]` |
 | `release.md` | `release` skill | `type, feature, status, version, changelog[], breaking[]` |
 | `incident.md` | `incident-response` skill | `type, severity, status, impact, timeline[], remediation[]` |
 | `deploy-status.md` | `deploy-watch` skill | `type, environment, pipeline, alerts, action` |
 | `market-brief.md` | `marketing` skill (research) | `type, feature, status, segments[], competitors[], sources[]` |
 | `marketing-strategy.md` | `marketing` skill (strategy) | `type, feature, status, positioning, channels[], messaging[], metrics[]` |
-| `ux-spec.md` | `ux-design` skill | `type, feature, status, flows[], screens[], accessibility` |
+| `ux-spec.md` | `ux-design` skill | `type, feature, status, flows[], screens[], accessibility[], design_system[]` |
 | `onboarding.md` | `repo-onboarding` skill | `type, feature, status, components[], entry_points[], conventions[], risks[]` |
 
 `status` is recommended to be one of `draft | in-review | approved | final | superseded`

@@ -1,4 +1,4 @@
-# Layer 3 — Knowledge base (design + status)
+# Layer 3 — Knowledge base
 
 Status: **Built** ([ADR 0018](decisions/0018-l3-knowledge-base.md)). The plugin deploys and
 maintains an Obsidian-format knowledge vault in the target repo, reads it to enrich context via a

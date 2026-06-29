@@ -35,6 +35,7 @@ plugin/
     ops.py release.py                 # Stage 4: deploy/incident assessment + release core (ADR 0021)
     schedule.py observability.py      # Stage 7: scheduled-job registry + audit digest (ADR 0024)
     connectors.py                     # real provider connectors behind the ops seams (ADR 0025)
+    skill_contract.py planning.py     # quality-hardening: handoff/recall guards + plan batches (ADR 0032/0034)
   schemas/evals.schema.json           # the component contract schema (superset)
   eval/{README.md, fixtures/}         # harness architecture + agent eval fixtures (L1)
   hooks/{hooks.json, scripts/*.py}    # L3 session-start + L4 guardrail hooks (ADR 0018/0019)

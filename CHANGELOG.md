@@ -26,8 +26,10 @@ areas" (it lists three); pattern enumerations now include `knowledge-recall`/`wo
 ADR back-references (0010/0016/0024/0026); `eval.yml` "majority-of-N" → mean-rate.
 
 **Skill contract uniformity.** All 8 non-spine handoff producers now instruct
-`handoff.validate_header(...)` + link `handoff.md` (matching the 5 spine producers); added the
-`type` frontmatter field to the 5 skills that omitted it (the ADR-0032 shape); skill-factory
+`handoff.validate_header(...)` + link `handoff.md` (matching the 5 spine producers); added `type`
+to the 5 skills' documented **handoff-artifact** frontmatter field-list — e.g. `type` (= `ux-spec`) —
+where it was omitted (the ADR-0032 "identity field missing" shape; this is the *artifact's*
+frontmatter, not a skill-frontmatter field, which ADR 0032 deliberately rejected); skill-factory
 `allowed-tools` space-separated → comma.
 
 **Test integrity + scaling.** Enabled **branch coverage** (line-only 100% hid weakened-branch
@@ -113,7 +115,8 @@ re-run clean) found and fixed real defects:
   layout lists all 7 CLIs; Ralph marked deferred.
 - `tier1_runner` docstring corrected from "majority-of-N" to the shipped mean-rate metric (ADR
   0026); `worktree.md` stale "develop is sequential" note removed; `handoff.md` artifact table
-  extended from 5 to all 13 types; `handoff.py` notes `deep-review` as a third `review` producer;
+  extended from 5 to all 13 types; `handoff.py` review-producer docstring (later corrected:
+  deep-review reuses the finding shape but emits no artifact);
   `develop` review-engine wording corrected; `qa-test-strategy` field list adds `type`; README
   quality-hardening "designed → built"; `guardrails.md` documents the accident-guard scope.
 
