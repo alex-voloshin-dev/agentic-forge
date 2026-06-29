@@ -322,6 +322,26 @@ def test_expected_release_version_from_real_git_history(tmp_path: Path) -> None:
     assert spine_e2e.expected_release_version(repo, "1.0.0", "v1.0.0") == "1.1.0"
 
 
+def test_commits_since_real_git_history(tmp_path: Path) -> None:
+    # covers release.commits_since (pragma dropped): explicit tag range, tag=None auto-describe,
+    # and the non-git/error arm -> [].
+    from agentic_forge import release
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "f.txt").write_text("base\n", encoding="utf-8")
+    spine_e2e._git(repo, "init", "-q", "-b", "main")
+    spine_e2e._git(repo, "add", "-A")
+    spine_e2e._commit(repo, "baseline")
+    spine_e2e._git(repo, "tag", "v1.0.0")
+    spine_e2e._commit(repo, "feat: a", allow_empty=True)
+    spine_e2e._commit(repo, "fix: b", allow_empty=True)
+    msgs = release.commits_since(repo, "v1.0.0")
+    assert [m.splitlines()[0] for m in msgs] == ["fix: b", "feat: a"]  # newest first
+    assert release.commits_since(repo) == msgs  # tag=None -> auto-describe to the latest tag
+    assert release.commits_since(tmp_path / "nope") == []  # non-git dir -> [] (except arm)
+
+
 def test_check_develop_rejects_comment_only_marker(tmp_path: Path) -> None:
     # H5: a `# priority=` comment must NOT satisfy the implementation marker (it's not code).
     repo = tmp_path / "repo"

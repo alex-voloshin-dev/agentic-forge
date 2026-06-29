@@ -24,6 +24,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -159,7 +160,8 @@ def check_architecture(repo: Path, slug: str = FEATURE_SLUG) -> list[Checkpoint]
 
 def repo_tests_pass(repo: Path) -> bool:
     result = subprocess.run(
-        ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider"],
+        # sys.executable (not "python") so the nested run uses the same interpreter — portable.
+        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"],
         cwd=str(repo),
         capture_output=True,
         text=True,

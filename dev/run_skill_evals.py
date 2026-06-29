@@ -79,6 +79,9 @@ def main(argv: list[str]) -> int:
                 f"(known: {discovered})",
                 file=sys.stderr,
             )
+    if not skills:  # nothing to evaluate must NOT be a vacuous exit 0 (mirrors the other runners)
+        print("no skills with a tier2_quality contract to evaluate", file=sys.stderr)
+        return 1
 
     if args.runner == "dry":
         ok = True

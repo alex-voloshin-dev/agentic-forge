@@ -144,7 +144,7 @@ def summarize(current: str, messages: list[str]) -> Summary:
     )
 
 
-def commits_since(repo: Path | str, tag: str | None = None) -> list[str]:  # pragma: no cover
+def commits_since(repo: Path | str, tag: str | None = None) -> list[str]:
     """Return commit messages (subject + body) since ``tag`` (or the latest tag if ``None``),
     newest first. Thin ``git`` seam — the skill calls this; the pure core above is tested without
     a repo. Returns ``[]`` when there are no tags/commits or git is unavailable."""

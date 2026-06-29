@@ -44,6 +44,12 @@ def test_run_skill_evals_dry_ok() -> None:
     assert run_skill_evals.main(["run", "--runner", "dry"]) == 0
 
 
+def test_run_skill_evals_empty_discovery_returns_1(monkeypatch: pytest.MonkeyPatch) -> None:
+    # nothing to evaluate must NOT be a vacuous exit 0 (a rename emptying discovery would hide it).
+    monkeypatch.setattr(run_skill_evals.skill_eval, "discover_skills_with_tier2", lambda d: [])
+    assert run_skill_evals.main(["run", "--runner", "dry"]) == 1
+
+
 def test_run_skill_evals_unknown_skill_warns(capsys) -> None:
     # An unknown --skill warns, then dry wiring-checks it (missing files) -> NOT READY -> exit 1.
     assert run_skill_evals.main(["run", "--runner", "dry", "--skill", "does-not-exist"]) == 1

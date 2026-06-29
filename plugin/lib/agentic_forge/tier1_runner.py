@@ -19,7 +19,6 @@ stub runners; the real run classifies via the ``claude`` CLI (subscription) or t
 
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,6 +26,7 @@ from typing import Any
 
 from agentic_forge import gate
 from agentic_forge.agent_eval import DEFAULT_RUNS, Runner
+from agentic_forge.evals import load_evals
 from agentic_forge.frontmatter import parse as parse_frontmatter
 from agentic_forge.gate import all_passed
 
@@ -187,7 +187,7 @@ def load_triggers(plugin_dir: Path) -> list[SkillTrigger]:
         evals_path = skill_dir / "evals" / "evals.json"
         if not evals_path.is_file():
             continue
-        data = json.loads(evals_path.read_text(encoding="utf-8"))
+        data = load_evals(evals_path)  # clean EvalsError + guaranteed dict (not a bare json crash)
         thresholds = data.get("thresholds") or {}
         if "tier1_trigger" not in thresholds:
             continue
