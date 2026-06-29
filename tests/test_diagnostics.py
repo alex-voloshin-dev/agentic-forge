@@ -76,6 +76,12 @@ def test_record_event_io_error_returns_none(tmp_path: Path) -> None:
     assert diagnostics.record_event(blocker, _event(), env=_ON) is None
 
 
+def test_record_event_force_writes_when_disabled(tmp_path: Path) -> None:
+    # outward actions (the PR watcher's GitHub writes) must audit regardless of the toggle
+    path = diagnostics.record_event(tmp_path, _event(), env=_OFF, force=True)
+    assert path is not None and path.is_file()
+
+
 def test_record_event_enabled_via_config_file(tmp_path: Path) -> None:
     # the headline ADR-0041 capability: the committed config FILE (not just the env var) enables it
     cfg = tmp_path / ".agentic-forge"

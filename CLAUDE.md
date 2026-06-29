@@ -80,7 +80,7 @@ plugin/
   eval/{README.md, fixtures/}             # harness docs + agent eval fixtures
   schemas/                  # JSON Schema for evals.json + contract
 tests/                      # pytest for lib + hooks + harness
-dev/{validate.py, run_agent_evals.py, run_skill_evals.py, run_tier1_evals.py, run_spine_e2e.py, run_scheduled.py, audit_digest.py, diagnostics_digest.py, external_review.py}  # Tier 0/1/2/3 gates + scheduling/observability/diagnostics + external-review CLIs
+dev/{validate.py, run_agent_evals.py, run_skill_evals.py, run_tier1_evals.py, run_spine_e2e.py, run_scheduled.py, audit_digest.py, diagnostics_digest.py, external_review.py, pr_watch.py}  # Tier 0/1/2/3 gates + scheduling/observability/diagnostics + external-review + PR-watcher CLIs
 docs/                       # product vision, architecture, ADRs, roadmap
 CHANGELOG.md                # what changed, by milestone
 ```

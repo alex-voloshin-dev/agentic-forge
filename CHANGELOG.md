@@ -6,6 +6,37 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Added — PR watcher: monitor a GitHub PR, bounded auto-fix loop (planned-increment 1, ADR 0044)
+
+A watcher that reads a PR's review threads + conflict state and runs a bounded fix loop. Chosen
+autonomy (auto-fix + push, opt-in): it fixes each actionable reviewer comment, pushes to the PR
+branch, and replies/resolves the thread — it **never merges** and **never force-pushes**; off by
+default; every outward action is recorded in diagnostics.
+
+- **`lib/agentic_forge/pr_watch.py`** — pure parsing / planning / command-building over the `gh`
+  GraphQL JSON: `parse_pr` → `PrState` (mergeable + review threads), `actionable_threads`
+  (unresolved, not bot-authored — idempotent across the hourly re-poll), `plan_watch` (dry plan),
+  the `reply_argv` / `resolve_argv` / `push_argv` builders (**no merge or force-push builder
+  exists, by design**), and `run_watch` — the bounded loop: per thread the fixer decides fix-vs-
+  reject, a fix replies + resolves + (once any lands) pushes `HEAD:<branch>`, a rejection replies
+  and leaves the thread open. The live `gh`/`git`/fix calls are injected **seams** (tested with
+  stubs; real calls excluded from coverage).
+- **`dev/pr_watch.py`** CLI — `--dry` by default (plan only); `--apply` runs the loop **only when
+  `pr_watcher.enabled`**. Fetch/fix/gh/push are injectable (tested) with real defaults; degrades on
+  a fetch error. The fixer model is tier-resolved (ADR 0043).
+- **`settings.pr_watcher`** (`enabled` / `bot` / `max_threads`) + schema; **`hourly` cadence** added
+  to the scheduler (the watcher is driven by an hourly cron — the ADR-0024 "no daemon" model).
+- Safety invariants: never merge, never force-push, opt-in, bounded, dry-by-default, every outward
+  write audited **unconditionally** (`diagnostics.emit(force=True)`). Reviewed by two adversarial
+  lenses (safety + correctness; no blockers); fixes applied: the fixer now reports `fixed` only when
+  a diff actually landed (commits it so the push delivers it; else `rejected`, never silently
+  resolving a disputed thread), runs **without the Bash tool** to bound prompt-injection, and the
+  audit is force-on. Trust boundary documented (enable only for trusted PRs).
+- Deferred (1b): the scheduled `pr-watch` job's "which PRs to watch" wiring, mechanical conflict
+  resolution (detect-only ships now), and live end-to-end (real-PR) validation — the CLI is the
+  entry point now.
+- Docs: ADR 0044. New tests (`test_pr_watch.py` + CLI tests); `pr_watch.py` 100%, coverage 98.35%.
+
 ### Added — multi-model support / model tiering (planned-increment 4, ADR 0043)
 
 Per-component model tiering — cheaper models (sonnet / haiku) for simpler work, opus for hard work

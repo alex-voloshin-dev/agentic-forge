@@ -12,6 +12,7 @@ sys.path.insert(0, str(_REPO / "dev"))
 import audit_digest  # noqa: E402
 import diagnostics_digest  # noqa: E402
 import external_review as external_review_cli  # noqa: E402
+import pr_watch as pr_watch_cli  # noqa: E402
 import run_agent_evals  # noqa: E402
 import run_scheduled  # noqa: E402
 import run_skill_evals  # noqa: E402
@@ -390,3 +391,58 @@ def test_tier1_eval_uses_router_tier_from_settings(
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     run_tier1_evals.main(["x", "--runner", "claude"])
     assert seen["model"] == models_lib.TIERS["cheap"]  # the router tier reached _build_router
+
+
+# --- pr_watch CLI (ADR 0044) -------------------------------------------------
+
+_PR_DATA = {"data": {"repository": {"pullRequest": {
+    "number": 42, "mergeable": "MERGEABLE", "headRefName": "feat-x",
+    "reviewThreads": {"nodes": [{"id": "T1", "isResolved": False, "comments": {"nodes": [
+        {"body": "fix", "path": "a.py", "line": 5, "author": {"login": "rev"}}]}}]},
+}}}}
+
+
+def _pr_fetch(*a: object, **k: object) -> dict:
+    return _PR_DATA
+
+
+def test_pr_watch_dry_plans(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    rc = pr_watch_cli.main(
+        ["x", "--repo", str(tmp_path), "--owner", "o", "--name", "r", "--pr", "42"], fetch=_pr_fetch
+    )
+    out = capsys.readouterr().out
+    assert rc == 0 and "actionable thread(s)" in out and "T1" in out  # dry plan, no writes
+
+
+def test_pr_watch_apply_disabled_by_default(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    rc = pr_watch_cli.main(
+        ["x", "--repo", str(tmp_path), "--owner", "o", "--name", "r", "--pr", "42", "--apply"],
+        fetch=_pr_fetch,
+    )
+    assert rc == 0 and "disabled" in capsys.readouterr().out  # pr_watcher.enabled false by default
+
+
+def test_pr_watch_apply_runs_when_enabled(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    cfg = tmp_path / ".agentic-forge"
+    cfg.mkdir(parents=True)
+    (cfg / "config.json").write_text('{"pr_watcher": {"enabled": true}}', encoding="utf-8")
+    pushed: list[bool] = []
+    rc = pr_watch_cli.main(
+        ["x", "--repo", str(tmp_path), "--owner", "o", "--name", "r", "--pr", "42", "--apply"],
+        fetch=_pr_fetch,
+        fixer=lambda t: ("fixed", "done"),
+        gh_exec=lambda argv: None,
+        push=lambda: pushed.append(True),
+    )
+    out = capsys.readouterr().out
+    assert rc == 0 and "fixed 1" in out and pushed == [True]  # the gated live loop ran
+
+
+def test_pr_watch_fetch_error_returns_1(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    def boom(*a: object, **k: object) -> dict:
+        raise RuntimeError("gh down")
+
+    rc = pr_watch_cli.main(
+        ["x", "--repo", str(tmp_path), "--owner", "o", "--name", "r", "--pr", "42"], fetch=boom
+    )
+    assert rc == 1 and "could not fetch" in capsys.readouterr().err  # graceful, no crash

@@ -38,6 +38,7 @@ __all__ = [
 # Coarse cadence -> minimum seconds between runs. Coarse on purpose: the external scheduler
 # (CI cron / OS cron) sets the polling rhythm; this only gates how often each job actually runs.
 CADENCES: dict[str, int] = {
+    "hourly": 60 * 60,  # for the PR watcher (ADR 0044), driven by an hourly cron
     "daily": 24 * 60 * 60,
     "weekly": 7 * 24 * 60 * 60,
     "monthly": 30 * 24 * 60 * 60,

@@ -52,6 +52,16 @@
       "type": "object",
       "description": "Tier/role -> model id (increment 4). E.g. {\"default\": \"claude-opus-4-8\", \"simple\": \"claude-sonnet-4-6\"}.",
       "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "pr_watcher": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "PR watcher (ADR 0044). Off by default; outward GitHub writes (push/reply/resolve) are opt-in. Never merges or force-pushes.",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "bot": { "type": "string", "minLength": 1 },
+        "max_threads": { "type": "integer", "minimum": 1 }
+      }
     }
   }
 }

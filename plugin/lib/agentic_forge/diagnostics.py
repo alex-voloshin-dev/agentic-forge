@@ -94,13 +94,17 @@ def make_event(
 
 
 def record_event(
-    repo: Path | str, event: dict[str, Any], *, env: dict[str, str] | None = None
+    repo: Path | str,
+    event: dict[str, Any],
+    *,
+    env: dict[str, str] | None = None,
+    force: bool = False,
 ) -> Path | None:
     """Append ``event`` to the project diagnostics log **iff capture is enabled** (per
-    :func:`settings.resolve`); return the path written, or ``None`` (disabled, or any I/O error).
-    Never raises — diagnostics must not break a caller, and is the single write gate, so nothing is
-    ever written when diagnostics is off."""
-    if not settings.resolve(repo, env=env).diagnostics_enabled:
+    :func:`settings.resolve`), or ``force=True``; return the path written, or ``None`` (disabled, or
+    any I/O error). ``force`` is for outward actions that must always be auditable (e.g. the PR
+    watcher's GitHub writes — ADR 0044), independent of the diagnostics toggle. Never raises."""
+    if not force and not settings.resolve(repo, env=env).diagnostics_enabled:
         return None
     try:
         path = Path(repo) / DIAGNOSTICS_PATH
@@ -123,11 +127,13 @@ def emit(
     session_id: str | None = None,
     now: str | None = None,
     env: dict[str, str] | None = None,
+    force: bool = False,
 ) -> bool:
     """The emitter entry point for the impure boundaries (hooks / CLIs): stamp + build + record a
     diagnostic in one non-blocking call. Returns True iff written (``record_event`` is the enable
-    gate). Stamps ``ts`` itself (UTC ISO) unless ``now`` is given. Swallows everything — a
-    diagnostics failure must never block its caller."""
+    gate; ``force`` records regardless of the toggle — for must-audit outward actions). Stamps
+    ``ts`` itself (UTC ISO) unless ``now`` is given. Swallows everything — a diagnostics failure
+    must never block its caller."""
     try:
         ts = now or datetime.now(UTC).isoformat()
         event = make_event(
@@ -139,7 +145,7 @@ def emit(
             context=context,
             session_id=session_id,
         )
-        return record_event(repo, event, env=env) is not None
+        return record_event(repo, event, env=env, force=force) is not None
     except Exception:
         return False
 

@@ -37,7 +37,7 @@ def test_registry_jobs_have_known_cadences() -> None:
 
 
 def test_cadences_ordered() -> None:
-    assert CADENCES["daily"] < CADENCES["weekly"] < CADENCES["monthly"]
+    assert CADENCES["hourly"] < CADENCES["daily"] < CADENCES["weekly"] < CADENCES["monthly"]
 
 
 # --- due_jobs --------------------------------------------------------------------------
@@ -67,7 +67,7 @@ def test_due_jobs_exactly_at_interval_is_due() -> None:
 
 def test_due_jobs_unknown_cadence_raises() -> None:
     with pytest.raises(ValueError, match="unknown cadence"):
-        due_jobs((Job("x", "hourly", "", "z"),), {}, now=0.0)
+        due_jobs((Job("x", "yearly", "", "z"),), {}, now=0.0)  # 'yearly' is not a known cadence
 
 
 def test_due_jobs_retries_recent_failure() -> None:

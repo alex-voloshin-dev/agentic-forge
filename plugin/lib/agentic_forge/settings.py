@@ -33,6 +33,8 @@ DEFAULTS: dict[str, Any] = {
     "review": {"passes": 3},  # the bounded review-loop budget N (review-loop.md)
     "external_reviewer": {"enabled": False, "command": "codex"},  # increment 2
     "models": {},  # tier/role -> model id (increment 4); empty = the runner default
+    # PR watcher (increment 1, ADR 0044): off by default; outward GitHub writes are opt-in.
+    "pr_watcher": {"enabled": False, "bot": "github-actions[bot]", "max_threads": 10},
 }
 
 
@@ -48,6 +50,9 @@ class Settings:
     external_reviewer_enabled: bool
     external_reviewer_command: str
     models: dict[str, str]
+    pr_watcher_enabled: bool
+    pr_watcher_bot: str
+    pr_watcher_max_threads: int
 
 
 def _schema() -> dict[str, Any]:
@@ -123,4 +128,7 @@ def resolve(repo: Path | str, *, env: dict[str, str] | None = None) -> Settings:
         external_reviewer_enabled=bool(data["external_reviewer"]["enabled"]),
         external_reviewer_command=str(data["external_reviewer"]["command"]),
         models={str(k): str(v) for k, v in (data["models"] or {}).items()},
+        pr_watcher_enabled=bool(data["pr_watcher"]["enabled"]),
+        pr_watcher_bot=str(data["pr_watcher"]["bot"]),
+        pr_watcher_max_threads=int(data["pr_watcher"]["max_threads"]),
     )
