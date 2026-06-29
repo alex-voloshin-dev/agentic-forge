@@ -54,6 +54,9 @@ version-over-version A-B stay deferred, with reasons below.
    longer emits a misleading `tokens: 0.0` when timing carries no token counts (it omits `tokens`
    and `delta.tokens` unless a count is present). Version-over-version A-B needs a stored benchmark
    history; the with/without baseline is the more actionable signal and is what `delta` models.
+   **Update: both are now closed** — token-overhead by [ADR 0038](0038-token-overhead-wiring.md),
+   version-over-version by [ADR 0047](0047-version-over-version-ab.md) (the stored history + a
+   `max_regression` gate).
 
 ## Alternatives considered
 

@@ -76,9 +76,23 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="give each case execution a fresh temp workdir (use for write roles)",
     )
+    parser.add_argument(
+        "--record",
+        action="store_true",
+        help="append this run to the benchmark history for version-over-version A/B (ADR 0047)",
+    )
+    parser.add_argument(
+        "--benchmark-history",
+        type=Path,
+        default=None,
+        help="history path (default: <repo>/.agentic-forge/benchmark-history.json)",
+    )
     args = parser.parse_args(argv[1:])
 
     plugin_dir: Path = args.plugin.resolve()
+    history_path = args.benchmark_history or (
+        plugin_dir.parent / ".agentic-forge" / "benchmark-history.json"
+    )
     roles = args.roles or list(agent_eval.ROLES)
 
     if args.runner == "dry":
@@ -124,6 +138,16 @@ def main(argv: list[str]) -> int:
                 f"agent-eval:{role}", "; ".join(report.gate.reasons), kind="anomaly"
             )
         all_passed = all_passed and report.passed
+        ver = _eval_cli.version_check(
+            report, component=role, model=model, history_path=history_path, record=args.record
+        )
+        if ver is not None:  # version-over-version A/B (opt-in; only once a baseline exists)
+            print(ver, flush=True)
+            if not ver.passed:
+                _eval_cli.record_failure(
+                    f"agent-eval:{role}", "; ".join(ver.reasons), kind="anomaly"
+                )
+            all_passed = all_passed and ver.passed
     return 0 if all_passed else 1
 
 

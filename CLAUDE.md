@@ -44,9 +44,9 @@ This file is the project constitution. Every contributor (human or agent) MUST f
    - Tier 1 (trigger): should-trigger recall >= 0.9, should-not-trigger specificity >= 0.9.
    - Tier 2 (quality, LLM-judge, N >= 5 runs): (mean - sigma) pass-rate >= 0.8. The opt-in
      `--baseline` skill run also gates the with/without A/B pass-rate lift (`min_lift`), the
-     wall-clock time overhead (`max_overhead_seconds`), and the token overhead
-     (`max_overhead_tokens`); version-over-version A/B stays deferred — see meta-core.md / ADR
-     0036 + 0038.
+     (`max_overhead_seconds`), and the token overhead (`max_overhead_tokens`). Version-over-version
+     A/B (a cross-version regression vs a stored benchmark history, gated by `max_regression`) is
+     opt-in via `--record` + `--benchmark-history` — see ADR 0047 / eval-runbook.md.
    - Tier 3 (E2E): workflow scenarios pass with all checkpoints green.
    Thresholds are starting points; recalibrate per component and record the rationale.
 

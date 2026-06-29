@@ -113,8 +113,10 @@ The meta-core adds the **policy layer**:
   always capture per-run wall-clock timing; the skill runner's opt-in `--baseline` (ADR 0036)
   reruns each case without the skill to populate the with/without delta, and the transports report
   token usage via `RunOutput` (ADR 0038), so the `min_lift` / `max_overhead_seconds` /
-  `max_overhead_tokens` branches are all live. Only version-over-version A-B — needs a stored
-  benchmark history — remains deferred; pass-rate is the always-on Tier-2 gate.)*
+  `max_overhead_tokens` branches are all live. Version-over-version A-B is also live now (ADR 0047):
+  `gate.version_regression` compares a run against a stored `benchmark` history record and FAILs on a
+  `max_regression` drop, wired into both runners via `--record` / `--benchmark-history`. Pass-rate is
+  the always-on Tier-2 gate.)*
 - `gate.trigger_metrics(...)` + `gate.tier1_trigger(...)` score auto-loading: recall over
   should-trigger prompts, specificity over should-not-trigger prompts.
 

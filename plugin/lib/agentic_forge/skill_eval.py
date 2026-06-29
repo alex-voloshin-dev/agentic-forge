@@ -57,6 +57,7 @@ class SkillReport:
     benchmark: dict[str, Any]
     gate: gate.GateResult
     gradings: list[dict[str, Any]] = field(default_factory=list)
+    thresholds: dict[str, Any] = field(default_factory=dict)  # for the version-over-version check
 
     @property
     def passed(self) -> bool:
@@ -234,4 +235,6 @@ def run_skill(
         workdir=workdir,
         baseline_system_body=baseline,
     )
-    return SkillReport(skill=skill, runs=n, benchmark=bench, gate=result, gradings=gradings)
+    return SkillReport(
+        skill=skill, runs=n, benchmark=bench, gate=result, gradings=gradings, thresholds=thresholds
+    )

@@ -157,3 +157,34 @@ def test_evaluate_runs_applicable_tiers() -> None:
     )
     assert len(results) == 2
     assert gate.all_passed(results)
+
+
+# --- version-over-version A/B (ADR 0047) -------------------------------------
+
+
+def test_version_regression_skips_without_threshold_or_prior() -> None:
+    bench = _benchmark(0.9, 0.0, 5)
+    assert gate.version_regression(bench, {"mean": 0.9}, {"tier2_quality": {}}) is None  # opt-in
+    thr = {"tier2_quality": {"max_regression": 0.05}}
+    assert gate.version_regression(bench, None, thr) is None  # no prior (first run) -> skip
+
+
+def test_version_regression_passes_within_tolerance_and_on_improvement() -> None:
+    thr = {"tier2_quality": {"max_regression": 0.05}}
+    within = gate.version_regression(_benchmark(0.86, 0.0, 5), {"mean": 0.90}, thr)  # dropped 0.04
+    assert within is not None and within.passed
+    up = gate.version_regression(_benchmark(0.95, 0.0, 5), {"mean": 0.90}, thr)  # improved
+    assert up is not None and up.passed
+
+
+def test_version_regression_fails_on_drop() -> None:
+    thr = {"tier2_quality": {"max_regression": 0.05}}
+    res = gate.version_regression(_benchmark(0.80, 0.0, 5), {"mean": 0.90}, thr)  # dropped 0.10
+    assert res is not None and not res.passed and "regression" in res.reasons[0]
+
+
+def test_version_regression_missing_mean_fails() -> None:
+    thr = {"tier2_quality": {"max_regression": 0.05}}
+    bench = {"run_summary": {"with_skill": {"pass_rate": {}, "n": 5}}}  # no current mean
+    res = gate.version_regression(bench, {"mean": 0.9}, thr)
+    assert res is not None and not res.passed

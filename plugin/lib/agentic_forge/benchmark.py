@@ -8,10 +8,19 @@ so the deterministic threshold gate can consume it.
 
 from __future__ import annotations
 
+import json
 import statistics
+from pathlib import Path
 from typing import Any
 
-__all__ = ["pass_rate_of", "summarize"]
+__all__ = [
+    "pass_rate_of",
+    "summarize",
+    "make_record",
+    "prior_record",
+    "load_history",
+    "save_history",
+]
 
 
 def pass_rate_of(grading: dict[str, Any]) -> float:
@@ -106,3 +115,50 @@ def summarize(
         run_summary["delta"] = delta
 
     return {"run_summary": run_summary}
+
+
+# --- version-over-version benchmark history (ADR 0047) ------------------------
+# An append-only list of {component, model, mean, stddev, n}. Keyed by (component, model) because
+# Tier-2 is model-dependent — a regression check only compares same-model runs.
+
+
+def make_record(component: str, model: str, benchmark: dict[str, Any]) -> dict[str, Any]:
+    """A history record extracted from a benchmark mapping (the `with_skill` pass-rate stats)."""
+    ws = (benchmark.get("run_summary") or {}).get("with_skill") or {}
+    pr = ws.get("pass_rate") or {}
+    return {
+        "component": component,
+        "model": model,
+        "mean": float(pr.get("mean", 0.0)),
+        "stddev": float(pr.get("stddev", 0.0)),
+        "n": int(ws.get("n", 0)),
+    }
+
+
+def prior_record(
+    history: list[dict[str, Any]], component: str, model: str
+) -> dict[str, Any] | None:
+    """The most recent record for ``(component, model)`` (the prior version's baseline), or None."""
+    for record in reversed(history):
+        if record.get("component") == component and record.get("model") == model:
+            return record
+    return None
+
+
+def load_history(path: str | Path) -> list[dict[str, Any]]:
+    """Load the benchmark history list (``[]`` if absent or unreadable — a fresh baseline)."""
+    p = Path(path)
+    if not p.is_file():
+        return []
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+    return data if isinstance(data, list) else []
+
+
+def save_history(path: str | Path, history: list[dict[str, Any]]) -> None:
+    """Persist the benchmark history (creating the parent dir)."""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(history, indent=2), encoding="utf-8")

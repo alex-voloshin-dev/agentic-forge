@@ -48,8 +48,9 @@ transport) it stays silently absent, exactly as before.
 ## Consequences
 
 - All Tier-2 overhead / A-B signals are now real: the pass-rate lower bound (always-on), and under
-  `--baseline` the A-B lift + time overhead + **token overhead**. Only version-over-version A/B
-  remains deferred (it needs a stored benchmark history).
+  `--baseline` the A-B lift + time overhead + **token overhead**. Version-over-version A/B was the
+  last deferred signal — **now closed by [ADR 0047](0047-version-over-version-ab.md)** (a stored
+  benchmark history + a `max_regression` gate).
 - `claude_cli_runner` now emits JSON and extracts `result`; it degrades to raw text if the output
   is not parseable result JSON, so an unexpected CLI shape cannot crash a sweep.
 - The grader's tokens are intentionally excluded from the overhead (component-cost semantics).

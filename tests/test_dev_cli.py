@@ -245,13 +245,17 @@ def test_review_scan_action(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
 
 
 class _FakeReport:
-    def __init__(self, passed: bool) -> None:
+    def __init__(self, passed: bool, *, mean: float = 1.0, max_regression: float | None = None):
         self.passed = passed
         # Mirror the real report contract the runners read on a FAIL (diagnostics, ADR 0039):
         # role/skill reports expose `gate.reasons`; tier1 reports expose `reasons` + `skill`.
         self.reasons = ["fake reason"]
         self.skill = "fake-skill"
         self.gate = types.SimpleNamespace(reasons=["fake reason"])
+        # version-over-version A/B (ADR 0047): empty thresholds -> version_check is a no-op here.
+        self.benchmark = {"run_summary": {"with_skill": {"pass_rate": {"mean": mean}, "n": 5}}}
+        tier2 = {} if max_regression is None else {"max_regression": max_regression}
+        self.thresholds: dict = {"tier2_quality": tier2} if tier2 else {}
 
     def summary_line(self) -> str:
         return "fake summary"
@@ -551,3 +555,124 @@ def test_sync_models_apply_never_corrupts_body(
     assert sync_models_cli.main(["sync", "--apply"], agents_dir=tmp_path) == 1
     assert "model: cheap" in p.read_text(encoding="utf-8")  # body line intact, not corrupted
     assert "no 'model:' line" in capsys.readouterr().err
+
+
+# --- version-over-version A/B helper (ADR 0047) ------------------------------
+
+import _eval_cli  # noqa: E402
+
+
+class _FakeRep:
+    """Minimal stand-in for a Role/Skill report (benchmark + thresholds + passed)."""
+
+    def __init__(self, mean: float, *, passed: bool, max_regression: float | None) -> None:
+        self.benchmark = {
+            "run_summary": {"with_skill": {"pass_rate": {"mean": mean, "stddev": 0.0}, "n": 5}}
+        }
+        tier2 = {} if max_regression is None else {"max_regression": max_regression}
+        self.thresholds = {"tier2_quality": tier2}
+        self.passed = passed
+
+
+def _prior(path: Path, mean: float) -> None:
+    from agentic_forge import benchmark
+
+    benchmark.save_history(
+        path, [{"component": "reviewer", "model": "opus", "mean": mean, "stddev": 0.0, "n": 5}]
+    )
+
+
+def _hist(path: Path) -> list:
+    from agentic_forge import benchmark
+
+    return benchmark.load_history(path)
+
+
+def test_version_check_first_run_records_baseline(tmp_path: Path) -> None:
+    h = tmp_path / "h.json"
+    rep = _FakeRep(0.9, passed=True, max_regression=0.05)
+    res = _eval_cli.version_check(
+        rep, component="reviewer", model="opus", history_path=h, record=True
+    )
+    assert res is None  # no prior yet -> skip the check
+    assert _hist(h)[0]["mean"] == 0.9  # but the healthy run is recorded as the baseline
+
+
+def test_version_check_records_when_within_tolerance(tmp_path: Path) -> None:
+    h = tmp_path / "h.json"
+    _prior(h, 0.90)
+    rep = _FakeRep(0.88, passed=True, max_regression=0.05)  # dropped 0.02 -> healthy
+    res = _eval_cli.version_check(
+        rep, component="reviewer", model="opus", history_path=h, record=True
+    )
+    assert res is not None and res.passed
+    assert len(_hist(h)) == 2  # appended a second baseline
+
+
+def test_version_check_regression_flagged_and_not_recorded(tmp_path: Path) -> None:
+    h = tmp_path / "h.json"
+    _prior(h, 0.90)
+    rep = _FakeRep(0.70, passed=True, max_regression=0.05)  # dropped 0.20 -> regression
+    res = _eval_cli.version_check(
+        rep, component="reviewer", model="opus", history_path=h, record=True
+    )
+    assert res is not None and not res.passed
+    assert len(_hist(h)) == 1  # a regressed run never becomes the new baseline
+
+
+def test_version_check_tier2_failure_not_recorded(tmp_path: Path) -> None:
+    h = tmp_path / "h.json"
+    rep = _FakeRep(0.9, passed=False, max_regression=0.05)  # failed tier2
+    _eval_cli.version_check(rep, component="reviewer", model="opus", history_path=h, record=True)
+    assert _hist(h) == []  # a failing run never becomes the baseline
+
+
+def test_version_check_record_flag_off_never_writes(tmp_path: Path) -> None:
+    h = tmp_path / "h.json"
+    rep = _FakeRep(0.9, passed=True, max_regression=0.05)
+    _eval_cli.version_check(rep, component="reviewer", model="opus", history_path=h, record=False)
+    assert _hist(h) == []  # --record off -> nothing persisted
+
+
+def test_run_agent_evals_version_regression_fails_the_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # a cross-version regression must FAIL the run (exercises the runner's version-check block)
+    from agentic_forge import benchmark
+
+    h = tmp_path / "hist.json"
+    benchmark.save_history(
+        h,
+        [{"component": "reviewer", "model": "claude-opus-4-8",
+          "mean": 0.95, "stddev": 0.0, "n": 5}],
+    )
+    rep = _FakeReport(True, mean=0.5, max_regression=0.05)  # dropped 0.45 -> regression
+    monkeypatch.setattr(run_agent_evals, "_build_runners", lambda *a, **k: (object(), object()))
+    monkeypatch.setattr(run_agent_evals.agent_eval, "run_role", lambda *a, **k: rep)
+    rc = run_agent_evals.main(
+        ["run", "--runner", "claude", "--role", "reviewer", "--benchmark-history", str(h)]
+    )
+    assert rc == 1  # the regression flips an otherwise-passing run to fail
+
+
+def test_run_skill_evals_version_clean_records_baseline(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # a healthy run that beats its prior passes the version check AND records the new baseline
+    from agentic_forge import benchmark
+
+    h = tmp_path / "hist.json"
+    benchmark.save_history(
+        h,
+        [{"component": "python-patterns", "model": "claude-opus-4-8",
+          "mean": 0.8, "stddev": 0.0, "n": 5}],
+    )
+    rep = _FakeReport(True, mean=0.95, max_regression=0.05)  # improved -> PASS
+    monkeypatch.setattr(run_skill_evals, "_build_runners", lambda *a, **k: (object(), object()))
+    monkeypatch.setattr(run_skill_evals.skill_eval, "run_skill", lambda *a, **k: rep)
+    rc = run_skill_evals.main(
+        ["run", "--runner", "claude", "--skill", "python-patterns",
+         "--record", "--benchmark-history", str(h)]
+    )
+    assert rc == 0
+    assert len(benchmark.load_history(h)) == 2  # appended the new healthy baseline

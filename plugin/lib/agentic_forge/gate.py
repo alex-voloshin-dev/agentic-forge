@@ -19,6 +19,7 @@ __all__ = [
     "trigger_metrics",
     "tier1_trigger",
     "tier2_quality",
+    "version_regression",
     "format_tier2_summary",
     "evaluate",
     "all_passed",
@@ -122,6 +123,35 @@ def tier2_quality(benchmark: dict[str, Any], thresholds: dict[str, Any]) -> Gate
         reasons.append(f"A/B pass-rate lift {delta['pass_rate']:.3f} < required {min_lift:.3f}")
 
     return GateResult("tier2_quality", not reasons, reasons)
+
+
+def version_regression(
+    benchmark: dict[str, Any],
+    prior: dict[str, Any] | None,
+    thresholds: dict[str, Any],
+) -> GateResult | None:
+    """Version-over-version A/B (ADR 0047): FAIL if the current ``with_skill`` pass-rate mean
+    dropped more than ``max_regression`` below a ``prior`` recorded run's mean (a stored benchmark
+    history record). Returns ``None`` — skip — when there is no ``max_regression`` threshold or no
+    ``prior``, so it is opt-in and engages only once a baseline exists (a first run can't regress
+    against nothing). A distinct cross-run gate, separate from single-run :func:`tier2_quality`."""
+    want = thresholds.get("tier2_quality") or {}
+    max_reg = want.get("max_regression")
+    if max_reg is None or prior is None:
+        return None
+    ws = (benchmark.get("run_summary") or {}).get("with_skill") or {}
+    cur = (ws.get("pass_rate") or {}).get("mean")
+    prior_mean = prior.get("mean")
+    if cur is None or prior_mean is None:
+        return GateResult("version_regression", False, ["missing current or prior mean"])
+    reasons: list[str] = []
+    drop = prior_mean - cur
+    if drop > max_reg + _EPS:
+        reasons.append(
+            f"version regression: mean {cur:.3f} is {drop:.3f} below prior {prior_mean:.3f} "
+            f"(max allowed {max_reg:.3f})"
+        )
+    return GateResult("version_regression", not reasons, reasons)
 
 
 def format_tier2_summary(

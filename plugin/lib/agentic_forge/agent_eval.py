@@ -174,6 +174,7 @@ class RoleReport:
     benchmark: dict[str, Any]
     gate: gate.GateResult
     gradings: list[dict[str, Any]] = field(default_factory=list)
+    thresholds: dict[str, Any] = field(default_factory=dict)  # for the version-over-version check
 
     @property
     def passed(self) -> bool:
@@ -489,7 +490,9 @@ def run_role(
         isolate=isolate,
         workdir=workdir,
     )
-    return RoleReport(role=role, runs=n, benchmark=bench, gate=result, gradings=gradings)
+    return RoleReport(
+        role=role, runs=n, benchmark=bench, gate=result, gradings=gradings, thresholds=thresholds
+    )
 
 
 def api_runner(model: str, *, max_tokens: int = 4096) -> Runner:

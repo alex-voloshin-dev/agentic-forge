@@ -305,9 +305,11 @@ Cross-cutting increments beyond the staged plan, recorded by ADR + CHANGELOG:
   pattern/skill docs were corrected to match the code (delegation via `Task`, not unused
   `context: fork`). Every finding verified against source; the suite is green, library 100% /
   aggregate 98% coverage. Nothing from the review remains open.
-- **Eval-pyramid + diagnostics increments** — **Built** (ADR 0036–0040). The Tier-2 **A/B lift +
-  time/token overhead** are now wired into the runners behind an opt-in `--baseline` (ADR 0036 +
-  0038: a `RunOutput` usage seam, only version-over-version A/B still deferred); a bounded
+- **Eval-pyramid + diagnostics increments** — **Built** (ADR 0036–0040, 0047). The Tier-2 **A/B
+  lift + time/token overhead** are wired into the runners behind an opt-in `--baseline` (ADR 0036 +
+  0038: a `RunOutput` usage seam), and **version-over-version A/B** — a cross-version regression vs a
+  stored benchmark history, gated by `max_regression` — is now wired too (ADR 0047, opt-in via
+  `--record` / `--benchmark-history`), closing the last deferred A/B signal; a bounded
   **adversarial skeptic review pass** was added to the artifact-writer workflows `product` /
   `marketing` / `ux-design` (ADR 0037); and an opt-in **self-diagnostics channel** captures the
   plugin's own errors / denials / anomalies → `diagnostics.jsonl` + a "top problems" digest

@@ -6,6 +6,35 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Added — version-over-version A/B: stored benchmark history + regression gate (ADR 0047)
+
+Closes the last deferred A/B piece (ADR 0036 §6 / 0038): catch a **cross-version quality
+regression** — an edit that drops a component below its **prior** validated mean — which the
+with/without A/B (lift / overhead) can't see. The deferral's named prerequisite, a *stored benchmark
+history*, is what this adds.
+
+- **`benchmark.py`** — an append-only history of `{component, model, mean, stddev, n}`:
+  `make_record` + `prior_record` (pure) and `load_history` / `save_history` (I/O). Keyed by
+  **(component, model)** because Tier-2 is model-dependent — a regression check only compares
+  same-model runs (switching tiers starts a fresh baseline).
+- **`gate.version_regression(benchmark, prior, thresholds)`** — FAIL if the current `with_skill` mean
+  dropped more than `max_regression` below the prior recorded mean. Returns **None — skip** when
+  there's no prior (first run) or no `max_regression` threshold: opt-in, engages only once a baseline
+  exists. A distinct **cross-run** gate, separate from the single-run `tier2_quality`.
+- **Runner wiring** — `--record` + `--benchmark-history PATH` on both eval runners, via a shared
+  `_eval_cli.version_check` helper. After each run it compares against the latest same-model record
+  (folded into the run's pass/fail) and, with `--record`, appends the current numbers — **only for a
+  healthy run** (passed `tier2_quality` *and* no regression), so a failing/regressed run never
+  poisons the baseline. Default history is the per-repo `.agentic-forge/benchmark-history.json`;
+  point `--benchmark-history` at a committed path for cross-version / CI gating.
+- **`max_regression`** added to the evals.json `tier2_quality` schema.
+- **No behaviour change by default:** opt-in via `--record` (build a baseline) + a `max_regression`
+  threshold; a normal run is unaffected.
+- Docs: ADR 0047; ADR 0036/0038 deferral notes + roadmap + eval-runbook + CLAUDE.md updated (the
+  "version-over-version deferred" caveat is now closed). New tests (`benchmark` history,
+  `version_regression`, the `version_check` helper, the runner record/regression paths);
+  `benchmark.py` / `gate.py` / `_eval_cli.py` 100%, coverage 98.34%.
+
 ### Added — runtime model routing: the validated tier reaches live `Task` delegation (ADR 0046)
 
 Closes the part of ADR 0043 (§5) left deferred: a gate-validated model tier now actually reaches

@@ -105,7 +105,28 @@ measurement — never guess a number, and never lower it later to make a run pas
 instead). **Token overhead** (`max_overhead_tokens`) is also live: both transports report usage
 (the `api` runner from the Messages response; `claude` via `--output-format json`) through a
 `RunOutput` reply, so `--baseline` populates `delta.tokens` too (ADR 0038). Calibrate it the same
-way. Only version-over-version A/B stays deferred (it needs a stored benchmark history).
+way.
+
+#### Version-over-version A/B — `--record` + `max_regression` (opt-in, ADR 0047)
+
+With/without measures the value a component adds *now*; version-over-version catches an **edit** that
+**regressed** a component below its **prior** version. It compares the current run against a **stored
+benchmark history** (the prior run's recorded mean), so it's cheap — no re-run of the old version.
+
+```bash
+# 1. record a baseline from a good run (only a healthy run is recorded):
+python dev/run_skill_evals.py --skill python-patterns --runner claude --record
+# 2. after editing the skill, re-run — it compares against the recorded baseline:
+python dev/run_skill_evals.py --skill python-patterns --runner claude
+```
+
+A contract opts in with `tier2_quality.max_regression` — the current mean may not drop more than this
+below the prior recorded mean, else the run FAILS. The check is **skipped** until a baseline exists
+(a first run can't regress) and when no `max_regression` is set. History is keyed by **(component,
+model)** — switching tiers (ADR 0043/0046) starts a fresh baseline. The default history file is the
+per-repo `.agentic-forge/benchmark-history.json` (gitignored); point `--benchmark-history` at a
+committed path to gate version-over-version in CI. A failing or regressed run is **never** recorded,
+so the baseline can't be poisoned.
 
 ### Authoring assertions: the grader is read-only (ADR 0020)
 

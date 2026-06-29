@@ -80,3 +80,42 @@ def test_summarize_timing_with_only() -> None:
     )
     assert out["run_summary"]["with_skill"]["tokens"] == 100
     assert "delta" not in out["run_summary"]
+
+
+# --- benchmark history (version-over-version, ADR 0047) ----------------------
+
+
+def test_make_record_extracts_with_skill_stats() -> None:
+    bench = {"run_summary": {"with_skill": {"pass_rate": {"mean": 0.9, "stddev": 0.05}, "n": 5}}}
+    rec = benchmark.make_record("reviewer", "opus", bench)
+    assert rec == {"component": "reviewer", "model": "opus", "mean": 0.9, "stddev": 0.05, "n": 5}
+
+
+def test_prior_record_returns_latest_same_component_and_model() -> None:
+    hist = [
+        {"component": "reviewer", "model": "opus", "mean": 0.8, "stddev": 0.0, "n": 5},
+        {"component": "grader", "model": "opus", "mean": 0.7, "stddev": 0.0, "n": 5},
+        {"component": "reviewer", "model": "opus", "mean": 0.9, "stddev": 0.0, "n": 5},
+        {"component": "reviewer", "model": "haiku", "mean": 0.6, "stddev": 0.0, "n": 5},
+    ]
+    latest = benchmark.prior_record(hist, "reviewer", "opus")
+    assert latest is not None and latest["mean"] == 0.9  # most recent matching pair
+    haiku = benchmark.prior_record(hist, "reviewer", "haiku")
+    assert haiku is not None and haiku["mean"] == 0.6  # keyed by model too
+    assert benchmark.prior_record(hist, "missing", "opus") is None
+
+
+def test_history_load_save_roundtrip(tmp_path) -> None:
+    p = tmp_path / "sub" / "history.json"
+    assert benchmark.load_history(p) == []  # absent -> []
+    recs = [{"component": "x", "model": "m", "mean": 0.9, "stddev": 0.0, "n": 5}]
+    benchmark.save_history(p, recs)  # creates the parent dir
+    assert benchmark.load_history(p) == recs
+
+
+def test_load_history_tolerates_garbage(tmp_path) -> None:
+    p = tmp_path / "h.json"
+    p.write_text("{not json", encoding="utf-8")
+    assert benchmark.load_history(p) == []  # unreadable -> []
+    p.write_text('{"not": "a list"}', encoding="utf-8")
+    assert benchmark.load_history(p) == []  # non-list -> []
