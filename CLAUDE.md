@@ -61,7 +61,7 @@ This file is the project constitution. Every contributor (human or agent) MUST f
 ## Layers
 
 - L0 Meta-core: `skill-factory` + eval-harness + `lib/` + Tier-0 validator. Builds everything else.
-- L1 Engine: subagent roles + native patterns (router, fan-out/fan-in, review loop, Ralph (deferred), worktree).
+- L1 Engine: subagent roles + native patterns (router, fan-out/fan-in, review loop, Ralph loop, worktree).
 - L2 Workflow skills: a phase-workflow per SDLC phase (fan out → synthesize a handoff artifact), depth via references.
 - L3 Knowledge base: Obsidian vault, recall skill, session-start injection.
 - L4 Guardrails & observability: hooks (security, test-gate, logging, budgets); scheduling + audit

@@ -6,6 +6,31 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Added — Ralph loop: bounded autonomous iteration (engine, ADR 0048)
+
+Closes the L1-deferred **Ralph loop** engine pattern: re-run a fresh-context executor against a
+persistent task with a stable prompt until it's **done**, **stalls** (no progress), or hits the
+**iteration budget**. The filesystem (code + git) is the memory across iterations.
+
+- **`lib/agentic_forge/ralph.py`** — the deterministic loop-control core: `LoopState`, `decide`
+  (`continue | done | exhausted | stalled`), `advance`, and `run_ralph(...)` — the bounded driver
+  over three injected seams (`run_iteration` / `is_done` / `progressed`). Pure + 100% tested; it
+  **never merges and never pushes** (no such seam). Three independent limits guarantee termination:
+  the done signal (early exit), the stall counter (no-progress guard), and the iteration budget.
+- **`dev/ralph.py`** — the runner: a fresh-context `software-engineer` per iteration (**no Bash** —
+  Read/Write/Edit/Grep/Glob), `git` for progress detection (hooks disabled), and a `--done-cmd`
+  (exit 0 = done) as the stop signal. **Dry by default** (plan only); `--apply` runs it. Bounded by
+  `--max-iterations` (clamped ≥ 1) + `--stall-after`; the model is tier-resolved (ADR 0043/0046); an
+  unfinished run with a done-cmd is recorded as a diagnostics anomaly.
+- **`plugin/patterns/ralph.md`** — the pattern doc: compose with **worktree** (isolation),
+  **software-engineer** (executor), and **review-loop** (review before merge); point `--done-cmd` at
+  the real gate (tests / `dev/validate.py`) so "done" means "passes."
+- Opt-in (a dev CLI), dry-by-default, always terminates, never auto-merges/pushes — no behaviour
+  change to existing flows.
+- Docs: ADR 0048; engine.md / CLAUDE.md (L1 "Ralph (deferred)" → built) + roadmap updated. New tests
+  (`test_ralph.py` for the core; the `ralph` CLI dry/apply/done/stall paths); `ralph.py` 100%,
+  coverage 98.33%.
+
 ### Added — version-over-version A/B: stored benchmark history + regression gate (ADR 0047)
 
 Closes the last deferred A/B piece (ADR 0036 §6 / 0038): catch a **cross-version quality

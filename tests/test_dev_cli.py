@@ -13,6 +13,7 @@ import audit_digest  # noqa: E402
 import diagnostics_digest  # noqa: E402
 import external_review as external_review_cli  # noqa: E402
 import pr_watch as pr_watch_cli  # noqa: E402
+import ralph as ralph_cli  # noqa: E402
 import run_agent_evals  # noqa: E402
 import run_scheduled  # noqa: E402
 import run_skill_evals  # noqa: E402
@@ -676,3 +677,56 @@ def test_run_skill_evals_version_clean_records_baseline(
     )
     assert rc == 0
     assert len(benchmark.load_history(h)) == 2  # appended the new healthy baseline
+
+
+# --- ralph CLI (Ralph loop, ADR 0048) ----------------------------------------
+
+
+def _task(tmp_path: Path) -> Path:
+    t = tmp_path / "TASK.md"
+    t.write_text("do the thing", encoding="utf-8")
+    return t
+
+
+def test_ralph_dry_plans(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    rc = ralph_cli.main(["x", "--repo", str(tmp_path), "--task", str(_task(tmp_path))])
+    assert rc == 0 and "dry" in capsys.readouterr().out  # plan only, no run
+
+
+def test_ralph_missing_task_returns_1(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    rc = ralph_cli.main(["x", "--repo", str(tmp_path), "--task", str(tmp_path / "nope.md")])
+    assert rc == 1 and "not found" in capsys.readouterr().err
+
+
+def test_ralph_apply_done_returns_0(tmp_path: Path) -> None:
+    runs: list[int] = []
+    rc = ralph_cli.main(
+        ["x", "--repo", str(tmp_path), "--task", str(_task(tmp_path)), "--apply",
+         "--done-cmd", "true"],
+        run_iteration=lambda n: runs.append(n),
+        is_done=lambda: True,  # done on the first check
+        progressed=lambda: True,
+    )
+    assert rc == 0 and runs == [1]  # finished in one iteration
+
+
+def test_ralph_apply_unfinished_with_done_cmd_returns_1(tmp_path: Path) -> None:
+    rc = ralph_cli.main(
+        ["x", "--repo", str(tmp_path), "--task", str(_task(tmp_path)), "--apply",
+         "--done-cmd", "false", "--max-iterations", "2", "--stall-after", "0"],
+        run_iteration=lambda n: None,
+        is_done=lambda: False,  # never reaches the goal
+        progressed=lambda: True,
+    )
+    assert rc == 1  # a done-cmd was set but never reached -> exit 1 (+ a diagnostics anomaly)
+
+
+def test_ralph_apply_no_done_cmd_returns_0(tmp_path: Path) -> None:
+    rc = ralph_cli.main(
+        ["x", "--repo", str(tmp_path), "--task", str(_task(tmp_path)), "--apply",
+         "--max-iterations", "2", "--stall-after", "0"],
+        run_iteration=lambda n: None,
+        is_done=lambda: False,
+        progressed=lambda: True,
+    )
+    assert rc == 0  # no done-cmd -> exhausting the budget is a normal end

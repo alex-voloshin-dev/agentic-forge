@@ -58,8 +58,9 @@ only what Stage 2 consumes.
 Dependencies: Stage 0.
 
 Scope (in): a small set of subagent roles and the patterns that bind them — file-based
-handoff between phases, a bounded review loop, and worktree isolation. Scope (out): Ralph
-loops, fan-out research at scale, full role catalog (deferred to later stages).
+handoff between phases, a bounded review loop, and worktree isolation. Scope (out) at the time:
+Ralph loops, fan-out research at scale, full role catalog (deferred to later stages). *(Update: the
+**Ralph loop** is now built — ADR 0048, [patterns/ralph.md](../plugin/patterns/ralph.md).)*
 
 Design questions: **resolved** in [architecture/engine.md](architecture/engine.md) and
 [ADR 0009](architecture/decisions/0009-engine-roles-and-handoff.md). Summary: dedicated

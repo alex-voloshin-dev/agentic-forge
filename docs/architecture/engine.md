@@ -72,9 +72,13 @@ skills link to it rather than restating it:
 - **Worktree isolation** ([patterns/worktree.md](../../plugin/patterns/worktree.md)) —
   `software-engineer` runs against a git worktree created by the `develop` workflow, so
   parallel/iterative work does not touch the main checkout.
+- **Ralph loop** ([patterns/ralph.md](../../plugin/patterns/ralph.md)) — bounded autonomous
+  iteration (ADR 0048): re-run a fresh-context executor against a persistent task until done /
+  stalled / the iteration budget. Deterministic core in `lib/ralph.py`; driver in `dev/ralph.py`
+  (dry-by-default, never merges/pushes). Compose with worktree + review-loop.
 
-Deferred to later stages: Ralph loops, and research fan-out at scale (the fan-out/fan-in
-*pattern* itself shipped in Stage 2 — see [spine.md](spine.md) and
+Deferred to later stages: research fan-out at scale (the fan-out/fan-in *pattern* itself shipped in
+Stage 2 — see [spine.md](spine.md) and
 [patterns/fan-out-fan-in.md](../../plugin/patterns/fan-out-fan-in.md)).
 
 ## Agent evaluation
