@@ -6,6 +6,37 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Fixed — third deep-review pass (6 reviewers): test integrity, robustness, doc currency
+
+A third whole-plugin review. No blockers; the system was found healthy and the prior rounds' fixes
+verified correct. This round:
+
+**Test integrity & robustness (code):**
+- `spine_e2e.repo_tests_pass` runs the nested suite via `sys.executable`, not a hardcoded `python`
+  (a box with only `python3` raised FileNotFoundError instead of running it).
+- `release.commits_since` lost its inaccurate `# pragma: no cover` (the lines ARE executed via real
+  git) + tests for the tag-range / tag=None auto-describe / non-git arms — `release.py` back to 100%.
+- `run_skill_evals` exits 1 (not a vacuous 0) on empty skill discovery; `tier1_runner.load_triggers`
+  loads via `evals.load_evals` (clean EvalsError, not a bare json crash on a malformed contract).
+- robustness-in-isolation: `naming` uses `\Z` not `$` (rejects a trailing newline); `connectors`
+  maps an explicit JSON `null` field to `""` not `"None"`; `frontmatter` parses CRLF; the Tier-0
+  ref-validator blanks code spans first (a documented link *example* in a fence no longer fails);
+  `selection_rate(runs=0)` returns 0.0; the spine baseline commit allows-empty.
+- new tests close real gaps: the contract `runs` is honored over the default (was a `runs==5`
+  tautology); the dev/ `_build_runners`/`_build_router` "claude" construction branches are exercised;
+  the description-length boundary (1024/1025) and exact sample-stddev are pinned.
+
+**Doc currency:** dropped "(design)" from the 2 titles the prior sweep missed (`spine.md`,
+`knowledge.md`); `guardrails.md` documents `find -delete`; `handoff.md` table fixed (ux-spec
+`design_system`; review.md credits `security-review`); `overview.md` Tier-2 overhead/A-B marked
+not-wired + its pattern list completed; `meta-core.md` layout adds `skill_contract`/`planning`;
+clarified the "type frontmatter" wording (it's the *artifact's* frontmatter, not a skill field) and
+the stale deep-review-producer note; roadmap test count.
+
+681 tests; `validate`/`ruff`/`mypy` green; branch coverage 98%. Deferred (lowest value): tightening
+a few over-determined `not ok` assertions to pin the exact failed rule, and a case-folded
+vault-note-collision warning (Linux-only, niche).
+
 ### Fixed — full-plugin deep review (6 reviewers: skills, lib, tests, docs, agents/patterns/hooks, cross-cutting)
 
 A whole-plugin review (each finding reproduced against source). No blockers; the system was found

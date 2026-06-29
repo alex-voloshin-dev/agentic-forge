@@ -82,10 +82,10 @@ def parse_gh_runs(payload: str, environment: str) -> list[Deploy]:
             continue
         out.append(
             Deploy(
-                sha=str(run.get("headSha", ""))[:7],
+                sha=str(run.get("headSha") or "")[:7],  # `or ""` so an explicit JSON null -> ""
                 status=_run_status(run),
                 environment=environment,
-                at=str(run.get("createdAt", "")),
+                at=str(run.get("createdAt") or ""),
             )
         )
     return out

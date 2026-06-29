@@ -174,7 +174,7 @@ def selection_rate(
     hits = sum(
         parse_selection(run_fn(system, prompt, workdir), names) == target for _ in range(runs)
     )
-    return hits / runs
+    return hits / runs if runs else 0.0
 
 
 def load_triggers(plugin_dir: Path) -> list[SkillTrigger]:

@@ -143,6 +143,24 @@ def test_run_skill_passes_with_perfect_grader(tmp_path: Path) -> None:
     assert "PASS" in rep.summary_line()
 
 
+def test_run_skill_honors_contract_runs_over_default(tmp_path: Path, monkeypatch) -> None:
+    # a contract `runs` != DEFAULT_RUNS must be honored — a mutation that ignores the contract
+    # (contract_runs = DEFAULT_RUNS) would leave the old `runs == 5` assertions green.
+    fake = {
+        "thresholds": {"tier2_quality": {"min_pass_rate": 0.8, "runs": 7}},
+        "evals": [{"id": 1, "prompt": "x", "assertions": ["a"]}],
+    }
+    monkeypatch.setattr(skill_eval, "load_evals", lambda p: fake)
+    rep = run_skill(
+        "python-patterns",
+        PLUGIN,
+        run_skill_fn=_runner("done"),
+        run_grader_fn=_grader(True),
+        workdir=tmp_path,
+    )
+    assert rep.runs == 7  # the contract's 7, not DEFAULT_RUNS (5)
+
+
 def test_run_skill_fails_with_failing_grader(tmp_path: Path) -> None:
     rep = run_skill(
         "deep-review",

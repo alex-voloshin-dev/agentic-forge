@@ -9,7 +9,7 @@ import yaml
 
 __all__ = ["FrontmatterError", "parse"]
 
-_FRONTMATTER = re.compile(r"\A---[ \t]*\n(.*?)\n---[ \t]*\n?(.*)\Z", re.DOTALL)
+_FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*\r?\n?(.*)\Z", re.DOTALL)
 
 
 class FrontmatterError(ValueError):

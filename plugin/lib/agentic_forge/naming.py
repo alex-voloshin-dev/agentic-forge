@@ -15,7 +15,7 @@ import re
 __all__ = ["NAME_MAX_LEN", "is_valid_name", "validate_name"]
 
 NAME_MAX_LEN = 64
-_ALLOWED = re.compile(r"^[a-z0-9-]+$")
+_ALLOWED = re.compile(r"\A[a-z0-9-]+\Z")  # \Z not $ — $ would accept a trailing newline
 
 
 def validate_name(name: str, *, dir_name: str | None = None) -> list[str]:

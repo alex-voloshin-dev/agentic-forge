@@ -64,6 +64,9 @@ CLAUDE_CODE_FIELDS = {
 
 KNOWN_FIELDS = STANDARD_FIELDS | CLAUDE_CODE_FIELDS
 
+# Code spans (fenced ```blocks``` + inline `code`) — blanked before ref-scanning so a documented
+# link *example* in a fence/backticks isn't mistaken for a real reference and failed by Tier-0.
+_CODE_SPAN = re.compile(r"```[\s\S]*?```|`[^`\n]+`")
 # Local references we expect to resolve on disk.
 _LOCAL_REF = re.compile(r"(?:\]\(|\$\{CLAUDE_SKILL_DIR\}/)((?:references|assets|scripts)/[^)\s]+)")
 # Cross-tree relative markdown links (`](../...)` / `](./...)`) — patterns, agents, docs, sibling
@@ -73,7 +76,9 @@ _RELATIVE_REF = re.compile(r"\]\((\.\.?/[^)\s#?]+)")
 
 def _check_refs(text: str, base_dir: Path, loc: str, report: Report) -> None:
     """Error on any local (`references/`/`assets/`/`scripts/`) or relative (`../`,`./`) markdown
-    reference in ``text`` that does not resolve under ``base_dir``."""
+    reference in ``text`` that does not resolve under ``base_dir``. Code spans are blanked first so
+    a documented link *example* in a fence/backticks isn't treated as a real reference."""
+    text = _CODE_SPAN.sub("", text)
     for match in _LOCAL_REF.finditer(text):
         ref = match.group(1).split("#", 1)[0].split("?", 1)[0]  # drop #anchor / ?query
         if ref and not (base_dir / ref).exists():

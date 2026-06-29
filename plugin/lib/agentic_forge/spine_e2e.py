@@ -450,7 +450,7 @@ def prepare_scenario(plugin_dir: Path, dest: Path, scenario: Scenario) -> Path:
         target.write_text((plugin_dir / item.src).read_text(encoding="utf-8"), encoding="utf-8")
     _git(repo, "init", "-q", "-b", "main")
     _git(repo, "add", "-A")
-    _commit(repo, "baseline")
+    _commit(repo, "baseline", allow_empty=True)
     if scenario.tag:
         _git(repo, "tag", scenario.tag)
     for msg in scenario.commits:
