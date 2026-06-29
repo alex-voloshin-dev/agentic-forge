@@ -14,26 +14,6 @@ Claude Code loads automatically when they are relevant. It is built on three com
 - **Eval-driven.** No component ships without a contract and a numeric eval gate. See
   [`CLAUDE.md`](./CLAUDE.md) for the full rulebook.
 
-## Status
-
-All five layers are in place and gated (Tier-0 + the eval pyramid green at every commit):
-
-- **L0 meta-core** — `skill-factory`, the eval harness, the shared `lib/`, the Tier-0 validator.
-- **L1 engine** — six subagent roles (reviewer, grader, software-engineer, architect,
-  security-engineer, qa-engineer) + handoff schemas + the fan-out / multi-aspect-review /
-  adversarial-review / review-loop / worktree patterns.
-- **L2 workflow skills** — the six-phase SDLC spine (research → product → architecture → plan →
-  develop → code-review), proven end-to-end (Tier-3), stack-parametric via `stacks.py` + nine
-  `*-patterns` packs; plus quality/ops (qa-test-strategy, security-review, deploy-watch,
-  incident-response, release), marketing, and ux-design / repo-onboarding.
-- **L3 knowledge base** — an Obsidian vault + the `knowledge` recall/capture skill + a
-  session-start hook.
-- **L4 guardrails & ops** — security / test-gate / logging / budget hooks, plus scheduling &
-  observability (a declarative job registry + audit-log digest + cron CI).
-
-Real provider connectors (GitHub Actions, Grafana, live web research) plug into the ops/marketing
-seams. See the [roadmap](docs/roadmap.md) and [CHANGELOG](CHANGELOG.md).
-
 ## Install
 
 ```text
@@ -48,6 +28,9 @@ claude --plugin-dir /path/to/agentic-forge/plugin
 /plugin install agentic-forge@agentic-forge
 ```
 
+Confirm it loaded: ask *"what skills are available?"* or type `/` and look for the
+`agentic-forge:` skills.
+
 ## Using it across the SDLC
 
 You don't call skills by hand — you **describe intent**, the matching phase-skill activates,
@@ -55,23 +38,6 @@ does the work (often by fanning out to subagents), and writes a **handoff artifa
 phase reads. Spine artifacts land under `docs/sdlc/<feature>/`; durable knowledge lands in
 `docs/knowledge/`. Everything is plain Markdown — committable, reviewable, and picked up by the
 next phase, so the lifecycle is auditable rather than hidden in chat.
-
-```
-  idea
-   │
-   ▼
- research ─▶ product ─▶ architecture ─▶ plan ─▶ develop ⇄ code-review ─▶ merge
-  brief       prd       tech-design     plan     code        review
-                                                  ▲   ▲
-                                qa-test-strategy ─┘   └─ security-review
-                                 test-strategy            review
-
- after merge ─▶ release ─▶ deploy-watch ─▶ incident-response
-                 release     deploy-status     incident
-
- always-on ─ knowledge (recall/capture → docs/knowledge/) · guardrail hooks (test-gate + security on every commit)
- new repo? ─ repo-onboarding maps the code and seeds the vault first
-```
 
 ### Ship a feature end to end
 
@@ -140,6 +106,17 @@ The `*-patterns` packs (python, typescript, javascript, go, rust, jvm, dotnet, r
 - `knowledge` — recall/capture durable project knowledge in the Obsidian vault
 - `repo-onboarding` — analyze an unfamiliar repo + seed the vault → `onboarding`
 - `skill-factory` — create new components contract-first, evals-first
+
+## Status
+
+All five layers are built and gated — Tier-0 plus the eval pyramid stay green at every commit: the
+**meta-core** (`skill-factory` + eval harness + shared `lib/`), the **engine** (six subagent roles +
+handoff schemas + the review / fan-out / worktree patterns), the **workflow skills** (the six-phase
+SDLC spine + quality/ops, marketing, and design/onboarding), the **knowledge base** (Obsidian vault +
+`knowledge` recall/capture + session-start hook), and the **guardrail & ops hooks** (security /
+test-gate / logging / budgets + scheduling & observability). Real provider connectors (GitHub
+Actions, Grafana, web research) plug into the ops/marketing seams.
+See the [roadmap](docs/roadmap.md) and [CHANGELOG](CHANGELOG.md).
 
 ## Documentation
 
