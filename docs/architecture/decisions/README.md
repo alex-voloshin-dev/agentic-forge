@@ -54,3 +54,5 @@ edit.
 | [0046](0046-runtime-model-routing.md) | Runtime model routing: the validated tier reaches live `Task` delegation (wires 0043) | Accepted (implemented) |
 | [0047](0047-version-over-version-ab.md) | Version-over-version A/B: stored benchmark history + regression gate (`max_regression`) | Accepted (implemented) |
 | [0048](0048-ralph-loop.md) | Ralph loop: bounded autonomous iteration (engine core `lib/ralph.py` + driver `dev/ralph.py`) | Accepted (implemented) |
+| [0049](0049-user-level-config.md) | User-level (cross-project) config layer `~/.agentic-forge/config.json`; precedence defaults < user < repo < env (extends 0041) | Accepted (implemented) |
+| [0050](0050-hook-import-safety.md) | Guardrail hooks import on a stdlib-only, version-robust path (lazy jsonschema/PyYAML, `timezone.utc`); upholds 0019 | Accepted (implemented) |

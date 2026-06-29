@@ -5,8 +5,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-import yaml
-
 __all__ = ["FrontmatterError", "parse"]
 
 _FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*\r?\n?(.*)\Z", re.DOTALL)
@@ -27,6 +25,11 @@ def parse(text: str) -> tuple[dict[str, Any], str]:
         raise FrontmatterError(
             "missing or malformed YAML frontmatter (expected leading '---' block)"
         )
+
+    try:
+        import yaml  # lazy: a guardrail hook may run under a python3 without PyYAML installed
+    except ImportError as exc:
+        raise FrontmatterError("PyYAML is not installed; cannot parse frontmatter") from exc
 
     try:
         data = yaml.safe_load(match.group(1))

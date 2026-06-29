@@ -17,7 +17,7 @@ import json
 import re
 from collections import Counter
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -135,7 +135,7 @@ def emit(
     ``ts`` itself (UTC ISO) unless ``now`` is given. Swallows everything — a diagnostics failure
     must never block its caller."""
     try:
-        ts = now or datetime.now(UTC).isoformat()
+        ts = now or datetime.now(timezone.utc).isoformat()
         event = make_event(
             ts=ts,
             kind=kind,
@@ -301,7 +301,7 @@ def scan_reviews(
     bounded review loop that exhausted its budget without converging (ADR 0040). Thin I/O over the
     pure :func:`review_anomaly`; malformed / non-``review`` files are skipped, so it never raises.
     The caller records the returned events (gated by :func:`enabled`)."""
-    ts = now or datetime.now(UTC).isoformat()
+    ts = now or datetime.now(timezone.utc).isoformat()
     events: list[dict[str, Any]] = []
     for path in sorted(Path(repo).glob(REVIEW_GLOB)):
         try:

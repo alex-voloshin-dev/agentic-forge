@@ -33,6 +33,8 @@ documentation discipline in the root `CLAUDE.md`).
     seams (post-spine).
   - [Decision records](architecture/decisions/README.md) — the ADRs behind every major
     choice.
+  - [Configuration](configuration.md) — the plugin's config files (user-level + per-repo),
+    every key, defaults, and precedence (defaults < user < repo < env).
 - **Plan**
   - [Roadmap](roadmap.md) — staged work plan; each stage analyzed before implementation.
   - [Handoff to CLI](handoff-to-cli.md) *(historical)* — the original L0→CLI bring-up notes.

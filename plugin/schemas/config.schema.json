@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "agentic-forge plugin config",
-  "description": "Per-repo plugin configuration at .agentic-forge/config.json (ADR 0041). All keys are optional; omitted keys fall back to built-in defaults. Env vars override this file. This file is COMMITTED — do not put secrets (API keys, tokens) in it; use env vars for those.",
+  "description": "Plugin configuration (ADR 0041). The SAME schema validates two files: the user-level ~/.agentic-forge/config.json (cross-project, ADR 0049) and the per-repo <repo>/.agentic-forge/config.json. Precedence: built-in defaults < user-level < per-repo < env vars. All keys are optional; omitted keys fall back to built-in defaults. A committed example with every key lives at plugin/config.example.json (see docs/configuration.md). These files are COMMITTED — do not put secrets (API keys, tokens) in them; use env vars for those.",
   "type": "object",
   "additionalProperties": false,
   "properties": {

@@ -51,6 +51,12 @@ extend-exclude = ["plugin/eval/fixtures"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.per-file-ignores]
+# `diagnostics` is on the guardrail-hook import path, which Claude Code runs under whatever `python3`
+# is first on PATH — possibly < 3.11 (ADR 0050). Keep `timezone.utc`, not the 3.11-only
+# `datetime.UTC` alias UP017 would force, so the hook never crashes on an older interpreter.
+"plugin/lib/agentic_forge/diagnostics.py" = ["UP017"]
+
 [tool.mypy]
 python_version = "3.11"
 mypy_path = "plugin/lib"

@@ -6,6 +6,39 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Fixed — guardrail hooks import on a dependency-light, version-robust path (ADR 0050)
+
+Claude Code runs the L4 hooks as `python3 <hook>.py`, using whatever `python3` is first on PATH. On
+a machine whose system `python3` is 3.9 without the plugin's deps, every Bash tool call raised
+`ImportError: cannot import name 'UTC' from 'datetime'` at **import** — before each hook's fail-open
+guard — so the guardrails both spammed tracebacks and were disabled. The hook-reachable import path
+is now stdlib-only and not ≥3.11-only:
+
+- `diagnostics` uses `datetime.now(timezone.utc)` instead of the 3.11-only `datetime.UTC`.
+- `jsonschema` (`settings`, `handoff`) and `PyYAML` (`frontmatter`) are imported **lazily** and
+  degrade gracefully when absent: `settings` loads a committed config *unvalidated* (coercing every
+  value, so `resolve` still never raises); `handoff.validate_header` skips validation;
+  `frontmatter.parse` raises a clear `FrontmatterError`.
+- Critical guardrails (security deny-list, test-gate, audit log) now work on a bare `python3`; only
+  schema validation + knowledge-vault injection degrade without the optional deps.
+- New `tests/test_hook_import_safety.py` blocks `jsonschema`/`PyYAML` and imports the whole hook
+  chain (subprocess) so a future top-level dep import fails the gate. Coverage stays above the floor.
+
+### Added — user-level (cross-project) plugin config (ADR 0049)
+
+`settings.resolve` now layers a **user-level** config — `~/.agentic-forge/config.json` — between the
+built-in defaults and the per-repo file: **defaults < user-level < per-repo < env**. Set a
+preference once in your home (e.g. enable the diagnostics log, or route the router/grader to a
+cheaper model tier) and it applies across every project, still overridable per-repo and by env vars.
+
+- Both files validate against the same `schemas/config.schema.json` and deep-merge (a repo overrides
+  only the keys it sets). `resolve` gains a `home=` parameter (defaults to `Path.home()`).
+- A committed, schema-valid example with **every** key ships at `plugin/config.example.json`, fully
+  documented in the new `docs/configuration.md` (keys, types, defaults, effects, precedence,
+  env-var overrides). Extends ADR 0041.
+- Tests isolate `HOME` (autouse `conftest` fixture) so they never read a developer's real user
+  config.
+
 ### Fixed — fresh-eyes review pass: documentation-drift sync + eval/coverage hardening
 
 A repo-wide review (integrity, consistency, contradictions, duplication, doc coverage) found the

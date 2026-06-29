@@ -1,12 +1,16 @@
-"""Plugin settings & configuration (ADR 0041).
+"""Plugin settings & configuration (ADR 0041; user-level layer ADR 0049).
 
-One resolver for the plugin's knobs. **Precedence: built-in DEFAULTS < the per-repo committed
-config file (`.agentic-forge/config.json`, validated against `schemas/config.schema.json`) < the
-documented env vars** — so CI / one-off overrides still work and the legacy env vars stay
-back-compatible.
+One resolver for the plugin's knobs. **Precedence: built-in DEFAULTS < the user-level config
+(`~/.agentic-forge/config.json`, cross-project) < the per-repo committed config
+(`.agentic-forge/config.json`) < the documented env vars** — so a user sets defaults once in their
+home, a repo overrides them per-project, and CI / one-off env vars still win. Both files are
+validated against `schemas/config.schema.json`.
 
 `resolve()` **never raises**: a missing file is defaults; a malformed / schema-invalid file is
-defaults + a one-line stderr warning. Settings must not break a session, and deliberately does
+defaults + a one-line stderr warning. `jsonschema` is imported **lazily and is optional** — a
+guardrail hook may run under a bare `python3` without the plugin's third-party deps, so when it is
+unavailable a committed (trusted) file is loaded *unvalidated* rather than dropped, and resolve
+still coerces every value defensively. Settings must not break a session, and deliberately does
 **not** depend on :mod:`diagnostics` (which reads settings — that would be circular).
 """
 
@@ -20,10 +24,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-import jsonschema
-
 __all__ = ["CONFIG_PATH", "DEFAULTS", "Settings", "resolve"]
 
+# The config file path within each base dir. The user-level file is ``~/<CONFIG_PATH>`` and the
+# per-repo file is ``<repo>/<CONFIG_PATH>`` — same relative path, different base (ADR 0049).
 CONFIG_PATH = ".agentic-forge/config.json"
 
 DEFAULTS: dict[str, Any] = {
@@ -41,7 +45,7 @@ DEFAULTS: dict[str, Any] = {
 
 @dataclass(frozen=True)
 class Settings:
-    """The resolved plugin configuration (defaults < file < env)."""
+    """The resolved plugin configuration (defaults < user file < repo file < env)."""
 
     diagnostics_enabled: bool
     subagent_soft: int
@@ -75,6 +79,13 @@ def _coerce_int(value: Any) -> int | None:
         return None
 
 
+def _int(value: Any, default: int) -> int:
+    """``value`` as an int, or ``default`` when it is missing / unparseable — so a stray value in an
+    unvalidated config can never make :func:`resolve` raise."""
+    parsed = _coerce_int(value)
+    return default if parsed is None else parsed
+
+
 def _deep_merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
     """Recursively overlay ``over`` onto ``base`` (mutates + returns ``base``)."""
     for key, value in over.items():
@@ -85,53 +96,82 @@ def _deep_merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
     return base
 
 
-def _load_file(repo: Path | str) -> dict[str, Any]:
-    """Read + schema-validate the repo config file; ``{}`` if absent/invalid (with a warning)."""
-    path = Path(repo) / CONFIG_PATH
+def _load_config(path: Path) -> dict[str, Any]:
+    """Read + schema-validate ONE ``config.json``; ``{}`` if absent / unreadable / invalid (with a
+    one-line stderr note). ``jsonschema`` is imported **lazily and optionally**: when it is
+    unavailable (a hook under a bare ``python3``) a committed JSON object is loaded *unvalidated*
+    rather than dropped — :func:`resolve` then coerces every value defensively."""
     if not path.is_file():
         return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
-        print(f"agentic-forge: ignoring unreadable {CONFIG_PATH}: {exc}", file=sys.stderr)
+        print(f"agentic-forge: ignoring unreadable {path}: {exc}", file=sys.stderr)
         return {}
+    try:
+        import jsonschema
+    except ImportError:
+        # No validator available — trust the committed file, but only if it is a JSON object.
+        return cast("dict[str, Any]", data) if isinstance(data, dict) else {}
     errors = sorted(jsonschema.Draft7Validator(_schema()).iter_errors(data), key=str)
     if errors:
-        msg = errors[0].message
-        print(f"agentic-forge: ignoring invalid {CONFIG_PATH}: {msg}", file=sys.stderr)
+        print(f"agentic-forge: ignoring invalid {path}: {errors[0].message}", file=sys.stderr)
         return {}
     return cast("dict[str, Any]", data)
 
 
-def resolve(repo: Path | str, *, env: dict[str, str] | None = None) -> Settings:
-    """Resolve the plugin :class:`Settings` for ``repo`` (defaults < config file < env)."""
-    src = os.environ if env is None else env
-    data = _deep_merge(copy.deepcopy(DEFAULTS), _load_file(repo))
-
-    # Legacy env-var overrides (back-compat; env wins over the file). An empty value is treated as
-    # "unset" (skip) — consistent with the int vars below — so `export VAR=` can't clobber the file.
-    if src.get("AGENTIC_FORGE_DIAGNOSTICS"):
-        data["diagnostics"]["enabled"] = _coerce_bool(src["AGENTIC_FORGE_DIAGNOSTICS"])
-    soft = _coerce_int(src.get("AGENTIC_FORGE_SUBAGENT_SOFT"))
-    if soft is not None:
-        data["subagent_budget"]["soft"] = soft
-    hard = _coerce_int(src.get("AGENTIC_FORGE_SUBAGENT_HARD"))
-    if hard is not None:
-        data["subagent_budget"]["hard"] = hard
-    if src.get("AGENTIC_FORGE_SKIP_TEST_GATE"):
-        data["test_gate"]["skip"] = True
-
+def _settings_from(data: dict[str, Any]) -> Settings:
+    """Build :class:`Settings` from a merged config mapping, coercing every value so a stray type in
+    an unvalidated file can't raise (resolve wraps this and falls back to pure defaults if it
+    somehow still does)."""
+    pr = data["pr_watcher"]
+    models = data["models"] if isinstance(data.get("models"), dict) else {}
+    repos = pr["repos"] if isinstance(pr.get("repos"), list) else []
     return Settings(
-        diagnostics_enabled=bool(data["diagnostics"]["enabled"]),
-        subagent_soft=int(data["subagent_budget"]["soft"]),
-        subagent_hard=int(data["subagent_budget"]["hard"]),
-        skip_test_gate=bool(data["test_gate"]["skip"]),
-        review_passes=int(data["review"]["passes"]),
-        external_reviewer_enabled=bool(data["external_reviewer"]["enabled"]),
+        diagnostics_enabled=_coerce_bool(data["diagnostics"]["enabled"]),
+        subagent_soft=_int(data["subagent_budget"]["soft"], DEFAULTS["subagent_budget"]["soft"]),
+        subagent_hard=_int(data["subagent_budget"]["hard"], DEFAULTS["subagent_budget"]["hard"]),
+        skip_test_gate=_coerce_bool(data["test_gate"]["skip"]),
+        review_passes=_int(data["review"]["passes"], DEFAULTS["review"]["passes"]),
+        external_reviewer_enabled=_coerce_bool(data["external_reviewer"]["enabled"]),
         external_reviewer_command=str(data["external_reviewer"]["command"]),
-        models={str(k): str(v) for k, v in (data["models"] or {}).items()},
-        pr_watcher_enabled=bool(data["pr_watcher"]["enabled"]),
-        pr_watcher_bot=str(data["pr_watcher"]["bot"]),
-        pr_watcher_max_threads=int(data["pr_watcher"]["max_threads"]),
-        pr_watcher_repos=[str(r) for r in (data["pr_watcher"].get("repos") or [])],
+        models={str(k): str(v) for k, v in models.items()},
+        pr_watcher_enabled=_coerce_bool(pr["enabled"]),
+        pr_watcher_bot=str(pr["bot"]),
+        pr_watcher_max_threads=_int(pr["max_threads"], DEFAULTS["pr_watcher"]["max_threads"]),
+        pr_watcher_repos=[str(r) for r in repos],
     )
+
+
+def resolve(
+    repo: Path | str, *, env: dict[str, str] | None = None, home: Path | str | None = None
+) -> Settings:
+    """Resolve the plugin :class:`Settings` for ``repo`` — DEFAULTS < user-level file < repo file <
+    env. ``home`` overrides the user-config base dir (defaults to :func:`Path.home`; mostly for
+    tests/embedding)."""
+    src = os.environ if env is None else env
+    home_dir = Path.home() if home is None else Path(home)
+
+    data = copy.deepcopy(DEFAULTS)
+    _deep_merge(data, _load_config(home_dir / CONFIG_PATH))  # user-level (cross-project)
+    _deep_merge(data, _load_config(Path(repo) / CONFIG_PATH))  # per-repo (overrides user-level)
+
+    try:
+        # Legacy env-var overrides (back-compat; env wins over both files). An empty value is
+        # treated as "unset" (skip) so `export VAR=` can't clobber a file. Inside the try so a
+        # malformed (unvalidated) file that left a non-mapping in place can't raise here either.
+        if src.get("AGENTIC_FORGE_DIAGNOSTICS"):
+            data["diagnostics"]["enabled"] = _coerce_bool(src["AGENTIC_FORGE_DIAGNOSTICS"])
+        soft = _coerce_int(src.get("AGENTIC_FORGE_SUBAGENT_SOFT"))
+        if soft is not None:
+            data["subagent_budget"]["soft"] = soft
+        hard = _coerce_int(src.get("AGENTIC_FORGE_SUBAGENT_HARD"))
+        if hard is not None:
+            data["subagent_budget"]["hard"] = hard
+        if src.get("AGENTIC_FORGE_SKIP_TEST_GATE"):
+            data["test_gate"]["skip"] = True
+        return _settings_from(data)
+    except Exception:
+        # An unvalidated (no-jsonschema) malformed file slipped through; never raise — fall back to
+        # pure defaults (a session / guardrail hook must not break on a bad config).
+        return _settings_from(copy.deepcopy(DEFAULTS))

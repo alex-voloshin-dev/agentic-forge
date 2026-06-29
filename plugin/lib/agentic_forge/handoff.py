@@ -32,8 +32,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import jsonschema
-
 from .frontmatter import FrontmatterError, parse
 
 __all__ = [
@@ -310,6 +308,11 @@ def validate_header(
         return ["header is missing the required 'type' field"]
     if target_type not in SCHEMAS:
         return [f"unknown artifact type {target_type!r}; expected one of {sorted(SCHEMAS)}"]
+
+    try:
+        import jsonschema  # lazy: keeps the hook import path (diagnostics -> handoff) stdlib-only
+    except ImportError:
+        return []  # no validator available (bare env) — skip header validation rather than crash
 
     validator = jsonschema.Draft7Validator(SCHEMAS[target_type])
     errors = []

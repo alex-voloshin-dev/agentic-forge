@@ -1,0 +1,14 @@
+{
+  "diagnostics": { "enabled": true },
+  "subagent_budget": { "soft": 25, "hard": 50 },
+  "test_gate": { "skip": false },
+  "review": { "passes": 3 },
+  "external_reviewer": { "enabled": false, "command": "codex" },
+  "models": { "router": "cheap", "grader": "simple" },
+  "pr_watcher": {
+    "enabled": false,
+    "bot": "github-actions[bot]",
+    "max_threads": 10,
+    "repos": ["owner/repo"]
+  }
+}

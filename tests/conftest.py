@@ -21,6 +21,16 @@ VALID_EVALS = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _isolate_user_config(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Hermeticity: no test may read the developer's real ``~/.agentic-forge/config.json`` (the
+    user-level config layer, ADR 0049). Point HOME at a fresh empty dir for every test, so
+    ``settings.resolve`` sees no user-level config unless a test sets one explicitly."""
+    monkeypatch.setenv("HOME", str(tmp_path_factory.mktemp("home")))
+
+
 @pytest.fixture
 def make_skill(tmp_path: Path):
     """Factory that writes a skill directory and returns its path."""
