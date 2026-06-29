@@ -15,8 +15,10 @@ docs/architecture/scheduling-observability.md.
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +29,7 @@ from agentic_forge import (  # noqa: E402
     diagnostics,
     observability,
     ops,
+    pr_watch,
     schedule,
     settings,
     vault,
@@ -62,6 +65,54 @@ def _review_scan(repo: Path) -> str:
     return f"review-scan: recorded {len(events)} non-converged review loop(s)"
 
 
+def _pr_list(repo: Path) -> Callable[[str, str], list[int]]:  # pragma: no cover -- real gh
+    def list_prs(owner: str, name: str) -> list[int]:
+        out = subprocess.run(
+            ["gh", "pr", "list", "-R", f"{owner}/{name}", "--state", "open",
+             "--json", "number", "-q", ".[].number"],
+            cwd=str(repo), capture_output=True, text=True, timeout=120,
+        ).stdout
+        return [int(x) for x in out.split()]
+
+    return list_prs
+
+
+def _watch_one_pr(repo: Path) -> Callable[[str, str, int], None]:  # pragma: no cover -- subprocess
+    def watch_one(owner: str, name: str, number: int) -> None:
+        # Check out the PR branch first: the fixer commits to HEAD and the conflict handler merges
+        # into the current branch, so both need the PR's head branch checked out (same-repo PRs).
+        checkout = subprocess.run(
+            ["gh", "pr", "checkout", str(number), "-R", f"{owner}/{name}"],
+            cwd=str(repo), capture_output=True, text=True, timeout=120,
+        )
+        if checkout.returncode != 0:  # ABORT — never run --apply on the wrong branch (HEAD unmoved)
+            print(f"pr-watch: skip #{number} ({owner}/{name}) — checkout failed", file=sys.stderr)
+            return
+        subprocess.run(
+            [sys.executable, str(_REPO_ROOT / "dev" / "pr_watch.py"), "--repo", str(repo),
+             "--owner", owner, "--name", name, "--pr", str(number), "--apply"],
+            cwd=str(repo), timeout=1800,
+        )
+
+    return watch_one
+
+
+def _run_pr_watch_live(repo: Path, specs: list[tuple[str, str]]) -> str:  # pragma: no cover
+    summary = pr_watch.watch_repos(specs, list_prs=_pr_list(repo), watch_one=_watch_one_pr(repo))
+    return f"pr-watch: watched {summary['prs']} PR(s) across {summary['repos']} repo(s)"
+
+
+def _pr_watch(repo: Path) -> str:
+    # opt-in + configured-repos gate; the live branch drives real gh + per-PR CLI subprocesses.
+    resolved = settings.resolve(repo)
+    if not resolved.pr_watcher_enabled:
+        return "pr-watch: disabled (set pr_watcher.enabled to watch)"
+    specs = pr_watch.parse_repos(resolved.pr_watcher_repos)
+    if not specs:
+        return "pr-watch: no repos configured (set pr_watcher.repos)"
+    return _run_pr_watch_live(repo, specs)
+
+
 def _deploy_digest(repo: Path) -> str:
     # Connectors auto-detect: GhPipelineSource (gh on PATH) + GrafanaAlertSource (GRAFANA_URL set).
     # Both degrade to empty in-memory sources, so this stays graceful when nothing is configured.
@@ -82,6 +133,7 @@ _ACTIONS = {
     "audit_digest": _audit_digest,
     "diagnostics_digest": _diagnostics_digest,
     "review_scan": _review_scan,
+    "pr_watch": _pr_watch,
 }
 
 

@@ -241,6 +241,38 @@ The latest skill Tier-2 baseline (the ADR-0020 fidelity pass) is recorded in the
 `mean − stddev ≥ 0.8`) on `claude-opus-4-8`; the 5 hardened packs scored **1.000 on a 1× re-check**
 after the faithful reframe (they already cleared the bar at n = 5 in the prior live run).
 
+## Validating the PR watcher (manual, live)
+
+The PR watcher's deterministic core is unit-tested; the live `gh` / `git` / agent seams need a real
+PR and `gh` auth, so validate them by hand once before enabling the scheduled job. Use a **throwaway
+PR on a repo you own** — never a real PR first.
+
+1. **Auth + scope.** `gh auth status` must be logged in with `repo` scope; the watcher pushes to the
+   PR branch and posts comments as you.
+2. **Dry plan (no writes).** From the repo:
+   `python dev/pr_watch.py --owner <you> --name <repo> --pr <N>` — confirm it prints the actionable
+   thread count + `conflicting=<bool>` and the thread ids, and makes **no** writes (check GitHub).
+3. **Enable + apply on the throwaway PR.** Set `{"pr_watcher": {"enabled": true}}` in
+   `.agentic-forge/config.json`, `gh pr checkout <N>`, then run with `--apply` and verify each
+   invariant on the real PR:
+   - a fixable comment → a commit on the branch + a reply + the thread **resolved**;
+   - a comment it rejects → a reasoned reply, thread **left open**, no spurious commit;
+   - a merge conflict → base **merged** into the branch and pushed (no force-push), or a single
+     "please rebase" comment if it couldn't; **never a force-push or a PR merge/close** (verify via
+     the PR timeline + `git reflog`);
+   - every outward action appears in `.agentic-forge/diagnostics.jsonl` (audited even if diagnostics
+     is off).
+4. **Idempotency.** Re-run `--apply` with nothing new → **no** writes (resolved / bot-authored
+   threads skipped; a still-conflicted PR does **not** get a second "please rebase" comment).
+5. **Fork PR.** Point `--apply` at a fork PR → it must **refuse** ("same-repo auto-apply only") while
+   the dry plan still works.
+6. **Scheduled wiring.** Add the repo to `pr_watcher.repos`, run
+   `python dev/run_scheduled.py run --repo . --force`, and confirm the `pr-watch` job fans out over
+   the configured repos' open PRs (and no-ops with a message when disabled / no repos).
+
+Enable the hourly cron only after all six pass — and only for repos whose PR authors you trust (the
+auto-fix autonomy applies to every open same-repo PR).
+
 ## Caveats
 
 - If `ANTHROPIC_API_KEY` is set, the `claude` CLI uses it before the subscription token —

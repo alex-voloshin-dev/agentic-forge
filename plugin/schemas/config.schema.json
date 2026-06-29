@@ -60,7 +60,13 @@
       "properties": {
         "enabled": { "type": "boolean" },
         "bot": { "type": "string", "minLength": 1 },
-        "max_threads": { "type": "integer", "minimum": 1 }
+        "max_threads": { "type": "integer", "minimum": 1 },
+        "repos": {
+          "type": "array",
+          "description": "owner/name repos the scheduled hourly job watches (empty = none).",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$" }
+        }
       }
     }
   }

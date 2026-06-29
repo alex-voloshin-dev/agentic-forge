@@ -6,6 +6,42 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Added — PR watcher 1b: scheduled job over repos + mechanical conflict resolution (ADR 0045)
+
+Completes the three items ADR 0044 deferred to 1b: the scheduled job's "which PRs to watch" wiring,
+mechanical conflict resolution (detect-only shipped before), and the live-validation runbook.
+
+- **Scheduled job over configured repos.** `settings.pr_watcher.repos` (a list of `"owner/name"`)
+  names the repos to watch; `pr_watch.parse_repos` parses them (malformed entries skipped) and
+  `pr_watch.watch_repos(specs, *, list_prs, watch_one)` is pure orchestration over two seams. The
+  `pr-watch` hourly job's `run_scheduled` action wires the real seams (`gh pr list` for discovery; a
+  subprocess to `dev/pr_watch.py --apply` per PR) and **no-ops with a message** unless
+  `pr_watcher.enabled` **and** ≥1 repo is configured.
+- **Mechanical conflict resolution.** `run_watch` gains a `handle_conflict` seam (called only on a
+  `CONFLICTING` PR). The live handler **merges the base INTO the PR branch** (`git merge --no-edit
+  origin/<base>`) — a *merge*, not a *rebase*, so the follow-up push stays a fast-forward and needs
+  **no force-push**; on a merge conflict it `--abort`s and posts a PR comment asking for a manual
+  rebase. `WatchResult` gains `conflict_resolved` / `conflict_unresolved`; push fires when anything
+  was fixed **or** a conflict was resolved. `PrState.base` (`baseRefName`) + `pr_comment_argv` added.
+  Still **never merges/closes the PR and never force-pushes** (no such builder). The per-PR runner
+  `gh pr checkout`s the branch first (same-repo PRs); fork PRs stay out of the auto-apply scope.
+- **Live-validation runbook.** Real-PR validation needs `gh` auth + a throwaway PR + side effects,
+  so it can't run in CI — documented as a checklist in `docs/eval-runbook.md` ("Validating the PR
+  watcher"): dry plan → `--apply` on a throwaway PR → confirm the invariants before enabling.
+- Reviewed by two adversarial lenses (correctness + security/safety), each finding verified against
+  source before accepting. Fixes applied pre-commit: **(safety)** git hooks disabled on every git
+  seam (`-c core.hooksPath=/dev/null`) so a hostile PR branch can't run hooks on checkout/commit/
+  merge; **fork PRs refused** on the auto-apply path (`isCrossRepository` now fetched + on
+  `PrState`); the fixer system prompt hardened with an untrusted-input frame; the `push` and
+  conflict-comment outward writes now carry explicit audit rows. **(correctness)** conflict handler
+  switched from rebase to **merge** (a rebase would make the non-force push undeliverable); the
+  per-PR runner aborts if `gh pr checkout` fails (never `--apply` on the wrong branch); `_git fetch`
+  failure aborts the merge; the un-resolvable-conflict comment is posted **once** (idempotent via
+  `conflict_notice_present`); `parse_repos` dedupes; the fixer `git add -A`s so new files are staged.
+  One finding (argv `-`-flag injection) was verified **not reachable** and declined.
+- Docs: ADR 0045; roadmap increment-1 marked done. New tests (`parse_repos`, `watch_repos`,
+  conflict paths, `pr_comment_argv`, the `_pr_watch` action); `pr_watch.py` 100%, coverage 98.38%.
+
 ### Added — PR watcher: monitor a GitHub PR, bounded auto-fix loop (planned-increment 1, ADR 0044)
 
 A watcher that reads a PR's review threads + conflict state and runs a bounded fix loop. Chosen
@@ -33,8 +69,8 @@ default; every outward action is recorded in diagnostics.
   resolving a disputed thread), runs **without the Bash tool** to bound prompt-injection, and the
   audit is force-on. Trust boundary documented (enable only for trusted PRs).
 - Deferred (1b): the scheduled `pr-watch` job's "which PRs to watch" wiring, mechanical conflict
-  resolution (detect-only ships now), and live end-to-end (real-PR) validation — the CLI is the
-  entry point now.
+  resolution (detect-only ships now), and live end-to-end (real-PR) validation — **now completed in
+  ADR 0045** (the buildable two; live validation is a documented manual runbook).
 - Docs: ADR 0044. New tests (`test_pr_watch.py` + CLI tests); `pr_watch.py` 100%, coverage 98.35%.
 
 ### Added — multi-model support / model tiering (planned-increment 4, ADR 0043)

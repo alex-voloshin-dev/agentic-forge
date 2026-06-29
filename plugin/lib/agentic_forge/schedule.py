@@ -104,6 +104,12 @@ JOBS: tuple[Job, ...] = (
         "Scan review.md artifacts for non-converged review loops and record them (ADR 0040).",
         "review_scan",
     ),
+    Job(
+        "pr-watch",
+        "hourly",
+        "Watch configured repos' open PRs; run the bounded auto-fix loop (opt-in, ADR 0045).",
+        "pr_watch",
+    ),
 )
 
 

@@ -18,21 +18,30 @@ __all__ = [
     "PrState",
     "WatchResult",
     "PR_QUERY",
+    "CONFLICT_NOTICE",
     "parse_pr",
     "actionable_threads",
     "reply_argv",
     "resolve_argv",
     "push_argv",
+    "pr_comment_argv",
+    "conflict_notice_present",
     "plan_watch",
     "run_watch",
+    "parse_repos",
+    "watch_repos",
 ]
+
+# The body the watcher posts when it can't auto-resolve a conflict. A constant so the post and the
+# "did I already post this?" idempotency check (conflict_notice_present) share one source of truth.
+CONFLICT_NOTICE = "Merge conflict could not be auto-resolved by the PR watcher; please rebase."
 
 # The GraphQL query the fetch seam runs (`gh api graphql -F owner=.. -F name=.. -F number=..`).
 # Per-thread isResolved is GraphQL-only — `gh pr view --json` can't supply it. Adjust here if the
 # `gh` / API shape changes.
 PR_QUERY = (
     "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name)"
-    "{pullRequest(number:$number){number mergeable headRefName "
+    "{pullRequest(number:$number){number mergeable headRefName baseRefName isCrossRepository "
     "reviewThreads(first:100){nodes{id isResolved "
     "comments(first:1){nodes{body path line author{login}}}}}}}}"
 )
@@ -52,10 +61,12 @@ class ReviewThread:
 
 @dataclass(frozen=True)
 class PrState:
-    """A PR's review state: number, branch, mergeable flag, and review threads."""
+    """A PR's review state: number, head/base branches, mergeable flag, and review threads."""
 
     number: int
-    branch: str
+    branch: str  # headRefName (where fixes are pushed)
+    base: str  # baseRefName (what a conflict merge pulls in)
+    cross_repo: bool  # isCrossRepository — a fork PR; auto-apply is same-repo only (ADR 0045)
     mergeable: str  # MERGEABLE | CONFLICTING | UNKNOWN
     threads: list[ReviewThread]
 
@@ -73,6 +84,8 @@ class WatchResult:
     rejected: list[str] = field(default_factory=list)  # threads answered but left open
     pushed: bool = False
     conflicting: bool = False
+    conflict_resolved: bool = False  # a CONFLICTING PR was rebased clean (1b, ADR 0045)
+    conflict_unresolved: bool = False  # couldn't auto-resolve -> surfaced a comment
 
 
 def parse_pr(data: dict[str, Any]) -> PrState:
@@ -107,6 +120,8 @@ def parse_pr(data: dict[str, Any]) -> PrState:
     return PrState(
         number=int(pr.get("number", 0) or 0),
         branch=str(pr.get("headRefName", "") or ""),
+        base=str(pr.get("baseRefName", "") or ""),
+        cross_repo=bool(pr.get("isCrossRepository", False)),
         mergeable=str(pr.get("mergeable", "UNKNOWN") or "UNKNOWN"),
         threads=threads,
     )
@@ -144,6 +159,19 @@ def push_argv(repo: str, branch: str) -> list[str]:
     return ["git", "-C", repo, "push", "origin", f"HEAD:{branch}"]
 
 
+def pr_comment_argv(repo: str, number: int, body: str) -> list[str]:
+    """argv to post a PR-level comment (e.g. an un-resolvable-conflict notice — 1b, ADR 0045)."""
+    return ["gh", "pr", "comment", str(number), "-R", repo, "--body", body]
+
+
+def conflict_notice_present(bodies: list[str]) -> bool:
+    """True if the watcher already posted its :data:`CONFLICT_NOTICE` among ``bodies`` (the PR's
+    existing comments). Lets the hourly re-poll post the un-resolvable-conflict notice **once**
+    instead of every hour a PR stays conflicted — the conflict analogue of the resolved/bot-authored
+    thread skip (1b, ADR 0045)."""
+    return any(CONFLICT_NOTICE in str(b) for b in bodies)
+
+
 def plan_watch(state: PrState, *, bot: str, max_threads: int) -> WatchResult:
     """A dry plan: the actionable threads (capped) + the conflict flag, with no writes."""
     actionable = actionable_threads(state, bot=bot)[:max_threads]
@@ -166,12 +194,16 @@ def run_watch(
     gh_exec: GhExec,
     push: Push,
     record: Callable[[str], object] | None = None,
+    handle_conflict: Callable[[], bool] | None = None,
 ) -> WatchResult:
     """Run the bounded auto-fix loop over a PR's actionable threads (ADR 0044): per thread the
-    ``fixer`` decides fix-vs-reject and the reply; a fix posts the reply, resolves the thread, and
-    (once any fix lands) pushes ``HEAD`` to the PR branch; a rejection posts the reasoned reply and
-    leaves the thread open. Never merges, never force-pushes. ``record`` (if given) logs each action
-    for diagnostics. The caller gates this on ``settings.pr_watcher.enabled`` + a non-dry run."""
+    ``fixer`` decides fix-vs-reject and the reply; a fix posts the reply, resolves the thread; a
+    rejection posts the reasoned reply and leaves the thread open. On a ``CONFLICTING`` PR the
+    ``handle_conflict`` seam (1b, ADR 0045) attempts a mechanical resolve — it returns True if the
+    rebase landed clean (so the push delivers it) and is expected to post a comment + return False
+    when it can't. The push fires once if anything was fixed **or** a conflict was resolved. Never
+    merges, never force-pushes. ``record`` (if given) logs each action for diagnostics. The caller
+    gates this on ``settings.pr_watcher.enabled`` + a non-dry run."""
     result = WatchResult(conflicting=state.conflicting)
     for thread in actionable_threads(state, bot=bot)[:max_threads]:
         result.actionable.append(thread.id)
@@ -184,7 +216,51 @@ def run_watch(
             result.rejected.append(thread.id)  # disputed: reply only, leave the thread open
         if record:
             record(f"thread {thread.id} ({thread.path}): {action}")
-    if result.fixed:
+    if state.conflicting and handle_conflict is not None:
+        resolved = handle_conflict()
+        result.conflict_resolved = resolved
+        result.conflict_unresolved = not resolved
+        note = (  # computed unconditionally so the audit row names the actual outward action
+            "merged base into branch; will push"
+            if resolved
+            else "unresolved — requested a manual rebase"
+        )
+        if record:
+            record(f"conflict on #{state.number}: {note}")
+    if result.fixed or result.conflict_resolved:
         push()
         result.pushed = True
+        if record:  # the push is an outward write — audit it explicitly (invariant: audit all)
+            record(f"pushed HEAD:{state.branch} on #{state.number}")
     return result
+
+
+def parse_repos(repos: list[str]) -> list[tuple[str, str]]:
+    """Parse ``owner/name`` repo strings into ``(owner, name)`` pairs; malformed entries skipped and
+    duplicates removed (first-seen order kept), so a copy-paste typo can't double the outward writes
+    by watching the same repo twice in one poll (1b, ADR 0045)."""
+    specs: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for entry in repos:
+        owner, sep, name = str(entry).partition("/")
+        if sep and owner and name and "/" not in name and (owner, name) not in seen:
+            seen.add((owner, name))
+            specs.append((owner, name))
+    return specs
+
+
+def watch_repos(
+    specs: list[tuple[str, str]],
+    *,
+    list_prs: Callable[[str, str], list[int]],
+    watch_one: Callable[[str, str, int], object],
+) -> dict[str, int]:
+    """For each ``(owner, name)``, list its open PRs and watch each (1b, ADR 0045). Pure
+    orchestration over two seams — ``list_prs(owner, name) -> [pr_number]`` and
+    ``watch_one(owner, name, number)``. Returns a ``{repos, prs}`` count for the report."""
+    prs = 0
+    for owner, name in specs:
+        for number in list_prs(owner, name):
+            watch_one(owner, name, number)
+            prs += 1
+    return {"repos": len(specs), "prs": prs}

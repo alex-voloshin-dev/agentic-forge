@@ -25,7 +25,7 @@ def test_defaults_when_no_file_no_env(tmp_path: Path) -> None:
     assert s.external_reviewer_enabled is False and s.external_reviewer_command == "codex"
     assert s.models == {}
     assert s.pr_watcher_enabled is False and s.pr_watcher_max_threads == 10
-    assert s.pr_watcher_bot == "github-actions[bot]"
+    assert s.pr_watcher_bot == "github-actions[bot]" and s.pr_watcher_repos == []
 
 
 def test_file_overrides_defaults(tmp_path: Path) -> None:

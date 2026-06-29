@@ -33,8 +33,9 @@ DEFAULTS: dict[str, Any] = {
     "review": {"passes": 3},  # the bounded review-loop budget N (review-loop.md)
     "external_reviewer": {"enabled": False, "command": "codex"},  # increment 2
     "models": {},  # tier/role -> model id (increment 4); empty = the runner default
-    # PR watcher (increment 1, ADR 0044): off by default; outward GitHub writes are opt-in.
-    "pr_watcher": {"enabled": False, "bot": "github-actions[bot]", "max_threads": 10},
+    # PR watcher (increment 1, ADR 0044/0045): off by default; outward GitHub writes are opt-in.
+    # `repos` (owner/name) are the repos the scheduled hourly job watches (empty = none).
+    "pr_watcher": {"enabled": False, "bot": "github-actions[bot]", "max_threads": 10, "repos": []},
 }
 
 
@@ -53,6 +54,7 @@ class Settings:
     pr_watcher_enabled: bool
     pr_watcher_bot: str
     pr_watcher_max_threads: int
+    pr_watcher_repos: list[str]
 
 
 def _schema() -> dict[str, Any]:
@@ -131,4 +133,5 @@ def resolve(repo: Path | str, *, env: dict[str, str] | None = None) -> Settings:
         pr_watcher_enabled=bool(data["pr_watcher"]["enabled"]),
         pr_watcher_bot=str(data["pr_watcher"]["bot"]),
         pr_watcher_max_threads=int(data["pr_watcher"]["max_threads"]),
+        pr_watcher_repos=[str(r) for r in (data["pr_watcher"].get("repos") or [])],
     )

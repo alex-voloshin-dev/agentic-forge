@@ -438,6 +438,25 @@ def test_pr_watch_apply_runs_when_enabled(tmp_path: Path, capsys: pytest.Capture
     assert rc == 0 and "fixed 1" in out and pushed == [True]  # the gated live loop ran
 
 
+def test_pr_watch_apply_refuses_fork(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    cfg = tmp_path / ".agentic-forge"
+    cfg.mkdir(parents=True)
+    (cfg / "config.json").write_text('{"pr_watcher": {"enabled": true}}', encoding="utf-8")
+    fork = {"data": {"repository": {"pullRequest": {
+        "number": 7, "mergeable": "MERGEABLE", "headRefName": "f", "baseRefName": "main",
+        "isCrossRepository": True, "reviewThreads": {"nodes": []},
+    }}}}
+    pushed: list[bool] = []
+    rc = pr_watch_cli.main(
+        ["x", "--repo", str(tmp_path), "--owner", "o", "--name", "r", "--pr", "7", "--apply"],
+        fetch=lambda *a, **k: fork,
+        fixer=lambda t: ("fixed", "done"), gh_exec=lambda argv: None,
+        push=lambda: pushed.append(True),
+    )
+    out = capsys.readouterr().out
+    assert rc == 0 and "fork" in out and pushed == []  # fork PRs are refused on the apply path
+
+
 def test_pr_watch_fetch_error_returns_1(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     def boom(*a: object, **k: object) -> dict:
         raise RuntimeError("gh down")
@@ -446,3 +465,31 @@ def test_pr_watch_fetch_error_returns_1(tmp_path: Path, capsys: pytest.CaptureFi
         ["x", "--repo", str(tmp_path), "--owner", "o", "--name", "r", "--pr", "42"], fetch=boom
     )
     assert rc == 1 and "could not fetch" in capsys.readouterr().err  # graceful, no crash
+
+
+# --- pr-watch scheduled action (1b, ADR 0045) --------------------------------
+
+
+def test_pr_watch_job_disabled(tmp_path: Path) -> None:
+    assert "disabled" in run_scheduled._pr_watch(tmp_path)  # off by default
+
+
+def test_pr_watch_job_no_repos(tmp_path: Path) -> None:
+    cfg = tmp_path / ".agentic-forge"
+    cfg.mkdir(parents=True)
+    (cfg / "config.json").write_text('{"pr_watcher": {"enabled": true}}', encoding="utf-8")
+    assert "no repos" in run_scheduled._pr_watch(tmp_path)  # enabled but nothing configured
+
+
+def test_pr_watch_job_runs_live_when_configured(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cfg = tmp_path / ".agentic-forge"
+    cfg.mkdir(parents=True)
+    (cfg / "config.json").write_text(
+        '{"pr_watcher": {"enabled": true, "repos": ["o/r"]}}', encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        run_scheduled, "_run_pr_watch_live", lambda repo, specs: f"ran {len(specs)}"
+    )
+    assert run_scheduled._pr_watch(tmp_path) == "ran 1"  # enabled + repos -> live branch

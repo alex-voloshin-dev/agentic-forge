@@ -25,7 +25,7 @@ architecture before we invest in breadth.
 | 6 | Design & onboarding domains | Built — `ux-design` (ux-spec, specs not pixels) + `repo-onboarding` (analyze a codebase + seed the vault); Tier-1/Tier-2 gated (ADR 0023, [design-onboarding.md](architecture/design-onboarding.md)) |
 | 7 | Guardrails, observability, scheduling (L4) | Built — four guardrail hooks (ADR 0019) + scheduling & observability (ADR 0024): declarative job registry + audit-log digest + cron CI |
 | — | Post-spine increments | Built — increments through ADR 0040 (connectors, Tier-1 mean-rate, domain E2E, cadence persistence, quality-hardening, ultra-review, **eval A/B + token-overhead, review passes, diagnostics channel + review-scan**); see [Post-spine increments](#post-spine-increments-beyond-the-staged-plan) |
-| — | Planned increments | settings/config (0041), external reviewer/codex (0042), multi-model tiers (0043), **PR watcher core (0044)** all **built**; PR-watcher scheduled "which-PRs" wiring + live validation (1b) remain — see [Planned increments](#planned-increments-not-yet-built) |
+| — | Planned increments | settings/config (0041), external reviewer/codex (0042), multi-model tiers (0043), **PR watcher core (0044) + 1b (0045)** all **built**; only the PR-watcher manual real-PR validation remains — see [Planned increments](#planned-increments-not-yet-built) |
 
 ---
 
@@ -326,9 +326,10 @@ the largest, which composes connectors + the fix loop + outward actions).
 
 > **Status:** all four are **built, reviewed, and gated** (each ADR + Tier-0 + an adversarial review
 > pass): 3 (settings, ADR 0041), 2 (external reviewer / codex, ADR 0042), 4 (multi-model tiers, ADR
-> 0043), and 1 (PR watcher **core**, ADR 0044 — autonomy: auto-fix + push, opt-in). **Remaining for
-> the PR watcher (1b):** wiring the scheduled `pr-watch` job's "which PRs to watch" and live
-> end-to-end validation on a real PR (the deterministic core + the CLI ship now).
+> 0043), and 1 (PR watcher — **core** ADR 0044 + **1b** ADR 0045, autonomy: auto-fix + push, opt-in).
+> **1b** wired the scheduled `pr-watch` job over `pr_watcher.repos`, mechanical conflict resolution
+> (merge base into the branch — no force-push), and a documented live-validation runbook; the only
+> open item is the **manual** real-PR validation (needs `gh` auth + a throwaway PR).
 
 ### 1 — PR watcher (monitor a GitHub PR, fix loop)
 
