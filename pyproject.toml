@@ -64,9 +64,10 @@ module = ["anthropic"]
 ignore_missing_imports = true
 
 [tool.coverage.run]
-# Gate the dev/ eval runners too, not just the library — their aggregation/exit-code logic
-# decides ship/no-ship and must not regress uncovered (ultra-review MAJOR).
-source = ["agentic_forge", "dev"]
+# Gate the dev/ eval runners AND the guardrail hooks too, not just the library — their
+# aggregation/exit-code and block/allow logic decides ship/no-ship and must not regress
+# uncovered (ultra-review MAJOR; hooks added in the review-pass hardening).
+source = ["agentic_forge", "dev", "plugin/hooks/scripts"]
 # Branch coverage: line-only 100% hid weakened-branch regressions (a `>`/`>=` flip survived the
 # suite). Branch mode forces both arms of each conditional to be exercised.
 branch = true

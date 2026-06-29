@@ -6,6 +6,35 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Fixed — fresh-eyes review pass: documentation-drift sync + eval/coverage hardening
+
+A repo-wide review (integrity, consistency, contradictions, duplication, doc coverage) found the
+authoritative docs correct but the navigational/summary layer lagging shipped features, plus a few
+low-severity hardening items. No behaviour change to existing flows; Tier-0 stays green (coverage
+97.99%, suite all-pass).
+
+- **ADR index** — `docs/architecture/decisions/README.md` was frozen at 0035; appended the 13
+  missing rows (0036–0048), including PR-watcher / model-routing / version-A-B / Ralph.
+- **"deferred" → "built" drift** — the Ralph loop (ADR 0048) and version-over-version A/B (ADR
+  0047) shipped, but `overview.md`, `vision.md`, and the `docs/README.md` glossary still called
+  them deferred; corrected to match the ADRs / engine.md / roadmap / CLAUDE.md.
+- **Stale CLI/role lists** — added `dev/ralph.py` to the `CLAUDE.md` repo-layout block; refreshed
+  the `meta-core.md` `dev/` list (7 → 12); noted the full six-role engine roster (+
+  `security-engineer`, `qa-engineer`, and that `grader` is eval-harness-only) in `engine.md`.
+- **Tier-2 scope** — surfaced the existing policy (the SDLC-spine skills carry only Tier-1; their
+  quality comes from the delegated roles' Tier-2 + the Tier-3 spine scenario — already detailed in
+  eval-runbook.md) in `CLAUDE.md §4`, so it no longer reads as a coverage gap.
+- **Handoff filenames** — `patterns/handoff.md` now states the `<type>.md` naming convention
+  explicitly, so any artifact's on-disk name is predictable from its type.
+- **Coverage floor** — `plugin/hooks/scripts` is now in the gated coverage `source` (pyproject), so
+  a hook regression below 80% fails Tier-0 (the hooks sit at 84–94% today).
+- **Eval-CLI dedup** — the duplicated transport construction in `run_agent_evals` /
+  `run_skill_evals` is folded into one `_eval_cli.build_runners(...)`; the per-CLI `_build_runners`
+  remain thin, tested adapters. The three eval CLIs make their `dev/` `sys.path` bootstrap explicit.
+- **Routing guard** — added reciprocal `should_not_trigger` cases pinning the `deep-review` ↔
+  `security-review` "deep audit of a module" boundary (Tier-0/dry green; confirm recall/specificity
+  at the next live Tier-1 run — it is opt-in / cost-gated, not on the always-on path).
+
 ### Added — Ralph loop: bounded autonomous iteration (engine, ADR 0048)
 
 Closes the L1-deferred **Ralph loop** engine pattern: re-run a fresh-context executor against a

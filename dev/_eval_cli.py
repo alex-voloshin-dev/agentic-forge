@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import Any, Protocol
 
-from agentic_forge import benchmark, diagnostics, gate
+from agentic_forge import agent_eval, benchmark, diagnostics, gate
 
 _API_KEY_WARNING = (
     "warning: ANTHROPIC_API_KEY is set; the claude CLI uses it before the subscription token. "
@@ -20,6 +20,29 @@ def warn_if_api_key_set(runner: str) -> None:
     takes precedence over the subscription token, so the run would bill per token."""
     if runner == "claude" and os.environ.get("ANTHROPIC_API_KEY"):
         print(_API_KEY_WARNING, file=sys.stderr)
+
+
+def build_runners(
+    runner: str, *, allowed_tools: str, model: str
+) -> tuple[agent_eval.Runner, agent_eval.Runner]:
+    """Build (component_runner, grader_runner) for the chosen transport — the one construction
+    site shared by the agent and skill Tier-2 CLIs. `claude` keeps the component run and the
+    grading on the `claude` CLI (subscription auth, no API key), giving the grader read-only tools
+    and a generous turn cap so it can verify on-disk artifacts (level-2) without ever modifying
+    them; `api` uses the Anthropic Messages SDK for both (per-token billing). The caller resolves
+    `allowed_tools` (a role's or skill's tools) before delegating here."""
+    if runner == "api":
+        api = agent_eval.api_runner(model)
+        return api, api
+    if runner == "claude":
+        component_fn = agent_eval.claude_cli_runner(
+            allowed_tools=allowed_tools, model=model, max_turns=40
+        )
+        grader_fn = agent_eval.claude_cli_runner(
+            allowed_tools="Read,Grep,Glob", model=model, max_turns=20
+        )
+        return component_fn, grader_fn
+    raise ValueError(f"unknown runner {runner!r}")
 
 
 def record_failure(

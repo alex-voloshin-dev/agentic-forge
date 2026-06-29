@@ -42,7 +42,10 @@ This file is the project constitution. Every contributor (human or agent) MUST f
      lint, body <= 500 lines, references resolve, `pytest` green, `ruff` + `mypy` clean,
      script coverage >= 80%.
    - Tier 1 (trigger): should-trigger recall >= 0.9, should-not-trigger specificity >= 0.9.
-   - Tier 2 (quality, LLM-judge, N >= 5 runs): (mean - sigma) pass-rate >= 0.8. The opt-in
+   - Tier 2 (quality, LLM-judge, N >= 5 runs): (mean - sigma) pass-rate >= 0.8. Tier-2 is
+     declared by self-contained skills and all six roles; the SDLC-spine skills carry only
+     Tier-1 and inherit quality from their delegated roles' Tier-2 plus the Tier-3 spine
+     scenario (ADR 0017; see eval-runbook.md). The opt-in
      `--baseline` skill run also gates the with/without A/B pass-rate lift (`min_lift`), the
      (`max_overhead_seconds`), and the token overhead (`max_overhead_tokens`). Version-over-version
      A/B (a cross-version regression vs a stored benchmark history, gated by `max_regression`) is
@@ -80,7 +83,7 @@ plugin/
   eval/{README.md, fixtures/}             # harness docs + agent eval fixtures
   schemas/                  # JSON Schema for evals.json + contract
 tests/                      # pytest for lib + hooks + harness
-dev/{validate.py, run_agent_evals.py, run_skill_evals.py, run_tier1_evals.py, run_spine_e2e.py, run_scheduled.py, audit_digest.py, diagnostics_digest.py, external_review.py, pr_watch.py, sync_models.py}  # Tier 0/1/2/3 gates + scheduling/observability/diagnostics + external-review + PR-watcher + model-routing CLIs
+dev/{validate.py, run_agent_evals.py, run_skill_evals.py, run_tier1_evals.py, run_spine_e2e.py, run_scheduled.py, audit_digest.py, diagnostics_digest.py, external_review.py, pr_watch.py, ralph.py, sync_models.py}  # Tier 0/1/2/3 gates + scheduling/observability/diagnostics + external-review + PR-watcher + Ralph-loop + model-routing CLIs
 docs/                       # product vision, architecture, ADRs, roadmap
 CHANGELOG.md                # what changed, by milestone
 ```

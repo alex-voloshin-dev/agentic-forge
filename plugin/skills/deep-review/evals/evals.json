@@ -61,7 +61,8 @@
       "Run the app and screenshot it",
       "What does this function do?",
       "Write a function to parse dates",
-      "Quick lint of this one-line change"
+      "Quick lint of this one-line change",
+      "Audit this module for security vulnerabilities"
     ]
   }
 }

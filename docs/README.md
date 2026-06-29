@@ -60,7 +60,7 @@ see the [eval runbook](eval-runbook.md) and the [eval harness](../plugin/eval/RE
   name+description listing may occupy; overflow drops descriptions and degrades auto-loading.
 - **Progressive disclosure** — depth lives in `references/` loaded on demand, not in the
   always-on listing.
-- **Ralph loop** *(deferred)* — a bounded, self-restarting agent loop for long autonomous tasks.
+- **Ralph loop** — a bounded, self-restarting agent loop for long autonomous tasks (built; ADR 0048).
 - **MOC (map-of-content)** — an index note linking related knowledge-base notes, used for
   navigation instead of folders (knowledge base, Stage 3).
 - **Fidelity level (agent evals)** — level-1 judges a role's text output (no tools); level-2

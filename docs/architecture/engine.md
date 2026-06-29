@@ -38,6 +38,11 @@ Why these and not more: `reviewer` and `grader` are needed almost everywhere (re
 self-review, Tier-2 grading) and benefit from a clean context. `software-engineer` needs a full
 write toolset and worktree isolation. `architect` benefits from a design-focused prompt.
 Researcher/planner are well covered by `Explore`/`Plan`, so we do not duplicate them.
+`grader` is the one role no workflow skill delegates to — it is invoked only by the eval harness
+(`run_agent_evals` / `run_skill_evals`) for Tier-2 grading. Stage 2 adds two more specialists the
+phase-workflows fan out to — `security-engineer` (security lens; `Read, Grep, Glob, Bash(git
+diff:*)`) and `qa-engineer` (tests; `Read, Write, Edit, Bash, Grep, Glob`); see [spine.md](spine.md)
+— for a six-role roster.
 
 ## Handoff artifact model
 

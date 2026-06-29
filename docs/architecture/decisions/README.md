@@ -41,3 +41,16 @@ edit.
 | [0033](0033-knowledge-recall-in-spine.md) | Knowledge recall in the spine phases (read the vault to enrich context) | Accepted (implemented) |
 | [0034](0034-develop-parallelism.md) | develop parallelism: independent plan tasks across worktrees (tested `plan_batches`) | Accepted (implemented) |
 | [0035](0035-ultra-review-hardening.md) | Ultra-review hardening: fail vacuous eval tiers, gate `dev/` coverage, per-segment deny-list + broader redaction, constitution matches code | Accepted (implemented) |
+| [0036](0036-tier2-ab-overhead-wiring.md) | Tier-2 A/B + overhead wiring: `--baseline` with/without pass-rate lift + wall-clock overhead gates | Accepted (implemented) |
+| [0037](0037-review-passes-for-artifact-writers.md) | Review/skeptic passes for artifact-writer workflows (product, marketing, ux-design); loop-reference symmetry | Accepted (implemented) |
+| [0038](0038-token-overhead-wiring.md) | Token-overhead gate wired into the Tier-2 A/B (`max_overhead_tokens`) (extends 0036) | Accepted (implemented) |
+| [0039](0039-diagnostics-channel.md) | Opt-in self-diagnostics channel: errors/denials/anomalies → `diagnostics.jsonl` + digest | Accepted (implemented) |
+| [0040](0040-review-loop-non-convergence-scan.md) | Review-loop non-convergence scan: detect loops that never converge and escalate | Accepted (implemented) |
+| [0041](0041-plugin-settings.md) | Plugin settings: configurable behavior via `settings` + `config.schema.json` | Accepted (implemented) |
+| [0042](0042-external-reviewer.md) | External reviewer seam (codex) for an independent review pass | Accepted (implemented) |
+| [0043](0043-multi-model-tiers.md) | Multi-model tiers: per-role model policy (`models.py`) | Accepted (implemented; routing wired by 0046) |
+| [0044](0044-pr-watcher.md) | PR watcher: monitor a GitHub PR + bounded auto-fix loop | Accepted (implemented) |
+| [0045](0045-pr-watcher-1b.md) | PR watcher 1b: scheduled job over repos + mechanical conflict resolution (extends 0044) | Accepted (implemented) |
+| [0046](0046-runtime-model-routing.md) | Runtime model routing: the validated tier reaches live `Task` delegation (wires 0043) | Accepted (implemented) |
+| [0047](0047-version-over-version-ab.md) | Version-over-version A/B: stored benchmark history + regression gate (`max_regression`) | Accepted (implemented) |
+| [0048](0048-ralph-loop.md) | Ralph loop: bounded autonomous iteration (engine core `lib/ralph.py` + driver `dev/ralph.py`) | Accepted (implemented) |

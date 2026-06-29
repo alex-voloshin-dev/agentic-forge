@@ -33,7 +33,7 @@ Three commitments, each a direct answer to a problem above:
 - **Standard-native.** Every skill conforms to the [Agent Skills](https://agentskills.io)
   open standard and uses Claude Code primitives (subagents, plan mode, worktrees, and review
   loops) directly, so the plugin is portable in form and powerful in practice. (A Ralph
-  loop — a self-restarting autonomous loop — is designed-for but deferred; see the overview.)
+  loop — a self-restarting autonomous loop — is also built; see the overview and ADR 0048.)
 
 A self-maintained, human-readable (Obsidian) **knowledge base** in the target repo ties it
 together: workflows write to it, and read from it to enrich their context over time.

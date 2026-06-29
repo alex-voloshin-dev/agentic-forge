@@ -32,6 +32,7 @@ from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO_ROOT / "plugin" / "lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # dev/ — for the _eval_cli sibling
 
 import _eval_cli  # noqa: E402
 from agentic_forge import agent_eval, models, settings, skill_eval  # noqa: E402
@@ -40,24 +41,12 @@ from agentic_forge import agent_eval, models, settings, skill_eval  # noqa: E402
 def _build_runners(
     runner: str, skill: str, plugin_dir: Path, model: str
 ) -> tuple[agent_eval.Runner, agent_eval.Runner]:
-    """Return (skill_runner, grader_runner) for the chosen transport.
-
-    The skill runner gets the executing component's tools (the software-engineer's for a
-    knowledge skill, the skill's own otherwise); the grader is read-only so it can verify
-    on-disk artifacts (level-2) without ever modifying them.
-    """
-    if runner == "api":
-        api = agent_eval.api_runner(model)
-        return api, api
-    if runner == "claude":
-        run_fn = agent_eval.claude_cli_runner(
-            allowed_tools=skill_eval.skill_tools(plugin_dir, skill), model=model, max_turns=40
-        )
-        grader_fn = agent_eval.claude_cli_runner(
-            allowed_tools="Read,Grep,Glob", model=model, max_turns=20
-        )
-        return run_fn, grader_fn
-    raise ValueError(f"unknown runner {runner!r}")
+    """Build (skill_runner, grader_runner): resolve the executing component's tools (the
+    software-engineer's for a knowledge skill, the skill's own otherwise), then delegate to the
+    shared transport core in `_eval_cli` (one construction site for both runners)."""
+    return _eval_cli.build_runners(
+        runner, allowed_tools=skill_eval.skill_tools(plugin_dir, skill), model=model
+    )
 
 
 def main(argv: list[str]) -> int:

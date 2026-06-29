@@ -42,7 +42,8 @@
     "should_not_trigger": [
       "Review this diff for correctness and style before merge",
       "Implement the authentication flow",
-      "Cut a release and write the changelog"
+      "Cut a release and write the changelog",
+      "Do a deep, thorough audit of this design for contradictions, gaps, and risks"
     ]
   }
 }

@@ -27,6 +27,7 @@ from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO_ROOT / "plugin" / "lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # dev/ — for the _eval_cli sibling
 
 import _eval_cli  # noqa: E402
 from agentic_forge import agent_eval, models, settings, tier1_runner  # noqa: E402

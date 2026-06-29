@@ -27,6 +27,7 @@ from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO_ROOT / "plugin" / "lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # dev/ — for the _eval_cli sibling
 
 import _eval_cli  # noqa: E402
 from agentic_forge import agent_eval, models, settings  # noqa: E402
@@ -41,26 +42,11 @@ def _role_tools(plugin_dir: Path, role: str) -> str:
 def _build_runners(
     runner: str, role: str, plugin_dir: Path, model: str
 ) -> tuple[agent_eval.Runner, agent_eval.Runner]:
-    """Return (role_runner, grader_runner) for the chosen transport.
-
-    `claude` keeps everything (role and grading) on the `claude` CLI so the whole run uses
-    your Claude subscription with no API key; the grader gets no tools and a single turn.
-    `api` uses the Anthropic Messages SDK for both (per-token billing).
-    """
-    if runner == "api":
-        api = agent_eval.api_runner(model)
-        return api, api
-    if runner == "claude":
-        role_fn = agent_eval.claude_cli_runner(
-            allowed_tools=_role_tools(plugin_dir, role), model=model, max_turns=40
-        )
-        # Grader: read-only tools so it can verify on-disk artifacts (level-2) without ever
-        # modifying them; generous turns so reading several files never hits the limit.
-        grader_fn = agent_eval.claude_cli_runner(
-            allowed_tools="Read,Grep,Glob", model=model, max_turns=20
-        )
-        return role_fn, grader_fn
-    raise ValueError(f"unknown runner {runner!r}")
+    """Build (role_runner, grader_runner): resolve the role's tools, then delegate to the shared
+    transport core in `_eval_cli` (one construction site for both the agent and skill runners)."""
+    return _eval_cli.build_runners(
+        runner, allowed_tools=_role_tools(plugin_dir, role), model=model
+    )
 
 
 def main(argv: list[str]) -> int:

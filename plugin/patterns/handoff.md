@@ -50,7 +50,8 @@ named built-in agent (`Explore`/`Plan`) or engine role(s).
 ## Producing an artifact
 
 Write the header first, then the body. Set `type` to the exact id above and `feature` to the
-slug. Use list fields for anything the next phase iterates over; keep prose in the body.
+slug — the file itself is named `<type>.md` (e.g. `incident.md`, `deploy-status.md`), so any
+artifact's on-disk name follows from its type. Use list fields for anything the next phase iterates over; keep prose in the body.
 Validate before committing — a malformed header breaks the consumer.
 
 ## Consuming an artifact
