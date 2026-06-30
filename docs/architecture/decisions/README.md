@@ -56,3 +56,4 @@ edit.
 | [0048](0048-ralph-loop.md) | Ralph loop: bounded autonomous iteration (engine core `lib/ralph.py` + driver `dev/ralph.py`) | Accepted (implemented) |
 | [0049](0049-user-level-config.md) | User-level (cross-project) config layer `~/.agentic-forge/config.json`; precedence defaults < user < repo < env (extends 0041) | Accepted (implemented) |
 | [0050](0050-hook-import-safety.md) | Guardrail hooks import on a stdlib-only, version-robust path (lazy jsonschema/PyYAML, `timezone.utc`); upholds 0019 | Accepted (implemented) |
+| [0051](0051-github-server-side-gating-and-mcp-boundary.md) | GitHub: server-side gating (Actions + rulesets) + a single per-role MCP access boundary; drop `commit_gate`, move PR-watcher to Claude cron + MCP | Accepted — plan (not yet implemented) |
