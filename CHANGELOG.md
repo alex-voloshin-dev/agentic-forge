@@ -11,9 +11,11 @@ versioning once it has a public surface.
 Recorded the target architecture for GitHub integration as a planning ADR (no code changed yet):
 move gating from the local `commit_gate` hook to server-side enforcement (the `ci.yml` Tier-0 check
 + the `master` ruleset), funnel the model's GitHub access through one GitHub MCP boundary scoped
-per agent role (`tools:` frontmatter + `settings.json`), and replace the Python PR-watcher with a
-Claude scheduled agent that uses MCP under a read+comment-only tool-allowlist (re-establishing the
-never-merge/never-force invariant at the access layer). The `security.py` destructive-command
+per agent role (`tools:` frontmatter + `settings.json`), and move the PR-watcher onto MCP via a
+**privilege-separated** design (triage MCP-read → sandboxed fixer → narrow MCP-write executor) so the
+untrusted-reader never holds write power; the never-merge/never-force invariant is held by three
+independent barriers (tool-allowlist, least-privilege split tokens, the server ruleset) with a
+bounded blast radius. Includes a Security model (threat → barrier) section. The `security.py` destructive-command
 deny-list and the deterministic `release`/`spine_e2e` git seams are explicitly out of scope. The
 ADR supersedes the `commit_gate` half of 0019 and refines 0044/0045/0021; it carries a staged
 implementation plan.
