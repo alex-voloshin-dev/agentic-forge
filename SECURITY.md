@@ -47,3 +47,17 @@ The L4 hooks (security deny-list, test-gate, budgets) are **defence-in-depth, no
 They block clearly-dangerous commands and fail *open* by design (a guardrail bug must never
 break a session — ADR 0019). Do not rely on them as your only protection when running an agent
 against an untrusted repository.
+
+## Contributor trust & automation
+
+Pull requests from people who are **not trusted collaborators** of this repository do **not** run
+CI or any automation until an admin approves them (Actions fork-PR policy
+`all_external_contributors`). An admin must trust a contributor before their PR is processed.
+
+Any **automated PR processing** (e.g. the PR watcher planned in
+[ADR 0051](docs/architecture/decisions/0051-github-server-side-gating-and-mcp-boundary.md)) is by
+design **scoped to trusted repositories only** — a private repo with limited access, or a public
+repo with the above policy plus a trusted-author gate. Do **not** enable automated auto-fix on a
+repository that accepts pull requests or review comments from untrusted parties; a review comment /
+PR branch is otherwise attacker-controlled input. For untrusted/public repos, the deterministic
+(non-agent) Contents-API path (ADR 0051 "Alternative B") is the safer option.
