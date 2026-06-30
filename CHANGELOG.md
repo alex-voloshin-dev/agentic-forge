@@ -6,19 +6,24 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
-### Added — ADR 0051: GitHub server-side gating + a single MCP access boundary (plan)
+### Added — ADR 0051: GitHub server-side gating + a full MCP-only interaction boundary (plan)
 
-Recorded the target architecture for GitHub integration as a planning ADR (no code changed yet):
-move gating from the local `commit_gate` hook to server-side enforcement (the `ci.yml` Tier-0 check
-+ the `master` ruleset), funnel the model's GitHub access through one GitHub MCP boundary scoped
-per agent role (`tools:` frontmatter + `settings.json`), and move the PR-watcher onto MCP via a
-**privilege-separated** design (triage MCP-read → sandboxed fixer → narrow MCP-write executor) so the
-untrusted-reader never holds write power; the never-merge/never-force invariant is held by three
-independent barriers (tool-allowlist, least-privilege split tokens, the server ruleset) with a
-bounded blast radius. Includes a Security model (threat → barrier) section. The `security.py` destructive-command
-deny-list and the deterministic `release`/`spine_e2e` git seams are explicitly out of scope. The
-ADR supersedes the `commit_gate` half of 0019 and refines 0044/0045/0021; it carries a staged
-implementation plan.
+Recorded the target architecture for GitHub integration as a planning ADR (no code changed yet) and
+hardened it through a three-lens review (MCP-capability + ADR-consistency + adversarial-security).
+Move gating from the local `commit_gate` hook to server-side enforcement (the `ci.yml` Tier-0 check +
+the `master` ruleset), and route **all** model-layer GitHub interaction through GitHub MCP, per-role
+**deny-by-default**. The capability lens established that `push_files`/`update_pull_request_branch`
+(Contents API) make server-side commits possible, so the PR-watcher needs **no `git push`** — full
+MCP-only is reachable except a true 3-way merge conflict (handled by an idempotent rebase-request
+comment, not local git). The watcher is a privilege-separated design — triage (single-PR MCP read) →
+sandboxed fixer → narrow MCP-write executor — behind a **deterministic Python frame** that owns every
+invariant. The security lens drove key hardening now baked in: closed-template replies (no
+attacker-derived prose reaches a comment), Python-authoritative resolvable thread-ids, a deterministic
+pre-push diff-guard (rejects `.github/`/hooks/CODEOWNERS/lockfiles), a deny-by-default 4-tool allowlist
+with auto-merge verified off, single-PR-scoped triage read, and forced per-write diagnostics audit.
+New agent roles (triage/executor) carry Tier-2 + contracts; the safety-critical logic stays tested
+Python. Supersedes the `commit_gate`/test-gate half of 0019; refines 0044/0045/0021. Carries a staged
+plan + open questions (fixer working copy, token rotation, rate limits, bot identity).
 
 ### Added — community-health files (public-release prep)
 
