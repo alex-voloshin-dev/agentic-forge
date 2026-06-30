@@ -47,8 +47,13 @@ to GitHub, and has no repo-settings equivalent.
 
 ### 2. GitHub MCP is the model's only GitHub surface, gated per role, deny-by-default
 
-Register the **remote** GitHub MCP server (`https://api.githubcopilot.com/mcp/`) via `.mcp.json`.
-All model-facing GitHub work goes through `mcp__github__*` tools — **no `gh`/`git` Bash for GitHub**.
+The GitHub MCP server config **ships with the plugin** — a committed, plugin-scoped `.mcp.json`
+(the plugin's MCP config; alternatively the `mcpServers` field of `.claude-plugin/plugin.json`)
+declaring the **remote** server (`https://api.githubcopilot.com/mcp/`). So installing agentic-forge
+registers the server; the user does not hand-write it. **Only the non-secret server declaration is
+committed** — the token/OAuth is resolved locally from an env var / the OAuth flow and is **never**
+in the committed file (safe in a public repo). All model-facing GitHub work goes through
+`mcp__github__*` tools — **no `gh`/`git` Bash for GitHub**.
 
 **Auth splits by layer** (a deliberate consequence, not an oversight): the **interactive** layer
 (a developer session, the per-role access here) uses **OAuth** — browser login, nothing stored. The
@@ -192,7 +197,8 @@ Going agent-driven adds two agent roles, which CLAUDE.md §4 / ADR 0017 require 
 - Gating is **server-authoritative** (feedback moves pre-push → post-push; the ruleset blocks any red
   merge to `master`).
 - New surface to gate: two agent roles (Tier-2), a deterministic diff-guard + reply-templater +
-  allowlist check (Tier-0), and a pinned MCP server + least-privilege token.
+  allowlist check (Tier-0), a pinned MCP server + least-privilege token, and the **plugin-shipped MCP
+  config** — committed (server declaration only) and Tier-0-checked to carry **no literal secret**.
 - New dependencies/failure modes: the remote MCP endpoint + auth (OAuth interactive; a fine-grained
   cron PAT whose rotation/expiry must be provisioned — P3-10); **API rate limits** for hourly polling
   across all open PRs (back off / cap). Bot-identity coherence is resolved by the cron PAT's stable
@@ -204,10 +210,13 @@ Going agent-driven adds two agent roles, which CLAUDE.md §4 / ADR 0017 require 
 
 ## Implementation plan (staged — none applied yet)
 
-1. **MCP boundary.** Add `.mcp.json` for the **remote** server (`https://api.githubcopilot.com/mcp/`);
-   pin the server version; verify it connects and lists the four watcher tools. **Auth: OAuth for the
-   interactive layer**; provision a separate non-interactive **fine-grained PAT** (single repo,
-   `pull_requests:write`+`contents:write`, stable bot identity) for the headless cron watcher.
+1. **MCP boundary (ship config in the plugin).** Add the committed plugin-scoped `.mcp.json` (or the
+   `mcpServers` field in `.claude-plugin/plugin.json`) declaring the **remote** server
+   (`https://api.githubcopilot.com/mcp/`) with the **token from an env var, never committed**; pin the
+   server version; add a Tier-0 check that the committed config carries **no literal secret**; verify
+   it connects and lists the four watcher tools. **Auth: OAuth for the interactive layer**; provision a
+   separate non-interactive **fine-grained PAT** (single repo, `pull_requests:write`+`contents:write`,
+   stable bot identity) for the headless cron watcher. Document the keys in `docs/configuration.md`.
 2. **Per-role access.** Define each role's GitHub allowlist (`tools:` + `settings.json`), default most
    roles to none, add the **deny-by-default Tier-0 allowlist-shape check**.
 3. **Drop `commit_gate`.** Remove the hook + `commit_gate.py` + tests; update ADR 0019's index note,
