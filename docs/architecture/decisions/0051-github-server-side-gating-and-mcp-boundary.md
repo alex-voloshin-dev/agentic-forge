@@ -47,8 +47,15 @@ to GitHub, and has no repo-settings equivalent.
 
 ### 2. GitHub MCP is the model's only GitHub surface, gated per role, deny-by-default
 
-Register the GitHub MCP server via `.mcp.json`; the token comes from an env var, never committed.
+Register the **remote** GitHub MCP server (`https://api.githubcopilot.com/mcp/`) via `.mcp.json`.
 All model-facing GitHub work goes through `mcp__github__*` tools — **no `gh`/`git` Bash for GitHub**.
+
+**Auth splits by layer** (a deliberate consequence, not an oversight): the **interactive** layer
+(a developer session, the per-role access here) uses **OAuth** — browser login, nothing stored. The
+**headless cron PR-watcher** (part 3) **cannot** use OAuth (no browser), so it uses a non-interactive
+**fine-grained PAT**, single-repo-scoped, posting under a **stable bot identity** (which also satisfies
+the `author≠bot` idempotency skip — closes that open question). Tokens come from env vars, never committed.
+
 Access is scoped **per role**, **deny-by-default**:
 
 - read-only critics (`reviewer`, `security-engineer`) get only specific read tools, never write;
@@ -107,13 +114,13 @@ CLI is purely local VCS, not remote interaction:
 - `spine_e2e.py` — `git init/commit` in throwaway **local** fixture repos (not on GitHub at all).
 - `develop` worktree create/checkout/commit — local working copies.
 
-**Open sub-question (decide at implementation):** the fixer needs a **working copy** to edit/grep
-files well. Obtaining it is a local `git` checkout that *reads* from the remote. Two options — (a)
-keep a local checkout (a git *read*; all writes still MCP-only), or (b) feed the fixer file contents
-via MCP `get_file_contents` and avoid local git entirely (purer MCP-only, but weaker fix quality —
-the agent loses a real tree to grep/navigate). Recommended: (a), framing it as a local-read for the
-working copy while **all GitHub writes are MCP-only**; revisit (b) if a checkout-free fixer proves
-adequate.
+**Fixer working copy (decided):** the fixer edits/greps a **local checkout** — a local `git`
+checkout that *reads* from the remote — because a real working tree gives materially better fix
+quality than feeding file contents one-by-one via MCP `get_file_contents`. This is the single local
+`git` *read* in the GitHub-interaction path; **all GitHub writes remain MCP-only**. So "MCP-only"
+is precise as *all GitHub writes go through MCP*; the working-copy checkout is a local read, not a
+remote write. (The checkout-free MCP `get_file_contents` variant is recorded as a fallback if a
+lighter fixer ever suffices.)
 
 ## Security model (PR watcher on MCP)
 
@@ -186,10 +193,10 @@ Going agent-driven adds two agent roles, which CLAUDE.md §4 / ADR 0017 require 
   merge to `master`).
 - New surface to gate: two agent roles (Tier-2), a deterministic diff-guard + reply-templater +
   allowlist check (Tier-0), and a pinned MCP server + least-privilege token.
-- New dependencies/failure modes: the MCP endpoint + token (rotation/expiry must be provisioned for the
-  headless cron — P3-10); **API rate limits** for hourly polling across all open PRs (back off / cap);
-  **bot-identity coherence** — the `author≠bot` idempotency skip needs the MCP app token to post under a
-  **known, stable identity** (P3-10).
+- New dependencies/failure modes: the remote MCP endpoint + auth (OAuth interactive; a fine-grained
+  cron PAT whose rotation/expiry must be provisioned — P3-10); **API rate limits** for hourly polling
+  across all open PRs (back off / cap). Bot-identity coherence is resolved by the cron PAT's stable
+  identity (part 2), which the `author≠bot` idempotency skip relies on.
 - The local deny-list (`security.py`) and local git seams (`release`, `spine_e2e`, `develop`) are
   explicitly **out of scope** and unchanged.
 - Touches prior ADRs — recorded here, not silently edited: supersedes the `commit_gate`/test-gate half
@@ -197,8 +204,10 @@ Going agent-driven adds two agent roles, which CLAUDE.md §4 / ADR 0017 require 
 
 ## Implementation plan (staged — none applied yet)
 
-1. **MCP boundary.** Add `.mcp.json` (scope per the user's choice) with `Authorization: Bearer
-   ${GITHUB_TOKEN}`; pin the server version; verify it connects and lists the four watcher tools.
+1. **MCP boundary.** Add `.mcp.json` for the **remote** server (`https://api.githubcopilot.com/mcp/`);
+   pin the server version; verify it connects and lists the four watcher tools. **Auth: OAuth for the
+   interactive layer**; provision a separate non-interactive **fine-grained PAT** (single repo,
+   `pull_requests:write`+`contents:write`, stable bot identity) for the headless cron watcher.
 2. **Per-role access.** Define each role's GitHub allowlist (`tools:` + `settings.json`), default most
    roles to none, add the **deny-by-default Tier-0 allowlist-shape check**.
 3. **Drop `commit_gate`.** Remove the hook + `commit_gate.py` + tests; update ADR 0019's index note,
@@ -217,7 +226,10 @@ Each step is its own gated unit of work (validate + pytest + CHANGELOG), per the
 
 ## Open questions
 
-- **Fixer working copy** — local checkout (git read) vs MCP `get_file_contents` (purer, weaker) — part 4.
-- **Token rotation / provisioning** in the headless cron; **rate-limit** strategy for hourly polling.
-- **Bot identity** — a single stable posting identity so the `author≠bot` idempotency skip holds.
+Resolved during review: the **fixer working copy** (local checkout — part 4), **auth** (OAuth
+interactive + a fine-grained PAT for the cron watcher — part 2), and **bot identity** (the cron
+PAT's stable identity — part 2). Remaining, operational, to settle at implementation:
+
+- **Token rotation / provisioning** of the cron PAT in the headless environment.
+- **Rate-limit** strategy for hourly MCP polling across all open PRs in configured repos.
 </content>
