@@ -1,225 +1,242 @@
 # 0051 — GitHub: server-side gating + an MCP-only write boundary (trusted-repo PR watcher)
 
-Status: Accepted — **plan**; implementation staged (no code changed yet). Hardened over **two
-three-lens reviews** (MCP-capability + ADR-consistency + adversarial-security). Chooses **MCP-only
-for GitHub writes** (the model layer), with the PR watcher scoped to **trusted repos** so it never
-processes attacker-controlled input. Supersedes the `commit_gate`/test-gate portion of 0019; refines
-0044 / 0045 (PR watcher) and the GitHub side of 0021. The `security.py` destructive-command deny-list
-of 0019 is **unaffected**.
+Status: Accepted — **plan**; implementation staged (no code changed yet). Hardened over **three**
+three-lens reviews (MCP-capability + ADR-consistency + adversarial-security + feasibility). Chooses
+**MCP-only for GitHub writes** (the model layer), with the PR watcher scoped to **trusted repos**.
+Supersedes the `commit_gate`/test-gate portion of 0019; refines 0044 / 0045 (PR watcher) and the
+GitHub side of 0021. The `security.py` destructive-command deny-list of 0019 is **unaffected**.
 
 ## Context
 
 GitHub is reached from many places, with control split between the local plugin and (until recently)
-nothing on the server: local guardrail hooks (`commit_gate.py`, `security.py`), deterministic library
-seams that shell out to `gh`/`git` (`connectors.py`, `pr_watch.py`, `release.py`, `spine_e2e.py`,
-dev CLIs), and ad-hoc `Bash`.
-
-Three things changed the trade-off. **(1) Server-side protection:** a `master` ruleset now requires
-the `Tier 0 (static gate)` check + a PR before merge, forbids force-push/deletion, enforces linear
-history; and this repo's Actions now **require approval for all external contributors**
-(`all_external_contributors`), so a stranger's PR cannot run CI/automation without an admin first
-trusting them. **(2) GitHub MCP capability:** the server can commit files server-side
-(`push_files`/`create_or_update_file`, Contents API) and update a PR branch
-(`update_pull_request_branch`), so a PR-fix workflow needs **no `git push`** — only a true 3-way
-merge conflict is irreducibly local-git. **(3) Trust model:** the watcher's whole security burden
-comes from treating a review comment / PR branch as attacker-controlled. If the watcher only ever
-runs on **trusted repos** (private, or public-with-`all_external_contributors`, plus a
-trusted-author gate), that input is no longer hostile — which removes the *root cause* of the
-adversarial findings rather than fighting each symptom.
+nothing on the server. Three things changed the trade-off. **(1) Server-side protection:** a `master`
+ruleset (CI-green + PR + no force-push/deletion + linear history), and Actions now **require approval
+for all external contributors** (`all_external_contributors`, set on this repo). **(2) MCP
+capability:** the GitHub MCP server commits server-side (`push_files`, Contents API) and updates a PR
+branch (`update_pull_request_branch`), so the watcher needs **no `git push`** (only a true 3-way
+conflict is local-git, and it is avoided). **(3) Trust model:** the watcher's security burden comes
+from treating a review comment / PR as attacker-controlled. Scoping it to **trusted repos** lowers the
+*likelihood* of a hostile trigger — but, as the third review established, **does not lower the
+required strength of the barriers**: a trusted account can be compromised, and a trusted author's
+*branch content* is still attacker-influenceable. So trust narrows *who can trigger*; the barriers
+stay at full, tested strength regardless.
 
 ## Decision
 
-### 1. Server-side gating is the source of truth; drop `commit_gate`
+### 1. Server-side gating is the merge source of truth; drop `commit_gate`
 
-`ci.yml` + the `master` ruleset are authoritative. `commit_gate.py` is **removed** (it duplicated the
-server gate and, being a `Bash` hook, never fired on the watcher's subprocess pushes). The
-git-specific half of `security.py` is redundant with the ruleset (kept as a thin backstop). The
-**destructive-command deny-list** is **retained unchanged** (local-machine protection, orthogonal to
-GitHub).
+`ci.yml` + the `master` ruleset are authoritative **for merge**. `commit_gate.py` is **removed** (it
+duplicated the server gate and, as a `Bash` hook, never fired on subprocess pushes). The git-specific
+half of `security.py` is redundant with the ruleset (thin backstop). The **destructive-command
+deny-list** is **retained unchanged** (local-machine protection).
 
 ### 2. GitHub MCP is the model's only GitHub-write surface, gated per role, deny-by-default
 
-The MCP server config **ships with the plugin** — a committed, plugin-scoped declaration (a plugin
-`.mcp.json` or the `mcpServers` field of `.claude-plugin/plugin.json`) of the **remote** server
-(`https://api.githubcopilot.com/mcp/`). **Only the non-secret server declaration is committed**; the
-token/OAuth is resolved locally (env var / OAuth), never committed — a Tier-0 check asserts the
-committed config carries no literal secret. *("MCP-only" means all GitHub **writes** go through MCP;
-a local-checkout **read** for the fixer's working copy is still local git — see part 4.)*
+The MCP server config **ships with the plugin** — a committed, plugin-scoped declaration (plugin
+`.mcp.json` or `mcpServers` in `.claude-plugin/plugin.json`) of the **remote** server. **Only the
+non-secret declaration is committed**; the token is resolved locally (env var / OAuth), never
+committed — a Tier-0 check asserts no literal secret in the config. *("MCP-only" = all GitHub
+**writes** go through MCP; the fixer's working-copy **read** is local git — part 4.)* Plugin-shipped
+MCP tools are named `mcp__plugin_<plugin>_<server>__<tool>`; the allowlists/matchers below use the
+real, pinned ids (finalized after the step-1 spike).
 
-Access is **deny-by-default, per role**: most roles get **no** GitHub tools; read-only critics get
-specific read tools; a Tier-0 check asserts each role's tool set is **exactly** an expected allowlist
-(a blocklist would silently re-arm on a server version bump — H3); the MCP server version is pinned.
-The **default/un-roled interactive session** is covered by the same allowlist gate (it is not an
-escape hatch).
+Access is **deny-by-default, per role** (`tools:` frontmatter / `settings.json`, statically
+inspectable): most roles get **no** GitHub tools; a Tier-0 check asserts each role's set is **exactly**
+its expected allowlist (incl. the **default/un-roled interactive session** — not an escape hatch); the
+server version is pinned.
 
-### 3. PR watcher → full-MCP, privilege-separated, **trusted-repo-scoped**
+### 3. PR watcher → full-MCP, privilege-separated, trusted-repo-scoped
 
-**Trust precondition (the primary control).** Auto-fix runs **only** on trusted repos: private repos
-with limited access (documented requirement), or public repos with `all_external_contributors`
-approval (this repo). A **deterministic author gate in `pr_triage.py`** enforces it in code: a thread
-is actionable only if its author is a trusted collaborator (membership checked via the GitHub API);
-PRs are same-repo-only (0045) and may additionally require the PR author to be trusted. So the
-watcher **never processes attacker-controlled input** — which is what neutralises the adversarial
-findings (see Security model). The barriers below are then **defence-in-depth** (against accident or a
-compromised trusted account), not the sole guard.
+**Trust precondition — narrows the trigger, not the barriers.** Auto-fix runs only on trusted repos
+(private with limited access — documented; or public with `all_external_contributors`). A
+deterministic author gate in `pr_triage.py` enforces it in code, and it **fails closed**: it calls the
+**repo collaborator-permission endpoint** (`GET /repos/{o}/{r}/collaborators/{user}/permission`,
+needs `metadata:read`) and treats a thread as actionable only if the author's permission is **≥
+write**; **any** non-200 / timeout / rate-limit / unknown ⇒ author treated as **untrusted, thread
+skipped** (so an attacker cannot induce a rate-limit to fail the gate open). Positive memberships may
+be cached briefly; a cache miss never promotes to trusted. Same-repo-only (0045) is retained;
+bot/app authors that are not the watcher's own bot are treated as untrusted. Fail-closed + the write
+floor are **Tier-0-tested invariants**, not implementation details.
 
-**Control-flow (the crux, resolved honestly).** Python cannot invoke MCP tools — they are
-model-invocable. So the **headless agent session orchestrates** (it issues the MCP calls), and a
-**deterministic PreToolUse hook enforces the write-argument invariants** — the same mechanism as
-`security.py` on Bash, with a matcher on the `mcp__github__*` write tools. The hook reads the
-frame's authoritative state and **blocks (exit 2)** any write whose arguments fall outside it. This
-is what makes C1/C2 machine-enforced rather than "trust the model": the agent *proposes* the call;
-the hook *is* the gate.
+**Branch content stays untrusted even from a trusted author.** Commit authorship is forgeable and a
+trusted author can carry a stranger's commits, so the *files and commit messages* the fixer reads are
+still attacker-influenceable. The input-side defences therefore stay at **full strength** (not
+downgraded): the fixer runs **no-Bash / no-network**, with its untrusted-input prompt frame (0045).
+
+**Control-flow (resolved, fail-closed).** Python cannot invoke MCP, so the headless **agent
+orchestrates** the MCP calls and a **PreToolUse hook is the deterministic gate** on every
+`mcp__github__*` write. Because Claude Code hooks **fail open by default** (feasibility), this hook is
+an **explicit fail-closed exception**: it blocks (deny / exit 2) on any validation failure **and on
+its own error/timeout**, and a **`settings.json` permission rule is the backstop** (a crashed hook
+still can't widen the tool set). The matcher is the **prefix `mcp__github__*` with default-deny** — any
+GitHub MCP write tool the hook doesn't explicitly recognise-and-validate is **blocked** (so a server
+version bump exposing `create_or_update_file`/`merge_pull_request`/`delete_ref`/… cannot slip through
+unvalidated). The hook reads its authoritative state from a channel **the agent cannot write** (a
+launcher-set env var / a path outside every agent-writable root), or re-fetches targets from GitHub;
+the **executor role has no Write/Edit**.
 
 **Three roles behind a deterministic frame** (`pr_triage.py`, tested Python, owns every invariant):
 
-- **Triage (MCP read).** Reads the PR under processing. Read-tool args (`number`, `owner`, `repo`)
-  are **frame-pinned** (post-validated), since the repo-scoped token does not by itself pin reads to
-  one PR (cross-cutting finding). Proposes classifications; the **frame**, not the model, computes the
-  actionable set and the resolvable thread-id set (C2).
-- **Fixer (sandbox, from 0044/0045).** No MCP, no Bash, no network — Read/Write/Edit/Grep/Glob over a
-  local checkout. The frame's local git ops on that checkout (`checkout`/`add`/`commit`/`diff`) all
-  set **`core.hooksPath=/dev/null`** so hostile *tracked* hooks in the branch cannot run (0045,
-  restated for the new path — Sec-6). The frame then runs a **default-deny diff-guard**: an
-  **allowlist** of permitted path globs (the fix's scoped source dirs); everything else — `.github/`,
-  hooks, `CODEOWNERS`, lockfiles, `conftest.py`, build/CI files (`Makefile`, `Dockerfile`,
-  `package.json`, `pyproject.toml`, `.mcp.json`, `.claude-plugin/`, `plugin.json`, `.claude/`,
-  `.git/`) — is **rejected** (Sec-2/Sec-3B). Enumerating "sensitive" globs is unwinnable; default-deny
-  is the only safe shape.
+- **Triage (MCP read).** Reads the PR under processing; read-tool args (`number`/`owner`/`repo`) are
+  **frame-pinned** (post-validated), since the token doesn't pin reads to one PR. Proposes
+  classifications; the **frame** computes the actionable set and the resolvable thread-id set (C2).
+- **Fixer (sandbox, from 0044/0045).** No-MCP / no-Bash / no-network, Read/Write/Edit/Grep/Glob over a
+  local checkout. **Config isolation:** the fixer runs with a **project root outside the checkout** so
+  the checkout's `CLAUDE.md`, `.claude/settings.json`, `.claude/` hooks/agents, and skills are **never
+  auto-loaded** (`--strict-mcp-config` alone covers only `.mcp.json`); the checkout is a read-only data
+  path. Tier-0 asserts these surfaces don't load. Every frame git op on the checkout sets
+  **`core.hooksPath=/dev/null`** (0045 — hostile tracked hooks).
+- **Diff-guard (frame-computed, default-deny, deny-wins).** The **frame** — never the comment or the
+  agent — computes the allowed set from the PR's **pre-existing changed-file set** intersected with a
+  **static** safe-dir policy, and applies a **hard denylist that beats any allow**: `.github/`, git
+  hooks, `CODEOWNERS`, lockfiles, `conftest.py`, build/CI files (`Makefile`/`Dockerfile`/`package.json`/
+  `pyproject.toml`/`tox.ini`/…), `.mcp.json`, `.claude/`, `.claude-plugin/`, `plugin.json`, `.git/`.
+  A staged diff touching anything outside the allow-set or inside the deny-set is **rejected**; file
+  count is capped. Tier-0-and-unit-tested unconditionally (full strength regardless of trust).
 - **Executor (narrow MCP write).** Allowlist is **exactly** `{push_files, update_pull_request_branch,
-  add_comment, resolve_thread}` (Tier-0-asserted). **Every field of every write tool** is a
-  frame-supplied validated token, never model prose (C1 + Sec-1): reply bodies are closed templates
-  (`fixed` → `"Addressed in {sha}."`, `sha` matched `^[0-9a-f]{7,40}$`; `rejected`/`conflict` →
-  canned); the `push_files` **commit message** is likewise a closed template (no `thread.path`
-  interpolation); `owner`/`repo`/`branch` are **frame-authoritative** (the validated `headRefName`),
-  never agent-chosen, so a write cannot target `gh-pages`/release branches (Sec-4). The PreToolUse
-  hook re-checks all of this. The fix commits via `push_files` (no `git push`); a behind branch
-  updates via `update_pull_request_branch`. A **true 3-way conflict** is not resolved (no server-side
-  merge) — the frame posts the idempotent `CONFLICT_NOTICE` once and stops.
+  add_comment, resolve_thread}` (Tier-0-asserted; matcher default-deny above). **Every field of every
+  write tool** is a frame-supplied validated token, never model prose (C1 + Sec-1): reply bodies are
+  closed templates (`fixed` → `"Addressed in {sha}."`, `sha` `^[0-9a-f]{7,40}$`; else canned); the
+  `push_files` **commit message** is a closed template (no `thread.path`); `owner`/`repo`/`branch` are
+  **frame-authoritative** (validated `headRefName`), never agent-chosen (Sec-4). The fail-closed hook
+  re-checks all of it. The fix commits via `push_files` (no `git push`); a behind branch updates via
+  `update_pull_request_branch`; a **true 3-way conflict** is not resolved — the frame posts the
+  idempotent `CONFLICT_NOTICE` once and stops.
 
-**MCP config isolation (Sec-3A, CRITICAL).** The executor runs with **`--strict-mcp-config` and an
-explicit `--mcp-config <trusted absolute path>`** pointing at the plugin-install config, so a
-`.mcp.json` present in the *target PR checkout* is **never** loaded — a malicious branch cannot
-redirect the MCP `url` and exfiltrate the token. The server `url` is re-verified at runtime.
+**MCP config isolation (Sec-3A, CRITICAL).** The executor runs with **`--strict-mcp-config` +
+`--mcp-config <trusted absolute path>`**, so a `.mcp.json` in the target checkout is **never** loaded
+(no token redirect/exfil); the server `url` is re-verified at runtime.
 
-Invariants (**never merge / never force-push / same-repo / idempotent / audited**) hold via: the
-trust gate (primary), the deny-by-default allowlist + PreToolUse arg-hook, frame-authoritative
-targets, the default-deny diff-guard, strict-MCP-config, and the server ruleset. Every MCP write
-emits a **forced** `diagnostics.emit(force=True)` — the mandated outward-write audit of 0044 §7, not
-the off-by-default usage log (P1-2 / 0039).
+Every MCP write emits a **forced** `diagnostics.emit(force=True)` recording the **triggering author**
+(insider/compromise abuse is auditable) — the mandated outward-write audit of 0044 §7, not the
+off-by-default usage log (P1-2 / 0039).
 
 ### 4. What stays on local git (NOT a GitHub write)
 
-`push_files` replaces `git push`, so **no GitHub write uses local git**. What remains is local VCS:
-`release.py` (`git log`/`describe` — local history), `spine_e2e.py` (local fixture repos),
-`develop` worktrees, and the fixer's **working-copy checkout** (a local *read* from the remote;
-all writes stay MCP-only). The checkout-free MCP `get_file_contents` variant is the fallback if a
-lighter fixer ever suffices.
+`push_files` replaces `git push`, so **no GitHub write uses local git**. Local VCS remains:
+`release.py` (`git log`/`describe`), `spine_e2e.py` (fixture repos), `develop` worktrees, and the
+fixer's working-copy checkout (a local *read*; all writes MCP-only). Reads occur on two paths — MCP
+(triage) and REST (`pr_triage.py` membership) — both reads, consistent with a write-only MCP boundary.
 
 ## Security model
 
-Threat: normally a review comment / PR branch is attacker-controlled. **Primary control: the trust
-precondition** (part 3) — the watcher runs only where comment authors and branch authors are trusted
-collaborators, enforced by the `pr_triage.py` author gate + `all_external_contributors` + same-repo.
-This removes the active attacker, so the adversarial findings (C1, C2, Sec-1/2/3/4/6) lose their
-root cause. The barriers below are **defence-in-depth** for accident or a compromised trusted account:
+Normally a review comment / PR is attacker-controlled. **Trust precondition (primary, fail-closed)**
+lowers the *likelihood* of a hostile trigger. But the barriers below are **NOT lighter** — they stay
+at full, tested strength, because (a) a trusted account can be compromised, leaving the barriers as
+the *only* control, and (b) branch content is attacker-influenceable even from a trusted author. Trust
+reduces probability; it never reduces barrier strength. The claim is precise: the watcher never
+processes attacker-controlled **instructions/identities** (gated) — branch **content** is still
+treated as untrusted by the sandbox.
 
-| Residual risk | Barrier (defence-in-depth) |
+| Risk | Barrier (full strength, tested) |
 | --- | --- |
-| prose/exfil via any write field (C1/Sec-1) | closed templates on **every** field; PreToolUse arg-hook |
-| resolve an unintended thread (C2) | Python-authoritative ids, hook-checked, re-fetched |
-| CI-executing file slips in (Sec-2) | **default-deny** diff-guard (allowlist of source globs) |
-| token redirect via checked-out `.mcp.json` (Sec-3A) | `--strict-mcp-config` + trusted absolute config path |
-| re-arm via edited config files (Sec-3B) | config paths in the default-deny guard |
+| untrusted/compromised author triggers a run | author gate **fails closed**, permission ≥ write |
+| prose/exfil via any write field (C1/Sec-1) | closed templates on **every** field; fail-closed PreToolUse hook |
+| resolve an unintended thread (C2) | Python-authoritative ids; hook-checked; re-fetched |
+| CI-executing file slips in (Sec-2) | **frame-computed** default-deny allowlist + **deny-wins** sensitive set |
+| token redirect via checked-out `.mcp.json` (Sec-3A) | `--strict-mcp-config` + trusted absolute path |
+| instruction injection via checked-out `CLAUDE.md`/`.claude/` | fixer project-root **outside** the checkout |
+| re-arm via edited config files (Sec-3B) | config paths in the deny-wins set |
 | write to `gh-pages`/release branch (Sec-4) | frame-authoritative `owner`/`repo`/`branch` |
 | hostile tracked git hooks (Sec-6) | `core.hooksPath=/dev/null` on every frame git op |
-| push to `master` | the ruleset (API or git) — agent-independent |
+| unmatched future write tool (hook bypass) | matcher `mcp__github__*` default-deny + Tier-0 exact-allowlist |
+| crashed hook lets a write through | hook fails **closed** + permission-rule backstop |
+| push to `master` | the ruleset — agent-independent |
 
-**Token-leak (Sec-5) is the one risk the trust model does NOT cover** — it is credential exposure,
-not injection (see Token & auth). It is *managed*, not eliminated, on the MCP path.
+**Token-leak (Sec-5) and token-custody are the risks trust does NOT cover** — credential exposure,
+not injection (see Token & auth).
 
 ## Token & auth
 
 - **Interactive layer:** OAuth (browser login, nothing stored).
-- **Headless cron watcher:** OAuth cannot run headless, and a stored OAuth **refresh token is itself a
-  long-lived secret** — so OAuth does not solve token-leak. The real fix is a **GitHub App
-  installation token** (1-hour, auto-rotating), but the **GitHub MCP server does not support App auth
-  yet** (issue #696). So on the MCP path the watcher uses a **fine-grained PAT** (single repo,
-  `pull_requests:write`+`contents:write`, stable bot identity for the `author≠bot` skip), and
-  token-leak is *managed*: short max-lifetime + automated rotation, **secrets-manager (not plaintext
-  env) at rest**, a documented revoke runbook, and the honest worst case — a leaked PAT = full
-  `contents:write` on **every branch** of that one repo (not "one PR"), bounded by single-repo scope +
-  no `admin`/`workflows`. (Alternative B below would instead use an App token and eliminate this.)
+- **Headless cron watcher:** OAuth can't run headless and its refresh token is itself long-lived, so
+  OAuth does not solve token-leak. The real fix is a **GitHub App installation token** (1-hour,
+  auto-rotating), but the **GitHub MCP server doesn't support App auth yet** (issue #696). So the MCP
+  path uses a **fine-grained PAT** (single repo, `pull_requests:write`+`contents:write`+`metadata:read`,
+  stable bot identity). Two residual risks, both *managed not eliminated* on the MCP path:
+  - **leak:** short max-lifetime + automated rotation + **secrets-manager (not plaintext env)** at
+    rest + a revoke runbook; honest worst case = full `contents:write` on **every branch** of that one
+    repo (bounded by single-repo scope, no `admin`/`workflows`).
+  - **custody:** the PAT is presented to **`api.githubcopilot.com` on every MCP call** — a write-capable
+    token transits a third-party endpoint (its logs / TLS termination). Pin the host + verify URL/TLS
+    at runtime. **Alternative B removes this hop entirely** (token only ever reaches `api.github.com`)
+    and can use an App token today — the custody + leak rationale for preferring B where the goal
+    allows.
 
 ## Evals & determinism
 
 `triage`/`executor` are agent roles → they ship `agents/evals/<role>.evals.json` + **Tier-2** (N≥5
 LLM-judge), gated like the six existing roles; roles carry **no Tier-1** and add **nothing** to the
-on-listing budget. All safety-critical logic — author gate, actionable/resolvable sets, diff-guard,
-templates, frame-authoritative targets — stays **tested Python** in `pr_triage.py` + the PreToolUse
-hook; the agent only *selects*, the frame/hook *enforce* (P1-3 / P2-7).
+on-listing budget. All safety-critical logic — fail-closed author gate (+ write floor),
+actionable/resolvable sets, frame-computed default-deny diff-guard, closed templates,
+frame-authoritative targets, `core.hooksPath=/dev/null`, checkout config-isolation — stays **tested
+Python** in `pr_triage.py` + the **fail-closed** PreToolUse hook; the agent only *selects*, the
+frame/hook *enforce* (P1-3 / P2-7).
 
 ## Alternatives considered
 
-- **(B) Deterministic Python commits via the GitHub Contents REST API** (not MCP): **stronger on two
-  axes** — C1/C2 are *natively* enforced (Python writes the exact validated bytes, no agent-authored
-  args, no PreToolUse-hook needed), and it can use a **GitHub App installation token** today
-  (eliminates token-leak Sec-5). It keeps the watcher deterministic, unit-tested, non-agent (no
-  Tier-2). **Not chosen** because the stated goal is GitHub-via-MCP; recorded as the **preferred
-  fallback** if the MCP write path's hardening proves too costly, and as the strictly-safer option for
-  **untrusted/public** repos where the trust precondition cannot hold.
-- **Naive single agent (read+fix+write in one principal):** rejected — privilege confusion.
-- **Hybrid (MCP for session/read only; watcher stays on `gh`/`git`):** the MCP-unavailable fallback;
-  pin it to the existing hardened `pr_watch.py` core, not an ad-hoc shell.
-- **Migrate the deterministic code layer to MCP:** rejected — Python can't invoke MCP; local-git /
-  tested seams stay (consistent with 0021's MCP-or-`gh` `PipelineSource`).
+- **(B) Deterministic Python commits via the GitHub Contents REST API** (not MCP): **strictly safer on
+  the axes the three reviews kept hitting** — C1/C2 are *natively* enforced (Python writes the exact
+  validated bytes; no agent-authored args, no fail-open-hook dependency), no MCP token-custody hop, and
+  it can use an **auto-rotating App token today** (eliminates Sec-5). Deterministic, unit-tested,
+  non-agent (no Tier-2). **Not chosen** because the stated goal is GitHub-via-MCP and the watcher is
+  scoped to trusted repos; recorded as the **preferred fallback** and the **required** path for
+  untrusted/public repos (where the trust precondition cannot hold). The path-A hardening above exists
+  precisely because A's safety is a *product* of many controls where B's is intrinsic.
+- **Naive single agent / Hybrid / migrate the code layer:** rejected/​fallback as before (privilege
+  confusion; MCP-unavailable pins to the hardened `pr_watch.py`; Python can't call MCP for the seams).
 
 ## Consequences
 
-- GitHub **writes** are MCP-only via four named tools, deny-by-default, every write force-audited;
-  `commit_gate` gone; the watcher's `git push`/`git merge` removed (`push_files`/update-branch).
-- Watcher is **scoped to trusted repos** — explicitly **not** safe for public/OSS repos with PRs from
-  strangers (there, use Alternative B or do not auto-fix). This is a deliberate scope limit.
-- New surface to gate: two Tier-2 roles, a PreToolUse write-arg hook, a default-deny diff-guard +
-  templater + author gate + allowlist check (Tier-0), a pinned MCP server + least-privilege PAT +
-  strict-MCP-config, the plugin-shipped (no-secret) MCP config, and `all_external_contributors` on
-  this repo (done).
-- New dependencies/failure modes: the MCP endpoint + PAT (rotation/secrets-manager — Sec-5); API
-  **rate limits** for hourly polling; reliance on the GitHub membership API for the author gate.
-- Touches prior ADRs (recorded, not silently edited): supersedes `commit_gate`/test-gate of **0019**;
-  refines **0044/0045** (adds the trust gate + MCP write path) and the GitHub side of **0021**.
+- GitHub **writes** are MCP-only via four tools, deny-by-default + fail-closed hook, every write
+  force-audited with the triggering author; `commit_gate` gone; the watcher's `git push`/`git merge`
+  removed.
+- Watcher is **trusted-repo-only** — explicitly **not** safe for public/OSS repos with PRs from
+  strangers (there: Alternative B, or no auto-fix). Deliberate scope limit.
+- Safety on path A is a **product of ~10 tested controls** (fail-closed gate, fail-closed hook,
+  default-deny matcher, frame-computed diff-guard, checkout isolation, strict-MCP-config,
+  frame-authoritative targets, closed templates, write floor, hooks-off). B would make most intrinsic;
+  A's choice is accepted with that cost stated.
+- New dependencies/failure modes: the MCP endpoint (token-custody) + PAT (rotation/secrets-manager);
+  API rate limits (the author gate fails closed under them); reliance on the collaborator-permission
+  API.
+- Touches prior ADRs (recorded): supersedes `commit_gate`/test-gate of **0019** (and the write-arg hook
+  is a documented fail-closed exception to 0019's fail-open default); refines **0044/0045** (trust gate
+  + MCP write path) and the GitHub side of **0021**.
 
 ## Implementation plan (staged — none applied yet)
 
-1. **Verify the plugin-MCP mechanism (spike).** Confirm against Claude Code plugin docs that a plugin
-   can ship MCP config and that `${VAR}` interpolation keeps the token uncommitted; pin the exact
-   tool ids (`add_comment`/`resolve_thread`/`push_files`/`update_pull_request_branch` are
-   representative — bind to the server's real names). Don't build on an unverified mechanism.
-2. **MCP boundary + per-role allowlist.** Ship the no-secret plugin config; add the Tier-0 checks
-   (no-secret-in-config; per-role allowlist is exactly the expected set, incl. the un-roled session).
-   Confirm `validate.py` can read each role's MCP tool grant (frontmatter `tools:` / `settings.json`).
-3. **Drop `commit_gate`.** Remove the hook + `commit_gate.py` + tests; deprecate the `test_gate.skip`
-   setting; update ADR 0019's index note, `guardrails.md`, CHANGELOG.
-4. **Deterministic frame + hook.** Build + unit-test `pr_triage.py` (author gate via the membership
-   API, actionable/resolvable sets, default-deny diff-guard, closed templates incl. commit message,
-   frame-authoritative targets, `core.hooksPath=/dev/null`) **and** the PreToolUse `mcp__github__*`
-   write-arg hook. These are the safety-critical, tested-Python core.
-5. **Agent roles + wiring.** Add `triage`/`executor` contracts + Tier-2; run the executor with
+1. **Verify the plugin-MCP mechanism (spike).** Confirm a plugin can ship MCP config, that token
+   interpolation keeps it uncommitted, and **pin the real `mcp__plugin_…__…` tool ids**; confirm the
+   PreToolUse hook can match `mcp__github__*`, read `tool_input`, and block — and how to make it
+   fail-closed (+ the permission-rule backstop). Don't build on unverified mechanisms.
+2. **MCP boundary + per-role allowlist.** Ship the no-secret plugin config; Tier-0 checks
+   (no-secret-in-config; per-role allowlist is exactly the expected set incl. the un-roled session;
+   matcher is default-deny `mcp__github__*`).
+3. **Drop `commit_gate`.** Remove hook + `commit_gate.py` + tests; deprecate `test_gate.skip`; update
+   0019's index note, `guardrails.md`, CHANGELOG.
+4. **Deterministic frame + fail-closed hook (the safety core, tested Python).** `pr_triage.py`:
+   fail-closed author gate (collaborator-permission endpoint, ≥ write, error⇒untrusted),
+   actionable/resolvable sets, **frame-computed** default-deny diff-guard (pre-existing changed files ∩
+   static policy, deny-wins set, file cap), closed templates incl. commit message, frame-authoritative
+   targets, `core.hooksPath=/dev/null`, checkout config-isolation (project-root outside the checkout).
+   The PreToolUse `mcp__github__*` write-arg hook: fail-closed, authoritative state from a
+   non-agent-writable channel, executor role has no Write/Edit. Unit-test every error path.
+5. **Agent roles + wiring.** Add `triage`/`executor` contracts + Tier-2; executor runs with
    `--strict-mcp-config`/trusted `--mcp-config`; provision the PAT (secrets-manager, rotation,
-   auto-merge verified off **per run**). Migrate/rename the `pr_watcher.*` settings + schema; retire
-   `dev/run_scheduled.py`'s PR path + the `scheduled.yml` watcher job as superseded. Prove on a
-   throwaway PR per the 0045 runbook.
+   auto-merge verified off **per run**, host/TLS pinned). Migrate/rename `pr_watcher.*` + schema; retire
+   `dev/run_scheduled.py`'s PR path + the `scheduled.yml` watcher job. Prove on a throwaway PR (0045).
 6. **Docs (incl. doc-sync).** Update `meta-core.md` (new `pr_triage.py` row + revised `pr_watch.py`
-   row — **`validate.py` doc-sync gates this**), `extensions.md`, `guardrails.md`, `configuration.md`
-   (MCP config, PAT, rotation, the trusted-author gate), `CLAUDE.md`, and the trusted-repo policy in
-   `SECURITY.md`.
+   row — `validate.py` doc-sync gates this), the **ADR index** entry, `extensions.md`, `guardrails.md`,
+   `configuration.md` (MCP config, PAT, rotation, the fail-closed author gate), `CLAUDE.md`, and the
+   trusted-repo policy in `SECURITY.md`.
 
 Each step is its own gated unit of work (validate + pytest + CHANGELOG).
 
 ## Open questions (operational)
 
-- PAT rotation cadence + secrets-manager choice for the headless env; revoke runbook.
-- Rate-limit / backoff strategy for hourly polling across configured repos.
-- Whether to adopt Alternative B (App token, native C1/C2) if/when broader-than-trusted repos are in
-  scope, or once the MCP server supports GitHub App auth (then the MCP path can drop the PAT too).
+- PAT rotation cadence + secrets-manager choice; revoke runbook.
+- Rate-limit / backoff for hourly polling (distinct from the gate's fail-closed-on-rate-limit).
+- Adopt Alternative B if scope widens beyond trusted repos, or once the MCP server supports GitHub App
+  auth (then the MCP path can drop the long-lived PAT and the custody hop too).
 </content>
