@@ -1,0 +1,58 @@
+name: Bug report
+description: Report something in the plugin (a skill, agent, hook, lib module, or CLI) behaving incorrectly.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. For **security** issues do **not** file here — see
+        [SECURITY.md](../blob/master/SECURITY.md) and report privately.
+  - type: input
+    id: component
+    attributes:
+      label: Affected component
+      description: Which skill / agent / hook / lib module / dev CLI? Include the version or commit.
+      placeholder: "e.g. skills/develop, plugin/hooks/security.py, dev/validate.py @ e5ec46c"
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you observe? Paste the exact error / output if there is one.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps (or a command sequence) that reproduce the issue.
+      placeholder: |
+        1. ...
+        2. ...
+        3. see error
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: OS, Python version, Claude Code version, and how you loaded the plugin.
+      placeholder: "macOS 15 / Python 3.11 / Claude Code x.y / claude --plugin-dir plugin"
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: This is not a security vulnerability (those go through SECURITY.md, privately).
+          required: true

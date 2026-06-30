@@ -1,0 +1,50 @@
+name: Feature / component request
+description: Propose a new skill, agent, script, or an improvement to an existing one.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project is **contract-first**: a component starts from its purpose, triggers, and
+        eval thresholds — not its implementation (see
+        [CONTRIBUTING.md](../blob/master/CONTRIBUTING.md) and `CLAUDE.md`). Frame the request the
+        same way so it can become an eval contract.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What can't you do today, and why does it matter? Who is it for?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed component or change
+      description: What skill / agent / script (or change to one) would solve it? What is its purpose?
+    validations:
+      required: true
+  - type: textarea
+    id: triggers
+    attributes:
+      label: When should it trigger / what should it produce
+      description: Example prompts that SHOULD load it, prompts that should NOT, and the artifact it outputs.
+      placeholder: |
+        should-trigger: "..."
+        should-not-trigger: "..." (and which existing skill owns that instead)
+        output: e.g. a handoff artifact at docs/sdlc/<feature>/...
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Existing skills/patterns you tried, and why they don't cover this.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues and skills, and this isn't already covered.
+          required: true

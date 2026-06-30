@@ -9,6 +9,9 @@ Thanks for contributing. This project has a written constitution — read it fir
 
 This file is the short operational guide: how to set up, build a component, and pass the gate.
 
+By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md). For security issues,
+do **not** open a public issue — follow [SECURITY.md](SECURITY.md).
+
 ## Setup
 
 ```bash

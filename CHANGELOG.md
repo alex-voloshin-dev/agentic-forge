@@ -6,6 +6,16 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Added — community-health files (public-release prep)
+
+Ahead of opening the repository, added the standard GitHub community files: `SECURITY.md` (private
+vulnerability reporting + in/out-of-scope, noting the guardrails are defence-in-depth, not a
+sandbox), `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1), a `.github/PULL_REQUEST_TEMPLATE.md`
+mirroring the contract→evals→gate + documentation-discipline checklist, and
+`.github/ISSUE_TEMPLATE/` forms (bug report, feature/component request framed contract-first, and a
+`config.yml` routing security reports + questions away from plain issues). `CONTRIBUTING.md` now
+links the Code of Conduct and the security policy.
+
 ### Added — Tier-0 doc-sync gate (consistency review pass)
 
 A fresh-eyes consistency review found the only real drift was documentation lagging the last ~10
