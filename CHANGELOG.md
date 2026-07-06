@@ -6,6 +6,12 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-07-06
+
+First tagged release. Everything below is the aggregated changelog since the initial `0.0.1`
+scaffold: the full skill/agent/hook surface plus the public-release prep, capped by the
+production-log-driven guardrail fixes and the diagnostics bundler.
+
 ### Fixed — security deny-list over-matched legitimate local commands (ADR 0051)
 
 Real production logs (a diagnostics bundle: 39 sessions, 2 days) showed the "pipe a network
