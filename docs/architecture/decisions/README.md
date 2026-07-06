@@ -56,3 +56,6 @@ edit.
 | [0048](0048-ralph-loop.md) | Ralph loop: bounded autonomous iteration (engine core `lib/ralph.py` + driver `dev/ralph.py`) | Accepted (implemented) |
 | [0049](0049-user-level-config.md) | User-level (cross-project) config layer `~/.agentic-forge/config.json`; precedence defaults < user < repo < env (extends 0041) | Accepted (implemented) |
 | [0050](0050-hook-import-safety.md) | Guardrail hooks import on a stdlib-only, version-robust path (lazy jsonschema/PyYAML, `timezone.utc`); upholds 0019 | Accepted (implemented) |
+| [0051](0051-narrow-network-download-denylist.md) | Narrow the "network download into a shell" deny-list: exempt loopback, require a bare interpreter (stdin-as-program), anchor curl/wget to command position (refines 0019) | Accepted (implemented) |
+| [0052](0052-diagnostics-bundle-and-audit-fidelity.md) | Analyzable production diagnostics: audit records stay valid JSON (per-field truncation) + a one-command redacted bundle packager (`diag_bundle.py`) | Accepted (implemented) |
+| [0053](0053-diagnostics-bundle-skill.md) | `diagnostics-bundle` skill (off-listing, manual): windowed (last N days, default 7) bundle to `~/Downloads` with consistent naming; timestamps the audit trail (extends 0052) | Accepted (implemented) |

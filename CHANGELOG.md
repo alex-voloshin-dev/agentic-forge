@@ -6,6 +6,49 @@ versioning once it has a public surface.
 
 ## [Unreleased]
 
+### Fixed — security deny-list over-matched legitimate local commands (ADR 0051)
+
+Real production logs (a diagnostics bundle: 39 sessions, 2 days) showed the "pipe a network
+download into a shell" blocker firing on legitimate work — all recorded blocks were the same false
+positive, retried ~17 times across 4 sessions. `guardrails.classify_command` now uses a structured
+`_dangerous_net_pipe` check that blocks only the real RCE shape: a `curl`/`wget`/`fetch` in
+**command position** feeding a **bare** interpreter (one that reads *stdin as its program*) from a
+**non-loopback** host. So these no longer block: `curl localhost:9090/… | python3 -c "…"` (local
+observability), `curl https://api/… | python3 -m json.tool` (data parsing), and `grep "curl|wget"`
+(the words as literal text). The true hazard (`curl https://…/install.sh | sh`, `… | sudo bash`,
+`wget -qO- … | python`) still blocks, with new allow/block regressions in `tests/test_guardrails.py`.
+
+### Fixed — audit log corrupted long records / added a diagnostics bundle packager (ADR 0052)
+
+- `guardrails.audit_record` truncated the whole JSON-encoded `tool_input` at 300 chars, producing
+  **invalid JSON** inside the `input` field — 60% of Bash records in a real bundle were unparseable.
+  It now redacts + truncates **each field value** and re-encodes, so `input` stays a *valid* JSON
+  string (`json.loads(rec["input"])["command"]` round-trips). No schema change for existing
+  consumers.
+- New `lib/agentic_forge/diag_bundle.py` (pure `plan_bundle` manifest + thin `build_bundle` zip
+  seam) and `dev/diagnostics_bundle.py` CLI package a repo's diagnostics into one consistent,
+  redacted zip: the audit + diagnostics logs, a `log-summary.txt` (both digests), `environment.txt`,
+  and plugin/config metadata (settings slice keeps only enablement + hooks, never tokens). Covered
+  by `tests/test_diag_bundle.py`.
+
+### Added — `diagnostics-bundle` skill: windowed, ~/Downloads, consistent naming (ADR 0053)
+
+A shipped, manual (off-listing) skill to package a repo's plugin diagnostics from a production
+session — no more ad-hoc, inconsistent bundles.
+
+- `plugin/skills/diagnostics-bundle/` — `SKILL.md` (manual `/`-command; `disable-model-invocation`,
+  so it does not spend the always-on router budget), a shipped `scripts/build_bundle.py` over the
+  tested lib, and `evals/evals.json` (Tier-2, self-contained per ADR 0017).
+- Writes strictly to `~/Downloads/agentic-forge-diagnostics-<YYYYMMDD-HHMMSS>.zip` (consistent name)
+  covering the **last 7 days** by default (or a user-given window; `--days 0` = full history); the
+  covered window is stated in the README + `log-summary.txt`.
+- `guardrails.audit_record` now records an optional `ts` (the audit hook stamps it), so the audit
+  trail is time-windowable; `filter_by_window` retains blank/undated/legacy records rather than
+  silently dropping what it cannot date. `diag_bundle` gains `filter_by_window` / `window_text` /
+  `default_output_path`; `build_bundle` takes `days` and defaults the output to `~/Downloads`;
+  `dev/diagnostics_bundle.py` gains `--days`. Covered by `tests/test_diag_bundle.py` /
+  `test_guardrails.py` / `test_dev_cli.py`.
+
 ### Added — community-health files (public-release prep)
 
 Ahead of opening the repository, added the standard GitHub community files: `SECURITY.md` (private

@@ -20,6 +20,11 @@ session — except where blocking is the whole point (security, test-gate).
   writes, a `find <root/system-dir> … -delete` (whole-tree delete), and force-push (`--force` or a
   `+refspec`) to a protected branch. Exit 2 blocks;
   everything else is allowed (false positives cause friction, so it blocks only unambiguous hazards).
+  The network-download check is deliberately narrow (ADR 0051): it fires only for a `curl`/`wget` in
+  **command position** feeding a **bare** interpreter (one reading *stdin as its program*) from a
+  **non-loopback** host — so `curl localhost … | python3 -c` (local observability), `… | python3 -m
+  json.tool` (data parsing), and `grep "curl|wget"` (the words as text) are not blocked, while
+  `curl https://…/install.sh | sh` still is.
 - **test-gate** (`PreToolUse` / Bash, `commit_gate.py`) — on `git commit`/`git push`, runs the
   **fast** gate (`dev/validate.py` if present, else the detected stack's lint via `stacks.py`) and
   blocks on failure, so broken code isn't committed. Skippable via `AGENTIC_FORGE_SKIP_TEST_GATE`;

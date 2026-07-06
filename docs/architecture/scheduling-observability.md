@@ -51,6 +51,11 @@ The `logging` guardrail hook already writes a redacted audit JSONL (tool, brief,
   descending, distinct sessions, busiest tool). Deterministic + tested.
 - `render(digest)` — a compact text report for the CLI / CI job.
 
+Each record's `input` is a **valid** JSON string: `guardrails.audit_record` redacts and truncates
+each `tool_input` field value *then* re-encodes (ADR 0052), so a downstream tool can
+`json.loads(rec["input"])` and recover the (per-field-capped) command — the earlier "truncate the
+whole JSON dump" approach corrupted long records and is gone.
+
 This is the **usage** view (what ran). Errors, denials, and behaviour anomalies are a *separate*
 channel — see Diagnostics below (ADR 0039); the earlier sketch of folding blocks/warnings/errors
 into this usage digest was dropped in favour of that dedicated channel.
@@ -80,6 +85,17 @@ artifacts and emits an anomaly for any whose `verdict` is still `changes` at `it
 - `dev/audit_digest.py` — print `observability.digest` of the audit log (a window flag).
 - `dev/diagnostics_digest.py` — print `diagnostics.digest` of the diagnostics log (the "top
   problems" rollup of errors / denials / anomalies).
+- `dev/diagnostics_bundle.py` — package a repo's diagnostics into one redacted, structured zip
+  (`diag_bundle.build_bundle`, ADR 0052/0053): the audit + diagnostics logs, a `log-summary.txt`
+  (audit + diagnostics digests), `environment.txt`, and the plugin/config metadata slices — a
+  consistent artifact a maintainer can analyze or a user can share. Windows to the last N days
+  (`--days`, default 7; `0` = full history) and defaults the output to `~/Downloads` with a
+  consistent `<prefix>-<ts>.zip` name (`--repo` / `--out` / `--home`). The audit trail carries a
+  per-record `ts` (the logging hook stamps it) so the window filters it too; blank/undated records
+  are retained, never silently dropped.
+  - Shipped as the **`diagnostics-bundle` skill** (off-listing, manual `/`-command; ADR 0053) so a
+    production session can produce the same bundle via `${CLAUDE_PLUGIN_ROOT}/skills/
+    diagnostics-bundle/scripts/build_bundle.py` — the user-reachable surface over the same core.
 
 ## CI
 

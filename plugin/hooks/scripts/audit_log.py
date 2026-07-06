@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +20,7 @@ from agentic_forge import diagnostics, guardrails  # noqa: E402
 
 def write_audit(payload: dict[str, Any], cwd: str) -> Path:
     """Append ``payload``'s redacted audit record to the project audit log; return its path."""
-    record = guardrails.audit_record(payload)
+    record = guardrails.audit_record(payload, ts=datetime.now(timezone.utc).isoformat())
     log_path = Path(cwd) / ".agentic-forge" / "audit.jsonl"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("a", encoding="utf-8") as handle:

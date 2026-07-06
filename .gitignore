@@ -24,8 +24,11 @@ coverage.xml
 
 # L4 runtime artifacts (audit/diagnostics logs, scheduler state) — but the committed config stays.
 # NOTE: ignore the dir's *contents* (not the dir), else git can't re-include config.json below.
+# Cover both the repo root and any nested cwd where a hook/script may create the dir.
 .agentic-forge/*
 !.agentic-forge/config.json
+**/.agentic-forge/*
+!**/.agentic-forge/config.json
 eval-report.html
 
 # OS / editor
