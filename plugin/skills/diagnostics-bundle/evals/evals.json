@@ -1,0 +1,38 @@
+{
+  "skill_name": "diagnostics-bundle",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Package the agentic-forge diagnostics for this repo into a zip I can share.",
+      "expected_output": "The skill runs the bundler over the last 7 days and writes a single zip to ~/Downloads named agentic-forge-diagnostics-<YYYYMMDD-HHMMSS>.zip, then reports the path plus the event/session counts and the covered window.",
+      "files": [],
+      "assertions": [
+        "Exactly one .zip is written under the user's ~/Downloads directory (not the repo, not /tmp)",
+        "The filename matches agentic-forge-diagnostics-<timestamp>.zip with a UTC timestamp",
+        "The bundle contains README.md, log-summary.txt, environment.txt, and repo-logs/{audit,diagnostics}.jsonl at a single top-level folder",
+        "The default window is the last 7 days and the README/log-summary states the covered window",
+        "The final message reports the absolute output path and the audit/diagnostics counts"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Collect the last 30 days of plugin diagnostics into a bundle in Downloads.",
+      "expected_output": "The skill runs with a 30-day window, writes the consistently-named zip to ~/Downloads, and the report states a 30-day window; no secrets are included.",
+      "files": [],
+      "assertions": [
+        "The window is 30 days (the user-specified value overrides the 7-day default) and is reflected in the report",
+        "Records outside the window are excluded while records lacking a timestamp are retained",
+        "No secret or credential appears anywhere in the bundle (logs and config slices are redacted)",
+        "The settings slice contains only enablement + hooks keys, never tokens"
+      ]
+    }
+  ],
+  "component": {
+    "id": "diagnostics-bundle",
+    "type": "skill",
+    "purpose": "A manual utility skill that packages a repo's plugin diagnostics (last N days, default 7) into one redacted, consistently-named zip in ~/Downloads for sharing with a maintainer; a thin workflow over the tested agentic_forge.diag_bundle lib."
+  },
+  "thresholds": {
+    "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }
+  }
+}

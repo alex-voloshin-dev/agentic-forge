@@ -56,6 +56,13 @@ select = ["E", "F", "I", "UP", "B"]
 # is first on PATH — possibly < 3.11 (ADR 0050). Keep `timezone.utc`, not the 3.11-only
 # `datetime.UTC` alias UP017 would force, so the hook never crashes on an older interpreter.
 "plugin/lib/agentic_forge/diagnostics.py" = ["UP017"]
+# The diagnostics bundler + its CLI run on the plugin lib under the same bare `python3` (the
+# observed environment is 3.9); keep `timezone.utc` over the 3.11-only `datetime.UTC` (ADR 0052).
+"plugin/lib/agentic_forge/diag_bundle.py" = ["UP017"]
+"dev/diagnostics_bundle.py" = ["UP017"]
+"plugin/hooks/scripts/audit_log.py" = ["UP017"]  # hook-reachable path; keep `timezone.utc` (ADR 0050)
+# The shipped skill script runs on the plugin lib under the same bare `python3` (observed 3.9).
+"plugin/skills/diagnostics-bundle/scripts/build_bundle.py" = ["UP017"]
 
 [tool.mypy]
 python_version = "3.11"

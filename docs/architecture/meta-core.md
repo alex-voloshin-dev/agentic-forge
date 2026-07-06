@@ -80,6 +80,7 @@ pyproject.toml                        # uv / pytest / ruff / mypy config
 | `external_review.py` | External-reviewer seam: run a third-party reviewer CLI (codex) as an independent lens — pure `build_prompt`/`parse_review` + a thin subprocess seam that never raises (ADR 0042). |
 | `pr_watch.py` | PR-watcher core: parse a GitHub PR's review state and drive the bounded fix loop over `gh`/`git`/fix seams; never merges, never force-pushes (ADR 0044/0045). |
 | `ralph.py` | Bounded autonomous Ralph-loop core: the pure iteration state + continue/done/exhausted/stalled decision over injected run/done/progress seams; the live wiring is `dev/ralph.py` (ADR 0048). |
+| `diag_bundle.py` | Diagnostics bundle packager: pure `plan_bundle` (redacted file manifest: logs, env, plugin/config metadata) + `filter_by_window` / `default_output_path` + a thin `build_bundle` zip seam — a consistent, shareable production-diagnostics artifact (last N days, default 7 → `~/Downloads`); shipped as the off-listing `diagnostics-bundle` skill (ADR 0052/0053). |
 
 Everything here is dependency-light (pyyaml, jsonschema) and unit-tested. Skill scripts and
 hooks import from this package.

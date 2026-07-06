@@ -10,6 +10,7 @@ _REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO / "dev"))
 
 import audit_digest  # noqa: E402
+import diagnostics_bundle as diagnostics_bundle_cli  # noqa: E402
 import diagnostics_digest  # noqa: E402
 import external_review as external_review_cli  # noqa: E402
 import pr_watch as pr_watch_cli  # noqa: E402
@@ -112,6 +113,19 @@ def test_run_scheduled_none_due_after_run(tmp_path: Path, capsys: pytest.Capture
 def test_audit_digest_cli_empty(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     assert audit_digest.main(["audit", "--repo", str(tmp_path)]) == 0
     assert "no tool-use records" in capsys.readouterr().out
+
+
+def test_diagnostics_bundle_cli_writes_zip(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    repo = tmp_path / "repo"
+    (repo / ".agentic-forge").mkdir(parents=True)
+    (repo / ".agentic-forge" / "audit.jsonl").write_text("", encoding="utf-8")
+    out = tmp_path / "b.zip"
+    rc = diagnostics_bundle_cli.main(
+        ["diagnostics_bundle", "--repo", str(repo), "--out", str(out),
+         "--home", str(tmp_path / "h"), "--days", "0"]
+    )
+    assert rc == 0 and out.is_file()
+    assert "Wrote diagnostics bundle" in capsys.readouterr().out
 
 
 # --- external_review CLI (ADR 0042) ------------------------------------------

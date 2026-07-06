@@ -41,6 +41,8 @@ TIER2_SKILLS = {
     # Stage 6 — design & onboarding (own behavior)
     "ux-design",
     "repo-onboarding",
+    # Utility — the off-listing diagnostics packager (self-contained; ADR 0053)
+    "diagnostics-bundle",
 }
 
 
