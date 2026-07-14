@@ -134,6 +134,53 @@ def test_readme_handles_no_diagnostics() -> None:
     assert "no diagnostic events recorded" in out
 
 
+# --- audit_quality: legacy-share disclosure (fix from the 2026-07-14 field bundle) -------------
+
+_LEGACY_AUDIT = [
+    json.dumps({"tool": "Bash", "input": '{"command": "ls"', "session_id": "s0"}),  # truncated
+    json.dumps({"tool": "Bash", "input": '{"command": "ls"}', "session_id": "s0"}),  # undated only
+    json.dumps({"ts": "2026-07-09T00:00:00+00:00", "tool": "Read", "input": "{}"}),  # current
+]
+
+
+def test_audit_quality_counts_undated_and_non_json_inputs() -> None:
+    q = diag_bundle.audit_quality(_LEGACY_AUDIT)
+    assert q.total == 3
+    assert q.undated == 2  # both pre-ADR-0053 records lack ts
+    assert q.legacy_input == 1  # only the truncated record fails json.loads on input
+
+
+def test_audit_quality_clean_trail_is_zero() -> None:
+    q = diag_bundle.audit_quality([_dated("2026-07-09T00:00:00+00:00")])
+    assert (q.undated, q.legacy_input) == (0, 0)
+
+
+def test_readme_claims_valid_json_only_when_true() -> None:
+    clean = diag_bundle.readme(
+        repo_name="x",
+        collected_at="t",
+        audit_lines=[_dated("2026-07-09T00:00:00+00:00")],
+        diag_lines=[],
+    )
+    assert "each `input` is valid JSON" in clean
+    mixed = diag_bundle.readme(
+        repo_name="x", collected_at="t", audit_lines=_LEGACY_AUDIT, diag_lines=[]
+    )
+    # the blanket claim must NOT appear over a trail with truncated legacy inputs (was a false
+    # promise in real bundles: 799 of 5541 records were unparseable)
+    assert "each `input` is valid JSON" not in mixed
+    assert "1 legacy record(s)" in mixed
+    assert "lack a timestamp" in mixed
+
+
+def test_log_summary_discloses_legacy_share() -> None:
+    out = diag_bundle.log_summary(_LEGACY_AUDIT, [])
+    assert "Legacy records: 2 lack a timestamp" in out
+    assert "1 hold a truncated non-JSON" in out
+    clean = diag_bundle.log_summary([_dated("2026-07-09T00:00:00+00:00")], [])
+    assert "Legacy records" not in clean
+
+
 # --- plan_bundle -------------------------------------------------------------
 
 
@@ -277,6 +324,60 @@ def test_build_bundle_best_effort_without_home_metadata(tmp_path: Path) -> None:
         # core files present; absent user config simply omitted, not fatal
         assert any(n.endswith("/log-summary.txt") for n in names)
         assert not any(n.endswith("/user-config/config.json") for n in names)
+
+
+def test_build_bundle_ships_the_real_plugin_manifest_and_version(tmp_path: Path) -> None:
+    # Real bundles arrived with NO plugin version anywhere — the collector read the manifest from
+    # `~/.claude/plugins/plugin.json`, a path that never existed. It must come from the plugin
+    # root this lib ships inside, and the version must land in environment.txt.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _seed_repo(repo)
+    out = tmp_path / "b.zip"
+    diag_bundle.build_bundle(repo, out, home=tmp_path / "h", now="2026-07-14T10:00:00+00:00")
+    with zipfile.ZipFile(out) as zf:
+        root = "agentic-forge-diagnostics-20260714-100000"
+        manifest = json.loads(zf.read(f"{root}/plugin-meta/plugin.json").decode())
+        assert manifest["name"] == "agentic-forge" and "version" in manifest
+        env = zf.read(f"{root}/environment.txt").decode()
+        assert f"plugin: agentic-forge {manifest['version']}" in env
+
+
+def test_build_bundle_reads_installed_plugins_record_with_legacy_fallback(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _seed_repo(repo)
+
+    home = tmp_path / "home"  # current Claude Code layout: installed_plugins.json
+    plugins = home / ".claude" / "plugins"
+    plugins.mkdir(parents=True)
+    (plugins / "installed_plugins.json").write_text('{"plugins": {"agentic-forge": {}}}')
+    out = tmp_path / "b1.zip"
+    diag_bundle.build_bundle(repo, out, home=home, now=_NOW)
+    with zipfile.ZipFile(out) as zf:
+        record = next(
+            zf.read(n).decode() for n in zf.namelist() if n.endswith("installed_plugins.json")
+        )
+        assert "agentic-forge" in record
+
+    legacy_home = tmp_path / "home2"  # pre-rename layout: plugins/config.json
+    legacy_plugins = legacy_home / ".claude" / "plugins"
+    legacy_plugins.mkdir(parents=True)
+    (legacy_plugins / "config.json").write_text('{"repositories": {}}')
+    out2 = tmp_path / "b2.zip"
+    diag_bundle.build_bundle(repo, out2, home=legacy_home, now=_NOW)
+    with zipfile.ZipFile(out2) as zf:
+        record = next(
+            zf.read(n).decode() for n in zf.namelist() if n.endswith("installed_plugins.json")
+        )
+        assert "repositories" in record
+
+
+def test_manifest_version_tolerates_garbage() -> None:
+    assert diag_bundle._manifest_version(None) == "unknown"
+    assert diag_bundle._manifest_version("not json") == "unknown"
+    assert diag_bundle._manifest_version("[1]") == "unknown"
+    assert diag_bundle._manifest_version('{"name": "x", "version": "2026.7.1"}') == "x 2026.7.1"
 
 
 # --- shipped skill script ----------------------------------------------------

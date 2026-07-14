@@ -35,8 +35,17 @@ def gate_decision(payload: dict[str, Any]) -> guardrails.Decision:
         return guardrails.ALLOW
     try:
         result = subprocess.run(gate, cwd=cwd, capture_output=True, text=True, timeout=110)
-    except Exception:
-        return guardrails.ALLOW  # infra error (tool missing, timeout) -> don't block
+    except Exception as exc:
+        # Infra error (tool missing, timeout) -> don't block, but RECORD the fail-open: a gate
+        # that silently never runs is indistinguishable from a healthy one in the diagnostics
+        # log (a real 7-day bundle had zero events — this makes that reading trustworthy).
+        diagnostics.emit(
+            cwd, kind="anomaly", component="commit-gate",
+            message=f"gate fail-open (infra): {type(exc).__name__}: {exc}",
+            severity="minor", context={"gate": " ".join(gate)},
+            session_id=payload.get("session_id"),
+        )
+        return guardrails.ALLOW
     if result.returncode != 0:
         tail = ((result.stdout or "") + (result.stderr or "")).strip()[-500:]
         return guardrails.Decision(True, f"blocked: gate failed (`{' '.join(gate)}`)\n{tail}")

@@ -7,6 +7,8 @@ tier. With an empty ``settings.models`` every component resolves to the global `
 behaviour change).
 """
 
+from __future__ import annotations
+
 import re
 
 __all__ = [

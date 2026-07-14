@@ -20,6 +20,8 @@ __all__ = [
     "GROUP_ORDER",
     "classify",
     "next_version",
+    "next_calver",
+    "looks_calver",
     "changelog_groups",
     "summarize",
     "commits_since",
@@ -102,9 +104,7 @@ def next_version(current: str, changes: list[Change]) -> str:
     an optional leading ``v`` preserved). Pre-1.0.0, a breaking change bumps minor, not major
     (semver's 0.y.z rule). ``none`` (no changes) returns ``current`` unchanged. A trailing
     ``-prerelease`` / ``+build`` suffix on ``current`` is dropped before bumping (semver)."""
-    prefix = "v" if current.startswith("v") else ""
-    core = current[1:] if prefix else current
-    core = re.split(r"[-+]", core, maxsplit=1)[0]  # drop a -prerelease / +build suffix
+    prefix, core = _split_core(current)
     try:
         major, minor, patch = (int(p) for p in core.split("."))
     except ValueError as exc:
@@ -119,6 +119,38 @@ def next_version(current: str, changes: list[Change]) -> str:
     return f"{prefix}{major}.{minor}.{patch}"
 
 
+def _split_core(current: str) -> tuple[str, str]:
+    """(`v` prefix or "", the dotted core with any ``-prerelease``/``+build`` suffix dropped)."""
+    prefix = "v" if current.startswith("v") else ""
+    core = current[1:] if prefix else current
+    return prefix, re.split(r"[-+]", core, maxsplit=1)[0]
+
+
+def looks_calver(version: str) -> bool:
+    """True when ``version`` is already CalVer (``YYYY.M.N``, ADR 0055) — the first component is a
+    plausible year. Lets the ``release`` skill pick the repo's scheme mechanically."""
+    _, core = _split_core(version)
+    head = core.split(".", 1)[0]
+    return head.isdigit() and int(head) >= 2000
+
+
+def next_calver(current: str, *, year: int, month: int) -> str:
+    """The next CalVer ``<year>.<month>.<inc>`` (ADR 0055): ``inc`` restarts at 1 in a new
+    (year, month) and increments within one. ``year``/``month`` come from the caller's clock
+    (UTC date of the release) so the function stays pure; a non-CalVer ``current`` (e.g. the
+    pre-migration ``0.1.0``) simply starts the month's counter at 1. Month and inc carry **no
+    zero-padding**, so the result is also a valid semver triple that sorts above any pre-migration
+    ``0.x``/``1.x`` — upgrade flows that compare versions keep working."""
+    prefix, core = _split_core(current)
+    parts = core.split(".")
+    inc = 1
+    if len(parts) == 3 and all(p.isdigit() for p in parts):
+        cur_year, cur_month, cur_inc = (int(p) for p in parts)
+        if (cur_year, cur_month) == (year, month):
+            inc = cur_inc + 1
+    return f"{prefix}{year}.{month}.{inc}"
+
+
 def changelog_groups(changes: list[Change]) -> dict[str, list[str]]:
     """Group change descriptions by Keep-a-Changelog section, in :data:`GROUP_ORDER`. A breaking
     change gets a ``**BREAKING:**`` prefix; uncategorised commits are omitted."""
@@ -131,14 +163,28 @@ def changelog_groups(changes: list[Change]) -> dict[str, list[str]]:
     return {g: groups[g] for g in GROUP_ORDER if g in groups}
 
 
-def summarize(current: str, messages: list[str]) -> Summary:
+def summarize(
+    current: str, messages: list[str], *, calver: tuple[int, int] | None = None
+) -> Summary:
     """Classify ``messages``, compute the next version and the grouped changelog, and collect the
-    breaking-change descriptions — the structured proposal the ``release`` skill renders."""
+    breaking-change descriptions — the structured proposal the ``release`` skill renders.
+
+    ``calver=(year, month)`` switches the version scheme to CalVer (ADR 0055): the version becomes
+    ``next_calver`` for that UTC date (unchanged when there are no changes to release), while
+    ``bump`` still reports the semantic level — under CalVer it informs the changelog reader, not
+    the version string, and breaking changes stay flagged in ``breaking``/the groups."""
     changes = [classify(m) for m in messages]
+    level = _bump_level(changes)
+    if calver is None:
+        version = next_version(current, changes)
+    elif level == "none":
+        version = current  # nothing to release — same contract as the semver path
+    else:
+        version = next_calver(current, year=calver[0], month=calver[1])
     return Summary(
         current=current,
-        version=next_version(current, changes),
-        bump=_bump_level(changes),
+        version=version,
+        bump=level,
         groups=changelog_groups(changes),
         breaking=[c.description for c in changes if c.breaking],
     )

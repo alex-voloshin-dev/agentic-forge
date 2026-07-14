@@ -67,6 +67,15 @@ _REPO = Path(__file__).resolve().parents[1]
         "find /etc -delete",  # whole system-tree delete
         "find / -delete",
         "find ~ -delete",
+        # --- ADR 0054: executable payloads that must still block under tokenization ---
+        'bash -c "rm -rf /"',  # the shell EXECUTES the -c payload -> recurse into it
+        "sudo sh -c 'rm -rf ~'",
+        "echo $(rm -rf /)",  # command substitution executes even inside a word
+        "echo `rm -rf /`",
+        "echo don't && rm -rf /",  # an open quote must not mask the hazard (union fallback)
+        "timeout 5 rm -rf /",  # wrapper prefixes are skipped to find the command word
+        "VAR=1 rm -rf /etc",  # env-assignment prefix
+        "/bin/rm -rf /",  # path-qualified command word
     ],
 )
 def test_classify_blocks_dangerous(cmd: str) -> None:
@@ -112,6 +121,19 @@ def test_classify_blocks_dangerous(cmd: str) -> None:
         'grep -rn "curl|wget" tests/',  # curl/wget as literal search text, not command position
         "curl https://x/setup | bash deploy.sh",  # interpreter given a script file, not stdin
         "curl https://x -o out.json && python3 script.py",  # download and run are separate commands
+        # --- ADR 0054: quoted mentions of dangerous shapes are DATA, not commands ---
+        # (each of these blocked in production/dev sessions before the tokenized classifier)
+        "python3 -c \"\npat = {'force': r'push --force|rm -rf /|reset --hard'}\nprint(pat)\"",
+        'git commit -m "guardrails: block rm -rf / and chmod -R 777 /"',
+        'grep -rn "rm -rf /" docs/ | head',
+        'echo "never run rm -rf ~ on prod"',
+        "sed -i '' 's|rm -rf /|echo safe|' script.sh",
+        "python3 -c \"x = 'chmod -R 777 /etc'\"",
+        'git commit -m "docs: git push --force origin main example"',  # push words in a message
+        'find . -name "rm -rf /" -print',  # dangerous string as a -name pattern
+        "echo '$(ls)' fine",  # single-quoted substitution-looking literal
+        "bash -c 'ls -la'",  # sh -c payload recursion: safe payload stays safe
+        "echo can't stop && ls /usr",  # open quote: union fallback must not over-block
     ],
 )
 def test_classify_allows_safe(cmd: str) -> None:

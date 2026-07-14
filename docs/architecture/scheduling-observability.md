@@ -92,7 +92,11 @@ artifacts and emits an anomaly for any whose `verdict` is still `changes` at `it
   (`--days`, default 7; `0` = full history) and defaults the output to `~/Downloads` with a
   consistent `<prefix>-<ts>.zip` name (`--repo` / `--out` / `--home`). The audit trail carries a
   per-record `ts` (the logging hook stamps it) so the window filters it too; blank/undated records
-  are retained, never silently dropped.
+  are retained, never silently dropped. The plugin manifest ships from the plugin root the lib
+  runs inside (so `environment.txt` always states the plugin version — the first triage fact), the
+  install record reads Claude Code's `installed_plugins.json` (legacy `plugins/config.json` as
+  fallback), and the README/summary **disclose the legacy share** (undated / non-JSON-input
+  records from a pre-0.1.0 plugin) instead of overclaiming uniform fidelity.
   - Shipped as the **`diagnostics-bundle` skill** (off-listing, manual `/`-command; ADR 0053) so a
     production session can produce the same bundle via `${CLAUDE_PLUGIN_ROOT}/skills/
     diagnostics-bundle/scripts/build_bundle.py` — the user-reachable surface over the same core.

@@ -32,17 +32,23 @@ python -c "from agentic_forge import release; print(release.commits_since('.'))"
    (`git describe --tags --abbrev=0`) or the project manifest (`pyproject.toml` / `package.json`).
    Collect the commit subjects since that tag with `release.commits_since(repo)` — or, when you are
    handed an explicit commit list/file, read those lines instead (one message per line).
-2. **Summarise.** `release.summarize(current, messages)` returns the proposed `version`, the `bump`
-   level (breaking → major, `feat` → minor, else patch; pre-1.0 breaking → minor), the changelog
-   `groups` (Keep-a-Changelog: Added / Changed / Deprecated / Removed / Fixed / Security), and the
+2. **Pick the repo's version scheme.** `release.looks_calver(current)` is True (or the repo
+   documents CalVer — agentic-forge itself does, ADR 0055) → CalVer `<year>.<month>.<inc>`: call
+   `release.summarize(current, messages, calver=(YYYY, M))` with **today's UTC year/month**.
+   Otherwise → semver (the default `summarize(current, messages)`).
+3. **Summarise.** `release.summarize` returns the proposed `version` (semver: breaking → major,
+   `feat` → minor, else patch, pre-1.0 breaking → minor; CalVer: the next `<year>.<month>.<inc>`,
+   inc restarting each month), the semantic `bump` level, the changelog `groups`
+   (Keep-a-Changelog: Added / Changed / Deprecated / Removed / Fixed / Security), and the
    `breaking` descriptions. Conventional-commit prefixes drive the grouping; `chore`/`docs` and
-   other uncategorised commits are kept out of the changelog as noise.
-3. **Render the artifact.** Write a `release` handoff artifact (frontmatter `type` (= `release`),
+   other uncategorised commits are kept out of the changelog as noise. Under CalVer a breaking
+   change does NOT alter the version — it must be flagged prominently in the notes instead.
+4. **Render the artifact.** Write a `release` handoff artifact (frontmatter `type` (= `release`),
    `feature`, `status`, `version`, `changelog`, `breaking`) plus human-readable notes, then validate
    it (`handoff.validate_header(header, expected_type="release")`; see
    [handoff.md](../../patterns/handoff.md)). Flag every breaking change prominently. Do not invent
    entries beyond the commits.
-4. **Tag only on request.** Never create or push a tag unless explicitly asked; propose the
+5. **Tag only on request.** Never create or push a tag unless explicitly asked; propose the
    command and let the user run it. Never rewrite history.
 
 ## Output
@@ -52,8 +58,9 @@ changes — ready for the user to review and tag. Nothing is tagged or pushed wi
 
 ## Definition of done
 
-- The proposed version applies the correct bump for the commits (breaking → major, `feat` → minor,
-  else patch; pre-1.0 breaking → minor).
+- The proposed version follows the repo's scheme: semver applies the correct bump for the commits
+  (breaking → major, `feat` → minor, else patch; pre-1.0 breaking → minor); CalVer applies the
+  correct `<year>.<month>.<inc>` for today's UTC date (ADR 0055).
 - The changelog is grouped into Keep-a-Changelog sections; breaking changes are called out;
   uncategorised commits (chore/docs) are omitted.
 - The artifact validates as a `release` type (version + non-empty changelog); nothing fabricated.

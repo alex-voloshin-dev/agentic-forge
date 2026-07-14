@@ -28,6 +28,7 @@ __all__ = [
     "validate_skill",
     "validate_agent",
     "validate_manifest",
+    "validate_python_compat",
     "validate_plugin",
     "validate_docs",
 ]
@@ -333,6 +334,40 @@ def validate_docs(repo_root: Path) -> Report:
     return report
 
 
+# The shipped Python (lib + hooks + skill scripts) runs on whatever `python3` the USER has —
+# macOS CommandLineTools still pins 3.9, and a real environment snapshot showed hooks running on
+# 3.9.6. `from __future__ import annotations` keeps PEP 604/585 annotations lazy so a module
+# import can't crash there (models.py imported fine on 3.11 but raised TypeError on 3.9).
+_FUTURE_IMPORT = "from __future__ import annotations"
+
+
+def validate_python_compat(plugin_dir: Path) -> Report:
+    """Every non-empty RUNTIME ``.py`` (lib, hooks, shipped skill scripts) must carry the
+    annotations future-import, so the module tree stays importable on the oldest user ``python3``
+    (3.9) the hooks are contracted to survive on (ADR 0050). Eval fixtures are exempt — they are
+    test *subjects*, not code that runs on a user's interpreter."""
+    report = Report()
+    runtime_files: list[Path] = []
+    for root in (plugin_dir / "lib", plugin_dir / "hooks"):
+        runtime_files.extend(root.rglob("*.py"))
+    runtime_files.extend((plugin_dir / "skills").glob("*/scripts/*.py"))
+    for path in sorted(runtime_files):
+        if "__pycache__" in path.parts:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            report.error(str(path.relative_to(plugin_dir)), f"unreadable: {exc}")
+            continue
+        if text.strip() and _FUTURE_IMPORT not in text:
+            report.error(
+                str(path.relative_to(plugin_dir)),
+                f"missing '{_FUTURE_IMPORT}' (shipped code must import on the user's bare "
+                "python3, which may be 3.9 — ADR 0050/0054 review)",
+            )
+    return report
+
+
 def validate_manifest(plugin_dir: Path) -> Report:
     report = Report()
     manifest = plugin_dir / ".claude-plugin" / "plugin.json"
@@ -351,9 +386,10 @@ def validate_manifest(plugin_dir: Path) -> Report:
 
 
 def validate_plugin(plugin_dir: Path) -> Report:
-    """Validate the whole plugin: manifest, skills, agents."""
+    """Validate the whole plugin: manifest, python compat, skills, agents."""
     report = Report()
     report.extend(validate_manifest(plugin_dir))
+    report.extend(validate_python_compat(plugin_dir))
 
     skills_dir = plugin_dir / "skills"
     if skills_dir.is_dir():
