@@ -7,9 +7,12 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
-All items below come out of the second production diagnostics bundle (repo `f4ai`, 7 days /
-136 sessions / 5,541 tool calls, plugin 0.0.1→0.1.0 mid-window) plus this repo's own diagnostics
-log — the first field data over a 0.1.0-era plugin.
+## [2026.7.1] - 2026-07-14
+
+The first CalVer release (`<year>.<month>.<inc>` — ADR 0055). All items below come out of the
+second production diagnostics bundle (repo `f4ai`, 7 days / 136 sessions / 5,541 tool calls,
+plugin 0.0.1→0.1.0 mid-window) plus this repo's own diagnostics log — the first field data over
+a 0.1.0-era plugin.
 
 ### Fixed — security deny-list blocked commands that merely QUOTE a dangerous string (ADR 0054)
 
