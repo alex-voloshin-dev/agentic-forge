@@ -14,17 +14,23 @@ session — except where blocking is the whole point (security, test-gate).
 ## The hooks
 
 - **security** (`PreToolUse` / Bash, `security.py`) — blocks clearly-dangerous commands via a
-  conservative deny-list, evaluated **per shell segment** (so `ls /usr && rm -rf build` is not
-  misread as `rm -rf /usr`): recursive/forced `rm` or permissive `chmod` of `/`/`~`/a system dir,
+  conservative deny-list: recursive/forced `rm` or permissive `chmod` of `/`/`~`/a system dir,
   fork bombs, a network download piped into a shell/interpreter, `mkfs`/`dd` to a device, raw-disk
   writes, a `find <root/system-dir> … -delete` (whole-tree delete), and force-push (`--force` or a
   `+refspec`) to a protected branch. Exit 2 blocks;
   everything else is allowed (false positives cause friction, so it blocks only unambiguous hazards).
-  The network-download check is deliberately narrow (ADR 0051): it fires only for a `curl`/`wget` in
-  **command position** feeding a **bare** interpreter (one reading *stdin as its program*) from a
-  **non-loopback** host — so `curl localhost … | python3 -c` (local observability), `… | python3 -m
-  json.tool` (data parsing), and `grep "curl|wget"` (the words as text) are not blocked, while
-  `curl https://…/install.sh | sh` still is.
+  Every rule fires on the **command word** of a **quote-aware segment** (ADR 0051 for the
+  network-download rule, ADR 0054 for the rest): segments split on `;`/`|`/`&`/newline *outside
+  quotes*, tokens come from `shlex`, and the rule's command must be the segment's command word
+  (after `sudo`/env-assignment/wrapper prefixes). So `ls /usr && rm -rf build` is not misread as
+  `rm -rf /usr`, and a command that merely *quotes* a dangerous string — `git commit -m "block
+  rm -rf /"`, `grep "rm -rf /" docs/`, a `python3 -c` script holding the pattern — never blocks,
+  while executable payloads (`bash -c "rm -rf /"`, `$(…)`/backtick substitutions) are re-classified
+  recursively and still do. The network-download check additionally requires a **bare** interpreter
+  (one reading *stdin as its program*) fed from a **non-loopback** host — so `curl localhost … |
+  python3 -c` (local observability) and `… | python3 -m json.tool` (data parsing) pass while
+  `curl https://…/install.sh | sh` blocks. A segment `shlex` cannot tokenize (unbalanced quotes)
+  degrades to the pre-0054 text checks — block-leaning, never silently passing.
 - **test-gate** (`PreToolUse` / Bash, `commit_gate.py`) — on `git commit`/`git push`, runs the
   **fast** gate (`dev/validate.py` if present, else the detected stack's lint via `stacks.py`) and
   blocks on failure, so broken code isn't committed. Skippable via `AGENTIC_FORGE_SKIP_TEST_GATE`;
@@ -48,9 +54,13 @@ session — except where blocking is the whole point (security, test-gate).
 The security deny-list and secret redaction stop **unambiguous hazards and accidental leaks**, not
 a determined adversary. Known, accepted limits:
 
-- **Bypassable by obfuscation.** Command-substitution downloads (`bash -c "$(curl …)"`) and a bare
-  `git push --force` with no explicit target (the destination branch isn't knowable from the
-  command string) are not caught. The list errs toward *allow* to avoid friction.
+- **Bypassable by obfuscation.** `sh -c` payloads and `$(…)`/backtick substitutions are re-classified
+  recursively (ADR 0054), but a substitution whose *download output becomes the program*
+  (`bash -c "$(curl …)"` — no pipe, nothing dangerous in the literal text), a wrapper flag that
+  takes a separate argument (`sudo -u root rm …` — the flag's argument masks the command word),
+  remote execution (`ssh host 'rm …'`), and a bare `git push --force` with no explicit target (the
+  destination branch isn't knowable from the command string) are not caught. The list errs toward
+  *allow* to avoid friction.
 - **The test-gate runs repo-local code by design.** `commit_gate` executes the project's own
   `dev/validate.py` (or the stack lint) from the session `cwd`; the trust boundary is Claude
   Code's `cwd`, not the hook. Don't point a session at an untrusted repo and then commit.

@@ -25,7 +25,7 @@ are optional. A ready, schema-valid example with **every** key ships at
 | `review.passes` | int ≥ 1 | `3` | The bounded review-loop budget N. |
 | `external_reviewer.enabled` | bool | `false` | Enable the external reviewer pass (ADR 0042). |
 | `external_reviewer.command` | string | `"codex"` | The reviewer executable name on PATH (a bare name, not a shell line). |
-| `models` | object | `{}` | Per-role / skill / `router` model tiers (ADR 0043) — each value is a tier (`default` / `simple` / `cheap`) or a model id. Empty = the default model everywhere. See the [eval runbook](eval-runbook.md). |
+| `models` | object | `{}` | Per-role / skill / `router` model tiers (ADR 0043) — each value is a tier (`default` / `simple` / `cheap`) or a model id. **Affects the eval/dev CLIs only** (`dev/run_*_evals.py`, `dev/pr_watch.py`, `dev/ralph.py`) — live-session role routing is the gate-validated agent frontmatter (ADR 0046), which this key does not change. Empty = the runner's default model everywhere. See the [eval runbook](eval-runbook.md). |
 | `pr_watcher.enabled` | bool | `false` | Enable the PR watcher's outward GitHub writes (ADR 0044/0045). |
 | `pr_watcher.bot` | string | `"github-actions[bot]"` | The bot login whose review threads the watcher skips. |
 | `pr_watcher.max_threads` | int ≥ 1 | `10` | Max review threads handled per run. |
@@ -54,7 +54,16 @@ To turn the diagnostics log on for **every** project, put this in `~/.agentic-fo
 `AGENTIC_FORGE_DIAGNOSTICS=1`. Then read the log with
 `python dev/diagnostics_digest.py --repo <path>`.
 
-## A note on Python deps
+## Which Python do you need?
+
+Two different answers, and conflating them cost a real user a debugging session:
+
+- **Using the plugin (hooks, shipped skill scripts):** whatever `python3` is on PATH, **3.9 or
+  newer**, with **no third-party packages**. The hook-reachable modules are stdlib-only at import
+  time and every shipped file carries `from __future__ import annotations` (Tier-0 enforces this),
+  so macOS CommandLineTools' pinned 3.9.6 works as-is — this is the field-verified baseline.
+- **Developing the plugin** (running `dev/` CLIs, `pytest`, the eval gates): Python **≥ 3.11** plus
+  the dev deps (`pip install -e .`) — that is what `pyproject.toml`'s `requires-python` describes.
 
 Config is validated with `jsonschema` when it is installed. A guardrail hook may run under a bare
 `python3` without it; in that case a committed config is loaded **unvalidated** (trusted) rather than

@@ -1,10 +1,87 @@
 # Changelog
 
 All notable changes to agentic-forge are documented here. The format follows
-[Keep a Changelog](https://keepachangelog.com/), and the project aims to follow semantic
-versioning once it has a public surface.
+[Keep a Changelog](https://keepachangelog.com/). Releases are versioned by **CalVer**
+`<year>.<month>.<inc>` (e.g. `2026.7.1`; the inc restarts each month — ADR 0055; `0.1.0` and
+earlier predate the scheme). Breaking changes are flagged in the entries, not the version.
 
 ## [Unreleased]
+
+All items below come out of the second production diagnostics bundle (repo `f4ai`, 7 days /
+136 sessions / 5,541 tool calls, plugin 0.0.1→0.1.0 mid-window) plus this repo's own diagnostics
+log — the first field data over a 0.1.0-era plugin.
+
+### Fixed — security deny-list blocked commands that merely QUOTE a dangerous string (ADR 0054)
+
+The rm/chmod/find/force-push rules still used text matching over quote-stripped segments, so
+segmentation split *inside* string literals and data looked like code: `python3 -c` scripts holding
+a pattern like `push --force|rm -rf /|…`, `git commit -m "block rm -rf /"`, `grep "rm -rf /"`,
+`echo`/`sed` examples — 6 of 8 representative "dangerous string as data" commands blocked (four
+such blocks recorded in this repo's own diagnostics; the same class ADR 0051 fixed for net-pipe).
+`classify_command` now (1) splits segments on `;`/`|`/`&`/newline **outside quotes**, (2) tokenizes
+with `shlex`, (3) fires each rule only on the segment's **command word** (after sudo/env-assign/
+wrapper prefixes), (4) still recurses into what the shell executes — sh-family `-c` payloads and
+`$(…)`/backtick substitutions — and (5) degrades unparseable segments to the old block-leaning text
+checks. mkfs/dd moved to token rules; every prior true positive still blocks, plus new ones the
+text-match missed (`timeout 5 rm -rf /`, `/bin/rm -rf /`). New allow/block regressions in
+`tests/test_guardrails.py` from the production corpus.
+
+### Fixed — diagnostics bundle shipped no plugin version and overclaimed audit fidelity (ADR 0052/0053 follow-up)
+
+- The collector read the manifest from `~/.claude/plugins/plugin.json` — a path that never existed —
+  and the install record from pre-rename `plugins/config.json`; real bundles therefore shipped
+  **without any plugin version** (triage had to infer 0.0.1 from cache paths inside logged
+  commands). `diag_bundle` now reads the manifest from the plugin root it ships inside, reads
+  `installed_plugins.json` (with the legacy fallback), and stamps `plugin: <name> <version>` into
+  `environment.txt`.
+- The bundle README claimed "each `input` is valid JSON" while 799 of 5,541 field records were
+  pre-0.1.0 truncated non-JSON, and the headline counts silently blended 1,478 undated records the
+  window cannot filter. New pure `audit_quality()` counts both; README + `log-summary.txt` now
+  **disclose the legacy share** and only claim uniform validity when it is true.
+
+### Fixed — `models.py` crashed on import under Python 3.9 + Tier-0 now guards the whole shipped tree
+
+The one shipped module without `from __future__ import annotations` held a PEP 604 annotation
+(`dict[str, str] | None`) that raises `TypeError` at import time on 3.9 — exactly the interpreter
+real hooks run on (field `environment.txt`: macOS CommandLineTools 3.9.6), and field sessions do
+import the shipped lib by hand. Fixed, and `validate_python_compat` (new Tier-0 check in
+`validation.py`) now errors on any non-empty runtime `.py` (lib / hooks / skill scripts; eval
+fixtures exempt) missing the future-import, so the 3.9 contract (ADR 0050) can't regress silently.
+
+### Fixed — commit-gate fail-open was invisible (upholds ADR 0039)
+
+An infra error running the gate (tool missing, timeout) returned ALLOW with no trace, making an
+empty diagnostics log ambiguous between "nothing wrong" and "the gate never ran" (the field bundle
+read 0 events). The infra path now emits a `commit-gate` **anomaly** event (gate command + error
+class) before allowing.
+
+### Changed — CalVer versioning `<year>.<month>.<inc>` (ADR 0055)
+
+Releases move from semver to CalVer (first cut under the scheme: **2026.7.1**): the version now
+answers "how fresh is this install?" — the question the field bundle could not (a `0.0.1` cache
+against a `0.1.0` release, nothing dating either). No zero-padding, so versions stay valid semver
+triples and sort correctly across the migration; the monthly counter restarts at 1; breaking
+changes are flagged in the changelog, not the version. `release.next_calver` / `looks_calver`
+implement the scheme; `release.summarize(..., calver=(y, m))` and the `release` skill pick the
+scheme mechanically (CalVer repos vs semver repos); tests pin ordering, counter restart, and
+migration from `0.1.0`.
+
+### Changed — `config.example.json` no longer pre-fills `models`
+
+A field user copied the example's `"models": {"router": "cheap", "grader": "simple"}` into
+`~/.agentic-forge/config.json` verbatim — after burning a session reverse-engineering `settings.py`
+to learn what it does (nothing, in live sessions: the key only affects the eval/dev CLIs; live role
+routing is the gate-validated agent frontmatter, ADR 0046). The example now ships `"models": {}`;
+`docs/configuration.md` states what `models` actually affects and adds "Which Python do you need?"
+(hooks: any bare `python3` ≥ 3.9, no deps; developing the plugin: ≥ 3.11).
+
+### Added — field-driven product plan (docs/roadmap.md)
+
+The bundle's *product* signals, analyzed before any code: an interactive `pr-watch` skill (232
+manual `gh pr`/`gh run` polls + hand-rolled wait loops in one week), `deploy-watch` k8s-health
+coverage (81% of field sessions were scheduled cluster checks another plugin served), canonical
+deep-review workflow assets (three audits each re-invented the orchestration; schemas drifted),
+and observability hygiene (audit-log rotation, worktree-aware log path, tighter settings slice).
 
 ## [0.1.0] - 2026-07-06
 

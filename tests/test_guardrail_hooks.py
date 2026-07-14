@@ -76,13 +76,26 @@ def test_commit_gate_allows_when_gate_passes(monkeypatch, tmp_path: Path) -> Non
 def test_commit_gate_fails_open_on_infra_error(monkeypatch, tmp_path: Path) -> None:
     (tmp_path / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
     monkeypatch.delenv("AGENTIC_FORGE_SKIP_TEST_GATE", raising=False)
+    monkeypatch.setenv("AGENTIC_FORGE_DIAGNOSTICS", "1")
 
     def boom(*a, **k):
         raise FileNotFoundError("ruff missing")
 
     monkeypatch.setattr(commit_gate.subprocess, "run", boom)
-    payload = {"tool_name": "Bash", "tool_input": {"command": "git commit"}, "cwd": str(tmp_path)}
+    payload = {
+        "tool_name": "Bash",
+        "tool_input": {"command": "git commit"},
+        "cwd": str(tmp_path),
+        "session_id": "s-infra",
+    }
     assert commit_gate.gate_decision(payload) == guardrails.ALLOW
+    # the fail-open must be OBSERVABLE (ADR 0039): an empty diagnostics log should mean "nothing
+    # went wrong", not "the gate never actually ran".
+    events = (tmp_path / ".agentic-forge" / "diagnostics.jsonl").read_text(encoding="utf-8")
+    event = json.loads(events.strip().splitlines()[-1])
+    assert event["kind"] == "anomaly" and event["component"] == "commit-gate"
+    assert "fail-open" in event["message"] and "FileNotFoundError" in event["message"]
+    assert event["session_id"] == "s-infra" and "gate" in event["context"]
 
 
 def test_commit_gate_skips_non_commit_and_env(monkeypatch, tmp_path: Path) -> None:

@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import zipfile
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -29,6 +30,8 @@ from . import diagnostics, guardrails, observability, settings
 __all__ = [
     "BUNDLE_PREFIX",
     "DEFAULT_WINDOW_DAYS",
+    "AuditQuality",
+    "audit_quality",
     "settings_slice",
     "filter_by_window",
     "window_text",
@@ -44,6 +47,10 @@ BUNDLE_PREFIX = "agentic-forge-diagnostics"
 DEFAULT_WINDOW_DAYS = 7
 # ~/.claude files whose agentic-forge slice is safe to ship (enablement + hooks; NEVER tokens).
 _SETTINGS_KEEP = ("enabledPlugins", "extraKnownMarketplaces", "hooks")
+# The plugin root this lib ships inside (<plugin>/lib/agentic_forge/ -> <plugin>) — the ONLY
+# reliable manifest location; `~/.claude/plugins/plugin.json` never existed (real bundles shipped
+# without any version info before this was fixed).
+_PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _parse_ts(value: object) -> datetime | None:
@@ -61,6 +68,43 @@ def _parse_ts(value: object) -> datetime | None:
 def _timestamp(now: str) -> str:
     """The consistent ``YYYYMMDD-HHMMSS`` stamp used in every bundle name (UTC, from ``now``)."""
     return now.replace(":", "").replace("-", "").replace("T", "-")[:15]
+
+
+@dataclass(frozen=True)
+class AuditQuality:
+    """How much of the audit trail predates the current record format: ``undated`` records lack a
+    ``ts`` (pre-ADR-0053 — kept regardless of the window since they cannot be dated) and
+    ``legacy_input`` records hold a truncated non-JSON ``input`` (pre-ADR-0052)."""
+
+    total: int
+    undated: int
+    legacy_input: int
+
+
+def audit_quality(audit_lines: list[str]) -> AuditQuality:
+    """Measure the legacy share of ``audit_lines`` (pure) so the bundle can DISCLOSE it instead of
+    claiming uniform fidelity — a real 7-day bundle carried 1478 undated / 799 non-JSON records
+    from a pre-0.1.0 plugin alongside the current-format ones."""
+    undated = legacy_input = total = 0
+    for line in audit_lines:
+        if not line.strip():
+            continue
+        total += 1
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            undated += 1
+            legacy_input += 1
+            continue
+        if not isinstance(record, dict):
+            continue
+        if "ts" not in record:
+            undated += 1
+        try:
+            json.loads(record.get("input") or "")
+        except (json.JSONDecodeError, TypeError):
+            legacy_input += 1
+    return AuditQuality(total=total, undated=undated, legacy_input=legacy_input)
 
 
 def filter_by_window(lines: list[str], *, days: int | None, now: str) -> list[str]:
@@ -120,10 +164,25 @@ def settings_slice(settings_json: str) -> str:
     return guardrails.redact_secrets(json.dumps(kept, indent=2, sort_keys=True))
 
 
+def _legacy_note(quality: AuditQuality) -> str:
+    """A one-line disclosure of the legacy share, or "" when the trail is uniformly current."""
+    if not (quality.undated or quality.legacy_input):
+        return ""
+    return (
+        f"Legacy records: {quality.undated} lack a timestamp (kept regardless of the window — "
+        f"they cannot be dated); {quality.legacy_input} hold a truncated non-JSON `input` "
+        "(written by a pre-0.1.0 plugin)."
+    )
+
+
 def log_summary(audit_lines: list[str], diag_lines: list[str], *, window: str = "") -> str:
     """A quick-triage ``log-summary.txt``: the audit usage digest + the diagnostics top-problems
-    digest, both rendered from their pure summarisers, prefixed with the covered window."""
+    digest, both rendered from their pure summarisers, prefixed with the covered window and the
+    legacy-share disclosure (when any)."""
     header = f"# Log summary\n\nWindow: {window}\n\n" if window else "# Log summary\n\n"
+    note = _legacy_note(audit_quality(audit_lines))
+    if note:
+        header += f"{note}\n\n"
     return (
         f"{header}"
         "## Audit (tool usage)\n"
@@ -145,6 +204,7 @@ def readme(
     (so a maintainer sees the headline before opening anything)."""
     diag = diagnostics.digest(diag_lines)
     audit = observability.digest(audit_lines)
+    quality = audit_quality(audit_lines)
     top = diag.problems[0] if diag.problems else None
     signal = (
         f"[{top.severity}] {top.component} ({top.kind}) x{top.count} — {top.sample[:100]}"
@@ -152,6 +212,13 @@ def readme(
         else "no diagnostic events recorded."
     )
     window_line = f"Window: {window}\n" if window else ""
+    legacy_line = _legacy_note(quality)
+    legacy_note = f"- {legacy_line}\n" if legacy_line else ""
+    input_claim = (
+        "each `input` is valid JSON"
+        if not quality.legacy_input
+        else f"`input` is valid JSON except {quality.legacy_input} legacy record(s) — see Notes"
+    )
     return (
         "# agentic-forge diagnostics bundle\n\n"
         f"Collected: {collected_at} from repo `{repo_name}`.\n"
@@ -159,7 +226,7 @@ def readme(
         f"Audit: {audit.total} tool call(s) across {audit.sessions} session(s). "
         f"Diagnostics: {diag.total} event(s).\n\n"
         "## Contents\n"
-        "- `repo-logs/audit.jsonl` — redacted tool-call audit trail (each `input` is valid JSON).\n"
+        f"- `repo-logs/audit.jsonl` — redacted tool-call audit trail ({input_claim}).\n"
         "- `repo-logs/diagnostics.jsonl` — plugin-emitted errors / denials / anomalies.\n"
         "- `log-summary.txt` — quick triage: audit usage digest + diagnostics top problems.\n"
         "- `environment.txt` — OS / node / python / claude-code / plugin versions.\n"
@@ -171,6 +238,7 @@ def readme(
         "## Notes\n"
         "- No secrets: logs are hook-redacted at write time; config/settings slices are "
         "re-redacted and the settings slice keeps only enablement + hooks.\n"
+        f"{legacy_note}"
     )
 
 
@@ -223,7 +291,21 @@ def _read(path: Path) -> str | None:
         return None
 
 
-def environment_text(*, collected_at: str, repo: Path) -> str:
+def _manifest_version(manifest_json: str | None) -> str:
+    """``name version`` from a plugin manifest blob, or ``unknown`` — the single most valuable
+    triage fact, so it must be in ``environment.txt`` even when the metadata files are absent."""
+    if not manifest_json:
+        return "unknown"
+    try:
+        data = json.loads(manifest_json)
+    except json.JSONDecodeError:
+        return "unknown"
+    if not isinstance(data, dict):
+        return "unknown"
+    return f"{data.get('name', 'agentic-forge')} {data.get('version', '?')}"
+
+
+def environment_text(*, collected_at: str, repo: Path, plugin: str = "unknown") -> str:
     """Snapshot OS / interpreter / claude-code / plugin versions (thin subprocess seam)."""
 
     def ver(*cmd: str) -> str:
@@ -245,6 +327,7 @@ def environment_text(*, collected_at: str, repo: Path) -> str:
             f"python: {platform.python_version()} ({sys.executable})",
             f"node: {ver('node', '--version')}",
             f"claude_code: {ver('claude', '--version')}",
+            f"plugin: {plugin}",
             f"repo: {repo}",
             "",
         ]
@@ -273,15 +356,25 @@ def build_bundle(
 
     audit_lines = filter_by_window(observability.load_audit(repo), days=days, now=collected_at)
     diag_lines = filter_by_window(diagnostics.load(repo), days=days, now=collected_at)
+    # The manifest ships INSIDE the plugin this lib runs from — the one authoritative location.
+    # (`~/.claude/plugins/plugin.json` never existed; real bundles shipped without a version.)
+    plugin_json = _read(_PLUGIN_ROOT / ".claude-plugin" / "plugin.json")
+    # Claude Code's install record: `installed_plugins.json` on current versions; the old
+    # `config.json` kept as a fallback for older installations.
+    installed_plugins = _read(home / ".claude" / "plugins" / "installed_plugins.json") or _read(
+        home / ".claude" / "plugins" / "config.json"
+    )
     manifest = plan_bundle(
         repo_name=repo.name or str(repo),
         collected_at=collected_at,
         audit_lines=audit_lines,
         diag_lines=diag_lines,
-        environment=environment_text(collected_at=collected_at, repo=repo),
+        environment=environment_text(
+            collected_at=collected_at, repo=repo, plugin=_manifest_version(plugin_json)
+        ),
         user_config=_read(home / settings.CONFIG_PATH),
-        plugin_json=_read(home / ".claude" / "plugins" / "plugin.json"),
-        installed_plugins=_read(home / ".claude" / "plugins" / "config.json"),
+        plugin_json=plugin_json,
+        installed_plugins=installed_plugins,
         claude_settings=_read(home / ".claude" / "settings.json"),
         window=window_text(days=days, now=collected_at),
     )

@@ -4,7 +4,7 @@
   "test_gate": { "skip": false },
   "review": { "passes": 3 },
   "external_reviewer": { "enabled": false, "command": "codex" },
-  "models": { "router": "cheap", "grader": "simple" },
+  "models": {},
   "pr_watcher": {
     "enabled": false,
     "bot": "github-actions[bot]",

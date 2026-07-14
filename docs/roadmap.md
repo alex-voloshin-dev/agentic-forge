@@ -26,6 +26,7 @@ architecture before we invest in breadth.
 | 7 | Guardrails, observability, scheduling (L4) | Built — four guardrail hooks (ADR 0019) + scheduling & observability (ADR 0024): declarative job registry + audit-log digest + cron CI |
 | — | Post-spine increments | Built — increments through ADR 0040 (connectors, Tier-1 mean-rate, domain E2E, cadence persistence, quality-hardening, ultra-review, **eval A/B + token-overhead, review passes, diagnostics channel + review-scan**); see [Post-spine increments](#post-spine-increments-beyond-the-staged-plan) |
 | — | Planned increments | settings/config (0041), external reviewer/codex (0042), multi-model tiers (0043), **PR watcher core (0044) + 1b (0045)** all **built**; only the PR-watcher manual real-PR validation remains — see [Planned increments](#planned-increments-not-yet-built) |
+| — | Field-driven increments (July 2026 diagnostics) | **Analyzed** — bugs fixed immediately (ADR 0054/0055 era, see CHANGELOG); product items planned: pr-watch skill, deploy-watch k8s coverage, deep-review workflow assets, observability hygiene — see [Field-driven increments](#field-driven-increments-production-diagnostics-july-2026) |
 
 ---
 
@@ -409,6 +410,84 @@ the largest, which composes connectors + the fix loop + outward actions).
   protects it — only downgrade a role / skill where its Tier-2 still passes at the cheaper tier.
 
 ---
+
+## Field-driven increments (production diagnostics, July 2026)
+
+A 7-day production bundle (repo `f4ai`: 5,541 tool calls, 136 sessions, plugin 0.0.1→0.1.0
+mid-window) plus this repo's own diagnostics gave the first *usage-grounded* backlog. The bugs it
+surfaced were fixed immediately (ADR 0054, the diag-bundle metadata/honesty fixes, the py3.9
+future-import gate, the commit-gate fail-open anomaly event — see the CHANGELOG). What follows are
+the **product** signals — captured here for analysis before any code, per the planning principle;
+each item gets its contract + evals before implementation when picked up.
+
+**Priority order:** 1 (pr-watch skill — the largest manual pain), 2 (deploy-watch coverage), 3
+(deep-review workflow assets), 4 (observability hygiene). The config-UX finding was fixed with the
+bugs (neutral `config.example.json` + configuration.md python/models clarifications).
+
+### 1 — `pr-watch` skill: interactive CI/PR babysitting
+
+- **Evidence:** 232 `gh pr view`/`gh run` polling commands and 42 `ScheduleWakeup` calls across the
+  week; one session polled a single PR 57 times with hand-rolled wait loops ("test-playwright-smoke
+  на #461 ещё pending…"). The PR-watcher core exists (ADR 0044/0045) but only as a maintainer CLI
+  (`dev/pr_watch.py`) + an opt-in scheduled job — nothing a plugin user can reach; the field session
+  even asked the user about enabling it (AskUserQuestion) and it stayed off.
+- **Goal:** a thin skill that babysits a PR/CI run *interactively*: poll checks + review threads at
+  a sane cadence, report state transitions, and (opt-in) delegate fixable failures to `develop` /
+  reply-and-resolve via the existing `pr_watch` lib.
+- **Fit / deps:** wraps `lib/pr_watch.py` + `connectors.py` (both shipped); pacing via the host's
+  wakeup scheduling rather than a daemon (ADR 0024 holds). Outward writes stay opt-in + bounded
+  (ADR 0044's policy).
+- **Open questions:** on-listing vs manual-only (the router budget is at its ceiling — an
+  off-listing `/pr-watch` first pass avoids the budget review); trigger overlap with `deploy-watch`
+  ("watch CI" phrasing routes there today); cadence guidance (poll the check's expected duration,
+  not a fixed short interval).
+
+### 2 — `deploy-watch`: cluster-health coverage + headless fit
+
+- **Evidence:** 110 of 136 sessions (81%) were an every-2-hours scheduled k8s health check
+  (`kubectl get nodes/pods/events`, non-Normal events, deployment availability) — served by a
+  *different* plugin's skill that wasn't even loaded in those headless sessions (each run burned
+  ~4 calls `find`-ing and `cat`-ing its SKILL.md by path), while agentic-forge WAS active there
+  (our hooks wrote the audit). `deploy-watch` never triggered once all week.
+- **Goal:** make `deploy-watch` the natural fit for "check the cluster / pods / rollout health"
+  work, including scheduled headless runs.
+- **Fit / deps:** the skill + `ops.py` core exist; add a k8s-health reference (nodes, pod
+  restarts/crashloops, non-Normal events, deployment availability → the healthy/degraded/failing
+  verdict it already emits) and a scheduled-run recipe (headless `claude -p` naming the skill).
+- **Open questions:** trigger-description surface — "cluster / pods / k8s health" phrasings must
+  fit the ~1% router budget (CLAUDE.md requires a budget review for description growth); whether
+  Tier-1 should-trigger cases for those phrasings regress any neighbour skill (`incident-response`).
+
+### 3 — `deep-review`: canonical workflow assets
+
+- **Evidence:** three deep-review audits in the week each hand-authored the orchestration Workflow
+  from scratch; the finding/verdict schemas drifted between runs (`corrected_severity` vs
+  `correctedSeverity` vs `confidence` variants), and one audit lost two lenses to agent errors and
+  needed a hand-written re-run workflow for just those lenses.
+- **Goal:** ship the skill a canonical workflow template + schema (findings: severity / location /
+  issue / evidence / fix; verdicts: verdict / correctedSeverity / reasoning) and retry guidance
+  (a lens returning null → re-run that lens, not the whole audit), so runs are comparable,
+  resumable, and don't re-invent the harness.
+- **Fit / deps:** references-only change (`references/` loads on demand — no router-budget cost);
+  the adversarial-review pattern doc already describes the shape.
+
+### 4 — Observability hygiene (small, lib-tested)
+
+- **Audit-log rotation:** `audit.jsonl` grew 2.6 MB/week in one repo with no cap; rotate/trim on
+  session start above a size threshold (keep the tail — the bundle window only needs recent days).
+- **Worktree-aware log path:** hooks write to `<cwd>/.agentic-forge/`, so worktree-phase sessions
+  log into the worktree and the trail dies with it (the field bundle showed a user hand-removing a
+  stray nested `.claude/worktrees`); resolve the main repo root (parse a `.git` *file*'s `gitdir:`)
+  before choosing the log dir.
+- **Settings-slice scope:** the bundle's `settings-agentic-forge.json` ships `enabledPlugins` /
+  `extraKnownMarketplaces` for *all* plugins; filter to the agentic-forge entries (the file name
+  promises an "agentic-forge slice").
+
+### Observed, deliberately not acted on
+
+- **Vault write-rate is low in daily work** (9 `docs/knowledge/` writes against 136 sessions) while
+  the session-start injection runs everywhere. One week of one repo is too thin to justify
+  auto-capture mechanics; keep watching across bundles before designing anything.
 
 ## Cross-stage definition of done
 

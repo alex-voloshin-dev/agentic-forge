@@ -7,6 +7,8 @@ from agentic_forge.release import (
     Summary,
     changelog_groups,
     classify,
+    looks_calver,
+    next_calver,
     next_version,
     summarize,
 )
@@ -172,3 +174,58 @@ def test_summarize_no_changes_keeps_version() -> None:
 
 def test_module_exports_group_order() -> None:
     assert release.GROUP_ORDER[0] == "Added" and "Security" in release.GROUP_ORDER
+
+
+# --- CalVer (ADR 0055): <year>.<month>.<inc>, inc restarts each month -----------------
+
+
+def test_next_calver_first_release_of_month_from_semver_current() -> None:
+    # the migration step itself: 0.1.0 -> 2026.7.1 (counter starts at 1 under the new scheme)
+    assert next_calver("0.1.0", year=2026, month=7) == "2026.7.1"
+
+
+def test_next_calver_increments_within_month() -> None:
+    assert next_calver("2026.7.1", year=2026, month=7) == "2026.7.2"
+    assert next_calver("2026.7.9", year=2026, month=7) == "2026.7.10"
+
+
+def test_next_calver_restarts_on_new_month_and_year() -> None:
+    assert next_calver("2026.7.4", year=2026, month=8) == "2026.8.1"
+    assert next_calver("2026.12.3", year=2027, month=1) == "2027.1.1"
+
+
+def test_next_calver_preserves_v_prefix_and_drops_suffix() -> None:
+    assert next_calver("v2026.7.1", year=2026, month=7) == "v2026.7.2"
+    assert next_calver("2026.7.1-rc1", year=2026, month=7) == "2026.7.2"
+
+
+def test_next_calver_tolerates_unparseable_current() -> None:
+    assert next_calver("garbage", year=2026, month=7) == "2026.7.1"
+
+
+def test_next_calver_stays_semver_ordered() -> None:
+    # no zero-padding -> a valid semver triple that sorts above the pre-migration versions,
+    # so marketplace update flows comparing versions keep working across the migration.
+    def key(v: str) -> tuple[int, int, int]:
+        a, b, c = (int(p) for p in v.split("."))
+        return (a, b, c)
+
+    ordered = ["0.1.0", "2026.7.1", "2026.7.2", "2026.8.1", "2026.12.9", "2027.1.1"]
+    assert sorted(ordered, key=key) == ordered
+
+
+def test_looks_calver() -> None:
+    assert looks_calver("2026.7.1") and looks_calver("v2027.1.10")
+    assert not looks_calver("0.1.0") and not looks_calver("1.4.2") and not looks_calver("x.y")
+
+
+def test_summarize_calver_uses_date_and_keeps_semantic_bump() -> None:
+    s = summarize("2026.7.1", ["feat!: new api"], calver=(2026, 7))
+    assert s.version == "2026.7.2"
+    assert s.bump == "major"  # semantic level still reported for the changelog reader
+    assert s.breaking == ["new api"]
+
+
+def test_summarize_calver_no_changes_keeps_current() -> None:
+    s = summarize("2026.7.1", [], calver=(2026, 7))
+    assert s.version == "2026.7.1" and s.bump == "none"

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -65,16 +66,16 @@ _CHMOD_RECURSIVE = re.compile(r"(?<![\w-])-\w*R\w*\b|--recursive\b")
 # position of a long run — without it a crafted `chmod -R ugoa…ugoa /etc` is quadratic ReDoS.
 _PERMISSIVE_MODE = re.compile(r"(?<!\d)[0-7]?777\b|(?<![\w+=])[ugoa]*\+[rwxX]*[wx][rwxX]*|a=rwx\b")
 
+# Raw-text blockers: shapes whose syntax is distinctive enough that quoting them as data is rare
+# (the fork bomb glyphs; a shell redirect into a raw disk device). Everything else is checked on
+# TOKENS in command position (ADR 0054) so quoted mentions never fire.
 _BLOCKERS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r":\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:"), "fork bomb"),
-    (
-        # mkfs/dd with a /dev/ device argument (command-bounded so "echo mkfs" / "git grep mkfs"
-        # and "dd if=/dev/sda of=backup" are NOT blocked).
-        re.compile(r"\bmkfs(\.\w+)?\b[^\n;&|]*/dev/|\bdd\b[^\n;&|]*\bof=/dev/"),
-        "overwrite a filesystem/disk device",
-    ),
     (re.compile(r">\|?\s*/dev/(sd[a-z]|nvme\d|disk\d|mapper/)"), "write to a raw disk device"),
 ]
+# mkfs/dd device writes for the LEGACY (unparseable-segment) path only; the primary check is
+# token-level in _token_decision (command word mkfs*/dd + a /dev/ argument).
+_LEGACY_DEVICE = re.compile(r"\bmkfs(\.\w+)?\b[^\n;&|]*/dev/|\bdd\b[^\n;&|]*\bof=/dev/")
 # git push, tolerating global flags before the subcommand: `git -C dir push`, `git -c k=v push`,
 # `git --no-pager push` (the old `git\s+push` missed these).
 _GIT_PUSH = re.compile(r"\bgit\s+(?:-[cC]\s+\S+\s+|--\S+\s+|-\w\s+)*push\b")
@@ -106,11 +107,6 @@ def _seg_dangerous_rm(segment: str) -> bool:
     )
 
 
-def _dangerous_rm(command: str) -> bool:
-    """True for a recursive+forced ``rm`` whose target is the root, home, or a system dir."""
-    return any(_seg_dangerous_rm(seg) for seg in _segments(command))
-
-
 def _seg_dangerous_chmod(segment: str) -> bool:
     if not _CHMOD.search(segment):
         return False
@@ -120,11 +116,6 @@ def _seg_dangerous_chmod(segment: str) -> bool:
         and _PERMISSIVE_MODE.search(segment)
         and _DANGER_TARGET.search(unquoted)
     )
-
-
-def _dangerous_chmod(command: str) -> bool:
-    """True for a recursive chmod granting write/all perms on the root, home, or a system dir."""
-    return any(_seg_dangerous_chmod(seg) for seg in _segments(command))
 
 
 _FIND = re.compile(r"\bfind\b")
@@ -143,12 +134,6 @@ def _seg_dangerous_find(segment: str) -> bool:
     return bool(_FIND_TARGET.search(segment.replace('"', " ").replace("'", " ")))
 
 
-def _dangerous_find(command: str) -> bool:
-    """True for `find <root-or-system-dir> … -delete` — deleting a whole system tree. A sub-path
-    (`/opt/app`, `/etc/x`) is targeted cleanup and is NOT blocked (accident-guard scope)."""
-    return any(_seg_dangerous_find(seg) for seg in _segments(command))
-
-
 def _seg_dangerous_push(segment: str) -> bool:
     if not _GIT_PUSH.search(segment):
         return False
@@ -157,11 +142,243 @@ def _seg_dangerous_push(segment: str) -> bool:
     return bool(_FORCE_FLAG.search(segment) and _PROTECTED_DEST.search(segment))
 
 
-def _dangerous_push(command: str) -> bool:
-    """True for a force-push (``--force``/``-f`` or a ``+refspec``) to a protected branch. A bare
-    `git push --force` (no explicit target) is intentionally NOT blocked — the destination branch
-    is not knowable from the command string (accident-guard scope; see guardrails.md)."""
-    return any(_seg_dangerous_push(seg) for seg in _segments(command))
+def _legacy_segment_decision(segment: str) -> Decision:
+    """The pre-ADR-0054 text-match checks, kept ONLY for a segment `shlex` cannot tokenize
+    (unbalanced quotes etc.) — unparseable input degrades to the old, block-leaning behaviour
+    rather than silently passing."""
+    if _seg_dangerous_rm(segment):
+        return Decision(True, _MSG_RM)
+    if _seg_dangerous_chmod(segment):
+        return Decision(True, _MSG_CHMOD)
+    if _seg_dangerous_find(segment):
+        return Decision(True, _MSG_FIND)
+    if _LEGACY_DEVICE.search(segment):
+        return Decision(True, _MSG_DEVICE)
+    if _seg_dangerous_push(segment):
+        return Decision(True, _MSG_PUSH)
+    return ALLOW
+
+
+# --- security: quote-aware command tokenization (ADR 0054) --------------------
+# Production bundles showed the rm/chmod/find/push checks firing on commands that merely QUOTE a
+# dangerous-looking string — `python3 -c "…'rm -rf /'…"`, `git commit -m "block rm -rf /"`,
+# `grep "rm -rf /" docs/` — because segmentation split inside quotes and quote-stripping made data
+# look like code. The primary path now (1) splits segments on `;`/`|`/`&`/newline OUTSIDE quotes,
+# (2) tokenizes each segment with `shlex`, and (3) applies each rule only when its command is the
+# segment's COMMAND WORD (after sudo/env-assignment/wrapper prefixes) — the same command-position
+# principle ADR 0051 gave the net-pipe rule. Shell-executable payloads are still followed:
+# `sh -c '…'` arguments, `$(…)` and backtick substitutions are re-classified recursively.
+
+_MSG_RM = "blocked: recursive/forced delete of /, home, or a system dir"
+_MSG_CHMOD = "blocked: recursive permissive chmod of /, home, or a system dir"
+_MSG_FIND = "blocked: find -delete of /, home, or a system dir"
+_MSG_DEVICE = "blocked: overwrite a filesystem/disk device"
+_MSG_PUSH = "blocked: force-push to a protected branch (main/master/release)"
+
+_ENV_ASSIGN = re.compile(r"^\w+=")
+# Wrappers whose presence keeps us looking rightward for the real command word.
+_WRAPPERS = frozenset({"sudo", "command", "exec", "nohup", "env", "time", "nice", "timeout"})
+_NUMERICISH = re.compile(r"^\d+(?:\.\d+)?[smhd]?$")  # a timeout/nice duration/level argument
+
+# Token-level (fullmatch) rule patterns. A token is one shell word with its quotes already
+# stripped by shlex, so `"/"` and '/usr' are seen while a phrase inside a quoted string is ONE
+# token that can never fullmatch a bare flag or path.
+_TOK_RECURSIVE_RM = re.compile(r"-\w*[rR]\w*|--recursive")
+_TOK_FORCE_RM = re.compile(r"-\w*f\w*|--force")
+_TOK_RECURSIVE_CHMOD = re.compile(r"-\w*R\w*|--recursive")
+_TOK_SHORT_F = re.compile(r"-\w*f\w*")
+# rm/chmod targets: root, home, or a system dir INCLUDING sub-paths (`/etc/x` is still system
+# damage), per the legacy _DANGER_TARGET semantics.
+_TOK_DANGER_TARGET = re.compile(
+    r"/\*?|~/?|\$HOME/?|\$\{HOME\}/?"
+    r"|/(?:usr|etc|bin|sbin|lib|lib64|boot|var|opt|root|home)(?:/\S*)?"
+)
+# find start paths: only a bare root/system dir (a sub-path like /opt/app is targeted cleanup).
+_TOK_FIND_TARGET = re.compile(
+    r"/\*?|~/?|\$HOME/?|\$\{HOME\}/?"
+    r"|/(?:usr|etc|bin|sbin|lib|lib64|boot|var|opt|root|home)/?"
+)
+_TOK_PLUS_PROTECTED = re.compile(r"\+(?:\S*:)?(?:main|master|release)")
+_TOK_PROTECTED_DEST = re.compile(r"(?:\S*:)?(?:main|master|release)")
+# Shell substitutions whose content the shell EXECUTES even inside double quotes.
+_SUBSTITUTION = re.compile(r"\$\(([^()]{0,2000})\)|`([^`]{0,2000})`")
+_SEPARATORS = frozenset(";|&\n")
+_MAX_DEPTH = 2  # recursion cap for sh -c payloads / substitutions
+
+
+def _split_segments(command: str) -> tuple[list[str], bool]:
+    """Split ``command`` into segments on ``;``/``|``/``&``/newline **outside quotes**; the second
+    element is False when a quote is left open (prose apostrophes, truncated input) — the caller
+    then unions in the legacy naive split so an unparseable tail cannot mask a real hazard."""
+    segments: list[str] = []
+    current: list[str] = []
+    quote: str | None = None
+    escaped = False
+    for ch in command:
+        if escaped:
+            current.append(ch)
+            escaped = False
+            continue
+        if ch == "\\" and quote != "'":  # backslash escapes except inside single quotes
+            current.append(ch)
+            escaped = True
+            continue
+        if quote:
+            current.append(ch)
+            if ch == quote:
+                quote = None
+            continue
+        if ch in "'\"":
+            quote = ch
+            current.append(ch)
+            continue
+        if ch in _SEPARATORS:
+            if seg := "".join(current).strip():
+                segments.append(seg)
+            current = []
+            continue
+        current.append(ch)
+    if seg := "".join(current).strip():
+        segments.append(seg)
+    return segments, quote is None
+
+
+def _shell_tokens(segment: str) -> list[str] | None:
+    """``segment`` as shell words (quotes stripped, escapes resolved), or None when it does not
+    tokenize (unbalanced quotes) — the caller falls back to the legacy text checks."""
+    try:
+        return shlex.split(segment, posix=True)
+    except ValueError:
+        return None
+
+
+def _command_index(tokens: list[str]) -> int | None:
+    """Index of the segment's command word: skip env assignments (`K=v cmd`) and wrapper commands
+    (`sudo`, `env`, `timeout 5`, …) plus their leading flags. A wrapper flag that takes a separate
+    argument may mask the real command — the accident-guard trade-off documented in ADR 0054."""
+    i, n = 0, len(tokens)
+    while i < n:
+        token = tokens[i]
+        if _ENV_ASSIGN.match(token):
+            i += 1
+            continue
+        if token.rsplit("/", 1)[-1] in _WRAPPERS:
+            base = token.rsplit("/", 1)[-1]
+            i += 1
+            while i < n and tokens[i].startswith("-"):
+                i += 1
+            if base in ("timeout", "nice") and i < n and _NUMERICISH.match(tokens[i]):
+                i += 1
+            continue
+        return i
+    return None
+
+
+def _dash_c_payload(rest: list[str]) -> str | None:
+    """The command-string argument of a shell's ``-c`` (also combined, e.g. ``-lc``), or None."""
+    for i, token in enumerate(rest):
+        if re.fullmatch(r"-\w*c\w*", token):
+            for candidate in rest[i + 1 :]:
+                if not candidate.startswith("-"):
+                    return candidate
+    return None
+
+
+def _token_decision(tokens: list[str], depth: int) -> Decision:
+    """Apply the command-position deny rules to one tokenized segment."""
+    ci = _command_index(tokens)
+    if ci is None:
+        return ALLOW
+    base = tokens[ci].rsplit("/", 1)[-1]
+    rest = tokens[ci + 1 :]
+    flags = [t for t in rest if t.startswith("-")]
+    args = [t for t in rest if not t.startswith("-")]
+
+    if base == "rm":
+        recursive = any(_TOK_RECURSIVE_RM.fullmatch(t) for t in flags)
+        force = any(_TOK_FORCE_RM.fullmatch(t) for t in flags)
+        if recursive and force and any(_TOK_DANGER_TARGET.fullmatch(t) for t in args):
+            return Decision(True, _MSG_RM)
+    elif base == "chmod":
+        recursive = any(_TOK_RECURSIVE_CHMOD.fullmatch(t) for t in flags)
+        permissive = any(_PERMISSIVE_MODE.search(t) for t in args)
+        if recursive and permissive and any(_TOK_DANGER_TARGET.fullmatch(t) for t in args):
+            return Decision(True, _MSG_CHMOD)
+    elif base == "find":
+        # find's start paths precede its predicates; default (no path) is `.` — never dangerous.
+        if any(t == "-delete" for t in flags):
+            first_path = args[0] if args else "."
+            if _TOK_FIND_TARGET.fullmatch(first_path):
+                return Decision(True, _MSG_FIND)
+    elif base.startswith("mkfs"):
+        if any(t.startswith("/dev/") for t in rest):
+            return Decision(True, _MSG_DEVICE)
+    elif base == "dd":
+        if any(t.startswith("of=/dev/") for t in rest):
+            return Decision(True, _MSG_DEVICE)
+    elif base == "git":
+        return _git_push_decision(rest)
+    elif base in _NET_SH_FAMILY and depth < _MAX_DEPTH:
+        payload = _dash_c_payload(rest)
+        if payload:
+            return _classify(payload, depth + 1)
+    return ALLOW
+
+
+def _git_push_decision(rest: list[str]) -> Decision:
+    """Force-push-to-protected detection on tokens: global flags (`-c k=v`, `-C dir`, `--…`) are
+    skipped to find the subcommand; only a `push` subcommand's own tokens are inspected, so a
+    commit MESSAGE mentioning force/main can never fire. A bare `git push --force` (no explicit
+    destination) stays allowed — the target branch is not knowable from the command string."""
+    j = 0
+    while j < len(rest):
+        token = rest[j]
+        if token in ("-c", "-C"):
+            j += 2
+            continue
+        if token.startswith("-"):
+            j += 1
+            continue
+        break
+    if j >= len(rest) or rest[j] != "push":
+        return ALLOW
+    push_args = rest[j + 1 :]
+    if any(_TOK_PLUS_PROTECTED.fullmatch(t) for t in push_args):
+        return Decision(True, _MSG_PUSH)
+    force = any(
+        t in ("--force", "--force-with-lease") or _TOK_SHORT_F.fullmatch(t) for t in push_args
+    )
+    dest = any(_TOK_PROTECTED_DEST.fullmatch(t) for t in push_args if not t.startswith("-"))
+    return Decision(True, _MSG_PUSH) if force and dest else ALLOW
+
+
+def _classify(command: str, depth: int) -> Decision:
+    """One classification pass (recursion-capped): raw blockers, net-pipe, then per-segment
+    command-position rules with the legacy text fallback for unparseable segments."""
+    if _dangerous_net_pipe(command):
+        return Decision(True, "blocked: pipe a network download into a shell")
+    for pattern, reason in _BLOCKERS:
+        if pattern.search(command):
+            return Decision(True, f"blocked: {reason}")
+    segments, balanced = _split_segments(command)
+    if not balanced:
+        # keep the quote-aware view AND the naive view — an open quote must not hide a hazard.
+        segments = list(dict.fromkeys(segments + _segments(command)))
+    for segment in segments:
+        tokens = _shell_tokens(segment)
+        decision = (
+            _legacy_segment_decision(segment) if tokens is None else _token_decision(tokens, depth)
+        )
+        if decision.block:
+            return decision
+    if depth < _MAX_DEPTH:
+        for match in _SUBSTITUTION.finditer(command):
+            inner = match.group(1) or match.group(2) or ""
+            if inner.strip():
+                decision = _classify(inner, depth + 1)
+                if decision.block:
+                    return decision
+    return ALLOW
 
 
 # --- security: network-download-into-a-bare-interpreter (RCE) ----------------
@@ -219,23 +436,12 @@ def classify_command(command: str) -> Decision:
     """Block (Decision.block) a clearly-dangerous Bash command; otherwise ALLOW.
 
     Conservative by design — a false block causes friction, so only unambiguous hazards match.
-    Co-occurrence checks (rm/chmod/push) run per shell segment so an unrelated clause cannot
-    poison the line (e.g. `ls /usr && rm -rf build` is allowed).
+    Rules fire on the COMMAND WORD of a quote-aware segment (ADR 0054), so a command that merely
+    quotes a dangerous-looking string (`git commit -m "block rm -rf /"`, a `python3 -c` script,
+    a grep pattern) never blocks, while `sh -c` payloads and `$(…)`/backtick substitutions are
+    followed recursively and unparseable segments degrade to the legacy text checks.
     """
-    if _dangerous_net_pipe(command):
-        return Decision(True, "blocked: pipe a network download into a shell")
-    if _dangerous_rm(command):
-        return Decision(True, "blocked: recursive/forced delete of /, home, or a system dir")
-    if _dangerous_chmod(command):
-        return Decision(True, "blocked: recursive permissive chmod of /, home, or a system dir")
-    if _dangerous_find(command):
-        return Decision(True, "blocked: find -delete of /, home, or a system dir")
-    for pattern, reason in _BLOCKERS:
-        if pattern.search(command):
-            return Decision(True, f"blocked: {reason}")
-    if _dangerous_push(command):
-        return Decision(True, "blocked: force-push to a protected branch (main/master/release)")
-    return ALLOW
+    return _classify(command, 0)
 
 
 # --- test-gate: fast gate before commit/push ---------------------------------

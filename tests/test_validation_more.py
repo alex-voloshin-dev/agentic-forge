@@ -9,6 +9,7 @@ from agentic_forge.validation import (
     validate_agent,
     validate_manifest,
     validate_plugin,
+    validate_python_compat,
     validate_skill,
 )
 
@@ -195,4 +196,41 @@ def test_validate_plugin_aggregates(tmp_path) -> None:
     )
     _make_agent(plugin, name="foo")
     report = validate_plugin(plugin)
+    assert report.ok, report.render()
+
+
+# --- validate_python_compat (py3.9 hook-path safety, ADR 0050/0054 review) ---
+
+
+def test_python_compat_flags_runtime_files_without_future_import(tmp_path) -> None:
+    plugin = tmp_path / "plugin"
+    (plugin / "lib").mkdir(parents=True)
+    (plugin / "hooks" / "scripts").mkdir(parents=True)
+    (plugin / "lib" / "ok.py").write_text(
+        "from __future__ import annotations\nx: int | None = None\n", encoding="utf-8"
+    )
+    (plugin / "hooks" / "scripts" / "bad.py").write_text("def f(x: int | None): ...\n")
+    report = validate_python_compat(plugin)
+    assert not report.ok
+    assert any("hooks/scripts/bad.py" in i.location for i in report.errors)
+    assert not any("ok.py" in i.location for i in report.errors)
+
+
+def test_python_compat_exempts_fixtures_and_empty_files(tmp_path) -> None:
+    plugin = tmp_path / "plugin"
+    (plugin / "lib").mkdir(parents=True)
+    (plugin / "eval" / "fixtures").mkdir(parents=True)
+    (plugin / "skills" / "s" / "scripts").mkdir(parents=True)
+    (plugin / "lib" / "__init__.py").write_text("", encoding="utf-8")  # empty -> exempt
+    (plugin / "eval" / "fixtures" / "subject.py").write_text("x=1\n")  # fixture -> exempt
+    (plugin / "skills" / "s" / "scripts" / "run.py").write_text("x=1\n")  # shipped -> flagged
+    report = validate_python_compat(plugin)
+    assert [i for i in report.errors if "subject.py" in i.location] == []
+    assert any("skills/s/scripts/run.py" in i.location for i in report.errors)
+
+
+def test_real_plugin_is_python_compat_clean() -> None:
+    # the actual shipped tree must stay importable on a user's bare python3 (3.9)
+    plugin = Path(__file__).resolve().parents[1] / "plugin"
+    report = validate_python_compat(plugin)
     assert report.ok, report.render()
