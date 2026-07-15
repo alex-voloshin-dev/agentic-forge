@@ -7,6 +7,13 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Added — "Cutting a release" guide in CONTRIBUTING.md
+
+Documents the CalVer release flow end to end (ADR 0055) **including the `master` ruleset that is
+not visible in the tree**: PR-only with the "Tier 0 (static gate)" check, linear history (rebase
+merge rewrites SHAs), auto-merge disabled — hence the rule that the release tag is created only
+*after* the merge, on the merged commit (precedent: PR #3 / `v2026.7.1`).
+
 ## [2026.7.1] - 2026-07-14
 
 The first CalVer release (`<year>.<month>.<inc>` — ADR 0055). All items below come out of the
