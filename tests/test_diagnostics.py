@@ -226,3 +226,106 @@ def test_scan_reviews_finds_only_non_converged(tmp_path: Path) -> None:
 
 def test_scan_reviews_empty_repo(tmp_path: Path) -> None:
     assert diagnostics.scan_reviews(tmp_path) == []
+
+
+# --- main_repo_root: worktree-aware log placement (field fix) ---
+
+
+def _worktree(tmp_path):
+    """A main repo + a linked worktree wired the way `git worktree add` does it."""
+    main = tmp_path / "main"
+    (main / ".git" / "worktrees" / "wt").mkdir(parents=True)
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    (wt / ".git").write_text(f"gitdir: {main / '.git' / 'worktrees' / 'wt'}\n", encoding="utf-8")
+    return main, wt
+
+
+def test_main_repo_root_plain_repo_and_subdir(tmp_path) -> None:
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    sub = repo / "src" / "pkg"
+    sub.mkdir(parents=True)
+    assert diagnostics.main_repo_root(repo) == repo
+    assert diagnostics.main_repo_root(sub) == repo  # walks up
+
+
+def test_main_repo_root_resolves_linked_worktree(tmp_path) -> None:
+    main, wt = _worktree(tmp_path)
+    assert diagnostics.main_repo_root(wt) == main
+    sub = wt / "deep" / "dir"
+    sub.mkdir(parents=True)
+    assert diagnostics.main_repo_root(sub) == main
+
+
+def test_main_repo_root_relative_gitdir_and_fallbacks(tmp_path) -> None:
+    # relative gitdir pointer
+    main = tmp_path / "m"
+    (main / ".git" / "worktrees" / "x").mkdir(parents=True)
+    wt = tmp_path / "x"
+    wt.mkdir()
+    (wt / ".git").write_text("gitdir: ../m/.git/worktrees/x\n", encoding="utf-8")
+    assert diagnostics.main_repo_root(wt) == main
+    # a submodule-style pointer (.git/modules/...) stays at its own checkout root
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    (sub / ".git").write_text(f"gitdir: {tmp_path / 'host' / '.git' / 'modules' / 's'}\n")
+    assert diagnostics.main_repo_root(sub) == sub
+    # no .git anywhere -> the cwd itself
+    bare = tmp_path / "plain"
+    bare.mkdir()
+    assert diagnostics.main_repo_root(bare) == bare
+    # a .git file with no gitdir line -> the marker's dir
+    odd = tmp_path / "odd"
+    odd.mkdir()
+    (odd / ".git").write_text("not a pointer\n", encoding="utf-8")
+    assert diagnostics.main_repo_root(odd) == odd
+
+
+def test_record_event_from_worktree_lands_in_main_repo(tmp_path) -> None:
+    main, wt = _worktree(tmp_path)
+    event = diagnostics.make_event(
+        ts="2026-07-14T00:00:00+00:00", kind="block", component="security-hook", message="x"
+    )
+    path = diagnostics.record_event(wt, event, env={"AGENTIC_FORGE_DIAGNOSTICS": "1"})
+    assert path == main / diagnostics.DIAGNOSTICS_PATH  # NOT inside the worktree
+    assert not (wt / ".agentic-forge").exists()
+
+
+def test_record_event_gating_follows_the_logs_home(tmp_path) -> None:
+    # the MAIN root's config decides (it owns the log) — a worktree-side config does not enable
+    main, wt = _worktree(tmp_path)
+    (wt / ".agentic-forge").mkdir()
+    (wt / ".agentic-forge" / "config.json").write_text('{"diagnostics": {"enabled": true}}')
+    event = diagnostics.make_event(
+        ts="2026-07-15T00:00:00+00:00", kind="anomaly", component="x", message="m"
+    )
+    import os
+
+    env = {k: v for k, v in os.environ.items() if not k.startswith("AGENTIC_FORGE")}
+    assert diagnostics.record_event(wt, event, env=env) is None  # main root: not enabled
+    (main / ".agentic-forge").mkdir()
+    (main / ".agentic-forge" / "config.json").write_text('{"diagnostics": {"enabled": true}}')
+    assert diagnostics.record_event(wt, event, env=env) == main / diagnostics.DIAGNOSTICS_PATH
+    # force=True bypasses the toggle entirely (outward-action audit invariant)
+    assert (
+        diagnostics.record_event(wt, event, env={}, force=True)
+        == main / diagnostics.DIAGNOSTICS_PATH
+    )
+
+
+def test_main_repo_root_ignores_stale_gitdir_pointer(tmp_path) -> None:
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    ghost = tmp_path / "gone" / ".git" / "worktrees" / "wt"  # main was moved/deleted
+    (wt / ".git").write_text(f"gitdir: {ghost}\n", encoding="utf-8")
+    assert diagnostics.main_repo_root(wt) == wt  # no ghost-dir resurrection
+
+
+def test_load_reads_from_the_main_root(tmp_path) -> None:
+    main, wt = _worktree(tmp_path)
+    event = diagnostics.make_event(
+        ts="2026-07-15T00:00:00+00:00", kind="block", component="security-hook", message="m"
+    )
+    diagnostics.record_event(wt, event, force=True)  # writes at main
+    assert diagnostics.load(wt) == diagnostics.load(main) != []

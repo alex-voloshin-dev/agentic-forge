@@ -28,6 +28,7 @@ def test_hook_import_chain_imports_without_third_party_deps() -> None:
         "import agentic_forge.handoff\n"
         "import agentic_forge.frontmatter\n"
         "import agentic_forge.vault\n"
+        "import agentic_forge.observability\n"  # session_start rotates the audit log via it
         "print('ok')\n"
     )
     env = {**os.environ, "PYTHONPATH": str(_REPO / "plugin" / "lib")}

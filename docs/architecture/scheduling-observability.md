@@ -83,6 +83,10 @@ artifacts and emits an anomaly for any whose `verdict` is still `changes` at `it
   *would* run without running it (the roadmap's "dry-run green"); `--health` prints the per-job run
   history (status / runs / failures) without running anything.
 - `dev/audit_digest.py` — print `observability.digest` of the audit log (a window flag).
+  The log itself is size-bounded: the session-start hook calls `observability.rotate_audit`
+  (trim to the newest ~5 MB once past ~10 MB — whole records kept; a field repo accrued
+  ~2.6 MB/week unbounded), and both logs are written at the **main** working-tree root
+  (`diagnostics.main_repo_root` — worktree-aware), so worktree-phase records survive.
 - `dev/diagnostics_digest.py` — print `diagnostics.digest` of the diagnostics log (the "top
   problems" rollup of errors / denials / anomalies).
 - `dev/diagnostics_bundle.py` — package a repo's diagnostics into one redacted, structured zip

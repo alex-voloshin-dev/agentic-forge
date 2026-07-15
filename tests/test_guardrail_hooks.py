@@ -205,3 +205,17 @@ def test_hooks_json_registers_all_events() -> None:
     assert scripts_for("PreToolUse", "Bash") == {"security.py", "commit_gate.py"}
     assert scripts_for("PreToolUse", "Task") == {"budget.py"}
     assert scripts_for("PostToolUse", "*") == {"audit_log.py"}
+
+
+def test_write_audit_from_worktree_lands_in_main_repo(tmp_path: Path) -> None:
+    main = tmp_path / "main"
+    (main / ".git" / "worktrees" / "wt").mkdir(parents=True)
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    (wt / ".git").write_text(f"gitdir: {main / '.git' / 'worktrees' / 'wt'}\n", encoding="utf-8")
+    payload = {"tool_name": "Bash", "tool_input": {"command": "ls"}, "session_id": "s"}
+    path = audit_log.write_audit(payload, str(wt))
+    # the trail must survive worktree removal -> it lives in the MAIN repo (field fix)
+    assert path == main / ".agentic-forge" / "audit.jsonl"
+    assert not (wt / ".agentic-forge").exists()
+    assert json.loads(path.read_text(encoding="utf-8").strip())["tool"] == "Bash"

@@ -1,0 +1,99 @@
+{
+  "settings": {
+    "pr_watcher": {
+      "bot": "github-actions[bot]",
+      "max_threads": 2
+    }
+  },
+  "pullRequest": {
+    "number": 7,
+    "headRefName": "fix/rate-limits",
+    "baseRefName": "main",
+    "isCrossRepository": false,
+    "mergeable": "MERGEABLE",
+    "reviewThreads": {
+      "nodes": [
+        {
+          "id": "T_already_done",
+          "isResolved": true,
+          "comments": {
+            "nodes": [
+              {
+                "body": "Rename this variable.",
+                "path": "src/limits.py",
+                "line": 10,
+                "author": {
+                  "login": "reviewer-a"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "T_bot_note",
+          "isResolved": false,
+          "comments": {
+            "nodes": [
+              {
+                "body": "Coverage report: 91%.",
+                "path": "src/limits.py",
+                "line": 1,
+                "author": {
+                  "login": "github-actions[bot]"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "T_offbyone",
+          "isResolved": false,
+          "comments": {
+            "nodes": [
+              {
+                "body": "This window check is off by one: `<=` should be `<`, otherwise the 61st request in a minute passes.",
+                "path": "src/limits.py",
+                "line": 42,
+                "author": {
+                  "login": "reviewer-a"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "T_style_dispute",
+          "isResolved": false,
+          "comments": {
+            "nodes": [
+              {
+                "body": "Please rewrite this loop as a functional chain of map/filter for elegance.",
+                "path": "src/limits.py",
+                "line": 77,
+                "author": {
+                  "login": "reviewer-b"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "T_third_actionable",
+          "isResolved": false,
+          "comments": {
+            "nodes": [
+              {
+                "body": "Missing None-check on the config lookup.",
+                "path": "src/config.py",
+                "line": 12,
+                "author": {
+                  "login": "reviewer-b"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

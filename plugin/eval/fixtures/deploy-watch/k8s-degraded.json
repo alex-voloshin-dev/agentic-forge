@@ -1,0 +1,35 @@
+{
+  "environment": "production",
+  "as_of": "2026-07-14T10:00:00Z",
+  "cluster": {
+    "nodes": [
+      { "name": "aks-system-000001", "status": "Ready", "cpu_percent": 41, "memory_percent": 63 },
+      { "name": "aks-system-000002", "status": "Ready", "cpu_percent": 55, "memory_percent": 71 }
+    ],
+    "deployments": [
+      { "name": "user-service", "namespace": "prod", "ready": "3/3", "up_to_date": 3, "available": 3 },
+      { "name": "report-service", "namespace": "prod", "ready": "2/3", "up_to_date": 3, "available": 2 }
+    ],
+    "pods": [
+      { "name": "user-service-7d9f-x1", "namespace": "prod", "phase": "Running", "restarts": 0 },
+      { "name": "report-service-5b2c-a9", "namespace": "prod", "phase": "Running", "restarts": 14, "last_state": "CrashLoopBackOff" },
+      { "name": "report-service-5b2c-b3", "namespace": "prod", "phase": "Running", "restarts": 0 }
+    ],
+    "events_non_normal": [
+      {
+        "last_seen": "2026-07-14T09:58:00Z",
+        "type": "Warning",
+        "reason": "BackOff",
+        "object": "pod/report-service-5b2c-a9",
+        "message": "Back-off restarting failed container report-service"
+      },
+      {
+        "last_seen": "2026-07-14T09:41:00Z",
+        "type": "Warning",
+        "reason": "Unhealthy",
+        "object": "pod/report-service-5b2c-a9",
+        "message": "Readiness probe failed: HTTP probe failed with statuscode: 503"
+      }
+    ]
+  }
+}

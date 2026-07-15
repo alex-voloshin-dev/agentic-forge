@@ -52,8 +52,10 @@ plan a response to each review thread, build the `gh` / `git` commands, optional
 `fixer`. Pure parsing / planning over the JSON; the live `gh` / `git` writes and the model fix are
 thin injected seams (excluded from coverage, like the connectors). It is off by default and
 dry-run unless the caller passes a live `fixer` / `gh_exec` / `push`, and it **never merges** and
-**never force-pushes** — there is deliberately no merge/force command builder. Driver:
-`dev/pr_watch.py`.
+**never force-pushes** — there is deliberately no merge/force command builder. Two surfaces:
+the scheduled multi-repo driver `dev/pr_watch.py` (maintainer/CI), and the **`pr-watch` skill**
+(off-listing, manual `/pr-watch`) — interactive single-PR babysitting over the same lib, added
+after field bundles showed users hand-rolling `gh pr view` polling loops.
 
 ## Related, documented elsewhere
 

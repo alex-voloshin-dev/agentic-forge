@@ -29,6 +29,7 @@ __all__ = [
     "DEFAULT_REVIEW_CAP",
     "Problem",
     "Digest",
+    "main_repo_root",
     "signature",
     "make_event",
     "record_event",
@@ -50,6 +51,43 @@ _SEVERITY_ORDER = {"blocker": 0, "major": 1, "minor": 2, "nit": 3}
 # Volatile bits (hex/object ids, absolute paths, bare numbers) normalised out so the SAME problem
 # fingerprints to one stable signature across runs (different temp paths / line counts / pids).
 _VOLATILE = re.compile(r"0x[0-9a-fA-F]+|/[^\s'\"]+|\b\d+\b")
+
+
+def main_repo_root(cwd: Path | str) -> Path:
+    """The MAIN working-tree root for ``cwd``: walk up to the nearest ``.git``. A ``.git``
+    *file* is a linked worktree marker — its ``gitdir:`` pointer (``<main>/.git/worktrees/<n>``)
+    is resolved back to the primary tree, so plugin logs written during worktree phases land in
+    the main repo and survive the worktree's removal (field bundles showed the trail dying with
+    the worktree). No ``git`` subprocess (hooks run per tool call); anything unresolvable falls
+    back to the nearest checkout root, or ``cwd`` itself."""
+    start = Path(cwd).resolve()
+    for candidate in (start, *start.parents):
+        marker = candidate / ".git"
+        if marker.is_dir():
+            return candidate
+        if marker.is_file():
+            try:
+                text = marker.read_text(encoding="utf-8")
+            except OSError:
+                return candidate
+            for line in text.splitlines():
+                if line.startswith("gitdir:"):
+                    gitdir = Path(line.partition(":")[2].strip())
+                    if not gitdir.is_absolute():
+                        gitdir = (candidate / gitdir).resolve()
+                    parts = gitdir.parts
+                    if ".git" in parts:
+                        idx = parts.index(".git")
+                        # <main>/.git/worktrees/<name> -> <main>; a submodule's
+                        # .git/modules/<name> stays at its own checkout root. A stale pointer
+                        # (main moved/deleted) must not resurrect a ghost dir — verify it.
+                        if len(parts) > idx + 1 and parts[idx + 1] == "worktrees":
+                            main = Path(*parts[:idx])
+                            if (main / ".git").exists():
+                                return main
+                    return candidate
+            return candidate
+    return start
 
 
 def signature(component: str, kind: str, message: str) -> str:
@@ -101,13 +139,20 @@ def record_event(
     force: bool = False,
 ) -> Path | None:
     """Append ``event`` to the project diagnostics log **iff capture is enabled** (per
-    :func:`settings.resolve`), or ``force=True``; return the path written, or ``None`` (disabled, or
-    any I/O error). ``force`` is for outward actions that must always be auditable (e.g. the PR
-    watcher's GitHub writes — ADR 0044), independent of the diagnostics toggle. Never raises."""
-    if not force and not settings.resolve(repo, env=env).diagnostics_enabled:
+    :func:`settings.resolve`), or ``force=True``; return the (resolved, absolute) path written, or
+    ``None`` (disabled, or any I/O error). ``repo`` is normalised through :func:`main_repo_root`,
+    so an event emitted from inside a linked worktree lands in the main repo's log — and the
+    **gating follows the log's home** (the main root's config decides, since that repo owns the
+    file). ``force`` is for outward actions that must always be auditable (e.g. the PR watcher's
+    GitHub writes — ADR 0044), independent of the diagnostics toggle. Never raises."""
+    try:
+        root = main_repo_root(repo)
+    except Exception:
+        root = Path(repo)
+    if not force and not settings.resolve(root, env=env).diagnostics_enabled:
         return None
     try:
-        path = Path(repo) / DIAGNOSTICS_PATH
+        path = root / DIAGNOSTICS_PATH
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(event) + "\n")
@@ -259,9 +304,10 @@ def render(d: Digest) -> str:
 
 def load(repo: Path | str, *, max_lines: int | None = None) -> list[str]:
     """Read the diagnostics log lines (``[]`` if absent), optionally only the last ``max_lines`` —
-    a bounded window so a long-lived log doesn't load wholesale. Thin I/O seam; the digest is
-    tested."""
-    path = Path(repo) / DIAGNOSTICS_PATH
+    a bounded window so a long-lived log doesn't load wholesale. ``repo`` is normalised like the
+    writer (:func:`main_repo_root`), so readers and writers agree on the log's home even from
+    inside a worktree. Thin I/O seam; the digest is tested."""
+    path = main_repo_root(repo) / DIAGNOSTICS_PATH
     if not path.is_file():
         return []
     lines = path.read_text(encoding="utf-8").splitlines()

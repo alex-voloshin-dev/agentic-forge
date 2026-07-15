@@ -153,14 +153,44 @@ def default_output_path(home: Path | str, *, now: str) -> Path:
 
 def settings_slice(settings_json: str) -> str:
     """Keep only the enablement + hooks keys of a ``~/.claude/settings.json`` blob (drop tokens and
-    everything else), redact, and pretty-print. Returns ``"{}"`` on unparseable input."""
+    everything else), redact, and pretty-print. The plugin/marketplace maps are further filtered to
+    their **agentic-forge** entries — the file promises an agentic-forge slice, and a user's other
+    plugins are not ours to ship (a real bundle leaked two unrelated ones). The kept marketplaces
+    are the substring matches PLUS whatever marketplace hosts a kept ``plugin@marketplace`` entry
+    (an aggregator marketplace need not contain "agentic-forge" in its name). For these two keys
+    only the filtered dict shape ships — any other shape is dropped rather than leaked whole.
+    ``hooks`` ships unfiltered on purpose: a user-level hook that interferes with the plugin's is
+    exactly the interaction a bundle exists to debug. Returns ``"{}"`` on unparseable input."""
     try:
         data = json.loads(settings_json)
     except (json.JSONDecodeError, TypeError):
         return "{}"
     if not isinstance(data, dict):
         return "{}"
-    kept = {k: data[k] for k in _SETTINGS_KEEP if k in data}
+    kept: dict[str, object] = {}
+    plugins = data.get("enabledPlugins")
+    kept_plugins = (
+        {k: v for k, v in plugins.items() if "agentic-forge" in k}
+        if isinstance(plugins, dict)
+        else {}
+    )
+    # marketplaces referenced by kept plugin keys ("<plugin>@<marketplace>")
+    hosting = {k.partition("@")[2] for k in kept_plugins if "@" in k}
+    for key in _SETTINGS_KEEP:
+        if key not in data:
+            continue
+        value = data[key]
+        if key == "enabledPlugins":
+            kept[key] = kept_plugins
+            continue
+        if key == "extraKnownMarketplaces":
+            if not isinstance(value, dict):
+                continue  # unknown shape: drop rather than leak other plugins' sources
+            kept[key] = {
+                k: v for k, v in value.items() if "agentic-forge" in k or k in hosting
+            }
+            continue
+        kept[key] = value
     return guardrails.redact_secrets(json.dumps(kept, indent=2, sort_keys=True))
 
 
@@ -348,7 +378,9 @@ def build_bundle(
     snapshots the environment, then writes the redacted manifest under a ``<prefix>-<ts>/`` root.
     ``out_path`` defaults to the strict ``<home>/Downloads/<prefix>-<ts>.zip`` (ADR 0053).
     Best-effort: missing metadata is omitted, never fatal."""
-    repo = Path(repo)
+    # Normalise to the main working-tree root: hooks WRITE the logs there (worktree-aware), so a
+    # bundle built from inside a worktree must read — and be labelled with — the same root.
+    repo = diagnostics.main_repo_root(repo)
     home = Path(home) if home is not None else Path.home()
     collected_at = now or datetime.now(timezone.utc).isoformat()
     root = f"{BUNDLE_PREFIX}-{_timestamp(collected_at)}"

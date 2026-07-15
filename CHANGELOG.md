@@ -7,6 +7,53 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Added — `pr-watch` skill: interactive PR/CI babysitting (field-driven increment 1)
+
+A manual, off-listing skill (`/pr-watch`; `disable-model-invocation`, so it costs no router-listing
+budget) that replaces the hand-rolled polling the field bundle showed (232 `gh pr`/`gh run` polls +
+ad-hoc wait loops in one week): snapshot checks + review threads + mergeable state via `gh` and the
+tested `agentic_forge.pr_watch` lib (ADR 0044/0045), report the baseline, re-poll at a cadence
+matched to the slowest pending check, report **transitions only**, stop at a terminal state.
+Watching is read-only; an explicit ask enables the bounded fix loop (reply-before-resolve,
+`max_threads` cap, single plain `HEAD:<branch>` push) — never a merge, never a force-push.
+Contract: `plugin/skills/pr-watch/evals/evals.json` — Tier-2 over hermetic recorded-snapshot
+fixtures (`eval/fixtures/pr-watch/`), **executed live on the review-amended contract: PASS,
+mean 0.986 / lower bound 0.954 ≥ 0.8 (n=5, claude-opus-4-8)** (first run 0.943/0.815; the
+deep-review pass then added the no-live-sleep guards and the parse_pr-compatible fixture key,
+and the re-run improved).
+
+### Added — `deploy-watch` covers Kubernetes cluster health (field-driven increment 2)
+
+81% of field sessions were scheduled k8s health checks the skill could not serve. New
+`references/k8s-health.md` (read-only `kubectl` reads; the observation→verdict mapping onto the
+existing healthy/degraded/failing scale; the same `deploy-status` handoff; a scheduled/headless
+recipe), a k8s Tier-2 eval case with a `k8s-degraded.json` fixture, and three k8s should-trigger
+phrasings (+ one should-not). The listing description grew by "cluster … (k8s — nodes, pods,
+events)" — **+~10 tokens against the router budget** (reviewed: still within the ~1% ceiling).
+**Tier-1 executed live on the changed description: PASS, recall 0.971 / specificity 1.000
+(claude-opus-4-8, 5 runs)** — the k8s phrasings route and no neighbour regressed. **Tier-2
+executed live with the new k8s case: PASS, mean/lower bound 1.000 (n=5, claude-opus-4-8).**
+
+### Added — `deep-review` ships a canonical Workflow template (field-driven increment 3)
+
+`references/workflow-template.md`: one canonical finding/verdict schema pair (field runs drifted —
+`corrected_severity` vs `correctedSeverity` vs ad-hoc keys), a script skeleton with per-lens
+retry-once (a lens lost to an agent error gets retried, then *disclosed* as lost — never silently
+"clean"), REFUTED-by-default verification, and resume guidance. References-only: zero listing cost.
+
+### Changed — observability hygiene (field-driven increment 4)
+
+- **Audit-log rotation:** `observability.rotate_audit` trims the log to its newest ~5 MB once past
+  ~10 MB (whole records kept; a field repo accrued 2.6 MB/week unbounded), called once per session
+  by the session-start hook.
+- **Worktree-aware log placement:** `diagnostics.main_repo_root` resolves a linked worktree's
+  `.git` file back to the primary tree; the audit hook and `diagnostics.record_event` now write
+  there, so worktree-phase trails survive the worktree's removal (the field bundle showed users
+  hand-cleaning stray worktree dirs and losing the trail).
+- **Settings-slice scope:** the bundle's `settings-agentic-forge.json` now filters
+  `enabledPlugins` / `extraKnownMarketplaces` to the agentic-forge entries — a real bundle shipped
+  two unrelated plugins' names/marketplaces the file name never promised.
+
 ### Added — "Cutting a release" guide in CONTRIBUTING.md
 
 Documents the CalVer release flow end to end (ADR 0055) **including the `master` ruleset that is

@@ -18,7 +18,7 @@ from pathlib import Path
 # tested vault helpers. <plugin>/hooks/scripts/session_start.py -> <plugin>/lib
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
 
-from agentic_forge import diagnostics, vault  # noqa: E402
+from agentic_forge import diagnostics, observability, vault  # noqa: E402
 
 
 def build_context(cwd: str) -> str:
@@ -31,6 +31,9 @@ def main() -> int:
     try:
         payload = json.load(sys.stdin)
         cwd = str(payload.get("cwd") or ".")
+        # Once-per-session audit-log rotation (size-bounded; never raises) — the natural place
+        # for it: cheap here, and the per-tool-call logging hook stays a pure append.
+        observability.rotate_audit(diagnostics.main_repo_root(cwd))
         context = build_context(cwd)
         if context.strip():
             print(
