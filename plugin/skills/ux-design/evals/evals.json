@@ -5,7 +5,9 @@
       "id": 1,
       "prompt": "Design the UX spec for the feature in feature.md (in your working directory): the user flows, the screens and their states, and accessibility requirements.",
       "expected_output": "A ux-spec artifact: the key user flows (save a search; view / re-run / rename / delete from the list), per-screen states including the empty state (no saved searches) and the save-failure error, and concrete accessibility requirements — kept at the spec level (no pixel/visual mockup).",
-      "files": ["eval/fixtures/ux-design/feature.md"],
+      "files": [
+        "eval/fixtures/ux-design/feature.md"
+      ],
       "assertions": [
         "Specifies the key user flows (save a search; view / re-run / rename / delete from the list)",
         "Covers per-screen states including the empty state (no saved searches) and a save-failure error",
@@ -18,12 +20,29 @@
       "id": 2,
       "prompt": "For the feature in feature.md (in your working directory), specify the design-system components to reuse per screen and the accessibility behaviour for the primary flow (keyboard order, focus management, ARIA).",
       "expected_output": "A ux-spec naming design-system components per screen and concrete accessibility behaviour (keyboard order, focus management, ARIA roles/labels) for the primary flow — spec level, no visual mockup.",
-      "files": ["eval/fixtures/ux-design/feature.md"],
+      "files": [
+        "eval/fixtures/ux-design/feature.md"
+      ],
       "assertions": [
         "Names design-system components to reuse for the screens (not bespoke one-off UI)",
         "Specifies concrete accessibility behaviour: keyboard order, focus management, and ARIA roles/labels",
         "Covers the primary flow's states (including empty/error) at the spec level",
         "Produces a valid ux-spec artifact (type ux-spec) with non-empty flows and design_system refs"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Produce the developer handoff spec for the primary component of the feature in feature.md (in your working directory): the full visual spec in design tokens, every variant and state, responsive behavior, and accessibility — ready for an engineer to implement without asking questions.",
+      "expected_output": "A design-to-code handoff spec per the design-handoff reference: dimensions/spacing/colors/typography expressed as token names (not raw hex/px everywhere), each variant listed, ALL interactive states covered (default, hover, focus, active, disabled, loading, error where relevant), responsive behavior per breakpoint, and an accessibility block (ARIA role, keyboard bindings, screen-reader announcement). Focus state and keyboard behavior are never omitted.",
+      "files": [
+        "eval/fixtures/ux-design/feature.md"
+      ],
+      "assertions": [
+        "The visual spec references design tokens (named color/spacing/typography values), not only raw pixel/hex literals",
+        "All interactive states are specified — including focus, disabled, and error/loading where relevant — not just default and hover",
+        "Responsive behavior is specified per breakpoint (mobile/tablet/desktop or the project's breakpoints)",
+        "An accessibility block specifies the ARIA role, the keyboard behavior, and the screen-reader announcement",
+        "The spec is implementable as written — component name, variants, and props/usage reference included"
       ]
     }
   ],
@@ -33,8 +52,14 @@
     "purpose": "Design the UX for a feature — user flows, screens and states, accessibility — as a ux-spec handoff for develop (specs, not pixels). Stage 6; own behavior, gated at Tier-1 and Tier-2."
   },
   "thresholds": {
-    "tier1_trigger": { "recall": 0.9, "specificity": 0.9 },
-    "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }
+    "tier1_trigger": {
+      "recall": 0.9,
+      "specificity": 0.9
+    },
+    "tier2_quality": {
+      "min_pass_rate": 0.8,
+      "runs": 5
+    }
   },
   "triggers": {
     "should_trigger": [

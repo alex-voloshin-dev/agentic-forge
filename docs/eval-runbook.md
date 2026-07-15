@@ -1,5 +1,19 @@
 # Eval runbook — running the eval pyramid
 
+> **Throttling can masquerade as routing misses.** The Tier-1 router parses any unusable reply as
+> `none`, so a throttled/failed `claude` call counts as a should-trigger MISS — under heavy
+> subscription usage a skill can "fail" recall with an eerily stable number across re-runs
+> (observed 2026-07-14: `product` at exactly 0.840 four times, then 1.000 when calm, with
+> byte-identical inputs). If a Tier-1 dip coincides with heavy usage or timeouts, re-run when
+> calm before touching descriptions or evals.
+
+> **Growing a description can dilute its existing anchors.** Adding new capability keywords to a
+> listing description shifts the router's attention: after `marketing` gained offer/audit
+> keywords, its OLD "market research and analysis" prompts started routing to neighbours until
+> the original anchor phrasing was restored and the marketing↔product boundary was stated on BOTH
+> descriptions. When you extend a description, re-run Tier-1 for the skill AND its nearest
+> neighbours, and expect to re-balance the old anchors, not just append the new words.
+
 This explains how to run the project's evals and read the results. It starts with the Tier-2
 (LLM-judged quality) evals for the six engine roles (`reviewer`, `grader`, `software-engineer`,
 `architect`, `security-engineer`, `qa-engineer`); the other tiers each have their own runner

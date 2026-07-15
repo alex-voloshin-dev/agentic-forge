@@ -15,6 +15,11 @@ research/code-review).
 - **Own behavior** (there is no UX role to fork); emits a `ux-spec` handoff.
 - **Scope guard** (the roadmap's risk): outputs are **specs and handoff docs, never pixels/visual
   design**. An assertion enforces "spec, not visual mockup".
+- **Handoff depth** (ADR 0056): `references/design-handoff.md` carries the per-component
+  design-to-code template (token-valued visual spec; variants; ALL states incl. focus/disabled/
+  error; ARIA/keyboard/screen-reader) plus the 5-minute accessibility pass — loaded when the spec
+  goes to engineering; a Tier-2 case pins the template's non-negotiables (focus/keyboard never
+  omitted).
 - **Boundary** (avoid the "design" collision): `ux-design` = the *user* experience (flows, screens,
   a11y); `architecture` = the *technical* design (components, decisions, ADRs). The description
   leads with "UX / user flows / screens / accessibility", never bare "design".

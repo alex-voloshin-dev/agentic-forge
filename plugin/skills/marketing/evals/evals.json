@@ -35,6 +35,45 @@
         "Names concrete channels appropriate for SMB developers and measurable metrics",
         "No fabricated figures or benchmarks beyond what positioning.md supports"
       ]
+    },
+    {
+      "id": 4,
+      "prompt": "Audit geo-sample.html (in your working directory) for AI search readiness: score it against the GEO rubric, list the issues by priority, and give the prioritized fixes.",
+      "expected_output": "A structured audit with an overall 0-100 score and the five category scores (structure, schema, entities, freshness, format). Given the fixture's planted defects it scores clearly low (well under 60), and the report names the concrete offenders: no JSON-LD schema at all, a bury-the-lede opening ('In this post we will…'), a wall-of-text first paragraph, undated 'studies show 30%' and nameless 'experts say' claims, pronoun drift ('It/They' subjects), a vague non-topical H1, and no datePublished/dateModified. Fixes are prioritized, not generic advice.",
+      "files": ["eval/fixtures/marketing/geo-sample.html"],
+      "assertions": [
+        "Reports an overall score plus per-category scores, and the overall verdict is LOW (the page has no schema, no dates, and multiple structural anti-patterns — it must not be scored as citation-ready)",
+        "Flags the bury-the-lede opening and the wall-of-text paragraph as structure/chunking issues",
+        "Flags the missing JSON-LD/schema markup and the missing datePublished/dateModified as schema/freshness issues",
+        "Flags the undated statistic ('studies show a 30% improvement') and the nameless 'experts say' claim as unverifiable, and the pronoun-drift ('It/They') as an entity-clarity issue",
+        "The action plan is prioritized (critical vs lower priority) with concrete fixes tied to the found issues, not boilerplate SEO advice"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Design an offer for the product in positioning.md (in your working directory): the packaging, the price structure, the guarantee, and the name. Make it compelling enough to stand out without competing on price.",
+      "expected_output": "An offer built with the offer-design procedure: the dream outcome and proof-backed likelihood, reduced time-to-value and effort, a trimmed component stack, a concrete risk-reversal guarantee, and a name. Every scarcity/urgency element is REAL or absent (no invented '2 spots left'/fake timers); missing facts (e.g. margins) are marked as assumptions rather than invented; the copy stays within the brief's proof points.",
+      "files": ["eval/fixtures/marketing/positioning.md"],
+      "assertions": [
+        "The offer addresses the four value levers explicitly: outcome, likelihood (backed by the brief's proof points, not adjectives), time-to-value, and effort/sacrifice",
+        "Includes a concrete guarantee (risk reversal) and a stack of components with anything low-value trimmed",
+        "NO fabricated scarcity or urgency: any scarcity/urgency is grounded in a real constraint or omitted entirely",
+        "Unknown business facts (margins, capacity) are marked as assumptions, not invented",
+        "No claim exceeds positioning.md's proof points"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Write a LinkedIn post and an X post announcing the launch of the product described in positioning.md (in your working directory). The posts must deliver the value in the post itself.",
+      "expected_output": "Two platform-sized posts (X within 280 chars; LinkedIn in the 1,300-1,900 char band) that lead with a concrete insight from the brief, deliver value without requiring a click (zero-click), and pass the anti-AI writing gate: no 'groundbreaking/game-changing/revolutionary' vocabulary, no forced rule-of-three, no 'It's not just X, it's Y' parallelism, no generic 'exciting times ahead' close, varied sentence lengths, specific facts from the brief only.",
+      "files": ["eval/fixtures/marketing/positioning.md"],
+      "assertions": [
+        "The X post fits in 280 characters and the LinkedIn post is substantially longer (aiming for the 1,300-1,900 character band) — the two are not the same text duplicated",
+        "Both posts deliver the core value inside the post (zero-click): a reader who never clicks still gets the insight",
+        "The anti-AI writing patterns are respected: no promotional vocabulary (groundbreaking/game-changing/revolutionary/leverage/delve), no 'not just X, it's Y' negative parallelism, no generic hype closing",
+        "The posts lead with a specific, concrete hook from the brief rather than a generic topic introduction",
+        "No claims beyond positioning.md's proof points; no invented metrics"
+      ]
     }
   ],
   "component": {
@@ -52,12 +91,17 @@
       "Do a competitor analysis for our space",
       "What's our go-to-market strategy and positioning?",
       "Write the landing-page copy for this launch",
-      "Draft social posts and ad copy for the launch"
+      "Draft social posts and ad copy for the launch",
+      "Design an irresistible offer and pricing for our SaaS",
+      "How should we package and price this product?",
+      "Audit this blog post for AI search readiness — will ChatGPT cite it?",
+      "Run a GEO/SEO audit of our landing page"
     ],
     "should_not_trigger": [
       "Write a PRD defining what to build",
       "Research the best technical approach to build search",
-      "Design the system architecture for the search service"
+      "Design the system architecture for the search service",
+      "Set the price of the API rate-limit config value in the code"
     ]
   }
 }

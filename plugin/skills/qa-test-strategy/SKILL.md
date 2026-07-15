@@ -32,6 +32,11 @@ reviewing already-written code (`code-review`), or assembling a release (`releas
    input, concurrency, rounding/precision, failure modes).
 4. **Prioritize.** Order cases so boundaries and error/abuse paths come first; call out the levels
    (unit / integration / e2e / perf / security) the change actually warrants — not a blanket list.
+5. **Defects & exploration (in-flow).** When a defect surfaces while planning the strategy, or
+   the strategy calls for an unscripted exploratory pass over a risk area, follow
+   [references/bug-reports.md](references/bug-reports.md) — the structured bug-report format
+   (minimal repro, expected vs actual, evidence, severity rationale) and the charter-driven
+   exploratory pass whose findings feed the strategy's risk areas.
 
 ## Output
 

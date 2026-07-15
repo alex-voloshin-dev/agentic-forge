@@ -31,6 +31,10 @@ the product requirements (`product`).
 4. **Accessibility.** State concrete WCAG requirements: keyboard navigation and focus order,
    contrast, semantics/ARIA (e.g. live regions for async results), labels for inputs.
 5. **Design system.** Reference the components/tokens to reuse (don't invent a visual language).
+   When the spec is handed to engineering, load
+   [references/design-handoff.md](references/design-handoff.md) — the per-component handoff
+   template (tokens, variants, ALL states incl. focus/disabled/error, ARIA/keyboard) and the
+   5-minute accessibility pass.
 6. **Write the `ux-spec`** with valid YAML frontmatter: `type` (= `ux-spec`), `feature`, `status`,
    and the **list** fields `flows`, `screens`, `accessibility`, `design_system` (each a YAML list —
    not prose; quote any value containing a colon), then validate it
