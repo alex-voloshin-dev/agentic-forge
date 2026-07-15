@@ -7,6 +7,8 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.7.2] - 2026-07-15
+
 ### Added — skill-library adoption: marketing execution depth + role checklists (ADR 0056)
 
 Adopted the maintainer's external skill library as **references** (no new on-listing skills;
