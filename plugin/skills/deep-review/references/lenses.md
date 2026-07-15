@@ -36,6 +36,9 @@ target; one reviewer per lens, prompted adversarially, returning structured find
 - **Clarity & ambiguity** — wording open to two readings; over-promising vs what exists.
 - **Currency** — is a living doc stale against the latest ADR/decision? field-name or
   vocabulary drift across docs that describe the same thing.
+- **Reader testing** — simulate the doc's target reader (new contributor, operator, reviewer)
+  with a concrete task or question they'd bring: does the doc answer it, in the order they'd
+  look, without knowledge they don't have yet? Findings are the questions it failed to answer.
 
 ## Design / architecture / ADR
 

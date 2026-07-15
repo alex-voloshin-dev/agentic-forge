@@ -1,6 +1,6 @@
 ---
 name: product
-description: Produce PRODUCT REQUIREMENTS from research — take an existing research brief and turn it INTO a PRD / product spec (goals, non-goals, success metrics, acceptance criteria) with user stories, and assess the current product. Use to write a PRD, define requirements / goals / acceptance criteria, specify what to build, write user stories, or turn a research brief INTO a product spec. The brief is an INPUT that already exists — producing it is research; this is the speccing step that consumes it. Not the technical design (architecture), task planning (plan), or implementing (develop).
+description: Produce PRODUCT REQUIREMENTS from research — take an existing research brief and turn it INTO a PRD / product spec (goals, non-goals, success metrics, acceptance criteria) with user stories, and assess the current product. Use to write a PRD, define requirements / goals / acceptance criteria, specify what to build, write user stories, or turn a research brief INTO a product spec. The brief is an INPUT that already exists — producing it is research; this is the speccing step that consumes it. Not the technical design (architecture), task planning (plan), implementing (develop), or market/competitor analysis and offer/pricing design (marketing).
 allowed-tools: Read, Grep, Glob, Task, Write
 ---
 
@@ -25,7 +25,10 @@ acceptance criteria, user stories. Not for *what exists* (`research`), *how to b
    (`handoff.load_artifact(..., expected_type="research-brief")`) and assess the current product
    (repo, existing docs). Pick the `<feature-slug>`.
 2. **Frame the change.** From the brief's findings + recommendation, decide the **goals** and
-   the explicit **non-goals** (what's out of scope), and the **success metrics**.
+   the explicit **non-goals** (what's out of scope), and the **success metrics**. When the ask
+   involves ordering the work (what to build next, MVP scope, roadmap) or picking the metrics,
+   load [references/prioritization.md](references/prioritization.md) — the framework-selection
+   table (RICE / ICE / MoSCoW / JTBD / Kano), the metric frameworks, and the roadmap shape.
 3. **User stories.** Write the change as user stories (from the user's perspective), each with
    acceptance criteria.
 4. **Acceptance.** Turn the stories into concrete, testable **acceptance criteria** for the

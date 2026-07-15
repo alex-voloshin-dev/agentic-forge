@@ -87,7 +87,7 @@ The `*-patterns` packs (python, typescript, javascript, go, rust, jvm, dotnet, r
 - `product` — turn a brief into a PRD (goals, metrics, acceptance) → `prd`
 - `ux-design` — user flows, screens/states, accessibility → `ux-spec`
 - `architecture` — technical design + ADRs → `tech-design`
-- `marketing` — market/competitor research, GTM, content, evidence-cited → `market-brief` / `marketing-strategy`
+- `marketing` — market/competitor research, GTM, offer/pricing design, content, GEO/SEO audits, evidence-cited → `market-brief` / `marketing-strategy` / offer & audit docs
 
 **Build & verify**
 - `plan` — dependency-ordered work plan → `plan`
@@ -98,9 +98,13 @@ The `*-patterns` packs (python, typescript, javascript, go, rust, jvm, dotnet, r
 - `security-review` — dedicated security audit → `review`
 
 **Ship & operate**
-- `release` — semver bump + changelog from commits since the last tag → `release`
-- `deploy-watch` — assess rollout health from CI/alerts → `deploy-status`
+- `release` — next version (semver or CalVer) + changelog from commits since the last tag → `release`
+- `deploy-watch` — assess rollout health from CI/alerts or a k8s cluster → `deploy-status`
 - `incident-response` — triage + classify severity (sev1–4) + postmortem → `incident`
+
+**Manual utilities** (off-listing; invoke as `/agentic-forge:<name>`)
+- `pr-watch` — babysit one PR/CI run: paced polls, transition reports, opt-in bounded fix loop
+- `diagnostics-bundle` — package the plugin's redacted diagnostics into a shareable zip
 
 **Cross-cutting**
 - `knowledge` — recall/capture durable project knowledge in the Obsidian vault

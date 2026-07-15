@@ -19,13 +19,17 @@ CLAUDE.md router discipline keeps the always-on set small and pushes depth into 
 marketing is rarely used relative to the SDLC core, so it is **one on-listing `marketing` router
 skill** that dispatches to sub-procedures in `references/`, forking the research / `Explore` roles
 to gather evidence. It consolidates the roadmap's six topics (market, competitors, strategy,
-content, social, paid) into three sub-procedures:
+content, social, paid) into five sub-procedures (the offer-design and geo-content rows, plus the
+content row's zero-click/anti-AI extension, adopted from the maintainer's field-tested skill
+library — ADR 0056):
 
 | Sub-area (reference) | Does | Output |
 | --- | --- | --- |
 | market-research | market sizing, segments, and the competitor landscape — every claim cited | `market-brief` |
 | strategy | positioning / GTM / channels / messaging from the market-brief + the PRD | `marketing-strategy` |
-| content | copy / social / blog / paid to the strategy — on-brand, no unsupported claims | content files |
+| content | copy / social / blog / paid to the strategy — on-brand, no unsupported claims; zero-click social rules + the anti-AI writing gate; optional durable `marketing/MARKETING.md` + `content-calendar.md` state | content files |
+| offer-design | offer / pricing / packaging via the value equation + trim & stack; real-scarcity-only guardrail (attributed method: Hormozi's *$100M Offers*) | offer doc |
+| geo-content | GEO/AEO + technical-SEO audit of a page: 0–100 rubric, 10-point checklist, prioritized fixes | audit report |
 
 ## Evidence-first — the key quality lever
 

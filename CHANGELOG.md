@@ -7,6 +7,40 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Added — skill-library adoption: marketing execution depth + role checklists (ADR 0056)
+
+Adopted the maintainer's external skill library as **references** (no new on-listing skills;
+provenance + what was deliberately not adopted in the ADR):
+
+- **`marketing`** gains two new sub-areas plus an extended third: `references/geo-content.md` (the 0–100 GEO rubric,
+  10-point pre-publish checklist, anti-patterns, FAQPage JSON-LD essentials, technical-SEO pass —
+  generalized from the field `geo-audit`/`seo-review`/`faq-schema-builder` skills),
+  `references/offer-design.md` (value equation, trim & stack, risk reversal, the authenticity
+  guardrail — attributed to Hormozi's *$100M Offers* method), and an extended
+  `references/content.md` (zero-click social strategy, platform limits, the anti-AI writing gate,
+  durable `marketing/MARKETING.md` + `content-calendar.md` convention). The listing description
+  gained offer/pricing + GEO/SEO-audit keywords; three Tier-2 cases (a planted-defect HTML audit
+  fixture, an offer brief, a social-post pair) and four should-trigger / one should-not phrases
+  were added to the contract.
+- **`product`** gains `references/prioritization.md` (RICE/ICE/MoSCoW/JTBD/Kano selection table,
+  North Star/AARRR/AI-product metrics, Now/Next/Later roadmap shape) and a sharper description
+  boundary (not "market/competitor analysis and offer/pricing design (marketing)").
+- **Live gates (claude-opus-4-8): Tier-1 marketing PASS recall 0.911 / specificity 1.000; Tier-1
+  product PASS recall 1.000 / specificity 0.960; Tier-2 marketing PASS 0.962 (n=5, all six cases
+  incl. the three adopted sub-areas).** Router-budget recount after all description changes
+  (marketing, product, deploy-watch): 17 on-listing skills, ~2,534 tokens — ~84 over the previous
+  ~2,450 note; still ~1.3% of the window and watched by the weekly Tier-1 cron. Getting there surfaced two lessons recorded in the eval
+  runbook: the new sub-areas initially diluted the old "market research and analysis" anchors
+  (fixed by restoring them + the two-sided boundary clause), and throttled router calls parse as
+  `none`, mimicking a stable recall failure.
+- **`ux-design`** gains `references/design-handoff.md` (design-to-code handoff template — tokens,
+  variants, ALL states incl. focus/disabled/error, ARIA/keyboard; the 5-minute a11y pass) and a
+  Tier-2 handoff-spec case — **Tier-2 executed live: PASS 1.000 (n=5, claude-opus-4-8)**.
+- **`qa-test-strategy`** gains `references/bug-reports.md` (structured bug report: minimal repro,
+  expected-vs-actual, evidence, severity rationale; charter-driven exploratory testing).
+- **`deep-review`** gains a **reader-testing** lens for docs (simulate the target reader's task;
+  findings are the questions the doc fails to answer).
+
 ### Added — `pr-watch` skill: interactive PR/CI babysitting (field-driven increment 1)
 
 A manual, off-listing skill (`/pr-watch`; `disable-model-invocation`, so it costs no router-listing

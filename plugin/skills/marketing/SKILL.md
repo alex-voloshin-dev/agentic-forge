@@ -1,6 +1,6 @@
 ---
 name: marketing
-description: Market and competitor research and analysis, go-to-market strategy and positioning, and marketing content (landing copy, social, ad/paid) — the outward-facing marketing domain, all with cited evidence. Use for market research or a competitor analysis, go-to-market / positioning / channel strategy, or writing landing-page copy, social posts, or ad / paid copy. Not for product requirements or a PRD (product), researching the product feature or technical options (research), or the technical design (architecture).
+description: Market and competitor research and analysis, go-to-market strategy and positioning, offer / pricing / packaging design, marketing content (landing copy, social, ad/paid), and GEO/SEO content audits — the outward-facing marketing domain, with cited evidence. Use for market research or a competitor analysis of the market landscape, GTM / positioning / channel strategy, designing or pricing an offer, writing landing / social / ad copy, or auditing a page for AI search readiness / citability / SEO. Not for product requirements or a PRD (product), researching the feature or technical options (research), or the technical design (architecture).
 allowed-tools: Read, Grep, Glob, Bash, Task, Write, Edit, WebSearch, WebFetch
 ---
 
@@ -15,8 +15,9 @@ requirements themselves are the `product` skill's job; this is everything outwar
 
 ## When to use
 
-Market or competitor research, go-to-market / positioning / channel strategy, or marketing content
-(landing copy, social, ad/paid). **Not** for the product spec / PRD (`product`), researching the
+Market or competitor research, go-to-market / positioning / channel strategy, offer / pricing /
+packaging design, marketing content (landing copy, social, ad/paid), or a GEO/SEO audit of a page
+for AI search readiness. **Not** for the product spec / PRD (`product`), researching the
 feature or technical options (`research`), or the technical design (`architecture`).
 
 ## Evidence discipline (non-negotiable)
@@ -35,7 +36,9 @@ The failure mode of generated marketing is confident, low-signal fluff. So every
 | --- | --- | --- |
 | Market sizing, segments, competitor landscape | [references/market-research.md](references/market-research.md) | `market-brief` |
 | Positioning, GTM, channels, messaging | [references/strategy.md](references/strategy.md) | `marketing-strategy` |
+| Offer / pricing / packaging design | [references/offer-design.md](references/offer-design.md) | offer doc |
 | Landing copy, social, ad / paid content | [references/content.md](references/content.md) | content files |
+| GEO / SEO audit of a page or content | [references/geo-content.md](references/geo-content.md) | audit report |
 
 ## Process
 
@@ -44,10 +47,11 @@ The failure mode of generated marketing is confident, low-signal fluff. So every
    `WebSearch` / `WebFetch`** (analyst reports, competitor sites, pricing pages) — or fork the
    `research` / `Explore` roles via `Task` for deeper tracks — **keeping every source URL**. Then
    apply the evidence discipline above (cite or mark every claim; no fabrication).
-3. **Synthesize** the handoff artifact — `market-brief` (frontmatter `type`, `feature`, `status`, `competitors`, `segments`, `sources`) or `marketing-strategy` (`type`, `feature`, `status`, `positioning`, `channels`) — or
-   the content files, grounded in the evidence and the upstream `prd.md` where relevant. Validate the
-   chosen header (`handoff.validate_header(header, expected_type="market-brief")` or
-   `"marketing-strategy"`; see [handoff.md](../../patterns/handoff.md)).
+3. **Synthesize** the sub-area's output: the handoff artifact — `market-brief` (frontmatter `type`, `feature`, `status`, `competitors`, `segments`, `sources`) or `marketing-strategy` (`type`, `feature`, `status`, `positioning`, `channels`) — validated via
+   `handoff.validate_header(header, expected_type="market-brief")` or `"marketing-strategy"`
+   (see [handoff.md](../../patterns/handoff.md)); or the untyped deliverables per the reference —
+   content files, the offer doc, or the audit report — grounded in the evidence and the upstream
+   `prd.md` where relevant.
 4. **Adversarial claims pass (bounded).** Fork a fresh `reviewer`/skeptic (via `Task`) to attack
    the draft against the evidence discipline above — every claim **cited or marked an assumption**,
    **no invented figures**, competitors named specifically, **no unsupported superlatives** — then
