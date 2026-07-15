@@ -13,9 +13,10 @@ fixture-backed Tier-2 from the start** (ADR 0020). Roadmap: Stage 4.
 | --- | --- | --- | --- | --- |
 | `qa-test-strategy` | Plan *what to test* for a change/feature: risk areas, test levels, prioritized cases, coverage targets, data/fixtures needed | `qa-engineer` (analysis mode) | `test-strategy` | Strategy, **not** writing tests (`develop`'s QA step) or reviewing code (`code-review`) |
 | `security-review` | Dedicated deep security pass over a component/design/change: threat surface, authz, secrets, deps, input handling | `security-engineer` | `review` (reused; security lens) | Whole-target audit, **not** the per-diff security aspect inside `code-review`, **not** fixing (`develop`) |
-| `deploy-watch` | Read CI/CD pipeline state + alerts, summarize rollout health, flag regressions, recommend action | — (deterministic `ops` core) | `deploy-status` | Read/assess a deploy, **not** incident handling (`incident-response`) or cutting a release (`release`) |
+| `deploy-watch` | Read CI/CD pipeline state + alerts — or a k8s cluster/namespace (nodes, pods, events; `references/k8s-health.md`) — summarize rollout health, flag regressions, recommend action | — (deterministic `ops` core) | `deploy-status` | Read/assess a deploy, **not** incident handling (`incident-response`) or cutting a release (`release`) |
 | `incident-response` | Classify severity, assemble timeline, coordinate mitigation, draft a postmortem | `architect`/`security-engineer` as the cause needs | `incident` | Active incident/postmortem, **not** routine deploy monitoring (`deploy-watch`) |
-| `release` | Cut a release: derive the semver bump, assemble the changelog from merged PRs/commits since the last tag, produce release notes | — (deterministic `release` core) | `release` | Assemble/tag a release, **not** the per-PR `CHANGELOG` discipline during dev |
+| `release` | Cut a release: derive the next version (semver, or CalVer per ADR 0055), assemble the changelog from merged PRs/commits since the last tag, produce release notes | — (deterministic `release` core) | `release` | Assemble/tag a release, **not** the per-PR `CHANGELOG` discipline during dev |
+| `pr-watch` | Off-listing manual `/pr-watch`: babysit one PR/CI run — paced polls, transition-only reports, opt-in bounded fix loop over the `agentic_forge.pr_watch` lib | `software-engineer` for non-trivial fixes | — (interactive reports) | Interactive single-PR watching, **not** the scheduled multi-repo watcher (`dev/pr_watch.py`) or rollout health (`deploy-watch`) |
 
 ## Resolved design questions (from the roadmap)
 

@@ -25,9 +25,13 @@ app, or writing code.
 2. **Fan out.** Spawn one **fresh, independent** reviewer per lens (the `reviewer` role via a
    forked subagent, or a general-purpose subagent) with *no* prior context, prompted
    **adversarially** ("assume problems exist; hunt them"). Require structured findings: each
-   with `severity` (`blocker | major | minor | nit`), `location`, `issue`, `evidence`, `suggested fix`.
-   Run them concurrently with the Task tool (or a Workflow if the user has opted into
-   multi-agent orchestration). Scale the count to the ask.
+   with `severity` (`blocker | major | minor | nit`), `location`, `issue`, `evidence`, `fix`
+   (the suggested fix — same key as the workflow template's schema).
+   Run them concurrently with the Task tool — or, when the user has opted into multi-agent
+   orchestration, with a Workflow built from
+   [references/workflow-template.md](references/workflow-template.md) (canonical finding/verdict
+   schemas, per-lens retry, loss disclosure — do not re-invent the harness per run). Scale the
+   count to the ask.
 3. **Verify** every substantive finding against the source yourself before accepting it —
    open the file, re-run the check. Drop or downgrade what doesn't hold; keep a note of
    notable false alarms with the reason. This step is non-negotiable: it is what keeps the

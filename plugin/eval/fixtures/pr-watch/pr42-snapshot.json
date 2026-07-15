@@ -1,0 +1,49 @@
+{
+  "checks": [
+    {
+      "name": "lint",
+      "state": "pass",
+      "elapsed": "48s"
+    },
+    {
+      "name": "unit-tests",
+      "state": "pass",
+      "elapsed": "3m12s"
+    },
+    {
+      "name": "e2e-playwright",
+      "state": "pending",
+      "elapsed_so_far": "2m10s",
+      "typical_duration": "14m"
+    }
+  ],
+  "later_poll": {
+    "checks": [
+      {
+        "name": "lint",
+        "state": "pass"
+      },
+      {
+        "name": "unit-tests",
+        "state": "pass"
+      },
+      {
+        "name": "e2e-playwright",
+        "state": "fail",
+        "elapsed": "13m41s",
+        "summary": "2 specs failed: pricing.spec.ts, report.spec.ts"
+      }
+    ]
+  },
+  "pullRequest": {
+    "number": 42,
+    "url": "https://github.com/acme/app/pull/42",
+    "headRefName": "feat/search-index",
+    "baseRefName": "main",
+    "isCrossRepository": false,
+    "mergeable": "MERGEABLE",
+    "reviewThreads": {
+      "nodes": []
+    }
+  }
+}

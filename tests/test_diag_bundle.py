@@ -401,3 +401,54 @@ def test_skill_script_writes_to_downloads(tmp_path: Path, capsys) -> None:  # ty
     written = list((home / "Downloads").glob("agentic-forge-diagnostics-*.zip"))
     assert len(written) == 1  # strict ~/Downloads destination, consistent name
     assert "Diagnostics bundle written to" in capsys.readouterr().out
+
+
+def test_settings_slice_filters_foreign_plugins() -> None:
+    # the slice promises agentic-forge only — other plugins/marketplaces must not ship
+    raw = json.dumps(
+        {
+            "enabledPlugins": {
+                "agentic-forge@agentic-forge": True,
+                "humanizer@humanizer": True,
+            },
+            "extraKnownMarketplaces": {
+                "agentic-forge": {"source": {"source": "git", "url": "https://x/agentic-forge.git"}},
+                "humanizer": {"source": {"source": "git", "url": "https://x/humanizer.git"}},
+            },
+            "hooks": {"PreToolUse": []},
+        }
+    )
+    parsed = json.loads(diag_bundle.settings_slice(raw))
+    assert set(parsed["enabledPlugins"]) == {"agentic-forge@agentic-forge"}
+    assert set(parsed["extraKnownMarketplaces"]) == {"agentic-forge"}
+    assert "humanizer" not in json.dumps(parsed)
+    assert parsed["hooks"] == {"PreToolUse": []}  # hooks stay whole (behaviour-relevant)
+
+
+def test_settings_slice_keeps_hosting_marketplace_of_kept_plugin() -> None:
+    # an aggregator marketplace without "agentic-forge" in its name still hosts the plugin —
+    # its entry must survive (it IS the install source), while unrelated ones drop
+    raw = json.dumps(
+        {
+            "enabledPlugins": {
+                "agentic-forge@official-plugins": True,
+                "other@official-plugins": True,
+            },
+            "extraKnownMarketplaces": {
+                "official-plugins": {"source": {"source": "git", "url": "https://x/official.git"}},
+                "unrelated": {"source": {"source": "git", "url": "https://x/unrelated.git"}},
+            },
+        }
+    )
+    parsed = json.loads(diag_bundle.settings_slice(raw))
+    assert set(parsed["enabledPlugins"]) == {"agentic-forge@official-plugins"}
+    assert set(parsed["extraKnownMarketplaces"]) == {"official-plugins"}
+
+
+def test_settings_slice_drops_non_dict_plugin_shapes() -> None:
+    raw = json.dumps(
+        {"enabledPlugins": ["agentic-forge", "other"], "extraKnownMarketplaces": ["x"]}
+    )
+    parsed = json.loads(diag_bundle.settings_slice(raw))
+    assert parsed.get("enabledPlugins") == {}  # unknown shape never ships other plugins
+    assert "extraKnownMarketplaces" not in parsed

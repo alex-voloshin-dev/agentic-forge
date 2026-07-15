@@ -58,11 +58,17 @@ def _review_scan(repo: Path) -> str:
     if not resolved.diagnostics_enabled:
         return "review-scan: diagnostics disabled (enable it in .agentic-forge/config.json)"
     events = diagnostics.scan_reviews(repo, cap=resolved.review_passes)
-    for event in events:
-        diagnostics.record_event(repo, event)
+    # record_event gates on the MAIN root's config (it owns the log — see its docstring), which
+    # can diverge from `repo` when scanning a worktree: count what was actually written.
+    recorded = sum(1 for event in events if diagnostics.record_event(repo, event) is not None)
     if not events:
         return "review-scan: all review loops converged (or none found)"
-    return f"review-scan: recorded {len(events)} non-converged review loop(s)"
+    if recorded < len(events):
+        return (
+            f"review-scan: found {len(events)} non-converged review loop(s), recorded {recorded} "
+            "(diagnostics disabled at the main repo root for the rest)"
+        )
+    return f"review-scan: recorded {recorded} non-converged review loop(s)"
 
 
 def _pr_list(repo: Path) -> Callable[[str, str], list[int]]:  # pragma: no cover -- real gh

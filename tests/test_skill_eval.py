@@ -43,6 +43,8 @@ TIER2_SKILLS = {
     "repo-onboarding",
     # Utility — the off-listing diagnostics packager (self-contained; ADR 0053)
     "diagnostics-bundle",
+    # Utility — the off-listing interactive PR/CI babysitter (field-driven increment 1)
+    "pr-watch",
 }
 
 

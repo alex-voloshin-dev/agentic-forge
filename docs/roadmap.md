@@ -26,7 +26,7 @@ architecture before we invest in breadth.
 | 7 | Guardrails, observability, scheduling (L4) | Built — four guardrail hooks (ADR 0019) + scheduling & observability (ADR 0024): declarative job registry + audit-log digest + cron CI |
 | — | Post-spine increments | Built — increments through ADR 0040 (connectors, Tier-1 mean-rate, domain E2E, cadence persistence, quality-hardening, ultra-review, **eval A/B + token-overhead, review passes, diagnostics channel + review-scan**); see [Post-spine increments](#post-spine-increments-beyond-the-staged-plan) |
 | — | Planned increments | settings/config (0041), external reviewer/codex (0042), multi-model tiers (0043), **PR watcher core (0044) + 1b (0045)** all **built**; only the PR-watcher manual real-PR validation remains — see [Planned increments](#planned-increments-not-yet-built) |
-| — | Field-driven increments (July 2026 diagnostics) | **Analyzed** — bugs fixed immediately (ADR 0054/0055 era, see CHANGELOG); product items planned: pr-watch skill, deploy-watch k8s coverage, deep-review workflow assets, observability hygiene — see [Field-driven increments](#field-driven-increments-production-diagnostics-july-2026) |
+| — | Field-driven increments (July 2026 diagnostics) | **Built & live-gated** — bugs fixed in 2026.7.1 (ADR 0054/0055); the four product items (pr-watch skill, deploy-watch k8s coverage, deep-review workflow template, observability hygiene) shipped next, with Tier-1/Tier-2 executed live for the changed contracts (all PASS) — see [Field-driven increments](#field-driven-increments-production-diagnostics-july-2026) |
 
 ---
 
@@ -423,6 +423,16 @@ each item gets its contract + evals before implementation when picked up.
 **Priority order:** 1 (pr-watch skill — the largest manual pain), 2 (deploy-watch coverage), 3
 (deep-review workflow assets), 4 (observability hygiene). The config-UX finding was fixed with the
 bugs (neutral `config.example.json` + configuration.md python/models clarifications).
+
+> **Status:** all four are **built** (post-2026.7.1, see the CHANGELOG): 1 — the `pr-watch` skill
+> (off-listing manual `/pr-watch`, wraps the `agentic_forge.pr_watch` lib, Tier-2 contract); 2 — `deploy-watch`
+> k8s coverage (`references/k8s-health.md` + k8s Tier-1/Tier-2 eval cases, description +~10 listing
+> tokens); 3 — `deep-review` `references/workflow-template.md` (canonical schemas, per-lens retry,
+> loss disclosure); 4 — audit rotation (`observability.rotate_audit` at session start),
+> worktree-aware log placement (`diagnostics.main_repo_root`), and the agentic-forge-only settings
+> slice. Live gates executed on claude-opus-4-8: deploy-watch Tier-1 PASS (recall 0.971 /
+> specificity 1.000) and Tier-2 PASS (1.000, n=5); pr-watch Tier-2 PASS (mean 0.943 / lower bound
+> 0.815, n=5). deep-review's change is references-only (its existing Tier-2 contract is untouched).
 
 ### 1 — `pr-watch` skill: interactive CI/PR babysitting
 

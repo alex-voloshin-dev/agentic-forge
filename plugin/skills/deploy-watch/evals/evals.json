@@ -23,6 +23,19 @@
         "The recommended action is to continue monitoring — no rollback is proposed",
         "A valid deploy-status artifact is produced"
       ]
+    },
+    {
+      "id": 3,
+      "prompt": "Check the Kubernetes cluster health for production from the snapshot in k8s-degraded.json (in your working directory) — nodes, pods, deployments, events — and record a deploy-status report.",
+      "expected_output": "A deploy-status artifact for production assessed from the k8s snapshot: health 'degraded' (all nodes Ready and no critical signal, but one deployment is 2/3 available with a crash-looping, readiness-failing pod), the BackOff/Unhealthy events triaged as warnings, and a recommended action to investigate the crash-looping pod — not a blind rollback and not 'all healthy'.",
+      "files": ["eval/fixtures/deploy-watch/k8s-degraded.json"],
+      "assertions": [
+        "Health is assessed as degraded — neither healthy (a deployment is below its desired available count) nor failing (nodes are Ready and nothing is critical)",
+        "The crash-looping pod (report-service, 14 restarts, readiness 503) is explicitly surfaced as the cause",
+        "The non-Normal events are triaged as warnings rather than ignored or escalated to critical",
+        "The recommended action targets the degraded workload (investigate/restart the crash-looping pod) rather than a cluster-wide rollback",
+        "A valid deploy-status artifact is produced (environment, pipeline health, action)"
+      ]
     }
   ],
   "component": {
@@ -39,12 +52,16 @@
       "Is the production deploy healthy right now?",
       "Watch the rollout and tell me the pipeline status",
       "What's the deploy/rollout status?",
-      "Check the CI/CD pipeline health for this environment"
+      "Check the CI/CD pipeline health for this environment",
+      "Check the k8s cluster health — nodes, pods, recent events",
+      "Are all pods healthy in the prod namespace?",
+      "Give me a cluster health check for production"
     ],
     "should_not_trigger": [
       "We have an outage — start the incident response",
       "Cut a release and write the changelog",
-      "Implement the feature in this branch"
+      "Implement the feature in this branch",
+      "Why is this pod's YAML invalid? Fix the manifest"
     ]
   }
 }

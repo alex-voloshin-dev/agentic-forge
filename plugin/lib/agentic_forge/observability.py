@@ -10,14 +10,29 @@ does the file I/O. See docs/architecture/scheduling-observability.md.
 from __future__ import annotations
 
 import json
+import os
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-__all__ = ["AUDIT_PATH", "Digest", "parse_lines", "digest", "render"]
+__all__ = [
+    "AUDIT_PATH",
+    "MAX_AUDIT_BYTES",
+    "KEEP_AUDIT_BYTES",
+    "Digest",
+    "parse_lines",
+    "digest",
+    "render",
+    "rotate_audit",
+]
 
 AUDIT_PATH = ".agentic-forge/audit.jsonl"  # written by the logging guardrail hook
+
+# Rotation bounds: a real repo accrued ~2.6 MB/week, so 10 MB ≈ a month of history; the kept tail
+# comfortably covers the diagnostics bundle's default 7-day window.
+MAX_AUDIT_BYTES = 10 * 1024 * 1024
+KEEP_AUDIT_BYTES = 5 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -76,11 +91,44 @@ def render(d: Digest) -> str:
     return "\n".join(lines)
 
 
+def rotate_audit(
+    repo: Path | str, *, max_bytes: int = MAX_AUDIT_BYTES, keep_bytes: int = KEEP_AUDIT_BYTES
+) -> bool:
+    """Trim the audit log to its most recent ``keep_bytes`` once it exceeds ``max_bytes``
+    (unbounded growth guard — the log previously grew forever). Keeps whole records: the kept
+    tail starts at its first complete line (nothing is dropped when the window already starts on
+    one). The rewrite is atomic (`os.replace`), so a crash mid-rotation can't destroy the log.
+    Returns True when a trim happened; never raises (called from the session-start hook, which
+    must not break a session)."""
+    path = Path(repo) / AUDIT_PATH
+    try:
+        if not path.is_file() or path.stat().st_size <= max_bytes:
+            return False
+        data = path.read_bytes()
+        if len(data) <= keep_bytes:  # misuse guard (keep >= max): nothing to trim into
+            return False
+        tail = data[-keep_bytes:]
+        if data[-keep_bytes - 1 : -keep_bytes] != b"\n":  # window starts mid-record: drop it
+            newline = tail.find(b"\n")
+            if newline != -1:
+                tail = tail[newline + 1 :]
+        tmp = path.with_suffix(".jsonl.rotating")
+        tmp.write_bytes(tail)
+        os.replace(tmp, path)
+        return True
+    except Exception:  # any failure leaves the log as it was; a session must not break
+        return False
+
+
 def load_audit(repo: Path | str, *, max_lines: int | None = None) -> list[str]:  # pragma: no cover
     """Read the audit log lines (``[]`` if absent), optionally only the last ``max_lines`` — a
-    bounded window so a long-lived log doesn't load wholesale into the digest. Thin I/O seam; the
+    bounded window so a long-lived log doesn't load wholesale into the digest. ``repo`` is
+    normalised like the writer (``diagnostics.main_repo_root``), so reading from inside a
+    worktree finds the trail the hooks actually wrote at the main root. Thin I/O seam; the
     digest logic is tested."""
-    path = Path(repo) / AUDIT_PATH
+    from . import diagnostics  # local import: diagnostics ↔ observability must not cycle at load
+
+    path = diagnostics.main_repo_root(repo) / AUDIT_PATH
     if not path.is_file():
         return []
     lines = path.read_text(encoding="utf-8").splitlines()

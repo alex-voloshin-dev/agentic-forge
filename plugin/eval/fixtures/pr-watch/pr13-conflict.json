@@ -1,0 +1,30 @@
+{
+  "checks": [
+    {
+      "name": "lint",
+      "state": "pass"
+    },
+    {
+      "name": "unit-tests",
+      "state": "pending",
+      "elapsed_so_far": "1m",
+      "typical_duration": "4m"
+    }
+  ],
+  "existing_pr_comments": [
+    {
+      "author": "github-actions[bot]",
+      "body": "Merge conflict could not be auto-resolved by the PR watcher; please rebase."
+    }
+  ],
+  "pullRequest": {
+    "number": 13,
+    "headRefName": "feat/import-pipeline",
+    "baseRefName": "main",
+    "isCrossRepository": false,
+    "mergeable": "CONFLICTING",
+    "reviewThreads": {
+      "nodes": []
+    }
+  }
+}

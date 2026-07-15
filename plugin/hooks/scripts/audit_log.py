@@ -19,9 +19,11 @@ from agentic_forge import diagnostics, guardrails  # noqa: E402
 
 
 def write_audit(payload: dict[str, Any], cwd: str) -> Path:
-    """Append ``payload``'s redacted audit record to the project audit log; return its path."""
+    """Append ``payload``'s redacted audit record to the project audit log; return its path.
+    The log lives at the MAIN working-tree root (worktree-aware via ``main_repo_root``), so a
+    worktree-phase session's trail survives the worktree's removal."""
     record = guardrails.audit_record(payload, ts=datetime.now(timezone.utc).isoformat())
-    log_path = Path(cwd) / ".agentic-forge" / "audit.jsonl"
+    log_path = diagnostics.main_repo_root(cwd) / ".agentic-forge" / "audit.jsonl"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record) + "\n")

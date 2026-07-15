@@ -1,6 +1,6 @@
 ---
 name: deploy-watch
-description: Read CI/CD pipeline state and monitoring alerts, assess rollout health (healthy / degraded / failing), triage the alerts, and recommend an action — recorded as a deploy-status handoff. Use to check deploy / rollout / pipeline health or status, watch a rollout, or assess CI/CD and alerts for an environment. Not for active incident handling (incident-response), cutting a release (release), or implementing a change (develop).
+description: Read CI/CD pipeline state and monitoring alerts, assess rollout health (healthy / degraded / failing), triage the alerts, and recommend an action — recorded as a deploy-status handoff. Use to check deploy / rollout / pipeline / cluster health or status (k8s — nodes, pods, events), watch a rollout, or assess CI/CD and alerts for an environment. Not for active incident handling (incident-response), cutting a release (release), or implementing a change (develop).
 allowed-tools: Read, Grep, Glob, Bash, Write, Edit
 ---
 
@@ -36,7 +36,10 @@ python -c "from agentic_forge import ops; help(ops.deploy_status)"
    recent deploys + active alerts for the environment. When handed a recorded snapshot (JSON of
    `deploys` + `alerts`),
    load it into `ops.InMemoryPipeline` / `ops.InMemoryAlerts` (build `ops.Deploy` / `ops.Alert`
-   from the records).
+   from the records). When the environment is a **Kubernetes cluster/namespace** (nodes, pods,
+   deployments, events — live `kubectl` reads or a recorded snapshot), follow
+   [references/k8s-health.md](references/k8s-health.md): the observation→verdict mapping and the
+   scheduled/headless recipe live there; the output is the same `deploy-status` handoff.
 2. **Assess.** `ops.deploy_status(pipeline, alerts, environment)` returns the
    `deploy-status` mapping: `pipeline` health (`ops.rollout_health`: failing on a failed deploy or
    a `critical` alert; degraded on an in-flight deploy or a `warning`; else healthy), the deploy

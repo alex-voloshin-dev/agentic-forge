@@ -38,7 +38,11 @@ session — except where blocking is the whole point (security, test-gate).
 - **budgets** (`PreToolUse` / Task, `budget.py`) — a per-session subagent counter; **warns** over
   the soft cap and **blocks** over the hard cap (`AGENTIC_FORGE_SUBAGENT_SOFT` / `_HARD`).
 - **logging** (`PostToolUse`, `audit_log.py`) — appends a secret-redacted JSONL audit line to
-  `<project>/.agentic-forge/audit.jsonl`. Pure observability; **never blocks**.
+  `<project>/.agentic-forge/audit.jsonl`. Pure observability; **never blocks**. The log dir is the
+  **main** working-tree root (`diagnostics.main_repo_root` resolves a linked worktree's `.git`
+  file back through its `gitdir:` pointer), so a worktree-phase trail survives the worktree's
+  removal; diagnostics events are normalised the same way. The session-start hook rotates the log
+  once per session above a size bound (`observability.rotate_audit`, keep-the-tail).
 
 ## Design notes
 

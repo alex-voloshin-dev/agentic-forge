@@ -1,0 +1,51 @@
+{
+  "skill_name": "pr-watch",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Watch PR #42 until the checks finish and tell me when anything changes. Use the recorded state in pr42-snapshot.json (in your working directory): the top-level `pullRequest`/`checks` keys are the current poll; `later_poll` is what the next poll returned. Recorded state — SIZE and narrate the wait you would schedule, do not actually sleep or schedule anything.",
+      "expected_output": "A baseline report (check states, zero unresolved threads, MERGEABLE), a wait plan paced to the pending e2e check's typical duration (~14m, ~12m remaining — one wait of that order, not a tight fixed loop), then a transition-only update for the later poll: e2e-playwright failed with the two failing specs named, and a final summary with a recommended next action. No outward GitHub write.",
+      "files": ["eval/fixtures/pr-watch/pr42-snapshot.json"],
+      "assertions": [
+        "The baseline report names each check with its state, the unresolved-thread count (0), and the mergeable state",
+        "The wait before the next poll is sized to the pending e2e check's expected remaining time (on the order of 10 minutes), not a fixed 30-60 second polling loop",
+        "The second report mentions only what changed — the e2e failure and its failing specs — without re-listing the unchanged passing checks as news",
+        "The run ends with a final summary and a concrete recommended next action for the failed check",
+        "No reply, resolve, push, or merge action is taken or proposed as done — watching stays read-only"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "PR #7 got review comments — its recorded state is in pr7-threads.json (in your working directory, including the pr_watcher settings). Go through the threads: fix what's legitimate, reply and resolve those; push back with a reasoned reply where the reviewer's ask isn't justified. Tell me exactly which gh/git commands you would run and in what order (recorded state — don't execute them).",
+      "expected_output": "The triage honors the lib semantics over the recorded threads: the resolved thread and the bot-authored thread are skipped, and only max_threads=2 of the three actionable threads are processed this pass (the third is reported as deferred). The off-by-one bug is a fix (reply then resolve); the subjective style rewrite is a reject (reasoned reply, thread left open). The push is a single plain push of HEAD to fix/rate-limits. The report separates fixed vs rejected vs deferred.",
+      "files": ["eval/fixtures/pr-watch/pr7-threads.json"],
+      "assertions": [
+        "The resolved thread (T_already_done) and the bot-authored thread (T_bot_note) are excluded from the actionable set",
+        "At most 2 threads are processed (the configured max_threads), and the remaining actionable thread is explicitly reported as deferred to the next pass — not silently dropped",
+        "For a fixed thread the reply comes BEFORE the thread is resolved; the rejected/disputed thread gets a reasoned reply and is left OPEN (not resolved)",
+        "Any push is a single plain push of HEAD to fix/rate-limits (e.g. via pr_watch.push_argv) — no --force flag and no merge command anywhere",
+        "The final report separates fixed vs rejected (with the rejection reasoning) vs deferred"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Keep an eye on PR #13 — it says there's a merge conflict. Its recorded state is in pr13-conflict.json (in your working directory), including the PR's existing comments. Recorded state — report and plan the paced follow-up, do not actually sleep, schedule, or execute gh writes.",
+      "expected_output": "The CONFLICTING state is reported once with what it blocks; the existing conflict notice among the PR comments is detected, so no duplicate notice is proposed; no force-push or merge is attempted; watching continues for the still-pending unit-tests check with an appropriately paced next poll.",
+      "files": ["eval/fixtures/pr-watch/pr13-conflict.json"],
+      "assertions": [
+        "The CONFLICTING mergeable state is reported with its consequence (the PR cannot merge until rebased)",
+        "The conflict notice already present in the PR's comments is recognized, and the standard notice is NOT posted again (idempotency)",
+        "No force-push and no merge is attempted or proposed to clear the conflict; at most a base-into-branch merge is OFFERED as an explicit option",
+        "Watching continues despite the conflict — the pending unit-tests check is tracked with a wait paced to its remaining time"
+      ]
+    }
+  ],
+  "component": {
+    "id": "pr-watch",
+    "type": "skill",
+    "purpose": "A manual utility skill that babysits a GitHub PR / CI run interactively — polls checks, review threads, and mergeable state at a cadence matched to the pending work, reports transitions, and only on explicit request drives the bounded, never-merge/never-force-push fix loop from the tested agentic_forge.pr_watch lib. Replaces the hand-rolled `gh pr view` polling loops seen in production audit logs (232 manual polls in one week)."
+  },
+  "thresholds": {
+    "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }
+  }
+}
