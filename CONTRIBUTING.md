@@ -80,3 +80,32 @@ Any change that adds, changes, or removes functionality MUST, in the same change
 - If you touched a gated component, note the achieved eval numbers (and the model) in the
   CHANGELOG, per the eval-loop guide.
 - Add the **`eval`** label to run the cost-gated Tier-1/2 jobs in CI.
+
+## Cutting a release
+
+Releases are versioned by **CalVer** `<year>.<month>.<inc>` — e.g. `2026.7.1`; the inc restarts
+each month, no zero-padding, and breaking changes are flagged in the CHANGELOG, never encoded in
+the version ([ADR 0055](docs/architecture/decisions/0055-calver-versioning.md)). The next version
+is computed, not invented: `release.next_calver(current, year=, month=)` with today's UTC date
+(the `release` skill does this for you).
+
+`master` is protected by a repository ruleset that is **not** visible in the tree, so know it
+here: direct pushes are rejected; every change lands via a **PR** with the **"Tier 0 (static
+gate)"** status check green; history is **linear** (rebase/squash — merge commits are blocked);
+auto-merge is disabled. Because the rebase merge **rewrites commit SHAs**, the tag must be created
+*after* the merge, on the merged commit — never tag-and-push before merging.
+
+The flow (precedent: PR #3, `v2026.7.1`):
+
+1. On a branch: the work commit(s), then a `Release <calver>` commit — bump
+   `plugin/.claude-plugin/plugin.json`, cut the `CHANGELOG.md` `[<calver>]` section (keep a fresh
+   `[Unreleased]` above), and add the release handoff artifact
+   (`docs/sdlc/agentic-forge-<calver>/release.md`, header valid per
+   `handoff.validate_header(..., expected_type="release")`).
+2. Run the full gate (the four commands above), push the branch, open the PR.
+3. Wait for the Tier-0 check (`gh pr checks <n> --watch`), then `gh pr merge <n> --rebase`.
+4. Fetch; confirm the merged tip is content-identical to your local release commit
+   (`git rev-parse <local>^{tree}` equals `<merged>^{tree}`).
+5. Tag the **merged** commit: `git tag -a v<calver> <merged-sha> -m "…"` and push the tag.
+6. Clean up: `git reset --hard origin/master`; delete the release branch (local needs `-D` —
+   after a rebase merge git can't see it as merged).
