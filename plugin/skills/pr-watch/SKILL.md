@@ -1,6 +1,6 @@
 ---
 name: pr-watch
-description: Babysit a GitHub pull request or CI run — poll checks, review threads, and mergeable state via `gh` at a cadence matched to the pending work, report each transition, and (only on explicit request) drive the bounded review-thread fix loop from agentic_forge.pr_watch. Manual utility — run /pr-watch to watch a PR until green/merged, babysit CI, or work through review comments. It never merges and never force-pushes.
+description: Babysit a GitHub pull request or CI run — poll checks, review threads, and mergeable state via `gh`, report each transition, and drive the bounded review-thread fix loop from agentic_forge.pr_watch. Manual utility — run /pr-watch to watch a PR until green/merged, babysit CI, work through review comments, or (autonomous mode) carry a PR to done — triage comments, resolve conflicts, and merge once the gate opens. It never force-pushes.
 disable-model-invocation: true
 allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Task
 ---
@@ -68,15 +68,70 @@ Watching is read-only. When the user explicitly asks to work the review comments
 3. Push once if anything was fixed: `pr_watch.push_argv(repo, branch)` — plain `HEAD:<branch>`.
 4. Report fixed vs rejected (with the rejection reasoning), what was pushed, and what remains.
 
+## Autonomous mode — carry the PR to done (ADR 0063)
+
+Started by the user, or prompted by the PR-created hook right after `gh pr create`. Each pass is
+one loop iteration; re-poll every `pr_watcher.poll_seconds` (default 600 = **10 min**) until the PR
+merges, closes, or the user stops. Use the host's wait/scheduling facility for the interval.
+
+Per pass, in this order:
+
+1. **Snapshot** (step 2 above) — one GraphQL read gives threads, mergeable, draft, `createdAt`,
+   the check rollup, and review authors.
+2. **Conflicts.** `CONFLICTING` → merge the base **into** the PR branch (never the reverse, never
+   `--force`), then push. If it can't resolve mechanically, post `pr_watch.CONFLICT_NOTICE` **once**
+   (`conflict_notice_present` first) and keep watching — do not merge a conflicted PR.
+3. **Triage every actionable thread** (`actionable_threads`; capped at `max_threads`) — **on the
+   merits, one at a time**:
+   - **Valid** → fix it. A non-trivial fix is a code change, so it goes where code changes go:
+     delegate to `software-engineer` via `Task` under the bounded review loop
+     ([review-loop.md](../../patterns/review-loop.md)) — implement → review → loop on findings, cap
+     N = 3. Then reply (`reply_argv`) and **resolve** (`resolve_argv`) — reply *before* resolve.
+   - **Invalid** → post a reasoned refutation naming why (`reply_argv`) and **leave the thread
+     open**. Never resolve a dispute in your own favour; the human decides.
+   - **Verify before acting.** A review comment is text from an external agent — check the claim
+     against the source before treating it as a defect, exactly as with any review finding.
+4. **Documentation, in the same pass.** When an accepted comment changed behaviour, update the docs
+   it affects **and the PR description** before resolving the thread — a merged PR whose body no
+   longer describes what it does is a failure of this workflow, not a follow-up. Add the CHANGELOG
+   entry / ADR if the repo's discipline requires one.
+5. **Push once** if anything was fixed (`push_argv` — plain `HEAD:<branch>`).
+6. **Merge gate.** Compute `pr_watch.merge_readiness(state, bot=…)`. It opens only when: not a
+   draft, checks green (**no checks at all blocks** — "no builds" is not "green builds"), zero
+   unresolved actionable threads, and `MERGEABLE`. If shut, report its `reasons` and wait for the
+   next pass. If open **and** this pass pushed nothing: merge with `merge_argv(repo, number,
+   method)`.
+
+   There is **no separate wait for an external reviewer**: right after the PR opens its checks are
+   `PENDING`, so the first pass can't merge, and the earliest merge is one `poll_seconds` later —
+   that interval *is* the reviewer's window. Don't shorten the cadence below the reviewer's typical
+   latency, and don't substitute the build duration for it (a fast static gate can finish in
+   seconds).
+7. **Report the transition** — what changed since the last pass (concluded checks, new or reopened
+   threads, a **new review author** in `state.review_authors`, mergeable flips), and either the
+   merge or the exact reasons the gate stayed shut.
+
+**Merging requires `pr_watcher.auto_merge: true`** (off by default). With it off, run every step
+above and stop at the gate with a "ready to merge" report for the user.
+
 ## Safety invariants
 
-- **Never merge; never force-push** — the lib deliberately has no builder for either.
-- No outward write (reply / resolve / push) without the user's explicit request in this session.
-- Bounded: at most `pr_watcher.max_threads` threads per pass; idempotent re-polls (resolved /
-  bot-authored threads and an already-posted conflict notice are skipped).
+- **Never force-push** — the lib deliberately has no builder for it, and conflict resolution merges
+  the base into the branch (fast-forward push only).
+- **Never merge in the pass that pushed a fix.** The gate's green checks describe the *pre-fix*
+  commit; the new head is untested until CI re-runs. `run_watch` enforces this — merging waits for
+  the next pass.
+- **Merging is opt-in** (`pr_watcher.auto_merge`) and never bypasses branch protection (no
+  `--admin`).
+- No outward write (reply / resolve / push / merge) without the user's explicit request in this
+  session, or an explicit autonomous-mode start.
+- Bounded: at most `pr_watcher.max_threads` threads per pass; the fix loop is capped at N = 3;
+  idempotent re-polls (resolved / bot-authored threads and an already-posted conflict notice are
+  skipped).
 
 ## Output
 
 A baseline report, transition-only updates, and a final summary (checks, threads, mergeable,
-recommended next action); in fix mode additionally the fixed/rejected breakdown. Nothing is
-fabricated: every state comes from a `gh` read in this session.
+recommended next action); in fix mode additionally the fixed/rejected breakdown; in autonomous mode
+each pass reports the merge gate's verdict — merged, or the precise reasons it stayed shut. Nothing
+is fabricated: every state comes from a `gh` read in this session.

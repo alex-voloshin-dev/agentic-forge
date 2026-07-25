@@ -1,6 +1,9 @@
 # 0045 — PR watcher 1b: scheduled job, conflict resolution, live-validation runbook
 
 Status: Accepted — **implemented** (the 1b items ADR 0044 deferred; see the [Unreleased] CHANGELOG).
+**"Never merges the PR itself" was reversed by [ADR 0063](0063-autonomous-pr-watch.md)** (opt-in
+`auto_merge` behind the merge gate); the conflict handling below — merge base *into* the branch,
+fast-forward push, **never force** — is unchanged.
 
 ## Context
 

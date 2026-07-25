@@ -56,7 +56,7 @@
     "pr_watcher": {
       "type": "object",
       "additionalProperties": false,
-      "description": "PR watcher (ADR 0044). Off by default; outward GitHub writes (push/reply/resolve) are opt-in. Never merges or force-pushes.",
+      "description": "PR watcher (ADR 0044/0045; autonomous mode 0063). Off by default; outward GitHub writes (push/reply/resolve/merge) are opt-in. Never force-pushes.",
       "properties": {
         "enabled": { "type": "boolean" },
         "bot": { "type": "string", "minLength": 1 },
@@ -66,6 +66,19 @@
           "description": "owner/name repos the scheduled hourly job watches (empty = none).",
           "uniqueItems": true,
           "items": { "type": "string", "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$" }
+        },
+        "auto_merge": {
+          "type": "boolean",
+          "description": "Let the watcher merge a PR once the merge gate opens (ADR 0063). OFF by default — merging is irreversible and outward-facing."
+        },
+        "merge_method": {
+          "enum": ["rebase", "squash", "merge"],
+          "description": "How auto_merge merges. Reaches argv as --<method>, so it is an enum here and clamped again in the library."
+        },
+        "poll_seconds": {
+          "type": "integer",
+          "minimum": 60,
+          "description": "Autonomous re-check cadence in seconds (default 600 = 10 min). This is ALSO the window an external PR reviewer gets: the gate cannot open before the first post-CI poll, so shortening it shortens that window."
         }
       }
     }

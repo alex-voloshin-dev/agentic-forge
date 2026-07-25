@@ -30,6 +30,9 @@ are optional. A ready, schema-valid example with **every** key ships at
 | `pr_watcher.bot` | string | `"github-actions[bot]"` | The bot login whose review threads the watcher skips. |
 | `pr_watcher.max_threads` | int ≥ 1 | `10` | Max review threads handled per run. |
 | `pr_watcher.repos` | string[] | `[]` | `owner/name` repos the scheduled hourly job watches. |
+| `pr_watcher.auto_merge` | bool | `false` | Let the watcher **merge** a PR once the merge gate opens (ADR 0063). Off by default — merging is irreversible and outward-facing; turn it on per repo. |
+| `pr_watcher.merge_method` | `rebase`\|`squash`\|`merge` | `"rebase"` | How `auto_merge` merges. Reaches argv as `--<method>`, so it is an enum here **and** clamped in the library. |
+| `pr_watcher.poll_seconds` | int ≥ 60 | `600` | Autonomous re-check cadence (10 min). **Also the window an external PR reviewer gets:** a freshly opened PR has `PENDING` checks, so the gate can't open before the first post-CI poll — shortening this shortens that window. Don't substitute the build duration for it (a static gate can finish in seconds). |
 
 ## Env-var overrides
 

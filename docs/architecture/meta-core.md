@@ -38,7 +38,7 @@ plugin/
     skill_contract.py planning.py     # quality-hardening: handoff/recall guards + plan batches (ADR 0032/0034)
     diagnostics.py                    # opt-in self-diagnostics channel: errors/anomalies (ADR 0039)
     settings.py models.py             # plugin config (ADR 0041/0049) + model tiering/routing (ADR 0043/0046)
-    external_review.py pr_watch.py    # external-reviewer seam (ADR 0042) + PR-watcher core (ADR 0044/0045)
+    external_review.py pr_watch.py pr_hook.py   # external-reviewer seam (ADR 0042) + PR-watcher core (ADR 0044/0045/0063)
     ralph.py                          # bounded autonomous Ralph-loop core (ADR 0048)
   schemas/{evals,config}.schema.json  # the component contract schema (superset) + the config schema
   eval/{README.md, fixtures/}         # harness architecture + agent eval fixtures (L1)
@@ -78,7 +78,8 @@ pyproject.toml                        # uv / pytest / ruff / mypy config
 | `settings.py` | One resolver for the plugin's knobs over a layered precedence (built-in < user `~/.agentic-forge/config.json` < repo `.agentic-forge/config.json` < env); `resolve()` never raises, validates against `config.schema.json` (ADR 0041/0049). |
 | `models.py` | Model tiering: resolve which model a component runs on (cheaper tiers for simpler work), opt-in via `settings.models` and gate-validated, mapping the validated tier to each agent's `model:` frontmatter (ADR 0043/0046). |
 | `external_review.py` | External-reviewer seam: run a third-party reviewer CLI (codex) as an independent lens — pure `build_prompt`/`parse_review` + a thin subprocess seam that never raises (ADR 0042). |
-| `pr_watch.py` | PR-watcher core: parse a GitHub PR's review state and drive the bounded fix loop over `gh`/`git`/fix seams; never merges, never force-pushes (ADR 0044/0045). |
+| `pr_watch.py` | PR-watcher core: parse a GitHub PR's review state, drive the bounded fix loop over `gh`/`git`/fix seams, and gate the merge (`merge_readiness` — not draft, checks green, no unresolved threads, mergeable). Never force-pushes; merges only via an opt-in seam (ADR 0044/0045, autonomous mode 0063). |
+| `pr_hook.py` | PR-created detection for the PostToolUse hook: command-position match on `gh pr create` plus the printed PR URL, producing the autonomous-watch reminder (ADR 0063). |
 | `ralph.py` | Bounded autonomous Ralph-loop core: the pure iteration state + continue/done/exhausted/stalled decision over injected run/done/progress seams; the live wiring is `dev/ralph.py` (ADR 0048). |
 | `diag_bundle.py` | Diagnostics bundle packager: pure `plan_bundle` (redacted file manifest: logs, env, plugin/config metadata) + `filter_by_window` / `default_output_path` + a thin `build_bundle` zip seam — a consistent, shareable production-diagnostics artifact (last N days, default 7 → `~/Downloads`); shipped as the off-listing `diagnostics-bundle` skill (ADR 0052/0053). |
 

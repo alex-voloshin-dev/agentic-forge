@@ -9,6 +9,9 @@
     "enabled": false,
     "bot": "github-actions[bot]",
     "max_threads": 10,
-    "repos": ["owner/repo"]
+    "repos": ["owner/repo"],
+    "auto_merge": false,
+    "merge_method": "rebase",
+    "poll_seconds": 600
   }
 }
