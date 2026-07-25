@@ -91,6 +91,31 @@ def test_claude_cli_runner_argv_and_parse(monkeypatch: pytest.MonkeyPatch) -> No
     assert captured["kw"]["cwd"] == "/tmp" and captured["kw"]["timeout"] == 900
 
 
+def test_claude_cli_runner_replace_system_swaps_the_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A classifier (Tier-1 routing) must not inherit Claude Code's default agent prompt — primed
+    # as an agent, the model answers in prose instead of with one skill name (ADR 0064).
+    import subprocess
+
+    captured: dict = {}
+
+    class _Done:
+        stdout = '{"result": "research"}'
+
+    def fake_run(cmd: list[str], **kw: object) -> _Done:
+        captured["cmd"] = cmd
+        return _Done()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    claude_cli_runner(replace_system=True)("SYS", "P", Path("."))
+    cmd = captured["cmd"]
+    assert "--system-prompt" in cmd and "--append-system-prompt" not in cmd
+    assert cmd[cmd.index("--system-prompt") + 1] == "SYS"
+
+    # …while the role path (Tier-2) keeps appending, so an agent still gets the agent prompt.
+    claude_cli_runner()("SYS", "P", Path("."))
+    assert "--append-system-prompt" in captured["cmd"] and "--system-prompt" not in captured["cmd"]
+
+
 def test_claude_cli_runner_omits_optional_flags(monkeypatch: pytest.MonkeyPatch) -> None:
     import subprocess
 

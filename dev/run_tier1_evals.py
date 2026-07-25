@@ -40,11 +40,18 @@ def _build_router(runner: str, model: str) -> agent_eval.Runner:
     turn cap leaves room for the model's own thinking before its final text — `max_turns=1` cut
     reasoning models off mid-think ("Reached max turns (1)"); a small cap (4) lets them finish
     while tools-off keeps it a pure one-shot classification.
+
+    ``replace_system=True`` makes the router instruction the *whole* system prompt instead of an
+    append to Claude Code's default agent prompt (ADR 0064): a router is a classifier, and priming
+    it with an agent persona made it answer in prose about the repository rather than with one
+    skill name.
     """
     if runner == "api":
         return agent_eval.api_runner(model)
     if runner == "claude":
-        return agent_eval.claude_cli_runner(allowed_tools="", model=model, max_turns=4)
+        return agent_eval.claude_cli_runner(
+            allowed_tools="", model=model, max_turns=4, replace_system=True
+        )
     raise ValueError(f"unknown runner {runner!r}")
 
 

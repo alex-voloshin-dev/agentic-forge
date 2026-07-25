@@ -532,6 +532,7 @@ def claude_cli_runner(
     max_turns: int | None = None,
     retries: int = 3,
     call_timeout: int = 900,
+    replace_system: bool = False,
 ) -> Runner:
     """Level-2 seam: run the role headlessly via `claude -p` (Claude Code auth).
 
@@ -543,13 +544,30 @@ def claude_cli_runner(
     (use for grading, which must not call tools); a list grants exactly those. Retries with
     backoff on a failed/timed-out call so a long multi-call run survives transient errors;
     prints a '.' heartbeat per call.
+
+    ``replace_system`` picks which flag carries ``system`` (ADR 0064):
+
+    * ``False`` (default) — ``--append-system-prompt``: the role runs *on top of* Claude Code's
+      default agent prompt. Right for **role** evals (Tier-2), where the role is an agent.
+    * ``True`` — ``--system-prompt``: the given text becomes the whole system prompt. Right for
+      **classification** (Tier-1 routing), where inheriting an agent persona makes the model behave
+      like one — exploring and answering in prose instead of emitting a single skill name. That
+      off-format reply was previously scored as a routing decision; the parser now rejects it, and
+      this flag reduces how often it happens.
+
+    Note the limit: this controls the *system prompt*, not the CLI's user-level ``CLAUDE.md``
+    auto-discovery, which still applies. Only ``--bare`` disables that, and it forces
+    ``ANTHROPIC_API_KEY`` auth — which would break the subscription-billed path the runbook
+    recommends — so it is deliberately not used here.
     """
     import subprocess
     import sys
     import time
 
+    system_flag = "--system-prompt" if replace_system else "--append-system-prompt"
+
     def run(system: str, prompt: str, workdir: Path) -> str:
-        cmd = ["claude", "-p", prompt, "--append-system-prompt", system, "--output-format", "json"]
+        cmd = ["claude", "-p", prompt, system_flag, system, "--output-format", "json"]
         if allowed_tools is not None:
             cmd += ["--allowedTools", allowed_tools]
         if model:

@@ -7,6 +7,42 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Fixed — Tier-1 scored broken router calls as routing decisions (ADR 0064)
+
+A Tier-1 run on six **unchanged** skills would not stabilise: `product`, measured three times
+against a byte-identical listing within one hour, scored recall 0.800 → 1.000 → 0.720. The runbook's
+throttling failure mode was the obvious suspect and the first conclusion drawn — and it was wrong.
+Capturing the **raw** router replies found, over 50 calls, **zero empty or truncated replies**; what
+it found instead was a 5637-character prose reply reasoning about the repository's sandbox and ADR
+index. The model had not routed anything.
+
+- **`parse_selection` mined that prose for a decision.** It scanned any reply for the first known
+  skill name, so an essay containing the word "knowledge" was scored as a vote for the `knowledge`
+  skill — silently turning "the router never answered" into "the router chose wrong". It now returns
+  a distinct `INVALID` for a reply over `MAX_ANSWER_TOKENS` (12) or naming nothing known. `"none"`
+  remains a *real* decision ("no skill fits") and is unaffected.
+- **Invalid calls leave the denominator** (`selection_rate` → `PromptRate(rate, invalid, runs)`): a
+  call that produced no decision is missing data, and averaging it in as a miss understates recall by
+  exactly the noise in the channel.
+- **A prompt whose every call was invalid is `unmeasured` and fails the gate** — rate `None`, not
+  `0.0`. Reporting zero would fabricate a routing failure out of a measurement failure. Not measuring
+  something is not the same as it passing, and not the same as it failing either.
+- **Discarded calls are always reported**, pass or fail: `[N/M calls returned no decision]` on the
+  summary line. A green number computed from half the samples is weaker evidence than one from all
+  of them.
+- **The router now gets its own system prompt** — `claude_cli_runner(replace_system=True)` uses
+  `--system-prompt` instead of `--append-system-prompt`, so a classifier no longer inherits Claude
+  Code's default *agent* prompt (primed as an agent, the model explores and explains instead of
+  emitting one token). Role evals (Tier-2) keep appending: a role **is** an agent.
+
+Why this mattered more than the numbers: the corruption is **asymmetric** — an off-format reply names
+neither the skill under test nor its neighbours, so it depresses `recall` while leaving `specificity`
+at a perfect `1.000`, which reads like a clean, believable result. The next step from "recall 0.720"
+would have been editing `product`'s description — spending the router's ~1% listing budget, which has
+no headroom, to repair a defect that was never in the description. **No skill, description, or
+threshold was changed.** Recorded Tier-1 figures from before this fix should be read as "≥ this,
+possibly higher"; the runbook now says so.
+
 ### Added — autonomous PR watch: merge gate, comment triage, conflict resolve (ADR 0063)
 
 The PR watcher (ADR 0044/0045) stopped at the review-thread fix loop and left every merge to a

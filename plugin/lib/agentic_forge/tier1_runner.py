@@ -45,7 +45,20 @@ __all__ = [
     "run_tier1",
     "check_wiring",
     "all_passed",
+    "INVALID",
+    "MAX_ANSWER_TOKENS",
+    "PromptRate",
 ]
+
+# A reply that is not a router answer at all. Distinct from ``"none"`` (a real routing decision:
+# "no skill fits"), because scoring a non-answer as a decision is silent data corruption — see
+# :func:`parse_selection` and ADR 0064.
+INVALID = "invalid"
+
+# Longest reply still treated as the terse answer the format demands. A conforming reply is one
+# name (or `none`), sometimes wrapped in backticks or a short sentence; anything longer is prose —
+# the model answering some *other* question — and must not be mined for a skill name.
+MAX_ANSWER_TOKENS = 12
 
 ROUTER_INSTRUCTION = (
     "You are the skill router for Claude Code. Skills auto-load by how well their description "
@@ -89,13 +102,23 @@ class Tier1Report:
     reasons: list[str] = field(default_factory=list)
     should_trigger_rates: list[float] = field(default_factory=list)  # per-prompt routing rate
     should_not_trigger_rates: list[float] = field(default_factory=list)  # per-prompt false-fire
+    invalid_calls: int = 0  # router calls that returned no decision at all (ADR 0064)
+    total_calls: int = 0
+    unmeasured: list[str] = field(default_factory=list)  # prompts where EVERY call was invalid
 
     def summary_line(self) -> str:
         status = "PASS" if self.passed else "FAIL"
         rc = "n/a" if self.recall is None else f"{self.recall:.3f}"
         sp = "n/a" if self.specificity is None else f"{self.specificity:.3f}"
         suffix = "" if self.passed else "  (" + "; ".join(self.reasons) + ")"
-        return f"[{self.skill}] {status}  recall={rc} specificity={sp}{suffix}"
+        # Surface discarded calls ALWAYS, pass or fail: a green number computed from half the
+        # samples is weaker evidence than one from all of them, and hiding that is a silent cap.
+        noise = (
+            f"  [{self.invalid_calls}/{self.total_calls} calls returned no decision]"
+            if self.invalid_calls
+            else ""
+        )
+        return f"[{self.skill}] {status}  recall={rc} specificity={sp}{noise}{suffix}"
 
 
 # --- live listing ------------------------------------------------------------
@@ -140,20 +163,46 @@ def build_router_system(cards: list[SkillCard]) -> str:
 
 
 def parse_selection(reply: str, names: list[str]) -> str:
-    """Normalize a router reply to a skill name in ``names`` or ``"none"``.
+    """Normalize a router reply to a skill name in ``names``, ``"none"``, or :data:`INVALID`.
 
     Scans left to right and returns the first token that is a known skill name or the word
-    ``none`` — so "research", "`research`", and "the research skill" all map to ``research``,
-    and an empty/unknown reply maps to ``none`` (a non-trigger). This assumes the terse answer
-    format (one name or ``none``); on free-form multi-skill prose the first mention wins.
+    ``none`` — so "research", "`research`", and "the research skill" all map to ``research``.
+
+    **Only a reply that obeys the terse answer format is scored** (at most
+    :data:`MAX_ANSWER_TOKENS` tokens). Anything longer — or a short reply naming nothing known —
+    is :data:`INVALID`: the call produced no routing decision, and the caller must exclude it
+    rather than count it (ADR 0064).
+
+    Why this matters (the bug this replaces): the old version mapped *any* reply to a decision.
+    An off-format answer — e.g. the model ignoring the instruction and writing a page of prose
+    about the repository, which happens when ambient context primes it to act like an agent —
+    was mined for the first skill-like word and scored as a routing vote. That silently turned
+    "the router never answered" into "the router chose X", depressing recall while leaving
+    specificity at a perfect 1.000 (prose rarely names the skill under test either). The result
+    was an unstable metric that invited description edits to chase measurement noise.
     """
     known = {n.lower(): n for n in names}
-    for token in re.findall(r"[a-z0-9-]+", reply.lower()):
+    tokens = re.findall(r"[a-z0-9-]+", reply.lower())
+    if len(tokens) > MAX_ANSWER_TOKENS:
+        return INVALID  # prose, not an answer — never mine it for a name
+    for token in tokens:
         if token in known:
             return known[token]
         if token == "none":
             return "none"
-    return "none"
+    return INVALID  # empty / unparseable / names nothing known: no decision was made
+
+
+@dataclass(frozen=True)
+class PromptRate:
+    """One prompt's routing rate plus how many calls produced no answer at all (ADR 0064).
+
+    ``rate`` is ``None`` when **every** call was :data:`INVALID` — the prompt is *unmeasured*, not
+    "routed 0% of the time". Reporting 0.0 there would be a fabricated number."""
+
+    rate: float | None
+    invalid: int
+    runs: int
 
 
 def selection_rate(
@@ -165,16 +214,28 @@ def selection_rate(
     workdir: Path,
     *,
     target: str,
-) -> float:
-    """The fraction of ``runs`` router calls that select ``target`` for ``prompt`` (0.0–1.0).
+) -> PromptRate:
+    """The fraction of **valid** router calls that select ``target`` for ``prompt``.
 
     The Tier-1 metric (ADR 0026): a smooth per-prompt rate with no 50% majority cliff, so a
     borderline prompt yields a stable rate instead of a flickering boolean.
+
+    Calls whose reply is :data:`INVALID` (no routing decision — see :func:`parse_selection`) are
+    **excluded from the denominator**, not counted as misses (ADR 0064): a call that failed to
+    answer is missing data, and averaging it in as a miss silently understates recall. The count
+    is returned so the caller can surface it — a rate computed from 2 of 5 calls is not the same
+    evidence as one from 5 of 5, and hiding that would be a silent cap.
     """
-    hits = sum(
-        parse_selection(run_fn(system, prompt, workdir), names) == target for _ in range(runs)
-    )
-    return hits / runs if runs else 0.0
+    hits = 0
+    invalid = 0
+    for _ in range(runs):
+        pick = parse_selection(run_fn(system, prompt, workdir), names)
+        if pick == INVALID:
+            invalid += 1
+        elif pick == target:
+            hits += 1
+    valid = runs - invalid
+    return PromptRate(rate=(hits / valid) if valid else None, invalid=invalid, runs=runs)
 
 
 def load_triggers(plugin_dir: Path) -> list[SkillTrigger]:
@@ -214,25 +275,47 @@ def eval_skill(
     runs: int,
     workdir: Path,
 ) -> Tier1Report:
-    """Measure recall/specificity for one skill against the live listing and gate it."""
-    st_rates = [
+    """Measure recall/specificity for one skill against the live listing and gate it.
+
+    Prompts whose every call came back :data:`INVALID` are **unmeasured**: they are left out of the
+    means (a fabricated 0.0 would read as a routing failure) and instead **fail the gate** with an
+    explicit reason. Not measuring something is not the same as it passing, and it is not the same
+    as it failing either — so the report says exactly that (ADR 0064)."""
+    st = [
         selection_rate(run_fn, system, p, names, runs, workdir, target=trig.name)
         for p in trig.should_trigger
     ]
-    sn_rates = [
+    sn = [
         selection_rate(run_fn, system, p, names, runs, workdir, target=trig.name)
         for p in trig.should_not_trigger
     ]
+    st_rates = [r.rate for r in st if r.rate is not None]
+    sn_rates = [r.rate for r in sn if r.rate is not None]
+    unmeasured = [
+        p
+        for p, r in zip(
+            [*trig.should_trigger, *trig.should_not_trigger], [*st, *sn], strict=True
+        )
+        if r.rate is None
+    ]
     measured = gate.trigger_metrics(st_rates, sn_rates)
     result = gate.tier1_trigger(measured, trig.thresholds)
+    reasons = list(result.reasons)
+    if unmeasured:
+        reasons.append(
+            f"{len(unmeasured)} prompt(s) unmeasured — every router call returned no decision"
+        )
     return Tier1Report(
         skill=trig.name,
         recall=measured["recall"],
         specificity=measured["specificity"],
-        passed=result.passed,
-        reasons=result.reasons,
+        passed=result.passed and not unmeasured,
+        reasons=reasons,
         should_trigger_rates=st_rates,
         should_not_trigger_rates=sn_rates,
+        invalid_calls=sum(r.invalid for r in [*st, *sn]),
+        total_calls=sum(r.runs for r in [*st, *sn]),
+        unmeasured=unmeasured,
     )
 
 

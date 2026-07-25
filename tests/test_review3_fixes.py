@@ -54,10 +54,11 @@ def test_summarize_stddev_is_sample_stdev() -> None:
 
 
 def test_selection_rate_runs_zero_does_not_crash() -> None:
-    rate = tier1_runner.selection_rate(
+    got = tier1_runner.selection_rate(
         lambda s, p, w: "x", "sys", "prompt", ["x"], 0, Path("."), target="x"
     )
-    assert rate == 0.0
+    # runs=0 measures nothing, so the rate is None (unmeasured), not a fabricated 0.0 (ADR 0064).
+    assert got.rate is None and got.invalid == 0 and got.runs == 0
 
 
 def test_description_length_boundary(make_skill) -> None:

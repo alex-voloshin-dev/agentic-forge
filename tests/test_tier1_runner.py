@@ -82,8 +82,8 @@ def test_render_and_system_prompt() -> None:
         ("The research skill applies here.", "research"),
         ("code-review", "code-review"),
         ("none", "none"),
-        ("", "none"),
-        ("definitely no skill", "none"),  # 'no' is not 'none'
+        ("", "invalid"),  # empty reply is NOT a "no skill fits" decision — no answer at all
+        ("definitely no skill", "invalid"),  # 'no' is not 'none', and nothing known is named
         ("I'd use product, or maybe plan", "product"),  # first-mentioned wins
         ("skill-factory", "skill-factory"),
     ],
@@ -93,14 +93,54 @@ def test_parse_selection(reply: str, expected: str) -> None:
     assert parse_selection(reply, names) == expected
 
 
+def test_parse_selection_rejects_prose_instead_of_mining_it(tmp_path: Path) -> None:
+    # THE bug this guards (ADR 0064): an off-format reply — the model answering some other
+    # question at length — used to be scanned for the first skill-like word and scored as a
+    # routing decision, silently turning "never answered" into "chose knowledge".
+    prose = (
+        "Both explorations agreed: docs/ and the repository root are outside this session's "
+        "sandbox, so I could not confirm the roadmap or the ADR index by reading them. "
+        "Based on the knowledge I have, here is a summary of what the repository contains "
+        "and what I would recommend doing next about it."
+    )
+    assert parse_selection(prose, sorted(ON_LISTING)) == "invalid"
+
+
+def test_parse_selection_allows_a_short_wrapped_answer() -> None:
+    # The cap must not reject a legitimately terse-but-not-bare reply.
+    assert parse_selection("The answer is: `research`.", sorted(ON_LISTING)) == "research"
+
+
 def test_selection_rate_is_fraction_for_target(tmp_path: Path) -> None:
     replies = iter(["research", "product", "research"])
 
     def run(system: str, prompt: str, workdir: Path) -> str:
         return next(replies)
 
-    rate = selection_rate(run, "sys", "p", ["research", "product"], 3, tmp_path, target="research")
-    assert abs(rate - 2 / 3) < 1e-9
+    got = selection_rate(run, "sys", "p", ["research", "product"], 3, tmp_path, target="research")
+    assert abs((got.rate or 0) - 2 / 3) < 1e-9
+    assert got.invalid == 0 and got.runs == 3
+
+
+def test_selection_rate_excludes_invalid_calls_from_the_denominator(tmp_path: Path) -> None:
+    # 1 hit + 1 real miss + 1 non-answer -> 1/2, not 1/3. A call that produced no decision is
+    # missing data; averaging it in as a miss understates recall (ADR 0064).
+    replies = iter(["research", "product", "a" * 5 + " long prose reply that answers nothing here"])
+
+    def run(system: str, prompt: str, workdir: Path) -> str:
+        return next(replies)
+
+    got = selection_rate(run, "sys", "p", ["research", "product"], 3, tmp_path, target="research")
+    assert got.rate == 0.5 and got.invalid == 1
+
+
+def test_selection_rate_all_invalid_is_unmeasured_not_zero(tmp_path: Path) -> None:
+    # Reporting 0.0 here would fabricate a routing failure out of a measurement failure.
+    def run(system: str, prompt: str, workdir: Path) -> str:
+        return ""
+
+    got = selection_rate(run, "sys", "p", ["research"], 3, tmp_path, target="research")
+    assert got.rate is None and got.invalid == 3
 
 
 # --- eval_skill --------------------------------------------------------------
@@ -117,6 +157,40 @@ def test_eval_skill_perfect(tmp_path: Path) -> None:
     rep = eval_skill(trig, ["research", "product"], run, "sys", 1, tmp_path)
     assert rep.recall == 1.0 and rep.specificity == 1.0 and rep.passed
     assert "PASS" in rep.summary_line()
+
+
+def test_eval_skill_unmeasured_prompt_fails_and_is_named(tmp_path: Path) -> None:
+    # Every call for prompt "b" is a non-answer. The gate must NOT pass (we did not measure it)
+    # and must NOT report it as a 0.0 routing failure either — it says the prompt is unmeasured.
+    trig = SkillTrigger("research", _THRESH, ["a", "b"], ["c"])
+
+    def run(system: str, prompt: str, workdir: Path) -> str:
+        if prompt == "b":
+            return "this reply is a long piece of prose that answers an entirely different question"
+        return "research" if prompt == "a" else "none"
+
+    rep = eval_skill(trig, ["research", "product"], run, "sys", 2, tmp_path)
+    assert rep.passed is False
+    assert rep.unmeasured == ["b"]
+    assert any("unmeasured" in r for r in rep.reasons)
+    assert rep.recall == 1.0  # computed from the prompts that DID answer, not dragged to 0.5
+    assert rep.invalid_calls == 2 and rep.total_calls == 6
+
+
+def test_eval_skill_reports_discarded_calls_even_when_passing(tmp_path: Path) -> None:
+    # A green number computed from half the samples is weaker evidence — the line must say so.
+    trig = SkillTrigger("research", _THRESH, ["a"], ["c"])
+    seen: dict[str, int] = {}
+
+    def run(system: str, prompt: str, workdir: Path) -> str:
+        seen[prompt] = seen.get(prompt, 0) + 1
+        if seen[prompt] == 1:
+            return "a long prose reply that does not answer the routing question being asked here"
+        return "research" if prompt == "a" else "none"
+
+    rep = eval_skill(trig, ["research", "product"], run, "sys", 2, tmp_path)
+    assert rep.passed is True and rep.invalid_calls == 2
+    assert "no decision" in rep.summary_line()
 
 
 def test_eval_skill_low_recall_fails(tmp_path: Path) -> None:
