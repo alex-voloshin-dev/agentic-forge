@@ -42,7 +42,11 @@ The exit criterion is one **pure, tested function** so every orchestrator decide
 `handoff.review_loop_decision(verdict, iteration, cap=handoff.REVIEW_LOOP_BUDGET, gate_green=…)` →
 `proceed` | `revise` | `escalate` (and `handoff.blocks_approve(findings)` is the severity half — a
 `blocker`/`major` must force `changes`). `gate_green` is the workflow's downstream gate: QA green for
-`develop`, the artifact validating for `product`.
+`develop`; the artifact validating for `product`, `research`, `ux-design` and `architecture` (goals
+trace, ADRs weigh real alternatives), and for `plan` also `planning.plan_batches` resolving — no
+cycle. It is not always a schema check: `marketing`'s gate is schema validation for a typed handoff
+but, for its untyped deliverables (content, offer doc, audit report), the evidence discipline itself
+— so there the loop reduces to exit-on-`approve` / `escalate` at N (ADR 0062).
 
 - **Approve → `proceed`** is the success signal (and the loop's *only* exit that hands off) — but
   only when `gate_green`. The reviewer returns `approve` only when no `blocker` or `major` findings

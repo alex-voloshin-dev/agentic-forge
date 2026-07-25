@@ -14,7 +14,9 @@ from increment 3 (`external_reviewer.{enabled,command}`, ADR 0041).
 
 1. **A `external_review.py` seam mirroring the connectors / `claude_cli_runner` pattern:** a pure
    parser + a thin subprocess seam.
-   - `build_prompt(target, kind)` — `kind ∈ {code, plan, product, technical}` selects the criteria
+   - `build_prompt(target, kind)` — `kind ∈ {code, plan, product, technical}` (extended with
+     `research` and `ux` by [0061](0061-skeptic-loop-research-ux.md), `marketing` by
+     [0062](0062-skeptic-loop-marketing.md)) selects the criteria
      and asks the CLI to return **only** the canonical review JSON (`verdict` +
      `findings[severity, location, issue, suggestion]`, the same vocab as the `review` handoff).
    - `is_available(command)` — `shutil.which`; absent → the reviewer degrades to "unavailable".

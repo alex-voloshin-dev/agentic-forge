@@ -55,14 +55,40 @@ The failure mode of generated marketing is confident, low-signal fluff. So every
 4. **Adversarial claims pass (bounded).** Fork a fresh `reviewer`/skeptic (via `Task`) to attack
    the draft against the evidence discipline above — every claim **cited or marked an assumption**,
    **no invented figures**, competitors named specifically, **no unsupported superlatives** — then
-   fix what it flags. Bounded, exits on approve (see
-   [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
-   [review-loop.md](../../patterns/review-loop.md)). This is the guard against the fluff failure
-   mode above.
+   fix what it flags worst-first. This is the guard against the fluff failure mode above.
+   **External reviewer lens (on by default, ADR 0057/0062):** when `external_reviewer.enabled`
+   (settings), also run the external reviewer over the deliverable — call
+   `external_review.review(deliverable_text, "marketing", command=<cfg>)` from
+   `${CLAUDE_PLUGIN_ROOT}/lib` (repo-side equivalent: `dev/external_review.py --target <the
+   deliverable> --kind marketing`); codex attacks the same evidence discipline as an
+   independent-model lens and its `findings` fold into the same worst-first revision. It **degrades
+   gracefully** (absent/disabled codex is skipped, not a failure) and its findings are **advisory**
+   (prompt-injectable) — verify before acting. **Exit criterion (the shared, tested rule):** each
+   round, compute `handoff.review_loop_decision(verdict, iteration, cap=3, gate_green=<the gate
+   below>)` (see [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
+   [review-loop.md](../../patterns/review-loop.md)) — `revise` (loop back and fix worst-first),
+   `escalate` (still `changes` at N = 3 → surface the unresolved claims and stop; don't ship), or
+   `proceed` (`approve` **and** the gate → the deliverable is done). **The gate depends on what this
+   sub-area produced:** for a typed handoff (`market-brief` / `marketing-strategy`) it is step 3's
+   `handoff.validate_header`; for the untyped deliverables (offer doc, content files, audit report)
+   there is no schema, so it is the evidence discipline itself — every claim cited or labelled, no
+   bare figure stated as fact. Don't ship a deliverable whose claims aren't sourced.
+
+## Output
+
+**A full marketing run produces the finished deliverable for the sub-area** — a validated
+`market-brief` or `marketing-strategy` handoff (see [handoff.md](../../patterns/handoff.md)), or the
+untyped offer doc / content files / audit report — with every claim cited or labelled, that survived
+the bounded claims loop to `proceed`. A run whose loop `escalate`s (unsourced claims still standing
+at N = 3) surfaces them and stops; it does **not** ship fluff.
 
 ## Definition of done
 
+- The claims loop exited on `proceed` (`review_loop_decision`): `approve` **and** the sub-area's
+  gate (schema validation, or the evidence discipline for an untyped deliverable) — not `escalate`.
 - The right sub-area procedure was followed; the output is the expected handoff/content.
 - Every market/competitor claim is cited or labelled an assumption; nothing is fabricated;
   competitors are named specifically.
+- A bounded adversarial claims pass (plus the external-reviewer lens when enabled) checked the
+  evidence discipline before shipping.
 - Strategy ties to the market brief and the PRD; content traces to real proof points and the brand tone.

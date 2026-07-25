@@ -1,6 +1,9 @@
 # 0057 — External reviewer on by default, wired into develop + product
 
-Status: Accepted — **implemented**. Updates [0042](0042-external-reviewer.md) (external reviewer
+Status: Accepted — **implemented**; extended by [0060](0060-skeptic-loop-architecture-plan.md), which
+adds the same lens (and a mandatory bounded skeptic loop) to `architecture` and `plan`, and makes the
+`product` wiring below executable by adding `Bash` to its `allowed-tools`. Updates
+[0042](0042-external-reviewer.md) (external reviewer
 seam) and its trust-boundary posture; builds on [0041](0041-plugin-settings.md) / [0049](0049-user-level-config.md)
 (settings) and the [multi-aspect-review](../../../plugin/patterns/multi-aspect-review.md) /
 [adversarial-review](../../../plugin/patterns/adversarial-review.md) patterns.

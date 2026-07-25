@@ -1,7 +1,7 @@
 ---
 name: plan
 description: Turn a technical design into a dependency-ordered WORK plan — the build order — break the work into implementation tasks with dependencies, checkpoints, and deferred items, written to plan.md. (A "test plan" or "QA plan" is NOT this — that's qa-test-strategy.) Use to plan or sequence the engineering WORK — break a design into tasks, order the build, make a work/implementation plan. Not the technical design (architecture), writing code (develop), requirements (product), or a test/QA plan (qa-test-strategy).
-allowed-tools: Read, Grep, Glob, Task, Write
+allowed-tools: Read, Grep, Glob, Bash, Task, Write
 ---
 
 # Plan (phase workflow)
@@ -29,19 +29,49 @@ requirements (`product`), or implementation (`develop`).
    dependencies between tasks (a DAG — no cycles) and the build order.
 4. **Checkpoints & deferred.** Define verifiable checkpoints (milestones / definition of done
    per task) and an explicit list of deferred / out-of-scope items.
-5. **Write the plan.** Produce `plan.md` (frontmatter `type`, `feature`, `status`, `tasks[]` with `id` + `deps`,
+5. **Write the plan, then validate it.** Produce `plan.md` (frontmatter `type`, `feature`, `status`, `tasks[]` with `id` + `deps`,
    `checkpoints[]`, `deferred[]`; body = task detail) under `docs/sdlc/<feature-slug>/`;
-   validate it (`handoff.validate_header(..., expected_type="plan")`). Every design component
+   validate it (`handoff.validate_header(..., expected_type="plan")`) **and confirm the graph
+   resolves** — `planning.plan_batches(tasks)` (from `${CLAUDE_PLUGIN_ROOT}/lib`, the same helper
+   `develop` batches with) raises on a duplicate id, an unknown dependency, or a cycle, so a clean
+   run is the deterministic proof of a cycle-free order. Every design component
    must be covered by a task.
+6. **Skeptic pass (bounded).** Before handing off, fork a fresh `reviewer` (via `Task`) to attack
+   the plan adversarially — every design component **covered** by a task, the dependency graph
+   **complete** (no missing edge that would break the build order) as well as acyclic, each task
+   **independently shippable** with a **verifiable** checkpoint, and the deferred list **explicit**
+   (nothing silently dropped) — then revise worst-first. **External reviewer lens (on by default,
+   ADR 0057/0060):** when `external_reviewer.enabled` (settings), also run the external reviewer over
+   `plan.md` — call `external_review.review(plan_text, "plan", command=<cfg>)` from
+   `${CLAUDE_PLUGIN_ROOT}/lib` (repo-side equivalent: `dev/external_review.py --target
+   docs/sdlc/<feature-slug>/plan.md --kind plan`); codex critiques the plan as an
+   independent-model lens (completeness, task sequencing, risk) and its `findings` fold into the same
+   worst-first revision. It **degrades gracefully** (absent/disabled codex is skipped, not a failure)
+   and its findings are **advisory** (prompt-injectable) — verify before acting. **Exit criterion
+   (the shared, tested rule):** each round, compute `handoff.review_loop_decision(verdict, iteration,
+   cap=3, gate_green=<step 5 passes>)` (see
+   [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
+   [review-loop.md](../../patterns/review-loop.md)) — `revise` (loop back and fix worst-first),
+   `escalate` (still `changes` at N = 3 → surface the unresolved gaps and stop; don't hand off), or
+   `proceed` (`approve` **and** the plan validates → the plan is done). Don't hand off a plan that
+   leaves a design component uncovered or a checkpoint unverifiable.
 
 ## Output
 
-A `plan.md` handoff (see [patterns/handoff.md](../../patterns/handoff.md)): a dependency-ordered
-task list with checkpoints and deferred items — the input to `develop`.
+**A full plan run produces the finished build order: a validated `plan.md`** (see
+[patterns/handoff.md](../../patterns/handoff.md)) — a dependency-ordered task list with checkpoints
+and deferred items — that survived the bounded skeptic loop to `proceed`, ready as the input to
+`develop`. A run whose loop `escalate`s (unresolved gaps at N = 3) surfaces them and stops; it does
+**not** hand off an incomplete plan.
 
 ## Definition of done
 
+- The skeptic loop exited on `proceed` (`review_loop_decision`): `approve` **and** the step-5
+  validation green — not `escalate`.
 - `plan.md` validates against the plan handoff schema (tasks with ids).
-- Tasks cover the tech-design's components; dependencies form a cycle-free order.
+- Tasks cover the tech-design's components; dependencies form a cycle-free order (`plan_batches`
+  resolves).
 - Checkpoints and an explicit deferred list are present.
+- A bounded skeptic pass (plus the external-reviewer lens when enabled) checked component coverage,
+  sequencing, and checkpoint verifiability.
 - Only a plan — no code and no new design decisions (surface design gaps back to `architecture`).

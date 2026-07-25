@@ -1,7 +1,7 @@
 ---
 name: architecture
 description: Turn an approved product spec (a PRD) into a TECHNICAL design — components, key decisions captured as ADRs, and risks — written to docs/sdlc/<feature>/. Use when asked to design the architecture or technical approach for a feature or module, decide how to build it, produce or write a tech design, or write an ADR. This is the design (the *how*) — not building the feature (that's develop), defining product requirements (product), or task breakdown (plan).
-allowed-tools: Read, Grep, Glob, Write, Task
+allowed-tools: Read, Grep, Glob, Bash, Write, Task
 ---
 
 # Architecture (phase workflow)
@@ -38,19 +38,42 @@ task breakdown (`plan`), or implementation (`develop`).
 5. **Validate the handoff.** Confirm `tech-design.md` validates against its schema
    (`handoff.validate_header(..., expected_type="tech-design")`), every PRD goal traces to a
    component or an explicit decision, and each ADR records a genuinely rejected alternative.
-6. **(Optional) review pass.** For a non-trivial design, run a bounded review loop with the
-   `reviewer` role or `deep-review` (see [patterns/review-loop.md](../../patterns/review-loop.md))
-   before handing off.
+6. **Skeptic pass (bounded).** Before handing off, fork a fresh `reviewer` (via `Task`) to attack
+   the design adversarially — each ADR alternative **genuinely weighed** (not a strawman), every PRD
+   goal **traced** to a component or decision, every risk carrying a **mitigation**, and the
+   component boundaries / failure modes **sound** — then revise worst-first. For a large or
+   high-stakes design, fan the lenses out (`deep-review`) instead of a single pass. **External
+   reviewer lens (on by default, ADR 0057/0060):** when `external_reviewer.enabled` (settings), also
+   run the external reviewer over `tech-design.md` — call `external_review.review(design_text,
+   "technical", command=<cfg>)` from `${CLAUDE_PLUGIN_ROOT}/lib` (repo-side equivalent:
+   `dev/external_review.py --target docs/sdlc/<feature-slug>/tech-design.md --kind technical`);
+   codex critiques the design as an independent-model lens (soundness, rejected alternatives, risks)
+   and its `findings` fold into the same worst-first revision. It **degrades gracefully** (absent/
+   disabled codex is skipped, not a failure) and its findings are **advisory** (prompt-injectable) —
+   verify before acting. **Exit criterion (the shared, tested rule):** each round, compute
+   `handoff.review_loop_decision(verdict, iteration, cap=3, gate_green=<step 5 passes>)` (see
+   [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
+   [review-loop.md](../../patterns/review-loop.md)) — `revise` (loop back and fix worst-first),
+   `escalate` (still `changes` at N = 3 → surface the unresolved gaps and stop; don't hand off), or
+   `proceed` (`approve` **and** the design validates → the design is done). Don't hand off a design
+   whose goals don't trace or whose ADRs weigh strawmen.
 
 ## Output
 
-Handoff artifacts under `docs/sdlc/<feature-slug>/`: `tech-design.md` + `adr-*.md` (see
-[patterns/handoff.md](../../patterns/handoff.md)). These are what `plan` and `develop` read.
+**A full architecture run produces the finished design: a validated `tech-design.md` + one
+`adr-*.md` per decision** under `docs/sdlc/<feature-slug>/` (see
+[patterns/handoff.md](../../patterns/handoff.md)) that survived the bounded skeptic loop to
+`proceed` — what `plan` and `develop` read. A run whose loop `escalate`s (unresolved gaps at N = 3)
+surfaces them and stops; it does **not** hand off an unsound design.
 
 ## Definition of done
 
+- The skeptic loop exited on `proceed` (`review_loop_decision`): `approve` **and** the step-5
+  validation green — not `escalate`.
 - `tech-design.md` validates against the `tech-design` handoff schema (decisions, components,
   risks present).
 - Every PRD goal maps to a component or an explicit decision.
 - Each significant decision is an ADR weighing real alternatives with consequences.
+- A bounded skeptic pass (plus the external-reviewer lens when enabled) checked goal traceability,
+  strawman alternatives, and risk mitigations.
 - Only design documents are written — no application code.

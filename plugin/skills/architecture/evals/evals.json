@@ -40,7 +40,7 @@
   "component": {
     "id": "architecture",
     "type": "skill",
-    "purpose": "Phase workflow: turn an approved PRD into a technical design (tech-design.md + ADRs) under docs/sdlc/<feature>/, weighing alternatives and tracing goals to components. Delegates the design to the architect role; gated at Tier-1 (routing), with design quality covered by the architect role's Tier-2."
+    "purpose": "Phase workflow: turn an approved PRD into a technical design (tech-design.md + ADRs) under docs/sdlc/<feature>/, weighing alternatives and tracing goals to components. Delegates the design to the architect role and gates the handoff with a bounded skeptic loop (reviewer + the external-reviewer lens, --kind technical; exit via review_loop_decision, ADR 0060). Gated at Tier-1 (routing), with design quality covered by the architect role's Tier-2 plus that loop."
   },
   "thresholds": {
     "tier1_trigger": { "recall": 0.9, "specificity": 0.9 }

@@ -12,7 +12,10 @@ research/code-review).
 - **Purpose**: turn a feature / PRD into a **UX spec** — user flows, screens and their states
   (empty / loading / error / success), accessibility requirements (WCAG: keyboard, contrast,
   semantics/ARIA), and references to design-system components — handed to `develop`.
-- **Own behavior** (there is no UX role to fork); emits a `ux-spec` handoff.
+- **Own behavior** (there is no UX role to fork); emits a `ux-spec` handoff, gated by a **bounded
+  adversarial loop** over two lenses (accessibility + flow/state completeness, ADR 0037) plus the
+  external-reviewer lens (`--kind ux`), exiting on the shared `review_loop_decision` (ADR 0061) —
+  `escalate` surfaces the gaps instead of handing off.
 - **Scope guard** (the roadmap's risk): outputs are **specs and handoff docs, never pixels/visual
   design**. An assertion enforces "spec, not visual mockup".
 - **Handoff depth** (ADR 0056): `references/design-handoff.md` carries the per-component

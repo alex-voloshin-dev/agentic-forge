@@ -22,15 +22,36 @@ from . import agent_eval
 
 __all__ = ["KINDS", "build_prompt", "is_available", "run_external", "parse_review", "review"]
 
-# Review focus per target kind.
+# Review focus per target kind. One entry per **review-criteria set** — the failure modes of what a
+# phase hands off — so each phase's external lens is criticised on its own terms (an unknown kind
+# falls back to `code`, which would be actively wrong for a non-code artifact). A phase whose
+# deliverables share one failure mode needs only one entry: `marketing` covers its brief, strategy,
+# offer doc, content, and audit report, which all fail the same way (fluff). ADR 0042, extended by
+# 0061 / 0062.
 KINDS: dict[str, str] = {
     "code": "Review this code change for correctness, bugs, security, and integration/API breaks.",
+    "marketing": (
+        "Review this marketing deliverable: every market-size, competitor, or performance claim "
+        "cited or explicitly labelled an assumption, no invented figures, competitors named "
+        "specifically (never 'various players'), and no unsupported superlative — every claim "
+        "tracing to a real proof point."
+    ),
     "plan": "Review this plan for completeness, task sequencing (a cycle-free order), and risk.",
     "product": (
         "Review this product spec: testable acceptance criteria, measurable metrics, complete "
         "non-goals, traceability to the brief."
     ),
+    "research": (
+        "Review this research brief: every load-bearing claim supported by a cited source, no "
+        "unsourced assertion, disagreements between sources reconciled rather than averaged, and a "
+        "recommendation that actually follows from the findings."
+    ),
     "technical": "Review this technical design for soundness, rejected alternatives, and risks.",
+    "ux": (
+        "Review this UX spec: every screen covering its empty / loading / error / success states, "
+        "no dead-end flow, and concrete accessibility requirements (keyboard and focus order, "
+        "contrast, ARIA/semantics, input labels)."
+    ),
 }
 
 _FORMAT = (
@@ -140,7 +161,7 @@ def review(
     workdir: Path | str = ".",
     runner: Runner | None = None,
 ) -> dict[str, Any] | None:
-    """Get an external review of ``target`` (kind: code|plan|product|technical). Returns a
+    """Get an external review of ``target`` (kind: any key of :data:`KINDS`). Returns a
     review-shaped dict, or ``None`` if the reviewer is unavailable / produced nothing parseable."""
     output = run_external(command, build_prompt(target, kind), workdir, runner=runner)
     return parse_review(output) if output is not None else None

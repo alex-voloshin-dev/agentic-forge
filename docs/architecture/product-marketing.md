@@ -40,6 +40,14 @@ makes no unsupported superlatives. The read-only grader verifies these by readin
 cited? are specific competitors named? does content trace to the strategy?) — deterministic, not
 vibes. This is what makes a subjective domain gateable.
 
+At runtime the same discipline is enforced by a **bounded adversarial claims loop** (ADR 0037,
+contracted by [ADR 0062](decisions/0062-skeptic-loop-marketing.md)): a forked `reviewer` plus the
+external-reviewer lens (`--kind marketing`) attack the draft, and the loop exits on the shared
+`handoff.review_loop_decision` — `escalate` (claims still unsourced at N = 3) surfaces them and does
+**not** ship. Its `gate_green` is conditional, and honestly so: schema validation for the two typed
+handoffs, but for the untyped deliverables (content, offer doc, audit report) there is no schema, so
+the gate is the evidence discipline itself and the loop reduces to exit-on-`approve` / `escalate`.
+
 ## New handoff types (`handoff.py`, contract-first)
 
 - `market-brief` — feature schema + `segments`, `competitors` (named, non-empty), `sources`

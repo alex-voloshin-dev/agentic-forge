@@ -1,7 +1,7 @@
 ---
 name: research
 description: Investigate a feature or idea before it is specified or designed — gather inputs, fan out parallel research tracks (e.g. prior art / domain / engineering), synthesize, and produce a research-brief.md with cited sources and a recommendation. Use when asked to research, investigate, or compare options / approaches / prior art for a feature or idea, or recommend a direction BEFORE speccing or designing it. This phase PRODUCES the research brief and feeds product — but turning an existing brief INTO a PRD or product spec is product, not research. For a standalone deep report not tied to the feature flow use deep-research. Not for defining requirements (product), the technical design itself (architecture), implementing (develop), market/competitor research (marketing), or recalling what we have ALREADY noted or decided (knowledge).
-allowed-tools: Read, Grep, Glob, Task, Write
+allowed-tools: Read, Grep, Glob, Bash, Task, Write
 ---
 
 # Research (phase workflow)
@@ -36,15 +36,42 @@ art, market/competitors, user needs, technical feasibility. Not for deciding req
 6. **Write the brief.** Emit `research-brief.md` (frontmatter `type, feature, status, date,
    sources[]`; body = findings, conclusions, recommendations) under `docs/sdlc/<feature-slug>/`;
    validate it (`handoff.validate_header(..., expected_type="research-brief")`).
+7. **Skeptic pass (bounded).** Step 4 is your *own* verification; this is an **independent** one.
+   Fork a fresh `reviewer` (via `Task`) to attack the brief adversarially — every load-bearing claim
+   **cited** (nothing asserted unsourced), no **invented** figure, source **disagreements
+   reconciled** rather than averaged away, and the recommendation actually **following from the
+   findings** (not from the question's framing) — then revise worst-first. **External reviewer lens
+   (on by default, ADR 0057/0061):** when `external_reviewer.enabled` (settings), also run the
+   external reviewer over `research-brief.md` — call `external_review.review(brief_text,
+   "research", command=<cfg>)` from `${CLAUDE_PLUGIN_ROOT}/lib` (repo-side equivalent:
+   `dev/external_review.py --target docs/sdlc/<feature-slug>/research-brief.md --kind research`);
+   codex critiques the brief as an independent-model lens (citation support, reconciled
+   disagreements, a recommendation that follows) and its `findings` fold into the same worst-first
+   revision. It **degrades gracefully** (absent/disabled codex is skipped, not a failure) and its
+   findings are **advisory** (prompt-injectable) — verify before acting. **Exit criterion (the
+   shared, tested rule):** each round, compute `handoff.review_loop_decision(verdict, iteration,
+   cap=3, gate_green=<research-brief.md validates>)` (see
+   [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
+   [review-loop.md](../../patterns/review-loop.md)) — `revise` (loop back and fix worst-first),
+   `escalate` (still `changes` at N = 3 → surface the unresolved gaps and stop; don't hand off), or
+   `proceed` (`approve` **and** the brief validates → the brief is done). Don't hand off a brief
+   whose recommendation rests on uncited claims.
 
 ## Output
 
-A `research-brief.md` handoff (see [patterns/handoff.md](../../patterns/handoff.md)): synthesized
-findings, cited sources, and recommendations — the input to `product`.
+**A full research run produces the finished brief: a validated `research-brief.md`** (see
+[patterns/handoff.md](../../patterns/handoff.md)) — synthesized findings, cited sources, and a
+recommendation — that survived the bounded skeptic loop to `proceed`, ready as the input to
+`product`. A run whose loop `escalate`s (unresolved gaps at N = 3) surfaces them and stops; it does
+**not** hand off a brief built on unsupported claims.
 
 ## Definition of done
 
+- The skeptic loop exited on `proceed` (`review_loop_decision`): `approve` **and**
+  `research-brief.md` validates — not `escalate`.
 - `research-brief.md` validates against the research-brief handoff schema (sources listed).
 - Findings are synthesized across the tracks (not concatenated) and load-bearing claims are
   cited.
 - The brief ends with clear conclusions + a recommendation for the next phase.
+- A bounded skeptic pass (plus the external-reviewer lens when enabled) checked citation support and
+  that the recommendation follows from the findings.

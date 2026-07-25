@@ -79,7 +79,7 @@
   "component": {
     "id": "marketing",
     "type": "skill",
-    "purpose": "Marketing domain router: market & competitor research (evidence-cited), GTM/positioning strategy, and on-brand content — one router skill dispatching to references/, forking the research/Explore roles for evidence. Stage 5; gated at Tier-1 and Tier-2 (claims-verification)."
+    "purpose": "Marketing domain router: market & competitor research (evidence-cited), GTM/positioning strategy, and on-brand content — one router skill dispatching to references/, forking the research/Explore roles for evidence, and gating every deliverable with a bounded adversarial claims loop (reviewer + the external-reviewer lens, --kind marketing; exit via review_loop_decision over the sub-area's gate — schema validation for a typed handoff, the evidence discipline otherwise; ADR 0062). Stage 5; gated at Tier-1 and Tier-2 (claims-verification)."
   },
   "thresholds": {
     "tier1_trigger": { "recall": 0.9, "specificity": 0.9 },
