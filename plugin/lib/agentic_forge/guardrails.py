@@ -27,6 +27,7 @@ __all__ = [
     "is_commit_or_push",
     "choose_gate",
     "gate_unrunnable",
+    "GATE_UNRUNNABLE_EXIT_CODES",
     "tool_errored",
     "redact_secrets",
     "audit_record",
@@ -35,18 +36,27 @@ __all__ = [
 
 # Signatures in a gate's output that mean "the gate could not RUN" (environment breakage), not
 # "the code failed the gate" — a non-zero exit carrying one of these must fail OPEN, not block a
-# commit (ADR 0058). Seen in the field: `npm run lint` with no `lint` script, or eslint not
+# commit (ADR 0058/0059). Seen in the field: `npm run lint` with no `lint` script, or eslint not
 # installed. Matched case-insensitively against the combined stdout+stderr.
+#
+# These are DELIBERATELY specific. A bare "not found" / "no such file" was too broad (ADR 0059):
+# it matches genuine gate failures — pytest `fixture 'x' not found`, eslint `'y' not found in
+# './m'`, an HTTP test asserting `404 Not Found`, gcc `foo.h: No such file or directory`, and even
+# this repo's own `dev/validate.py` emitting `SKILL.md not found` — which would wrongly let broken
+# code commit. The shell's own "command/file not found" (exit 127/126) is caught by exit code in
+# the hook instead, so it needs no broad substring here.
 _GATE_UNRUNNABLE = (
     "missing script",
-    "command not found",
-    "no such file",
-    "not found",  # e.g. "sh: eslint: command not found" also matches above; covers "X: not found"
-    "can't open file",
+    "command not found",  # "sh: eslint: command not found" (still matches; kept as belt-and-braces)
+    "can't open file",  # python: can't open file '...': [Errno 2]
     "modulenotfounderror",
     "is not recognized",  # Windows "'eslint' is not recognized as an internal or external command"
     "executable not found",
 )
+# Shell exit codes that mean "the command itself could not run" — 127 (command not found), 126
+# (found but not executable). The hook keys the fail-open on these too, so a shell "not found" is
+# caught by code, not by an over-broad output substring (ADR 0059).
+GATE_UNRUNNABLE_EXIT_CODES = frozenset({126, 127})
 
 
 @dataclass(frozen=True)

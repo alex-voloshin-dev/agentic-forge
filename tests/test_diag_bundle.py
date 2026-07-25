@@ -199,6 +199,17 @@ def test_session_coverage_counts_main_recorded_missed() -> None:
     assert (cov.main, cov.recorded, cov.missed) == (2, 1, 1)
 
 
+def test_read_transcript_sessions_tolerates_bad_utf8(tmp_path: Path) -> None:
+    # ADR 0059: a transcript with an invalid byte must not crash the bundle (UnicodeDecodeError is a
+    # ValueError, not an OSError). errors="replace" keeps it best-effort.
+    repo = tmp_path / "myrepo"
+    proj = diag_bundle._project_dir(tmp_path, repo)  # noqa: SLF001
+    proj.mkdir(parents=True)
+    (proj / "s1.jsonl").write_bytes(b'{"type":"tool_use"}\n\xff\xfe bad bytes\n')
+    sessions = diag_bundle._read_transcript_sessions(tmp_path, repo)  # noqa: SLF001
+    assert sessions == [("s1", False, True)]  # parsed, did not raise
+
+
 def test_coverage_line_flags_shortfall_and_completeness() -> None:
     assert "MISSED" in diag_bundle.coverage_line(
         diag_bundle.SessionCoverage(main=5, recorded=3, missed=2)

@@ -310,7 +310,7 @@ def test_audit_record_bounds_tool_and_session() -> None:
     assert len(rec["tool"]) == 128 and len(rec["session_id"]) == 128
 
 
-# --- gate_unrunnable (ADR 0058) ----------------------------------------------
+# --- gate_unrunnable (ADR 0058, tightened by ADR 0059) -----------------------
 
 
 @pytest.mark.parametrize(
@@ -321,7 +321,6 @@ def test_audit_record_bounds_tool_and_session() -> None:
         "python: can't open file 'dev/validate.py'",
         "ModuleNotFoundError: No module named 'ruff'",
         "'eslint' is not recognized as an internal or external command",
-        "bash: ruff: No such file or directory",
     ],
 )
 def test_gate_unrunnable_true_on_env_breakage(output: str) -> None:
@@ -335,10 +334,22 @@ def test_gate_unrunnable_true_on_env_breakage(output: str) -> None:
         "FAIL src/app.test.tsx\n  ● renders",
         "error  Unexpected console statement  no-console",
         "",
+        # ADR 0059 regression: genuine gate failures whose output contains "not found" / "no such
+        # file" must NOT be treated as unrunnable (that would let broken code commit).
+        "ERROR foo: SKILL.md not found",  # this repo's own dev/validate.py structural failure
+        "E   fixture 'db' not found",  # a real pytest failure
+        "error  'bar' not found in './mod'  import/named",  # a real eslint error
+        "AssertionError: expected 200 got 404 Not Found",  # a real HTTP test failure
+        "fatal error: foo.h: No such file or directory",  # a real gcc compile failure
     ],
 )
 def test_gate_unrunnable_false_on_real_failure(output: str) -> None:
     assert guardrails.gate_unrunnable(output) is False
+
+
+def test_gate_unrunnable_exit_codes() -> None:
+    # The shell's own "command/file not found" is caught by exit code, not an over-broad substring.
+    assert guardrails.GATE_UNRUNNABLE_EXIT_CODES == frozenset({126, 127})
 
 
 # --- tool_errored + audit error flag (ADR 0058) ------------------------------

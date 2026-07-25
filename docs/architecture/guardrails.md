@@ -35,9 +35,12 @@ session — except where blocking is the whole point (security, test-gate).
   **fast** gate (`dev/validate.py` if present, else the detected stack's lint via `stacks.py`) and
   blocks on failure, so broken code isn't committed. Skippable via `AGENTIC_FORGE_SKIP_TEST_GATE`;
   fails open on an infrastructure error (missing tool, timeout) **and when the gate can't run** —
-  a non-zero exit whose output shows a missing lint script / uninstalled linter / missing file
-  (`guardrails.gate_unrunnable`) is environment breakage, not a code-quality signal, so it is
-  downgraded to an `anomaly` and allowed rather than blocking a commit (ADR 0058).
+  a non-zero exit whose output shows a missing lint script / uninstalled linter
+  (`guardrails.gate_unrunnable`, specific signatures only) **or** a shell not-found exit code
+  (127/126) is environment breakage, not a code-quality signal, so it is downgraded to an `anomaly`
+  and allowed rather than blocking a commit. The signatures are deliberately narrow — a bare
+  `not found` / `no such file` would match genuine failures and wrongly let broken code commit
+  (ADR 0058, tightened by ADR 0059).
 - **budgets** (`PreToolUse` / Task, `budget.py`) — a per-session subagent counter; **warns** over
   the soft cap and **blocks** over the hard cap (`AGENTIC_FORGE_SUBAGENT_SOFT` / `_HARD`).
 - **logging** (`PostToolUse`, `audit_log.py`) — appends a secret-redacted JSONL audit line to

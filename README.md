@@ -23,8 +23,8 @@ Claude Code loads automatically when they are relevant. It is built on three com
 # …or point Claude Code straight at the plugin dir:
 claude --plugin-dir /path/to/agentic-forge/plugin
 
-# Once published to GitHub:
-/plugin marketplace add <owner>/agentic-forge
+# From GitHub:
+/plugin marketplace add alex-voloshin-dev/agentic-forge
 /plugin install agentic-forge@agentic-forge
 ```
 

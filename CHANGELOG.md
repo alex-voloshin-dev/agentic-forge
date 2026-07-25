@@ -7,6 +7,33 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.7.4] - 2026-07-25
+
+Hotfix from the pre-publication deep review — corrects a defect in 2026.7.3's commit-gate change
+plus public-repo hygiene issues.
+
+### Fixed
+
+- **commit-gate no longer fails open on genuine gate failures (ADR 0059, fixes an 0058 regression).**
+  The "gate can't run" detection matched a bare `not found` / `no such file`, which also appears in
+  *real* failures — pytest `fixture 'x' not found`, eslint `'y' not found`, an HTTP `404 Not Found`,
+  gcc `No such file or directory`, and even this repo's own `dev/validate.py` `SKILL.md not found` —
+  so broken code could commit. Detection is now specific signatures only, and the shell's own
+  not-found is caught by exit code 127/126 instead. Real failures block again; missing-script /
+  uninstalled-linter still fails open.
+- **commit-gate joins stdout/stderr with a newline** so a signature can't be spuriously formed or
+  destroyed across the stream boundary (ADR 0059).
+- **Diagnostics bundle tolerates a non-UTF-8 transcript byte** — `_read_transcript_sessions` now
+  reads with `errors="replace"`, so `UnicodeDecodeError` (a `ValueError`, not `OSError`) can't crash
+  the bundle build (ADR 0059).
+- **CI `gate` workflow now triggers on `master`** (was `main`, a non-existent branch — post-merge CI
+  never ran).
+- **Marketplace descriptor synced:** `version` `0.0.1` → `2026.7.4`, and the description now lists
+  the full domain set (was frozen at the six spine phases).
+- **Docs:** README install uses the real GitHub owner (`alex-voloshin-dev`, was `<owner>`); fixed a
+  broken relative link in ADR 0048; documented the 2026.7.3 product-agnostic cleanup in that
+  release's changelog section.
+
 ## [2026.7.3] - 2026-07-25
 
 ### Changed / Added — field-driven diagnostics fidelity (from a production bundle, ADR 0058)
@@ -74,6 +101,13 @@ a first-class lens in the review cycle:
   on those machines. Where `codex` is installed, the target is sent to a third party each review
   iteration; the read-only sandbox, bare-executable `command`, sanitised findings, and verify-before-
   acting all still bound this. **Opt out on secret-bearing repos** (`external_reviewer.enabled: false`).
+
+### Removed — downstream product names (repo is now product-agnostic)
+
+Removed every mention of a downstream product name from docs, code, and tests (the diagnostics
+bundles that drove ADR 0058 came from a downstream repo); the public repo is now product-agnostic,
+using neutral descriptions ("a production repo", "an anonymised downstream repo") and generic
+examples. Maintainer identity in LICENSE / plugin manifest / SECURITY is intentionally kept.
 
 ## [2026.7.2] - 2026-07-15
 
