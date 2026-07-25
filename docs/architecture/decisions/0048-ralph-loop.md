@@ -11,7 +11,7 @@ iteration in a **fresh context**, letting the **filesystem** (code, a task / pro
 carry state across runs. It drives a whole task to completion through repeated small increments
 instead of one long, context-bloated session.
 
-It complements the [bounded review loop](../../plugin/patterns/review-loop.md): review-loop converges
+It complements the [bounded review loop](../../../plugin/patterns/review-loop.md): review-loop converges
 a *single artifact* via a reviewer's approve signal; Ralph drives a *whole task* via repeated fresh
 executions. The risk it must tame is the same one review-loop tames — an autonomous loop that edits
 the repo can run forever or **spin without progress**. So it must be **bounded** (always terminates),

@@ -448,7 +448,10 @@ def _read_transcript_sessions(  # pragma: no cover
         sid = f.stem
         sidechain = has_tools = False
         try:
-            with f.open(encoding="utf-8") as handle:
+            # errors="replace": a transcript with one bad byte must not crash the whole bundle —
+            # UnicodeDecodeError is a ValueError, not an OSError, so it would escape the guard below
+            # and out of build_bundle (ADR 0059). Best-effort metadata read, so replacement is fine.
+            with f.open(encoding="utf-8", errors="replace") as handle:
                 for line in handle:
                     if '"isSidechain":true' in line or '"isSidechain": true' in line:
                         sidechain = True

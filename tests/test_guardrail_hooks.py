@@ -6,6 +6,8 @@ import sys
 import types
 from pathlib import Path
 
+import pytest
+
 _REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO / "plugin" / "hooks" / "scripts"))
 
@@ -126,15 +128,34 @@ def test_commit_gate_fails_open_when_gate_unrunnable(monkeypatch, tmp_path: Path
     assert "unrunnable" in event["message"] and event["session_id"] == "s-unrunnable"
 
 
-def test_commit_gate_still_blocks_on_real_lint_failure(monkeypatch, tmp_path: Path) -> None:
-    # A genuine non-zero (real lint errors, no unrunnable signature) must still block.
+def test_commit_gate_fails_open_on_shell_not_found_exit_code(monkeypatch, tmp_path: Path) -> None:
+    # ADR 0059: a shell "command/file not found" (exit 127) fails OPEN via the exit code — not via
+    # an over-broad output substring. Output has no unrunnable signature; the exit code does it.
     (tmp_path / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
     monkeypatch.delenv("AGENTIC_FORGE_SKIP_TEST_GATE", raising=False)
     monkeypatch.setattr(
         commit_gate.subprocess,
         "run",
-        _fake_run(1, stdout="src/a.ts: 3 problems (3 errors, 0 warnings)", stderr=""),
+        _fake_run(127, stdout="", stderr="bash: ruff: No such file or directory"),
     )
+    payload = {"tool_name": "Bash", "tool_input": {"command": "git commit"}, "cwd": str(tmp_path)}
+    assert commit_gate.gate_decision(payload) == guardrails.ALLOW
+
+
+@pytest.mark.parametrize(
+    "stdout",
+    [
+        "src/a.ts: 3 problems (3 errors, 0 warnings)",  # real lint errors
+        "ERROR foo: SKILL.md not found",  # ADR 0059: "not found" in a real gate failure must block
+        "E   fixture 'db' not found",  # real pytest failure containing "not found"
+    ],
+)
+def test_commit_gate_still_blocks_on_real_failure(monkeypatch, tmp_path: Path, stdout: str) -> None:
+    # A genuine non-zero (exit 1, no unrunnable signature) must still block — even when the output
+    # happens to contain "not found" (the pre-0059 over-broad match would wrongly let it through).
+    (tmp_path / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    monkeypatch.delenv("AGENTIC_FORGE_SKIP_TEST_GATE", raising=False)
+    monkeypatch.setattr(commit_gate.subprocess, "run", _fake_run(1, stdout=stdout, stderr=""))
     payload = {"tool_name": "Bash", "tool_input": {"command": "git commit"}, "cwd": str(tmp_path)}
     d = commit_gate.gate_decision(payload)
     assert d.block and "gate failed" in d.message
