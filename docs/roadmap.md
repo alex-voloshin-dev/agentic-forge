@@ -317,7 +317,10 @@ Cross-cutting increments beyond the staged plan, recorded by ADR + CHANGELOG:
   `research` / `ux-design` (ADR 0061) and `marketing` (ADR 0062) — with the external-reviewer lens
   folded into each on its own `KINDS` criteria, one shared `review_loop_decision` exit, and `plan`'s
   DAG proved by `plan_batches`, so **every workflow that writes a reviewable deliverable** now shares
-  one loop shape (only the reviewer-side and ops/deterministic phases stay outside it); and an opt-in **self-diagnostics channel** captures the
+  one loop shape (only the reviewer-side and ops/deterministic phases stay outside it) — **live-gated
+  2026-07-25**: Tier-2 PASS for both skills that declare it (`ux-design` 1.000 / σ 0.000,
+  `marketing` 0.954 / lower bound 0.937, n=5) and Tier-1 1.000 / 1.000 for all six touched skills,
+  which closes the live re-run ADR 0037 §5 deferred; and an opt-in **self-diagnostics channel** captures the
   plugin's own errors / denials / anomalies → `diagnostics.jsonl` + a "top problems" digest
   (ADR 0039), including a deterministic **review-loop non-convergence scan** over `review.md`
   artifacts (ADR 0040).

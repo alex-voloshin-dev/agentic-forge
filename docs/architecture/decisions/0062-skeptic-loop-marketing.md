@@ -102,3 +102,30 @@ three untyped deliverables (offer doc, content files, audit report). Both the `g
   a third party — the ADR 0057 trust boundary and its opt-out apply unchanged.
 - Tier-0 green; Tier-1 unaffected (no description changes); the `market-brief` Tier-3 domain scenario
   asserts the artifact, which the loop can only improve.
+
+## Measured outcome — the sweep's live gate (2026-07-25)
+
+The consolidated evidence for the 0060 → 0061 → 0062 sweep, run against the shipped skills on
+`claude-opus-4-8`. **This closes the verification [ADR 0037 §5](0037-review-passes-for-artifact-writers.md)
+deferred**: it argued that "a review pass ran" is not gradeable from an artifact, so the way to
+confirm an added skeptic pass does not *lower* quality is a live Tier-2 re-run. Here it is.
+
+**Tier-2** (contract: `mean − stddev ≥ 0.8`, n = 5) — the two skills of the sweep that declare it:
+
+| Skill | mean | stddev | lower bound | verdict |
+| --- | --- | --- | --- | --- |
+| `ux-design` (loop contracted by 0061) | 1.000 | 0.000 | 1.000 | PASS |
+| `marketing` (loop contracted by 0062) | 0.954 | 0.017 | 0.937 | PASS |
+
+**Tier-1** (recall / specificity ≥ 0.9, runs = 5) — all six skills the sweep touched scored a perfect
+**1.000 / 1.000**: `architecture`, `plan`, `product`, `research`, `ux-design`, `marketing`. Expected,
+since no `description` changed, and now measured rather than assumed. (That run is also the baseline
+recorded in [ADR 0064](0064-tier1-measurement-integrity.md), which had to fix the Tier-1 harness
+before these numbers could be trusted at all.)
+
+So the added loops cost nothing measurable in quality — `ux-design` is perfectly stable across all
+five runs (σ = 0) — and the remaining four spine phases keep inheriting quality from their delegated
+roles' Tier-2 plus the Tier-3 scenario, per ADR 0017.
+
+Not claimed: this shows **no regression**, not a proven *lift*. Measuring the lift needs the opt-in
+`--baseline` with/without A/B (ADR 0036), which was not run here.
