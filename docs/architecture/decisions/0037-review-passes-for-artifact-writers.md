@@ -1,6 +1,10 @@
 # 0037 — Review/skeptic passes for artifact-writer workflows; loop-reference symmetry; deploy-watch scope honesty
 
-Status: Accepted — **implemented** (see the [Unreleased] CHANGELOG entry).
+Status: Accepted — **implemented** (see the [Unreleased] CHANGELOG entry). §5's deferred
+verification — "the way to confirm the lift is a live Tier-2 re-run" — was **carried out on
+2026-07-25** for the skills whose loops were later contracted by [0061](0061-skeptic-loop-research-ux.md)
+/ [0062](0062-skeptic-loop-marketing.md): both PASS, table in
+[0062](0062-skeptic-loop-marketing.md#measured-outcome--the-sweeps-live-gate-2026-07-25).
 
 ## Context
 

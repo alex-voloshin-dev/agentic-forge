@@ -112,3 +112,6 @@ critiquing a UX spec as if it were a diff.
   (`external_reviewer.enabled: false` on secret-bearing repos) apply unchanged.
 - Tier-0 green; Tier-1 unaffected (no description changes). The Tier-3 spine and domain scenarios
   assert the artifacts, which the loop can only improve.
+- **Measured (2026-07-25):** `ux-design` Tier-2 PASS (mean 1.000, σ 0.000, lower bound 1.000, n = 5);
+  `research` and the other spine phases Tier-1 1.000 / 1.000. The consolidated table for the whole
+  sweep lives in [ADR 0062](0062-skeptic-loop-marketing.md#measured-outcome--the-sweeps-live-gate-2026-07-25).
