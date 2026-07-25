@@ -424,7 +424,8 @@ each item gets its contract + evals before implementation when picked up.
 (deep-review workflow assets), 4 (observability hygiene). The config-UX finding was fixed with the
 bugs (neutral `config.example.json` + configuration.md python/models clarifications).
 
-> **Status:** all four are **built** (post-2026.7.1, see the CHANGELOG): 1 — the `pr-watch` skill
+> **Status:** all four **shipped in `2026.7.2`** (see the CHANGELOG + `docs/sdlc/agentic-forge-2026.7.2/`):
+> 1 — the `pr-watch` skill
 > (off-listing manual `/pr-watch`, wraps the `agentic_forge.pr_watch` lib, Tier-2 contract); 2 — `deploy-watch`
 > k8s coverage (`references/k8s-health.md` + k8s Tier-1/Tier-2 eval cases, description +~10 listing
 > tokens); 3 — `deep-review` `references/workflow-template.md` (canonical schemas, per-lens retry,
@@ -433,6 +434,14 @@ bugs (neutral `config.example.json` + configuration.md python/models clarificati
 > slice. Live gates executed on claude-opus-4-8: deploy-watch Tier-1 PASS (recall 0.971 /
 > specificity 1.000) and Tier-2 PASS (1.000, n=5); pr-watch Tier-2 PASS (mean 0.943 / lower bound
 > 0.815, n=5). deep-review's change is references-only (its existing Tier-2 contract is untouched).
+>
+> **Second field round — `2026.7.3` (ADR 0058, from a 14-day bundle).** A follow-up production
+> bundle, compared against its raw transcripts, drove a diagnostics-fidelity increment that also
+> **shipped**: commit-gate fails open when the gate can't *run* (missing lint script / uninstalled
+> linter → `anomaly`, not a block — validated against all 10 real field events); the bundle now
+> discloses its own audit coverage (`diag_bundle.session_coverage`); the audit trail records a
+> tool-error flag and the digest ranks failing tools. Same release also made the external reviewer a
+> default review lens (ADR 0057).
 
 ### 1 — `pr-watch` skill: interactive CI/PR babysitting
 
