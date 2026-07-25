@@ -102,3 +102,31 @@ to repair a defect that was never in the description.
   face of the result.
 - `selection_rate`'s return type changed from `float` to `PromptRate`; callers inside the runner and
   its tests were updated. Public API of the CLI is unchanged.
+
+## Measured outcome (first run under the corrected harness, 2026-07-25)
+
+Same six skills, same unchanged listing, `--runner claude`, runs = 5:
+
+| Skill | recall | specificity | calls returning no decision |
+| --- | --- | --- | --- |
+| `architecture` | 1.000 | 1.000 | 0 |
+| `plan` | 1.000 | 1.000 | 8 / 50 |
+| `product` | 1.000 | 1.000 | 4 / 50 |
+| `research` | 1.000 | 1.000 | 2 / 50 |
+| `ux-design` | 1.000 | 1.000 | 3 / 35 |
+| `marketing` | 1.000 | 1.000 | 3 / 65 |
+
+**All six PASS at a perfect 1.000/1.000, with ~20 of ~300 calls (6.7%) discarded.** The prediction
+going in was "zero discarded → the question is closed". The actual result is sharper: the channel
+*does* drop ~7% of calls, and routing is flawless the moment those drops stop being scored as
+misses. That is the arithmetic behind the whole episode — a 7% drop rate, counted as misses (and
+occasionally as votes for whatever skill the prose happened to name), is more than enough to move a
+recall of 1.000 to the observed 0.720–0.800 depending on where the drops land.
+
+So: **the routing was never broken, and no description was edited** — the router's ~1% listing
+budget, which has no headroom, was left intact. The three contradictory pre-fix runs contained no
+routing signal at all.
+
+The 6.7% is now a *visible standing property* of the measurement channel rather than invisible
+corruption. If it grows, the evidential strength of every Tier-1 number falls with it, and that will
+be legible on the summary line instead of silently deforming the result.

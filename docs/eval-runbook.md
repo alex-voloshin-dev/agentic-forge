@@ -13,12 +13,18 @@
 >    `unmeasured` and **fails** rather than reporting a fabricated `0.0`. Before that fix they were
 >    mined for the first skill-like word and scored as a wrong routing decision.
 >
-> So: read the discarded-call count first. If it is non-zero, the number is measured through a noisy
-> channel — re-run before drawing conclusions. **Never edit a description to chase a Tier-1 number
-> until a run with zero discarded calls reproduces the dip** (observed 2026-07-25: `product` scored
-> 0.800 / 1.000 / 0.720 in one hour against a byte-identical listing, and the "calm" re-run was the
-> worst of the three; the cause was neither throttling nor routing). To see *why* a call missed,
-> capture the raw reply — `parse_selection`'s verdict alone cannot tell an empty reply from an essay.
+> So: read the discarded-call count first. **A non-zero count is normal** — the baseline run under
+> the corrected harness (2026-07-25, six skills, runs = 5) discarded **~20 of ~300 calls (6.7%)** and
+> still scored a clean 1.000/1.000 across the board. Treat roughly that rate as the channel's noise
+> floor; a materially higher one means the run is thin evidence, so re-run before concluding.
+>
+> **Never edit a description to chase a Tier-1 number until a run reproduces the dip with the
+> discards accounted for.** Observed 2026-07-25: `product` scored 0.800 / 1.000 / 0.720 within one
+> hour against a byte-identical listing — the "calm" re-run being the worst of the three — and the
+> corrected harness then measured it at **1.000**. The cause was neither throttling nor routing, and
+> editing the description would have spent the router's ~1% listing budget on a defect that was never
+> there. To see *why* a call missed, capture the raw reply — `parse_selection`'s verdict alone cannot
+> tell an empty reply from an essay.
 
 > **Growing a description can dilute its existing anchors.** Adding new capability keywords to a
 > listing description shifts the router's attention: after `marketing` gained offer/audit
