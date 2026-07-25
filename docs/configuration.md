@@ -23,7 +23,7 @@ are optional. A ready, schema-valid example with **every** key ships at
 | `subagent_budget.hard` | int ≥ 0 | `50` | Count at which the budget hook blocks further `Task` spawns. |
 | `test_gate.skip` | bool | `false` | Skip the pre-commit test gate (the `commit_gate` hook). |
 | `review.passes` | int ≥ 1 | `3` | The bounded review-loop budget N. |
-| `external_reviewer.enabled` | bool | `false` | Enable the external reviewer pass (ADR 0042). |
+| `external_reviewer.enabled` | bool | `true` | Enable the external reviewer pass — on by default, auto-invoked as an extra lens in `develop` + `product` (ADR 0042 / 0057). Degrades gracefully when the CLI is absent; set `false` to opt out (e.g. secret-bearing repos). |
 | `external_reviewer.command` | string | `"codex"` | The reviewer executable name on PATH (a bare name, not a shell line). |
 | `models` | object | `{}` | Per-role / skill / `router` model tiers (ADR 0043) — each value is a tier (`default` / `simple` / `cheap`) or a model id. **Affects the eval/dev CLIs only** (`dev/run_*_evals.py`, `dev/pr_watch.py`, `dev/ralph.py`) — live-session role routing is the gate-validated agent frontmatter (ADR 0046), which this key does not change. Empty = the runner's default model everywhere. See the [eval runbook](eval-runbook.md). |
 | `pr_watcher.enabled` | bool | `false` | Enable the PR watcher's outward GitHub writes (ADR 0044/0045). |

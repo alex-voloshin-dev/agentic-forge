@@ -30,7 +30,7 @@ def test_defaults_when_no_file_no_env(tmp_path: Path) -> None:
     assert s.subagent_soft == 25 and s.subagent_hard == 50
     assert s.skip_test_gate is False
     assert s.review_passes == 3
-    assert s.external_reviewer_enabled is False and s.external_reviewer_command == "codex"
+    assert s.external_reviewer_enabled is True and s.external_reviewer_command == "codex"
     assert s.models == {}
     assert s.pr_watcher_enabled is False and s.pr_watcher_max_threads == 10
     assert s.pr_watcher_bot == "github-actions[bot]" and s.pr_watcher_repos == []
@@ -42,13 +42,13 @@ def test_file_overrides_defaults(tmp_path: Path) -> None:
         {
             "diagnostics": {"enabled": True},
             "review": {"passes": 5},
-            "external_reviewer": {"enabled": True, "command": "codex"},
+            "external_reviewer": {"enabled": False, "command": "codex"},
             "models": {"default": "claude-opus-4-8", "simple": "claude-sonnet-4-6"},
         },
     )
     s = settings.resolve(tmp_path, env={})
     assert s.diagnostics_enabled is True and s.review_passes == 5
-    assert s.external_reviewer_enabled is True
+    assert s.external_reviewer_enabled is False  # file overrides the on-by-default (ADR 0057)
     assert s.models == {"default": "claude-opus-4-8", "simple": "claude-sonnet-4-6"}
     assert s.subagent_soft == 25  # an untouched key keeps its default (deep merge)
 

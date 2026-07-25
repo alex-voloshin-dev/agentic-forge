@@ -19,6 +19,13 @@ Add an aspect only when the change warrants it (assess per case — e.g. a DB mi
 data-safety aspect). The style aspect runs the project's real tools (ruff/mypy/eslint/…) and
 treats their output as evidence, not opinion.
 
+**External reviewer lens (on by default, ADR 0042 / 0057).** When `external_reviewer.enabled`
+(settings — on by default), add the external CLI (`codex`) as one more lens over the same diff via
+`external_review.review(diff, "code")` / `dev/external_review.py --kind code`. Its *different model*
+catches what the same-family aspects miss. It runs **read-only**, **degrades gracefully** when the
+CLI is absent (skipped, not a failure), and its findings are **advisory** (prompt-injectable) —
+verify against the source, then fold them into the synthesis at their severity like any aspect.
+
 The specialist executors (`software-engineer`, `security-engineer`, stack engineers) are the
 gated Stage 2 roster (see [../../docs/architecture/spine.md](../../docs/architecture/spine.md)
 and [ADR 0014](../../docs/architecture/decisions/0014-software-engineer-base-role.md)); until a

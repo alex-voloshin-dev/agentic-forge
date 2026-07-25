@@ -7,6 +7,46 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Added — tested exit criterion for the develop/product review loops
+
+Formalised the bounded review loop's exit as **pure, tested logic** shared by both workflows, so
+"when does the loop stop and what does a full run produce" is code, not just prose:
+
+- **`handoff.review_loop_decision(verdict, iteration, cap=3, gate_green=…)`** → `proceed` | `revise`
+  | `escalate` — the single exit rule. `proceed` (verdict `approve` **and** the downstream gate
+  green) is the *only* path that hands off; `escalate` (still `changes` at the N = 3 budget) surfaces
+  the unresolved findings and stops without shipping; unknown verdicts fail safe (never a silent
+  `proceed`). Plus `handoff.blocks_approve(findings)` (a `blocker`/`major` forces `changes`) and the
+  canonical constants `REVIEW_LOOP_BUDGET` / `BLOCKING_SEVERITIES` / `LOOP_DECISIONS`. `diagnostics`
+  now reuses `REVIEW_LOOP_BUDGET` (one home for the constant). Unit-tested in `test_handoff.py`.
+- **`develop`** and **`product`** SKILLs now state their loop's exit criterion in terms of
+  `review_loop_decision` and define the **result of a full run explicitly**: develop → every plan
+  level implemented, reviewed to `approve`, and QA-green (merge-ready code); product → a complete,
+  validated `prd.md` that survived the skeptic loop. Neither hands off partial output on `escalate`.
+  `review-loop.md` documents the shared function (`gate_green` = QA for develop, artifact-validates
+  for product).
+
+### Changed — external reviewer on by default, wired into develop + product (ADR 0057)
+
+The external, different-model reviewer (`codex`, ADR 0042) moves from an off-by-default manual CLI to
+a first-class lens in the review cycle:
+
+- **`external_reviewer.enabled` now defaults to `true`** (`settings.DEFAULTS`, `config.example.json`,
+  `configuration.md`). Precedence (defaults < user < repo < env) is unchanged; set `false` to opt out.
+- **Auto-invoked as an extra lens** in two workflows: `develop`'s multi-aspect code-review gate
+  (`--kind code`, folded into the aggregated verdict so its findings drive the **bounded N = 3 review
+  loop** — implementation → review → loop-on-signals / advance), and `product`'s skeptic pass
+  (`--kind product`, into the worst-first revision loop). Documented in both SKILLs and the
+  `multi-aspect-review` / `adversarial-review` patterns.
+- **Prompt contract unchanged:** codex is still driven by *our* strict per-kind prompt
+  (`build_prompt` → `{verdict, findings[]}`) under `exec --sandbox read-only`, so its findings stay
+  machine-parseable and severity-comparable with the internal aspects. We do **not** hand it a bare
+  "review this" / parse free prose.
+- **Safety valve:** graceful skip when `codex` is absent (the common case) — behaviour is unchanged
+  on those machines. Where `codex` is installed, the target is sent to a third party each review
+  iteration; the read-only sandbox, bare-executable `command`, sanitised findings, and verify-before-
+  acting all still bound this. **Opt out on secret-bearing repos** (`external_reviewer.enabled: false`).
+
 ## [2026.7.2] - 2026-07-15
 
 ### Added — skill-library adoption: marketing execution depth + role checklists (ADR 0056)

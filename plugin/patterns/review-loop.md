@@ -38,9 +38,17 @@ Each round writes a `review.md` handoff artifact (see [handoff.md](handoff.md)) 
 
 ## Convergence and exit
 
-- **Approve** is the success signal. The reviewer returns `approve` only when no `blocker`
-  or `major` findings remain; `minor`/`nit` findings may be left as follow-ups.
-- **Budget exhausted** (still `changes` after N): do **not** silently ship. "Escalate" =
+The exit criterion is one **pure, tested function** so every orchestrator decides identically:
+`handoff.review_loop_decision(verdict, iteration, cap=handoff.REVIEW_LOOP_BUDGET, gate_green=…)` →
+`proceed` | `revise` | `escalate` (and `handoff.blocks_approve(findings)` is the severity half — a
+`blocker`/`major` must force `changes`). `gate_green` is the workflow's downstream gate: QA green for
+`develop`, the artifact validating for `product`.
+
+- **Approve → `proceed`** is the success signal (and the loop's *only* exit that hands off) — but
+  only when `gate_green`. The reviewer returns `approve` only when no `blocker` or `major` findings
+  remain; `minor`/`nit` findings may be left as follow-ups. `approve` with the gate not yet green
+  (e.g. QA surfaced a defect) is `revise`, not an exit.
+- **Budget exhausted → `escalate`** (still `changes` after N): do **not** silently ship. Escalate =
   persist the final `review.md` (verdict `changes`) and return it to the orchestrating skill,
   which surfaces the unresolved findings to the user and stops — it never auto-merges.
 - Address findings worst-first (blocker → major → minor → nit). A revision that only fixes

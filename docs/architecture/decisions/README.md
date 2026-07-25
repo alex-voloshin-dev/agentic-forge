@@ -47,7 +47,7 @@ edit.
 | [0039](0039-diagnostics-channel.md) | Opt-in self-diagnostics channel: errors/denials/anomalies → `diagnostics.jsonl` + digest | Accepted (implemented) |
 | [0040](0040-review-loop-non-convergence-scan.md) | Review-loop non-convergence scan: detect loops that never converge and escalate | Accepted (implemented) |
 | [0041](0041-plugin-settings.md) | Plugin settings: configurable behavior via `settings` + `config.schema.json` | Accepted (implemented) |
-| [0042](0042-external-reviewer.md) | External reviewer seam (codex) for an independent review pass | Accepted (implemented) |
+| [0042](0042-external-reviewer.md) | External reviewer seam (codex) for an independent review pass | Accepted (implemented; default + wiring updated by 0057) |
 | [0043](0043-multi-model-tiers.md) | Multi-model tiers: per-role model policy (`models.py`) | Accepted (implemented; routing wired by 0046) |
 | [0044](0044-pr-watcher.md) | PR watcher: monitor a GitHub PR + bounded auto-fix loop | Accepted (implemented) |
 | [0045](0045-pr-watcher-1b.md) | PR watcher 1b: scheduled job over repos + mechanical conflict resolution (extends 0044) | Accepted (implemented) |
@@ -62,3 +62,4 @@ edit.
 | [0054](0054-command-position-denylist.md) | Deny-list rules fire on the command word of a quote-aware, shlex-tokenized segment — quoted mentions are data; `sh -c`/`$(…)` payloads recurse (completes 0051) | Accepted (implemented) |
 | [0055](0055-calver-versioning.md) | CalVer plugin versioning `<year>.<month>.<inc>` (semver-compatible ordering, monthly counter; breaking changes live in the changelog) — first CalVer cut is 2026.7.1 | Accepted (implemented) |
 | [0056](0056-external-skill-adoption.md) | Adopt the maintainer's skill-library content as references (GEO/SEO audit, offer design, social content gates, PM frameworks, design handoff, bug reports, reader-testing lens) — references-first, no new on-listing skills | Accepted (implemented) |
+| [0057](0057-external-reviewer-on-by-default.md) | External reviewer on by default + auto-wired as an extra lens into `develop` (code) and `product` (PRD) review loops; strict prompt contract kept (updates 0042) | Accepted (implemented) |

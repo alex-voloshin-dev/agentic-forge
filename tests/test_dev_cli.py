@@ -154,7 +154,11 @@ def _run_ext(tmp_path: Path, *extra: str) -> int:
 
 
 def test_external_review_disabled_skips(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
-    assert _run_ext(tmp_path) == 0  # off by default, no --force
+    # On by default (ADR 0057); a repo config can opt out, and then the CLI skips without --force.
+    cfg = tmp_path / ".agentic-forge"
+    cfg.mkdir()
+    (cfg / "config.json").write_text('{"external_reviewer": {"enabled": false}}', encoding="utf-8")
+    assert _run_ext(tmp_path) == 0
     assert "disabled" in capsys.readouterr().out
 
 

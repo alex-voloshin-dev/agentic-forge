@@ -38,6 +38,9 @@ __all__ = [
     "STATUSES",
     "VERDICTS",
     "SEVERITIES",
+    "BLOCKING_SEVERITIES",
+    "REVIEW_LOOP_BUDGET",
+    "LOOP_DECISIONS",
     "INCIDENT_SEVERITIES",
     "SCHEMAS",
     "ARTIFACT_TYPES",
@@ -47,6 +50,8 @@ __all__ = [
     "validate_header",
     "parse_artifact",
     "load_artifact",
+    "blocks_approve",
+    "review_loop_decision",
 ]
 
 # Recommended status vocabulary for feature artifacts (documented guidance, NOT enforced — the
@@ -59,6 +64,18 @@ VERDICTS = ["approve", "changes"]
 
 # Finding severities, ordered most to least serious. `blocker`/`major` block an `approve`.
 SEVERITIES = ["blocker", "major", "minor", "nit"]
+
+# Severities that block an `approve` verdict (a review with any of these must return `changes`).
+BLOCKING_SEVERITIES = ("blocker", "major")
+
+# The canonical bounded review-loop budget N (review-loop.md / ADR 0040 / 0057). One home for the
+# constant so the loop logic here, the non-convergence scan (diagnostics), and the skills agree.
+REVIEW_LOOP_BUDGET = 3
+
+# Bounded-review-loop exit decisions (review-loop.md). `proceed` is the success exit (the artifact
+# is done); `revise` loops back to the writer; `escalate` is the budget-exhausted exit (surface the
+# unresolved findings, do NOT ship).
+LOOP_DECISIONS = ("proceed", "revise", "escalate")
 
 # Incident severities (operations), most to least serious — distinct from review-finding
 # SEVERITIES: sev1 = critical (outage / data loss), sev2 = major (degraded, no workaround),
@@ -341,3 +358,45 @@ def load_artifact(path: Path | str, *, expected_type: str | None = None) -> Arti
     except OSError as exc:
         raise HandoffError(f"cannot read {path}: {exc}") from exc
     return parse_artifact(text, expected_type=expected_type)
+
+
+def blocks_approve(findings: list[dict[str, Any]] | None) -> bool:
+    """True if any finding has a blocking severity (``blocker``/``major``) — a review carrying one
+    of these must return ``changes``, not ``approve``. Unknown/malformed severities are ignored
+    (they are not blocking); pure. This is the severity half of the review loop's exit criterion."""
+    for f in findings or []:
+        if not isinstance(f, dict):
+            continue
+        if str(f.get("severity", "")).strip().lower() in BLOCKING_SEVERITIES:
+            return True
+    return False
+
+
+def review_loop_decision(
+    verdict: str,
+    iteration: int,
+    *,
+    cap: int = REVIEW_LOOP_BUDGET,
+    gate_green: bool = True,
+) -> str:
+    """Decide the next action in a bounded review loop from the latest review — the single, tested
+    **exit criterion** shared by ``develop`` and ``product`` (review-loop.md). Returns one of
+    :data:`LOOP_DECISIONS`:
+
+    - ``proceed`` — the success exit: ``approve`` **and** ``gate_green``. The loop is done and the
+      artifact is complete (for ``develop`` ``gate_green`` = suite green + QA passed; for
+      ``product`` = the PRD validates). This is the only path that lets the workflow hand off.
+    - ``revise`` — loop back to the writer: still ``changes`` while ``iteration < cap``, **or**
+      ``approve`` but a downstream gate is not yet green (e.g. QA surfaced a defect).
+    - ``escalate`` — the budget-exhausted exit: still ``changes`` at ``iteration >= cap``. Surface
+      the unresolved findings and stop; never auto-ship (review-loop.md / ADR 0040).
+
+    Pure; ``iteration`` is 1-based. An unknown ``verdict`` is treated as ``changes`` (never a silent
+    ``proceed``) so a malformed reviewer reply fails safe."""
+    approved = str(verdict).strip().lower() == "approve"
+    if approved and gate_green:
+        return "proceed"
+    if approved:  # approved on the review, but a downstream gate (QA/schema) is not yet green
+        return "revise"
+    # verdict is `changes` (or unknown → treated as changes): loop while budget remains, else stop
+    return "revise" if iteration < cap else "escalate"
