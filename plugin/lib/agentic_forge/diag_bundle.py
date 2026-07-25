@@ -425,8 +425,8 @@ def environment_text(*, collected_at: str, repo: Path, plugin: str = "unknown") 
 
 def _project_dir(home: Path, repo: Path) -> Path:
     """The ``~/.claude/projects/<encoded>`` dir Claude Code stores this repo's transcripts in.
-    Claude Code encodes the absolute repo path by replacing every non-alphanumeric run's chars with
-    ``-`` (so ``/Users/x/code/f4ai`` -> ``-Users-x-code-f4ai``; existing dashes are preserved)."""
+    Claude Code encodes the absolute repo path by replacing every non-alphanumeric char with ``-``
+    (so ``/Users/x/code/myrepo`` -> ``-Users-x-code-myrepo``; existing dashes are preserved)."""
     encoded = re.sub(r"[^A-Za-z0-9]", "-", str(repo))
     return home / ".claude" / "projects" / encoded
 

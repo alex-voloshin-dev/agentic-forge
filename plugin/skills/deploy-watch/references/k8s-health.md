@@ -42,7 +42,7 @@ restarts and silence for a week is history.
 The same `deploy-status` handoff as the pipeline path (`required`: `type`, `environment`,
 `pipeline`):
 
-- `environment` — the cluster/namespace checked (e.g. `production (aks/f4ai)`).
+- `environment` — the cluster/namespace checked (e.g. `production (aks/web)`).
 - `pipeline` — the verdict, or a structured object (`{"health": "degraded", "cause": "report-service 2/3, CrashLoopBackOff"}`).
 - `deploys` — the deployments list with ready/desired counts.
 - `alerts` — the triaged non-Normal events (`{"critical": 0, "warning": 2}` or the raw list).

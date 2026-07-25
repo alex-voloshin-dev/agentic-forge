@@ -5,7 +5,7 @@ Status: Accepted
 ## Context
 
 A prior repo (`ai-skills`) shipped the same assets across Claude Code, Codex, and Windsurf,
-carrying multi-vendor parity overhead and project-specific (friendly4AI) content. The new
+carrying multi-vendor parity overhead and project-specific content. The new
 effort targets Claude Code exclusively and wants to use its native primitives fully.
 
 ## Decision
