@@ -1,11 +1,24 @@
 # Eval runbook — running the eval pyramid
 
-> **Throttling can masquerade as routing misses.** The Tier-1 router parses any unusable reply as
-> `none`, so a throttled/failed `claude` call counts as a should-trigger MISS — under heavy
-> subscription usage a skill can "fail" recall with an eerily stable number across re-runs
-> (observed 2026-07-14: `product` at exactly 0.840 four times, then 1.000 when calm, with
-> byte-identical inputs). If a Tier-1 dip coincides with heavy usage or timeouts, re-run when
-> calm before touching descriptions or evals.
+> **A Tier-1 dip is a measurement question before it is a routing question.** Two distinct failure
+> modes look identical from the summary line — both depress `recall` while leaving `specificity` at
+> a perfect `1.000`, because a broken call names neither the skill under test nor its neighbours:
+>
+> 1. **Throttling / failed calls.** Under heavy subscription usage a skill can "fail" recall with an
+>    eerily stable number across re-runs (observed 2026-07-14: `product` at exactly 0.840 four
+>    times, then 1.000 when calm, with byte-identical inputs). Re-run when calm.
+> 2. **Off-format replies** — the model answering in prose instead of with one skill name. Since
+>    ADR 0064 these are counted as `INVALID`, dropped from the denominator, and **reported on the
+>    summary line** (`[N/M calls returned no decision]`); a prompt where *every* call was invalid is
+>    `unmeasured` and **fails** rather than reporting a fabricated `0.0`. Before that fix they were
+>    mined for the first skill-like word and scored as a wrong routing decision.
+>
+> So: read the discarded-call count first. If it is non-zero, the number is measured through a noisy
+> channel — re-run before drawing conclusions. **Never edit a description to chase a Tier-1 number
+> until a run with zero discarded calls reproduces the dip** (observed 2026-07-25: `product` scored
+> 0.800 / 1.000 / 0.720 in one hour against a byte-identical listing, and the "calm" re-run was the
+> worst of the three; the cause was neither throttling nor routing). To see *why* a call missed,
+> capture the raw reply — `parse_selection`'s verdict alone cannot tell an empty reply from an essay.
 
 > **Growing a description can dilute its existing anchors.** Adding new capability keywords to a
 > listing description shifts the router's attention: after `marketing` gained offer/audit
