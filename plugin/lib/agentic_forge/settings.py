@@ -39,7 +39,18 @@ DEFAULTS: dict[str, Any] = {
     "models": {},  # tier/role -> model id (increment 4); empty = the runner default
     # PR watcher (increment 1, ADR 0044/0045): off by default; outward GitHub writes are opt-in.
     # `repos` (owner/name) are the repos the scheduled hourly job watches (empty = none).
-    "pr_watcher": {"enabled": False, "bot": "github-actions[bot]", "max_threads": 10, "repos": []},
+    "pr_watcher": {
+        "enabled": False,
+        "bot": "github-actions[bot]",
+        "max_threads": 10,
+        "repos": [],
+        # Autonomous mode (ADR 0063). auto_merge stays OFF by default: a published plugin must not
+        # start merging pull requests in every repo that installs it. poll_seconds is also the
+        # window an external PR reviewer gets — the gate cannot open before the first post-CI poll.
+        "auto_merge": False,
+        "merge_method": "rebase",
+        "poll_seconds": 600,
+    },
 }
 
 
@@ -59,6 +70,9 @@ class Settings:
     pr_watcher_bot: str
     pr_watcher_max_threads: int
     pr_watcher_repos: list[str]
+    pr_watcher_auto_merge: bool
+    pr_watcher_merge_method: str
+    pr_watcher_poll_seconds: int
 
 
 def _schema() -> dict[str, Any]:
@@ -127,6 +141,12 @@ def _settings_from(data: dict[str, Any]) -> Settings:
     pr = data["pr_watcher"]
     models = data["models"] if isinstance(data.get("models"), dict) else {}
     repos = pr["repos"] if isinstance(pr.get("repos"), list) else []
+    # A merge is irreversible and the method reaches argv as a flag, so an unknown value falls back
+    # to the default rather than being passed through (defence in depth with pr_watch.merge_argv,
+    # which raises on one — this layer keeps an unvalidated config from reaching it at all).
+    method = str(pr.get("merge_method") or DEFAULTS["pr_watcher"]["merge_method"])
+    if method not in ("rebase", "squash", "merge"):
+        method = str(DEFAULTS["pr_watcher"]["merge_method"])
     return Settings(
         diagnostics_enabled=_coerce_bool(data["diagnostics"]["enabled"]),
         subagent_soft=_int(data["subagent_budget"]["soft"], DEFAULTS["subagent_budget"]["soft"]),
@@ -140,6 +160,11 @@ def _settings_from(data: dict[str, Any]) -> Settings:
         pr_watcher_bot=str(pr["bot"]),
         pr_watcher_max_threads=_int(pr["max_threads"], DEFAULTS["pr_watcher"]["max_threads"]),
         pr_watcher_repos=[str(r) for r in repos],
+        pr_watcher_auto_merge=_coerce_bool(pr.get("auto_merge")),
+        pr_watcher_merge_method=method,
+        pr_watcher_poll_seconds=_int(
+            pr.get("poll_seconds"), DEFAULTS["pr_watcher"]["poll_seconds"]
+        ),
     )
 
 

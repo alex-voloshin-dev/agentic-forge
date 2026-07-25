@@ -7,6 +7,60 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Added — autonomous PR watch: merge gate, comment triage, conflict resolve (ADR 0063)
+
+The PR watcher (ADR 0044/0045) stopped at the review-thread fix loop and left every merge to a
+human. It can now carry a PR to done: monitoring starts at PR creation, re-checks on a fixed
+cadence, triages each review comment, resolves conflicts, and merges once the gate opens.
+
+- **`merge_readiness()` — the merge gate as a pure, tested function.** It opens only when: not a
+  draft, the check rollup is green, no unresolved *actionable* threads, `MERGEABLE`, and the awaited
+  external review has been seen. Every unmet condition becomes a human-readable reason, so a watch
+  report says *why* a PR is waiting. Two deliberate readings of the ask: **"no comments" means no
+  unresolved actionable threads** (a triaged-and-resolved PR is mergeable — the literal reading would
+  make any reviewed PR permanently unmergeable), and **"green builds" requires builds to exist** — a
+  rollup of `NONE` (no CI at all) **blocks**, because auto-merging into a repo with no CI is exactly
+  where an irreversible action should refuse.
+- **The external reviewer's window is the poll interval — no separate wait to configure.** A freshly
+  opened PR has `PENDING` checks, so the first pass can't merge and the earliest merge is one
+  `poll_seconds` (default 600) later. That interval is the window. The tempting wrong version is
+  "the build duration is the wait" — it isn't: this repo's own static gate finishes in ~27s, so
+  pacing on build time would open the gate before any reviewer looked. Consequence:
+  **`poll_seconds` is load-bearing for review latency**, not just a cadence knob, and that is
+  documented at the setting. Dropping the configured wait also removes the failure mode it would
+  have introduced — a reviewer login that stops posting (app uninstalled) blocking every merge.
+- **Never merge in the pass that pushed a fix.** The gate's green checks describe the *pre-fix*
+  commit; the new head is untested until CI re-runs. `run_watch` enforces this in the tested core,
+  so the merge waits for the next poll rather than shipping an untested commit.
+- **Comment triage routes through the existing engine.** A valid comment is a code change, so it goes
+  to the `software-engineer` role under the bounded review loop (N = 3), then reply → resolve. An
+  invalid one gets a reasoned refutation and the thread is left **open** — the watcher never resolves
+  a dispute in its own favour. Docs *and the PR description* are updated in the same pass when an
+  accepted comment changed behaviour.
+- **A `PostToolUse` hook notices `gh pr create`** and prompts the watch — the only mechanism that can
+  fire automatically on PR creation, since a skill cannot observe a command it did not run. It
+  matches at a **command position** on a quote-aware segment (so `gh pr view`, or a quoted mention in
+  a `--body`, never fires) and requires the PR URL `gh` prints on success. It **only suggests**: it
+  never spawns the watcher, because auto-merge sits downstream and a guardrail must not silently
+  start an agent that can merge. Never blocks.
+- New settings: `pr_watcher.{auto_merge, merge_method, poll_seconds}`. Existing configs stay valid.
+
+### Changed — ADR 0044/0045's "never merges" invariant is deliberately reversed (ADR 0063)
+
+`pr_watch` shipped with *"it never merges and never force-pushes — there is no merge/force command
+builder here, by design."* Half of that is now intentionally undone, with the rails that make the
+reversal recordable rather than a silent drift:
+
+- `merge_argv()` exists; **`pr_watcher.auto_merge` defaults to `false`** — a published plugin must
+  not start merging pull requests in every repo that installs it.
+- `merge_method` is clamped to `{rebase, squash, merge}` **in the library**, not only in the schema:
+  it reaches argv as `--<method>`, so an unvalidated string would be flag injection. An unknown value
+  raises rather than falling back — a merge is irreversible, so a misconfiguration must fail loudly.
+  No `--admin`, so repo branch protection is never bypassed.
+- **`never force-push` remains absolute** and is now the only such invariant; conflict resolution
+  still merges the base *into* the branch and pushes fast-forward.
+- The reversal is annotated in ADR 0044 and 0045 themselves, so neither reads as still-true.
+
 ## [2026.7.5] - 2026-07-25
 
 One review contract for the whole fleet. Before this release, four of the seven workflows that write

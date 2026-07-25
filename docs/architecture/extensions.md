@@ -66,8 +66,17 @@ Parse a GitHub PR's review state from the `gh` GraphQL JSON and drive a **bounde
 plan a response to each review thread, build the `gh` / `git` commands, optionally run an injected
 `fixer`. Pure parsing / planning over the JSON; the live `gh` / `git` writes and the model fix are
 thin injected seams (excluded from coverage, like the connectors). It is off by default and
-dry-run unless the caller passes a live `fixer` / `gh_exec` / `push`, and it **never merges** and
-**never force-pushes** — there is deliberately no merge/force command builder. Two surfaces:
+dry-run unless the caller passes a live `fixer` / `gh_exec` / `push`, and it **never force-pushes** —
+there is deliberately no force builder. **Merging is the one reversal (ADR 0063):** the watcher can
+now carry a PR to done — triage each review comment (valid → fix through the `software-engineer` +
+bounded review loop; invalid → reasoned refutation, thread left open), resolve conflicts, and merge
+once the pure `merge_readiness` gate opens (not draft, checks green — *no CI at all blocks*, no
+unresolved threads, `MERGEABLE`). An external reviewer's window is the poll interval, not a separate
+timeout: a fresh PR has `PENDING` checks, so the earliest merge is one `poll_seconds` after opening.
+It is gated by
+`pr_watcher.auto_merge`, **off by default**, and never merges in the same pass that pushed a fix (the
+green checks describe the pre-fix commit). A `PostToolUse` hook notices `gh pr create` and prompts
+the watch; it only suggests — a guardrail must not silently launch an agent that can merge. Two surfaces:
 the scheduled multi-repo driver `dev/pr_watch.py` (maintainer/CI), and the **`pr-watch` skill**
 (off-listing, manual `/pr-watch`) — interactive single-PR babysitting over the same lib, added
 after field bundles showed users hand-rolling `gh pr view` polling loops.

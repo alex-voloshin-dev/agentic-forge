@@ -1,10 +1,16 @@
-"""PR watcher core (ADR 0044): parse a GitHub PR's review state + drive the bounded fix loop.
+"""PR watcher core (ADR 0044/0045, autonomous mode 0063): parse a GitHub PR's review state, drive
+the bounded fix loop, and gate the merge.
 
 **Pure** parsing / planning / command-building over the `gh` GraphQL JSON; the live `gh` / `git`
 writes and the model fix are **thin seams** (injected; the real calls are excluded from coverage,
 like the connectors / transports). Off by default and dry-run unless the caller passes a live
-``fixer`` / ``gh_exec`` / ``push``; it **never merges** and **never force-pushes** (the safety
-invariants — there is no merge/force command builder here, by design).
+``fixer`` / ``gh_exec`` / ``push``.
+
+Safety invariants: it **never force-pushes** (there is no force builder here, by design) and it
+merges **only** when the caller passes a ``merge`` seam — which the caller gates on
+``pr_watcher.auto_merge`` (default off) — **and** :func:`merge_readiness` says every condition
+holds. ADR 0044/0045's "never merges" invariant was deliberately reversed by ADR 0063; "never
+force-pushes" was not.
 """
 
 from __future__ import annotations
@@ -17,13 +23,18 @@ __all__ = [
     "ReviewThread",
     "PrState",
     "WatchResult",
+    "MergeDecision",
     "PR_QUERY",
     "CONFLICT_NOTICE",
+    "MERGE_METHODS",
+    "CHECKS_GREEN",
     "parse_pr",
     "actionable_threads",
+    "merge_readiness",
     "reply_argv",
     "resolve_argv",
     "push_argv",
+    "merge_argv",
     "pr_comment_argv",
     "conflict_notice_present",
     "plan_watch",
@@ -36,14 +47,26 @@ __all__ = [
 # "did I already post this?" idempotency check (conflict_notice_present) share one source of truth.
 CONFLICT_NOTICE = "Merge conflict could not be auto-resolved by the PR watcher; please rebase."
 
+# Merge methods `gh pr merge` accepts. The chosen one reaches argv as `--<method>`, so it is clamped
+# HERE (not only in the config schema) — an unvalidated string would be flag injection (ADR 0063).
+MERGE_METHODS = ("rebase", "squash", "merge")
+
+# The check-rollup state that counts as "green builds". Anything else — PENDING, FAILURE, ERROR, or
+# NONE (a repo with no CI at all) — blocks the merge: no builds is not the same as green builds.
+CHECKS_GREEN = "SUCCESS"
+
 # The GraphQL query the fetch seam runs (`gh api graphql -F owner=.. -F name=.. -F number=..`).
-# Per-thread isResolved is GraphQL-only — `gh pr view --json` can't supply it. Adjust here if the
-# `gh` / API shape changes.
+# Per-thread isResolved is GraphQL-only — `gh pr view --json` can't supply it. `isDraft`,
+# `createdAt`, `reviews` and the last commit's `statusCheckRollup` feed the merge gate (ADR 0063).
+# Adjust here if the `gh` / API shape changes.
 PR_QUERY = (
     "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name)"
-    "{pullRequest(number:$number){number mergeable headRefName baseRefName isCrossRepository "
+    "{pullRequest(number:$number){number mergeable isDraft createdAt headRefName baseRefName "
+    "isCrossRepository "
     "reviewThreads(first:100){nodes{id isResolved "
-    "comments(first:1){nodes{body path line author{login}}}}}}}}"
+    "comments(first:1){nodes{body path line author{login}}}}} "
+    "reviews(first:50){nodes{state author{login}}} "
+    "commits(last:1){nodes{commit{statusCheckRollup{state}}}}}}}"
 )
 
 
@@ -61,7 +84,8 @@ class ReviewThread:
 
 @dataclass(frozen=True)
 class PrState:
-    """A PR's review state: number, head/base branches, mergeable flag, and review threads."""
+    """A PR's review state: number, head/base branches, mergeable flag, and review threads, plus the
+    fields the merge gate needs (draft flag, creation time, check rollup, review authors — 0063)."""
 
     number: int
     branch: str  # headRefName (where fixes are pushed)
@@ -69,10 +93,18 @@ class PrState:
     cross_repo: bool  # isCrossRepository — a fork PR; auto-apply is same-repo only (ADR 0045)
     mergeable: str  # MERGEABLE | CONFLICTING | UNKNOWN
     threads: list[ReviewThread]
+    draft: bool = False
+    created_at: str = ""  # ISO-8601 from the API; the caller turns it into an age
+    checks: str = "NONE"  # statusCheckRollup state: SUCCESS | PENDING | FAILURE | ERROR | NONE
+    review_authors: list[str] = field(default_factory=list)  # logins that submitted a review
 
     @property
     def conflicting(self) -> bool:
         return self.mergeable.upper() == "CONFLICTING"
+
+    @property
+    def checks_green(self) -> bool:
+        return self.checks.upper() == CHECKS_GREEN
 
 
 @dataclass
@@ -86,6 +118,19 @@ class WatchResult:
     conflicting: bool = False
     conflict_resolved: bool = False  # a CONFLICTING PR was rebased clean (1b, ADR 0045)
     conflict_unresolved: bool = False  # couldn't auto-resolve -> surfaced a comment
+    merged: bool = False  # the gate opened and the merge seam ran (ADR 0063)
+    merge_blocked_by: list[str] = field(default_factory=list)  # why the gate stayed shut
+
+
+@dataclass(frozen=True)
+class MergeDecision:
+    """Why a PR may or may not be merged now — the pure merge gate's verdict (ADR 0063).
+
+    ``reasons`` is empty exactly when ``ready``; each entry names one unmet condition, so a watch
+    report can say *why* a PR is waiting instead of just "not ready"."""
+
+    ready: bool
+    reasons: list[str] = field(default_factory=list)
 
 
 def parse_pr(data: dict[str, Any]) -> PrState:
@@ -124,7 +169,36 @@ def parse_pr(data: dict[str, Any]) -> PrState:
         cross_repo=bool(pr.get("isCrossRepository", False)),
         mergeable=str(pr.get("mergeable", "UNKNOWN") or "UNKNOWN"),
         threads=threads,
+        draft=bool(pr.get("isDraft", False)),
+        created_at=str(pr.get("createdAt", "") or ""),
+        checks=_checks_state(pr),
+        review_authors=_review_authors(pr),
     )
+
+
+def _checks_state(pr: dict[str, Any]) -> str:
+    """The last commit's check-rollup state, or ``NONE`` when the PR reports no checks at all.
+
+    ``NONE`` is a real, distinct answer — not an error: a repo with no CI must **block** the merge
+    gate rather than sail through it as if green (ADR 0063)."""
+    nodes = ((pr.get("commits") or {}).get("nodes")) or []
+    last = nodes[-1] if nodes and isinstance(nodes[-1], dict) else {}
+    rollup = ((last.get("commit") or {}).get("statusCheckRollup")) or {}
+    state = str(rollup.get("state") or "").strip().upper()
+    return state or "NONE"
+
+
+def _review_authors(pr: dict[str, Any]) -> list[str]:
+    """Logins that submitted a formal review (order kept, duplicates removed)."""
+    nodes = ((pr.get("reviews") or {}).get("nodes")) or []
+    out: list[str] = []
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        login = str((node.get("author") or {}).get("login") or "")
+        if login and login not in out:
+            out.append(login)
+    return out
 
 
 def actionable_threads(state: PrState, *, bot: str) -> list[ReviewThread]:
@@ -133,8 +207,39 @@ def actionable_threads(state: PrState, *, bot: str) -> list[ReviewThread]:
     return [t for t in state.threads if not t.resolved and t.id and t.author != bot]
 
 
+def merge_readiness(state: PrState, *, bot: str) -> MergeDecision:
+    """The merge gate (ADR 0063): may this PR be merged right now, and if not, why not?
+
+    Pure — no clock, no I/O, so it is fully testable. Every unmet condition adds a human-readable
+    reason; ``ready`` is exactly ``not reasons``.
+
+    Conditions: not a draft; the check rollup is green (``NONE`` — no CI at all — blocks, because
+    "no builds" is not "green builds"); no unresolved actionable threads (a triaged-and-resolved PR
+    *is* comment-free); and ``MERGEABLE``.
+
+    **There is deliberately no "wait for reviewer X" clause.** The window an external reviewer gets
+    is the watch's own poll interval (``pr_watcher.poll_seconds``, default 600): the first pass sees
+    checks still running and holds the gate, so the earliest a merge can happen is one full poll
+    after the PR opened. That is the grace period — not the build duration, which can be far
+    shorter (a static gate finishing in ~30s would otherwise open the gate before any reviewer
+    looked). Shortening ``poll_seconds`` shortens the reviewer's window with it."""
+    reasons: list[str] = []
+    if state.draft:
+        reasons.append("draft PR")
+    if not state.checks_green:
+        reasons.append(f"checks: {state.checks or 'NONE'}")
+    open_threads = actionable_threads(state, bot=bot)
+    if open_threads:
+        reasons.append(f"{len(open_threads)} unresolved review thread(s)")
+    if state.mergeable.upper() != "MERGEABLE":
+        reasons.append(f"mergeable: {state.mergeable or 'UNKNOWN'}")
+    return MergeDecision(ready=not reasons, reasons=reasons)
+
+
 # --- outward-action command builders (argv data; execution is a seam) --------
-# There is deliberately NO merge or force-push builder — the watcher never merges / force-pushes.
+# There is deliberately NO force-push builder — the watcher never force-pushes (0044/0045; still an
+# absolute invariant). The merge builder below is the ONE reversal, gated by `auto_merge` + the pure
+# merge gate (ADR 0063).
 
 _RESOLVE = "mutation($threadId:ID!){resolveReviewThread(input:{threadId:$threadId}){thread{id}}}"
 _REPLY = (
@@ -157,6 +262,19 @@ def resolve_argv(thread_id: str) -> list[str]:
 def push_argv(repo: str, branch: str) -> list[str]:
     """argv to push the local fixes to the PR branch — ``HEAD:<branch>``, never ``--force``."""
     return ["git", "-C", repo, "push", "origin", f"HEAD:{branch}"]
+
+
+def merge_argv(repo: str, number: int, method: str = "rebase") -> list[str]:
+    """argv to merge the PR and delete its branch (ADR 0063).
+
+    ``method`` is clamped to :data:`MERGE_METHODS` **here**, not just in the config schema: it lands
+    in argv as ``--<method>``, so an arbitrary string would inject a flag into the `gh` call. An
+    unknown method raises rather than silently falling back — a merge is irreversible, so a
+    misconfigured method must fail loudly instead of merging by some other strategy. Never
+    ``--force``, and never ``--admin`` (which would bypass the repo's own branch protection)."""
+    if method not in MERGE_METHODS:
+        raise ValueError(f"unknown merge method {method!r}; expected one of {MERGE_METHODS}")
+    return ["gh", "pr", "merge", str(number), "-R", repo, f"--{method}", "--delete-branch"]
 
 
 def pr_comment_argv(repo: str, number: int, body: str) -> list[str]:
@@ -183,6 +301,7 @@ def plan_watch(state: PrState, *, bot: str, max_threads: int) -> WatchResult:
 Fixer = Callable[[ReviewThread], "tuple[str, str]"]
 GhExec = Callable[[list[str]], None]
 Push = Callable[[], None]
+Merge = Callable[[], None]
 
 
 def run_watch(
@@ -195,15 +314,23 @@ def run_watch(
     push: Push,
     record: Callable[[str], object] | None = None,
     handle_conflict: Callable[[], bool] | None = None,
+    merge: Merge | None = None,
+    merge_decision: MergeDecision | None = None,
 ) -> WatchResult:
     """Run the bounded auto-fix loop over a PR's actionable threads (ADR 0044): per thread the
     ``fixer`` decides fix-vs-reject and the reply; a fix posts the reply, resolves the thread; a
     rejection posts the reasoned reply and leaves the thread open. On a ``CONFLICTING`` PR the
     ``handle_conflict`` seam (1b, ADR 0045) attempts a mechanical resolve — it returns True if the
     rebase landed clean (so the push delivers it) and is expected to post a comment + return False
-    when it can't. The push fires once if anything was fixed **or** a conflict was resolved. Never
-    merges, never force-pushes. ``record`` (if given) logs each action for diagnostics. The caller
-    gates this on ``settings.pr_watcher.enabled`` + a non-dry run."""
+    when it can't. The push fires once if anything was fixed **or** a conflict was resolved.
+
+    **Merging (ADR 0063)** happens only when the caller passes both a ``merge`` seam (which it
+    gates on ``pr_watcher.auto_merge``) and a ready ``merge_decision`` from
+    :func:`merge_readiness` — *and* this pass neither fixed nor pushed anything. That last rule is
+    the important one: a fix push invalidates the green checks the decision was computed from,
+    because the new commit has not been tested yet, so the merge waits for the next poll. Never
+    force-pushes. ``record`` (if given) logs each action for diagnostics. The caller gates this on
+    ``settings.pr_watcher.enabled`` + a non-dry run."""
     result = WatchResult(conflicting=state.conflicting)
     for thread in actionable_threads(state, bot=bot)[:max_threads]:
         result.actionable.append(thread.id)
@@ -232,6 +359,24 @@ def run_watch(
         result.pushed = True
         if record:  # the push is an outward write — audit it explicitly (invariant: audit all)
             record(f"pushed HEAD:{state.branch} on #{state.number}")
+
+    if merge is not None and merge_decision is not None:
+        if result.pushed or result.fixed:
+            # This pass changed the head. The decision's green checks describe the OLD commit, so
+            # merging now would ship an untested one — wait for the next poll (ADR 0063 §4).
+            result.merge_blocked_by = ["fixes pushed this pass; awaiting re-check"]
+        elif merge_decision.ready:
+            merge()
+            result.merged = True
+        else:
+            result.merge_blocked_by = list(merge_decision.reasons)
+        if record:
+            note = (
+                "merged"
+                if result.merged
+                else "merge held: " + "; ".join(result.merge_blocked_by)
+            )
+            record(f"#{state.number}: {note}")
     return result
 
 

@@ -51,6 +51,13 @@ session — except where blocking is the whole point (security, test-gate).
   `.git` file back through its `gitdir:` pointer), so a worktree-phase trail survives the worktree's
   removal; diagnostics events are normalised the same way. The session-start hook rotates the log
   once per session above a size bound (`observability.rotate_audit`, keep-the-tail).
+- **PR created** (`PostToolUse` / Bash, `pr_created.py`) — notices a real `gh pr create` (matched at
+  a **command position** on a quote-aware segment, so `gh pr view` and a quoted mention in a
+  `--body` don't fire) *and* the PR URL `gh` printed on success, then prints a reminder to start the
+  autonomous watch (ADR 0063). This is the only mechanism that can fire automatically on PR
+  creation — a skill cannot observe a command it did not run. It **only suggests**: it never spawns
+  the watcher, because auto-merge sits downstream of that signal and a guardrail layer must not
+  silently start an agent that can merge. Pure observability; **never blocks**.
 
 ## Design notes
 

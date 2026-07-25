@@ -1,6 +1,9 @@
 # 0044 — PR watcher: monitor a GitHub PR, bounded auto-fix loop
 
 Status: Accepted — **implemented** (planned-increment 1; see the [Unreleased] CHANGELOG entry).
+**The "never merges" invariant below was deliberately reversed by
+[ADR 0063](0063-autonomous-pr-watch.md)** (opt-in `pr_watcher.auto_merge`, gated by a pure
+`merge_readiness` check); "never force-pushes" stands and is now the only absolute.
 
 ## Context
 
@@ -49,7 +52,8 @@ not auto-merge).
    `rejected` with the reasoning and **leaves the thread open** — never silently resolving a
    disputed / unaddressed comment.
 
-7. **Safety invariants:** never merge; never force-push; opt-in (`enabled` + non-dry); bounded;
+7. **Safety invariants:** never merge (*superseded by ADR 0063 — merging is now possible behind the
+   opt-in `auto_merge` + the merge gate*); never force-push; opt-in (`enabled` + non-dry); bounded;
    every outward write recorded in diagnostics **unconditionally** (`emit(force=True)` — auditing
    GitHub writes is not subject to the diagnostics toggle); dry-run plans without writing. The fixer
    runs **without the Bash tool** (Read/Write/Edit/Grep/Glob only) to bound prompt-injection from
