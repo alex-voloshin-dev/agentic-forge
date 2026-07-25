@@ -48,9 +48,9 @@ def test_security_bad_stdin_fails_open(monkeypatch) -> None:
 # --- commit_gate -------------------------------------------------------------
 
 
-def _fake_run(returncode: int):
+def _fake_run(returncode: int, stdout: str = "gate output", stderr: str = ""):
     def run(cmd, **kwargs):
-        return types.SimpleNamespace(returncode=returncode, stdout="gate output", stderr="")
+        return types.SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)
 
     return run
 
@@ -96,6 +96,48 @@ def test_commit_gate_fails_open_on_infra_error(monkeypatch, tmp_path: Path) -> N
     assert event["kind"] == "anomaly" and event["component"] == "commit-gate"
     assert "fail-open" in event["message"] and "FileNotFoundError" in event["message"]
     assert event["session_id"] == "s-infra" and "gate" in event["context"]
+
+
+def test_commit_gate_fails_open_when_gate_unrunnable(monkeypatch, tmp_path: Path) -> None:
+    # ADR 0058: `npm run lint` with no lint script / uninstalled linter is environment breakage,
+    # not a code-quality failure — it must fail OPEN (not block a commit) and record an anomaly.
+    (tmp_path / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    monkeypatch.delenv("AGENTIC_FORGE_SKIP_TEST_GATE", raising=False)
+    monkeypatch.setenv("AGENTIC_FORGE_DIAGNOSTICS", "1")
+    monkeypatch.setattr(
+        commit_gate.subprocess,
+        "run",
+        _fake_run(1, stdout="", stderr='npm error Missing script: "lint"'),
+    )
+    payload = {
+        "tool_name": "Bash",
+        "tool_input": {"command": "git commit -m x"},
+        "cwd": str(tmp_path),
+        "session_id": "s-unrunnable",
+    }
+    assert commit_gate.gate_decision(payload) == guardrails.ALLOW
+    event = json.loads(
+        (tmp_path / ".agentic-forge" / "diagnostics.jsonl")
+        .read_text(encoding="utf-8")
+        .strip()
+        .splitlines()[-1]
+    )
+    assert event["kind"] == "anomaly" and event["component"] == "commit-gate"
+    assert "unrunnable" in event["message"] and event["session_id"] == "s-unrunnable"
+
+
+def test_commit_gate_still_blocks_on_real_lint_failure(monkeypatch, tmp_path: Path) -> None:
+    # A genuine non-zero (real lint errors, no unrunnable signature) must still block.
+    (tmp_path / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    monkeypatch.delenv("AGENTIC_FORGE_SKIP_TEST_GATE", raising=False)
+    monkeypatch.setattr(
+        commit_gate.subprocess,
+        "run",
+        _fake_run(1, stdout="src/a.ts: 3 problems (3 errors, 0 warnings)", stderr=""),
+    )
+    payload = {"tool_name": "Bash", "tool_input": {"command": "git commit"}, "cwd": str(tmp_path)}
+    d = commit_gate.gate_decision(payload)
+    assert d.block and "gate failed" in d.message
 
 
 def test_commit_gate_skips_non_commit_and_env(monkeypatch, tmp_path: Path) -> None:

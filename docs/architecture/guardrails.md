@@ -34,13 +34,18 @@ session — except where blocking is the whole point (security, test-gate).
 - **test-gate** (`PreToolUse` / Bash, `commit_gate.py`) — on `git commit`/`git push`, runs the
   **fast** gate (`dev/validate.py` if present, else the detected stack's lint via `stacks.py`) and
   blocks on failure, so broken code isn't committed. Skippable via `AGENTIC_FORGE_SKIP_TEST_GATE`;
-  fails open on an infrastructure error (missing tool, timeout).
+  fails open on an infrastructure error (missing tool, timeout) **and when the gate can't run** —
+  a non-zero exit whose output shows a missing lint script / uninstalled linter / missing file
+  (`guardrails.gate_unrunnable`) is environment breakage, not a code-quality signal, so it is
+  downgraded to an `anomaly` and allowed rather than blocking a commit (ADR 0058).
 - **budgets** (`PreToolUse` / Task, `budget.py`) — a per-session subagent counter; **warns** over
   the soft cap and **blocks** over the hard cap (`AGENTIC_FORGE_SUBAGENT_SOFT` / `_HARD`).
 - **logging** (`PostToolUse`, `audit_log.py`) — appends a secret-redacted JSONL audit line to
-  `<project>/.agentic-forge/audit.jsonl`. Pure observability; **never blocks**. The log dir is the
-  **main** working-tree root (`diagnostics.main_repo_root` resolves a linked worktree's `.git`
-  file back through its `gitdir:` pointer), so a worktree-phase trail survives the worktree's
+  `<project>/.agentic-forge/audit.jsonl`. Pure observability; **never blocks**. Each record also
+  carries `error: true` when the tool call clearly failed (`guardrails.tool_errored`, additive —
+  absent on success), so the digest can rank tools by *failure*, not just usage (ADR 0058). The log
+  dir is the **main** working-tree root (`diagnostics.main_repo_root` resolves a linked worktree's
+  `.git` file back through its `gitdir:` pointer), so a worktree-phase trail survives the worktree's
   removal; diagnostics events are normalised the same way. The session-start hook rotates the log
   once per session above a size bound (`observability.rotate_audit`, keep-the-tail).
 
