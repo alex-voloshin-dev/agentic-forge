@@ -388,3 +388,61 @@ def test_module_exposes_vocabularies() -> None:
     assert "blocker" in handoff.SEVERITIES
     assert "draft" in handoff.STATUSES
     assert handoff.INCIDENT_SEVERITIES == ["sev1", "sev2", "sev3", "sev4"]
+    assert handoff.REVIEW_LOOP_BUDGET == 3
+    assert handoff.BLOCKING_SEVERITIES == ("blocker", "major")
+    assert handoff.LOOP_DECISIONS == ("proceed", "revise", "escalate")
+
+
+# --- blocks_approve ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("findings", "expected"),
+    [
+        (None, False),
+        ([], False),
+        ([{"severity": "nit"}, {"severity": "minor"}], False),
+        ([{"severity": "major"}], True),
+        ([{"severity": "blocker"}], True),
+        ([{"severity": "nit"}, {"severity": "Blocker"}], True),  # case-insensitive
+        ([{"severity": " major "}], True),  # whitespace-tolerant
+        ([{"severity": "unknown"}], False),  # unknown severity is not blocking
+        (["not-a-dict", {"severity": "blocker"}], True),  # tolerates malformed entries
+    ],
+)
+def test_blocks_approve(findings: object, expected: bool) -> None:
+    assert handoff.blocks_approve(findings) is expected  # type: ignore[arg-type]
+
+
+# --- review_loop_decision (the shared exit criterion) --------------------------------
+
+
+def test_review_loop_decision_proceed_on_approve_and_green() -> None:
+    # The success exit: approve + downstream gate green -> the workflow may hand off.
+    assert handoff.review_loop_decision("approve", 1, gate_green=True) == "proceed"
+
+
+def test_review_loop_decision_approve_but_gate_not_green_revises() -> None:
+    # e.g. develop: review approved, but QA/tests not yet green -> keep working, don't ship.
+    assert handoff.review_loop_decision("approve", 2, gate_green=False) == "revise"
+
+
+def test_review_loop_decision_changes_below_cap_revises() -> None:
+    assert handoff.review_loop_decision("changes", 1) == "revise"
+    assert handoff.review_loop_decision("changes", 2, cap=3) == "revise"
+
+
+def test_review_loop_decision_changes_at_cap_escalates() -> None:
+    # Budget exhausted, still changes -> escalate (surface, never auto-ship).
+    assert handoff.review_loop_decision("changes", 3, cap=3) == "escalate"
+    assert handoff.review_loop_decision("changes", 4, cap=3) == "escalate"
+
+
+def test_review_loop_decision_unknown_verdict_fails_safe() -> None:
+    # A malformed reviewer reply must never be a silent proceed.
+    assert handoff.review_loop_decision("", 1) == "revise"
+    assert handoff.review_loop_decision("garbage", 3, cap=3) == "escalate"
+
+
+def test_review_loop_decision_verdict_is_case_insensitive() -> None:
+    assert handoff.review_loop_decision("APPROVE", 1) == "proceed"

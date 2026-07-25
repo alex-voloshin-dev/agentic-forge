@@ -48,9 +48,11 @@ opinion. For a quick single-file diff lint, a single `reviewer` pass is enough �
   `review.md` ([handoff.md](handoff.md)) so the outcome is auditable.
 - Scale the fan-out to the ask: a few lenses for a focused review; the full catalog plus
   multi-vote verification for "audit everything".
-- **External reviewer (optional, independent lens).** When `external_reviewer.enabled` (settings,
-  ADR 0041), an external CLI — `codex` (ADR 0042) — can serve as an extra lens whose *different
-  model* catches what a same-family pass misses. Run it via `dev/external_review.py`
-  (`--kind code|plan|product|technical`, `--out review.md`); it degrades gracefully when absent.
-  It runs **read-only** and is **off by default**; it sends the target to a third-party agent, so
-  don't run it on secret-bearing targets, and treat its findings as advisory (prompt-injectable).
+- **External reviewer (independent lens, on by default).** When `external_reviewer.enabled`
+  (settings, ADR 0041 — **on by default** since ADR 0057), an external CLI — `codex` (ADR 0042) —
+  serves as an extra lens whose *different model* catches what a same-family pass misses; it is
+  auto-invoked in `develop` (`--kind code`) and `product` (`--kind product`). Run it via
+  `dev/external_review.py` (`--kind code|plan|product|technical`, `--out review.md`); it degrades
+  gracefully when absent. It runs **read-only**; it sends the target to a third-party agent, so
+  **set `external_reviewer.enabled: false` on secret-bearing repos**, and treat its findings as
+  advisory (prompt-injectable).

@@ -35,7 +35,7 @@ DEFAULTS: dict[str, Any] = {
     "subagent_budget": {"soft": 25, "hard": 50},  # Task-spawn caps (budget hook)
     "test_gate": {"skip": False},  # skip the pre-commit test gate (commit_gate hook)
     "review": {"passes": 3},  # the bounded review-loop budget N (review-loop.md)
-    "external_reviewer": {"enabled": False, "command": "codex"},  # increment 2
+    "external_reviewer": {"enabled": True, "command": "codex"},  # on by default (ADR 0057)
     "models": {},  # tier/role -> model id (increment 4); empty = the runner default
     # PR watcher (increment 1, ADR 0044/0045): off by default; outward GitHub writes are opt-in.
     # `repos` (owner/name) are the repos the scheduled hourly job watches (empty = none).

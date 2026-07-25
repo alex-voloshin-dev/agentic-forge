@@ -6,8 +6,9 @@ seams. They are not a new layer: each plugs into the existing engine, guardrails
 This document is their narrative home; the per-decision detail lives in the linked ADRs.
 
 All of these follow the same house style as the connectors: a **pure, fully-tested core plus a thin
-injected seam** for the live call, the seam excluded from coverage. None of them changes default
-behaviour — every one is opt-in.
+injected seam** for the live call, the seam excluded from coverage. All are opt-in **except the
+external reviewer**, which is on by default (ADR 0057) but degrades to a no-op when its CLI is absent
+— so it changes default behaviour only where `codex` is installed.
 
 ## Configuration (`settings.py`, ADR 0041 / 0049)
 
@@ -36,14 +37,21 @@ validated tier onto each agent's `model:` frontmatter, and Tier-0 (`validate_age
 agent's committed `model:` drifts from the validated policy — so live `Task` delegation can never run
 on an unvalidated tier. `dev/sync_models.py` regenerates the frontmatter from the policy.
 
-## External reviewer seam (`external_review.py`, ADR 0042)
+## External reviewer seam (`external_review.py`, ADR 0042 / 0057)
 
 A different model is an independent review lens — it catches what a same-family `reviewer` pass
 misses (see [adversarial-review.md](../../plugin/patterns/adversarial-review.md)). This seam runs a
 third-party reviewer CLI (e.g. `codex`) as that extra lens: a pure `build_prompt` / `parse_review`
 core plus a thin subprocess seam that **never raises** and degrades gracefully when the CLI is
-absent. Gated by the `external_reviewer.{enabled,command}` settings; off unless configured.
-Driver: `dev/external_review.py`.
+absent. Gated by the `external_reviewer.{enabled,command}` settings. **On by default (ADR 0057)** and
+**auto-wired** as an extra lens into two workflows — `develop`'s multi-aspect code-review gate
+(`--kind code`, findings inside the bounded N = 3 loop) and `product`'s skeptic pass (`--kind
+product`). codex is driven by *our* strict per-kind prompt (`build_prompt`) and runs
+`exec --sandbox read-only`, so its findings aggregate with the internal aspects into one verdict.
+This is the one extension whose default is **on**, not opt-in: the safety valve is graceful skip
+when `codex` is absent (the common case) — so it only reaches a third party where the CLI is
+installed. It sends the target to that third party, so **set `enabled: false` on secret-bearing
+repos**. Driver: `dev/external_review.py`.
 
 ## PR watcher (`pr_watch.py`, ADR 0044 / 0045)
 
