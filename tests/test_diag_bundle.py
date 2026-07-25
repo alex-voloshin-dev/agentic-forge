@@ -120,9 +120,12 @@ def test_log_summary_has_both_digests() -> None:
 
 def test_readme_surfaces_top_signal_and_repo() -> None:
     out = diag_bundle.readme(
-        repo_name="f4ai", collected_at="2026-07-06T00:00:00Z", audit_lines=_AUDIT, diag_lines=_DIAG
+        repo_name="myrepo",
+        collected_at="2026-07-06T00:00:00Z",
+        audit_lines=_AUDIT,
+        diag_lines=_DIAG,
     )
-    assert "f4ai" in out
+    assert "myrepo" in out
     assert "security-hook" in out  # the top diagnostic signal
     assert "pipe a network download" in out
 
@@ -220,7 +223,7 @@ def test_plan_bundle_surfaces_coverage_shortfall() -> None:
 
 def _plan(**over: object) -> dict[str, str]:
     base: dict[str, object] = dict(
-        repo_name="f4ai",
+        repo_name="myrepo",
         collected_at="2026-07-06T00:00:00Z",
         audit_lines=_AUDIT,
         diag_lines=_DIAG,
@@ -287,7 +290,7 @@ def _seed_repo(repo: Path) -> None:
 
 
 def test_build_bundle_writes_structured_zip(tmp_path: Path) -> None:
-    repo = tmp_path / "f4ai"
+    repo = tmp_path / "myrepo"
     repo.mkdir()
     _seed_repo(repo)
     home = tmp_path / "home"

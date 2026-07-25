@@ -1,4 +1,4 @@
-# 0058 — Field-driven diagnostics fidelity (from the f4ai bundle analysis)
+# 0058 — Field-driven diagnostics fidelity (from a production bundle analysis)
 
 Status: Accepted — **implemented**. Extends [0039](0039-diagnostics-channel.md) (diagnostics
 channel), [0019](0019-l4-guardrails.md) (guardrail hooks), [0052](0052-diagnostics-bundle-and-audit-fidelity.md)
@@ -6,7 +6,7 @@ channel), [0019](0019-l4-guardrails.md) (guardrail hooks), [0052](0052-diagnosti
 
 ## Context
 
-A real 14-day diagnostics bundle from the production `f4ai` repo (459 raw sessions / 108,910 events
+A real 14-day diagnostics bundle from a production repo (459 raw sessions / 108,910 events
 vs 12,777 audit records vs 10 diagnostics events) was compared against the raw Claude Code
 transcripts as ground truth. Four gaps surfaced:
 
@@ -16,7 +16,7 @@ transcripts as ground truth. Four gaps surfaced:
    the linter itself* (a missing script / missing tool / missing file) as a genuine failure and
    blocks the commit. That is environment breakage, not a quality signal — it should fail **open**,
    like the existing `except` path does for a subprocess that never starts.
-2. **A silent audit-coverage hole.** 84 main (non-sidechain) f4ai sessions with 3,839 tool calls
+2. **A silent audit-coverage hole.** 84 main (non-sidechain) sessions with 3,839 tool calls
    (2026-07-04 .. 07-15) had **zero** audit records; coverage jumps to 100% from 07-16, exactly when
    the repo updated to 2026.7.2 (the `f1e23ac` "observability hygiene" fix that moved the audit log
    to `main_repo_root`). The hole was **invisible from inside the diagnostics** — only the raw-vs-

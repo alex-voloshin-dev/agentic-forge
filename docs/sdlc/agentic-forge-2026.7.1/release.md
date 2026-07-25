@@ -19,8 +19,8 @@ breaking: []
 
 The first CalVer release (ADR 0055): `<year>.<month>.<inc>`, month counter restarting each
 month; the version now dates the install. Everything in this cut comes out of the second
-production diagnostics bundle (repo `f4ai`, 7 days / 136 sessions / 5,541 tool calls, plugin
-0.0.1→0.1.0 mid-window) and this repo's own diagnostics log.
+production diagnostics bundle (an anonymised downstream repo, 7 days / 136 sessions / 5,541 tool
+calls, plugin 0.0.1→0.1.0 mid-window) and this repo's own diagnostics log.
 
 ## Scope
 

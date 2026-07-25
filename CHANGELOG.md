@@ -7,9 +7,9 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
-### Changed / Added — field-driven diagnostics fidelity (from the f4ai bundle, ADR 0058)
+### Changed / Added — field-driven diagnostics fidelity (from a production bundle, ADR 0058)
 
-A 14-day production bundle from the `f4ai` repo, compared against the raw transcripts, surfaced four
+A 14-day production bundle from a downstream repo, compared against the raw transcripts, surfaced four
 gaps — all now closed:
 
 - **commit-gate no longer blocks on a gate that can't run.** A non-zero exit whose output shows a
@@ -166,8 +166,8 @@ merge rewrites SHAs), auto-merge disabled — hence the rule that the release ta
 ## [2026.7.1] - 2026-07-14
 
 The first CalVer release (`<year>.<month>.<inc>` — ADR 0055). All items below come out of the
-second production diagnostics bundle (repo `f4ai`, 7 days / 136 sessions / 5,541 tool calls,
-plugin 0.0.1→0.1.0 mid-window) plus this repo's own diagnostics log — the first field data over
+second production diagnostics bundle (an anonymised downstream repo, 7 days / 136 sessions / 5,541
+tool calls, plugin 0.0.1→0.1.0 mid-window) plus this repo's own diagnostics log — the first field data over
 a 0.1.0-era plugin.
 
 ### Fixed — security deny-list blocked commands that merely QUOTE a dangerous string (ADR 0054)

@@ -413,8 +413,8 @@ the largest, which composes connectors + the fix loop + outward actions).
 
 ## Field-driven increments (production diagnostics, July 2026)
 
-A 7-day production bundle (repo `f4ai`: 5,541 tool calls, 136 sessions, plugin 0.0.1→0.1.0
-mid-window) plus this repo's own diagnostics gave the first *usage-grounded* backlog. The bugs it
+A 7-day production bundle (an anonymised downstream repo: 5,541 tool calls, 136 sessions, plugin
+0.0.1→0.1.0 mid-window) plus this repo's own diagnostics gave the first *usage-grounded* backlog. The bugs it
 surfaced were fixed immediately (ADR 0054, the diag-bundle metadata/honesty fixes, the py3.9
 future-import gate, the commit-gate fail-open anomaly event — see the CHANGELOG). What follows are
 the **product** signals — captured here for analysis before any code, per the planning principle;
