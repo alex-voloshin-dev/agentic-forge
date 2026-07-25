@@ -181,6 +181,40 @@ def test_log_summary_discloses_legacy_share() -> None:
     assert "Legacy records" not in clean
 
 
+# --- session coverage (ADR 0058) ---------------------------------------------
+
+
+def test_session_coverage_counts_main_recorded_missed() -> None:
+    # transcripts: (session_id, is_sidechain, has_tool_use)
+    transcripts = [
+        ("s1", False, True),  # main + tools, in audit
+        ("s2", False, True),  # main + tools, NOT in audit -> missed
+        ("s3", True, True),  # sidechain -> not counted
+        ("s4", False, False),  # no tool use -> not counted
+    ]
+    cov = diag_bundle.session_coverage({"s1"}, transcripts)
+    assert (cov.main, cov.recorded, cov.missed) == (2, 1, 1)
+
+
+def test_coverage_line_flags_shortfall_and_completeness() -> None:
+    assert "MISSED" in diag_bundle.coverage_line(
+        diag_bundle.SessionCoverage(main=5, recorded=3, missed=2)
+    )
+    assert "complete" in diag_bundle.coverage_line(
+        diag_bundle.SessionCoverage(main=5, recorded=5, missed=0)
+    )
+    # unknown / no transcripts -> no line (never guess)
+    assert diag_bundle.coverage_line(None) == ""
+    assert diag_bundle.coverage_line(diag_bundle.SessionCoverage(0, 0, 0)) == ""
+
+
+def test_plan_bundle_surfaces_coverage_shortfall() -> None:
+    cov = diag_bundle.SessionCoverage(main=10, recorded=6, missed=4)
+    manifest = _plan(coverage=cov)
+    assert "4 MISSED" in manifest["README.md"]
+    assert "Coverage:" in manifest["log-summary.txt"]
+
+
 # --- plan_bundle -------------------------------------------------------------
 
 

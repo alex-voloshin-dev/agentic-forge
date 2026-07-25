@@ -26,10 +26,27 @@ __all__ = [
     "classify_command",
     "is_commit_or_push",
     "choose_gate",
+    "gate_unrunnable",
+    "tool_errored",
     "redact_secrets",
     "audit_record",
     "bump_and_check",
 ]
+
+# Signatures in a gate's output that mean "the gate could not RUN" (environment breakage), not
+# "the code failed the gate" — a non-zero exit carrying one of these must fail OPEN, not block a
+# commit (ADR 0058). Seen in the field: `npm run lint` with no `lint` script, or eslint not
+# installed. Matched case-insensitively against the combined stdout+stderr.
+_GATE_UNRUNNABLE = (
+    "missing script",
+    "command not found",
+    "no such file",
+    "not found",  # e.g. "sh: eslint: command not found" also matches above; covers "X: not found"
+    "can't open file",
+    "modulenotfounderror",
+    "is not recognized",  # Windows "'eslint' is not recognized as an internal or external command"
+    "executable not found",
+)
 
 
 @dataclass(frozen=True)
@@ -544,7 +561,32 @@ def audit_record(
         record["ts"] = str(ts)
     if payload.get("session_id"):
         record["session_id"] = str(payload["session_id"])[:128]
+    if tool_errored(payload):
+        record["error"] = True  # additive: absent on success, so old readers are unaffected
     return record
+
+
+def gate_unrunnable(output: str) -> bool:
+    """True if a fast-gate's combined output shows it could not **run** (missing script / tool /
+    file) rather than that the code failed it (ADR 0058). Pure, case-insensitive; used to fail the
+    commit-gate OPEN on environment breakage instead of blocking a commit for it."""
+    low = (output or "").lower()
+    return any(sig in low for sig in _GATE_UNRUNNABLE)
+
+
+def tool_errored(payload: dict[str, Any]) -> bool:
+    """True if a PostToolUse ``payload`` carries a **clear** signal that the tool call failed (ADR
+    0058). Conservative — only an explicit signal counts, so a healthy call is never mislabelled:
+    a ``tool_response`` dict with ``is_error``/``error`` true, a top-level ``is_error`` flag, or a
+    ``tool_response`` string beginning ``Error:``. Pure."""
+    if payload.get("is_error") is True:
+        return True
+    resp = payload.get("tool_response")
+    if isinstance(resp, dict):
+        return bool(resp.get("is_error") is True or resp.get("error") is True)
+    if isinstance(resp, str):
+        return resp.lstrip().startswith("Error:")
+    return False
 
 
 # --- budgets: per-session subagent counter -----------------------------------

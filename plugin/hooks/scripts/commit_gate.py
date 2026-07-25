@@ -47,7 +47,19 @@ def gate_decision(payload: dict[str, Any]) -> guardrails.Decision:
         )
         return guardrails.ALLOW
     if result.returncode != 0:
-        tail = ((result.stdout or "") + (result.stderr or "")).strip()[-500:]
+        combined = (result.stdout or "") + (result.stderr or "")
+        tail = combined.strip()[-500:]
+        if guardrails.gate_unrunnable(combined):
+            # The gate couldn't RUN (missing lint script / uninstalled linter) — environment
+            # breakage, not a code-quality failure. Fail OPEN (don't block a commit for it), but
+            # record the downgrade so it's auditable (ADR 0058).
+            diagnostics.emit(
+                cwd, kind="anomaly", component="commit-gate",
+                message=f"gate unrunnable (fail-open): (`{' '.join(gate)}`)\n{tail}",
+                severity="minor", context={"gate": " ".join(gate)},
+                session_id=payload.get("session_id"),
+            )
+            return guardrails.ALLOW
         return guardrails.Decision(True, f"blocked: gate failed (`{' '.join(gate)}`)\n{tail}")
     return guardrails.ALLOW
 

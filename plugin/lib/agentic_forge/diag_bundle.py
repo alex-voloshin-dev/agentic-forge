@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -32,6 +33,9 @@ __all__ = [
     "DEFAULT_WINDOW_DAYS",
     "AuditQuality",
     "audit_quality",
+    "SessionCoverage",
+    "session_coverage",
+    "coverage_line",
     "settings_slice",
     "filter_by_window",
     "window_text",
@@ -105,6 +109,44 @@ def audit_quality(audit_lines: list[str]) -> AuditQuality:
         except (json.JSONDecodeError, TypeError):
             legacy_input += 1
     return AuditQuality(total=total, undated=undated, legacy_input=legacy_input)
+
+
+@dataclass(frozen=True)
+class SessionCoverage:
+    """How much of the repo's actual tool activity the audit trail captured (ADR 0058). ``main``
+    is the count of non-sidechain transcript sessions that made at least one tool call; ``recorded``
+    is how many of those appear in the audit trail; ``missed`` is the gap. A silent audit-coverage
+    hole (a hook not writing) shows up here as ``missed > 0``."""
+
+    main: int
+    recorded: int
+    missed: int
+
+
+def session_coverage(
+    audit_session_ids: set[str], transcripts: list[tuple[str, bool, bool]]
+) -> SessionCoverage:
+    """Compare the audit trail's session ids against the repo's transcripts (pure). Each transcript
+    is ``(session_id, is_sidechain, has_tool_use)``; only **main** (non-sidechain) sessions that
+    actually called a tool are the denominator — sidechain/subagent and tool-free sessions are not
+    expected in the main audit log. Returns the main/recorded/missed counts."""
+    main_ids = {sid for sid, sidechain, has_tools in transcripts if has_tools and not sidechain}
+    recorded = len(main_ids & audit_session_ids)
+    return SessionCoverage(main=len(main_ids), recorded=recorded, missed=len(main_ids) - recorded)
+
+
+def coverage_line(coverage: SessionCoverage | None) -> str:
+    """A one-line coverage disclosure for the README / summary, or "" when unknown (no transcripts
+    readable — never guess). Flags a shortfall so a silent audit hole is visible from the bundle."""
+    if coverage is None or coverage.main == 0:
+        return ""
+    base = (
+        f"Coverage: {coverage.recorded}/{coverage.main} main session(s) with tool activity are in "
+        "the audit trail"
+    )
+    if coverage.missed:
+        return f"{base} — {coverage.missed} MISSED (a hook may not have logged them)."
+    return f"{base} (complete)."
 
 
 def filter_by_window(lines: list[str], *, days: int | None, now: str) -> list[str]:
@@ -205,11 +247,20 @@ def _legacy_note(quality: AuditQuality) -> str:
     )
 
 
-def log_summary(audit_lines: list[str], diag_lines: list[str], *, window: str = "") -> str:
+def log_summary(
+    audit_lines: list[str],
+    diag_lines: list[str],
+    *,
+    window: str = "",
+    coverage: SessionCoverage | None = None,
+) -> str:
     """A quick-triage ``log-summary.txt``: the audit usage digest + the diagnostics top-problems
-    digest, both rendered from their pure summarisers, prefixed with the covered window and the
-    legacy-share disclosure (when any)."""
+    digest, both rendered from their pure summarisers, prefixed with the covered window, the
+    coverage disclosure (ADR 0058), and the legacy-share disclosure (when any)."""
     header = f"# Log summary\n\nWindow: {window}\n\n" if window else "# Log summary\n\n"
+    cov = coverage_line(coverage)
+    if cov:
+        header += f"{cov}\n\n"
     note = _legacy_note(audit_quality(audit_lines))
     if note:
         header += f"{note}\n\n"
@@ -229,6 +280,7 @@ def readme(
     audit_lines: list[str],
     diag_lines: list[str],
     window: str = "",
+    coverage: SessionCoverage | None = None,
 ) -> str:
     """The generated ``README.md`` — what the bundle is, its contents, and the top diagnostic signal
     (so a maintainer sees the headline before opening anything)."""
@@ -242,6 +294,8 @@ def readme(
         else "no diagnostic events recorded."
     )
     window_line = f"Window: {window}\n" if window else ""
+    cov = coverage_line(coverage)
+    coverage_md = f"{cov}\n" if cov else ""
     legacy_line = _legacy_note(quality)
     legacy_note = f"- {legacy_line}\n" if legacy_line else ""
     input_claim = (
@@ -254,7 +308,8 @@ def readme(
         f"Collected: {collected_at} from repo `{repo_name}`.\n"
         f"{window_line}"
         f"Audit: {audit.total} tool call(s) across {audit.sessions} session(s). "
-        f"Diagnostics: {diag.total} event(s).\n\n"
+        f"Diagnostics: {diag.total} event(s).\n"
+        f"{coverage_md}\n"
         "## Contents\n"
         f"- `repo-logs/audit.jsonl` — redacted tool-call audit trail ({input_claim}).\n"
         "- `repo-logs/diagnostics.jsonl` — plugin-emitted errors / denials / anomalies.\n"
@@ -284,6 +339,7 @@ def plan_bundle(
     installed_plugins: str | None,
     claude_settings: str | None,
     window: str = "",
+    coverage: SessionCoverage | None = None,
 ) -> dict[str, str]:
     """Build the bundle manifest ``{arcname: text}`` (pure). Every blob is redacted; absent optional
     inputs are simply omitted. The caller writes each entry under a ``<prefix>-<ts>/`` root."""
@@ -294,8 +350,11 @@ def plan_bundle(
             audit_lines=audit_lines,
             diag_lines=diag_lines,
             window=window,
+            coverage=coverage,
         ),
-        "log-summary.txt": log_summary(audit_lines, diag_lines, window=window),
+        "log-summary.txt": log_summary(
+            audit_lines, diag_lines, window=window, coverage=coverage
+        ),
         "environment.txt": guardrails.redact_secrets(environment),
         "repo-logs/audit.jsonl": "\n".join(audit_lines) + ("\n" if audit_lines else ""),
         "repo-logs/diagnostics.jsonl": "\n".join(diag_lines) + ("\n" if diag_lines else ""),
@@ -364,6 +423,45 @@ def environment_text(*, collected_at: str, repo: Path, plugin: str = "unknown") 
     )
 
 
+def _project_dir(home: Path, repo: Path) -> Path:
+    """The ``~/.claude/projects/<encoded>`` dir Claude Code stores this repo's transcripts in.
+    Claude Code encodes the absolute repo path by replacing every non-alphanumeric run's chars with
+    ``-`` (so ``/Users/x/code/f4ai`` -> ``-Users-x-code-f4ai``; existing dashes are preserved)."""
+    encoded = re.sub(r"[^A-Za-z0-9]", "-", str(repo))
+    return home / ".claude" / "projects" / encoded
+
+
+def _read_transcript_sessions(  # pragma: no cover
+    home: Path, repo: Path
+) -> list[tuple[str, bool, bool]]:
+    """Best-effort: read only session METADATA from the repo's transcripts for the coverage check
+    (ADR 0058) — never the content, which is unredacted and must not ship. Returns
+    ``(session_id, is_sidechain, has_tool_use)`` per transcript; ``[]`` if the project dir is
+    unreadable. Thin I/O seam (excluded from coverage, like the other live seams)."""
+    proj = _project_dir(home, repo)
+    out: list[tuple[str, bool, bool]] = []
+    try:
+        files = sorted(proj.glob("*.jsonl"))
+    except OSError:
+        return []
+    for f in files:
+        sid = f.stem
+        sidechain = has_tools = False
+        try:
+            with f.open(encoding="utf-8") as handle:
+                for line in handle:
+                    if '"isSidechain":true' in line or '"isSidechain": true' in line:
+                        sidechain = True
+                    if '"type":"tool_use"' in line or '"type": "tool_use"' in line:
+                        has_tools = True
+                    if sidechain and has_tools:
+                        break
+        except OSError:
+            continue
+        out.append((sid, sidechain, has_tools))
+    return out
+
+
 def build_bundle(
     repo: Path | str,
     out_path: Path | str | None = None,
@@ -388,6 +486,15 @@ def build_bundle(
 
     audit_lines = filter_by_window(observability.load_audit(repo), days=days, now=collected_at)
     diag_lines = filter_by_window(diagnostics.load(repo), days=days, now=collected_at)
+    # Coverage self-check (ADR 0058): compare audit session ids against the repo's transcripts, so a
+    # silent audit-logging hole is visible from the bundle. Best-effort — omitted if unreadable.
+    audit_ids = {
+        str(r["session_id"])
+        for r in observability.parse_lines(audit_lines)
+        if r.get("session_id")
+    }
+    transcripts = _read_transcript_sessions(home, repo)
+    coverage = session_coverage(audit_ids, transcripts) if transcripts else None
     # The manifest ships INSIDE the plugin this lib runs from — the one authoritative location.
     # (`~/.claude/plugins/plugin.json` never existed; real bundles shipped without a version.)
     plugin_json = _read(_PLUGIN_ROOT / ".claude-plugin" / "plugin.json")
@@ -409,6 +516,7 @@ def build_bundle(
         installed_plugins=installed_plugins,
         claude_settings=_read(home / ".claude" / "settings.json"),
         window=window_text(days=days, now=collected_at),
+        coverage=coverage,
     )
 
     out.parent.mkdir(parents=True, exist_ok=True)

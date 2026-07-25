@@ -41,7 +41,30 @@ def test_digest_counts_tools_sessions_and_top() -> None:
 
 def test_digest_empty() -> None:
     d = digest([])
-    assert d == Digest(total=0, by_tool={}, sessions=0, top_tool=None)
+    assert d == Digest(
+        total=0, by_tool={}, sessions=0, top_tool=None, errors=0, by_error_tool={}
+    )
+
+
+def test_digest_counts_errors_and_ranks_failing_tools() -> None:
+    # ADR 0058: records carrying `error: true` are counted and ranked per tool by failure.
+    lines = [
+        _line(tool="Bash", input="a", error=True),
+        _line(tool="Bash", input="b", error=True),
+        _line(tool="Bash", input="c"),  # success — not counted
+        _line(tool="Read", input="d", error=True),
+    ]
+    d = digest(lines)
+    assert d.errors == 3
+    assert d.by_error_tool == {"Bash": 2, "Read": 1}  # descending by failure count
+
+
+def test_render_shows_failures_section_only_when_errors() -> None:
+    clean = render(digest([_line(tool="Bash", input="x")]))
+    assert "Failures:" not in clean
+    failing = render(digest([_line(tool="Bash", input="x", error=True)]))
+    assert "Failures: 1 tool call(s) recorded an error." in failing
+    assert "Bash: 1" in failing
 
 
 def test_digest_tie_break_is_alphabetical() -> None:

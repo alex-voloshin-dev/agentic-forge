@@ -310,6 +310,67 @@ def test_audit_record_bounds_tool_and_session() -> None:
     assert len(rec["tool"]) == 128 and len(rec["session_id"]) == 128
 
 
+# --- gate_unrunnable (ADR 0058) ----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        'npm error Missing script: "lint"',
+        "sh: eslint: command not found",
+        "python: can't open file 'dev/validate.py'",
+        "ModuleNotFoundError: No module named 'ruff'",
+        "'eslint' is not recognized as an internal or external command",
+        "bash: ruff: No such file or directory",
+    ],
+)
+def test_gate_unrunnable_true_on_env_breakage(output: str) -> None:
+    assert guardrails.gate_unrunnable(output) is True
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        "src/a.ts: 3 problems (3 errors, 0 warnings)",
+        "FAIL src/app.test.tsx\n  ● renders",
+        "error  Unexpected console statement  no-console",
+        "",
+    ],
+)
+def test_gate_unrunnable_false_on_real_failure(output: str) -> None:
+    assert guardrails.gate_unrunnable(output) is False
+
+
+# --- tool_errored + audit error flag (ADR 0058) ------------------------------
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ({"tool_response": {"is_error": True}}, True),
+        ({"tool_response": {"error": True}}, True),
+        ({"is_error": True}, True),
+        ({"tool_response": "Error: Exit code 1"}, True),
+        ({"tool_response": "  Error: boom"}, True),  # leading whitespace tolerated
+        ({"tool_response": {"is_error": False}}, False),
+        ({"tool_response": "OK, done"}, False),
+        ({"tool_response": {"stdout": "ok"}}, False),
+        ({}, False),
+    ],
+)
+def test_tool_errored(payload: dict, expected: bool) -> None:
+    assert guardrails.tool_errored(payload) is expected
+
+
+def test_audit_record_marks_error_additively() -> None:
+    ok = audit_record({"tool_name": "Bash", "tool_input": {}})
+    assert "error" not in ok  # additive: absent on success
+    bad = audit_record(
+        {"tool_name": "Bash", "tool_input": {}, "tool_response": {"is_error": True}}
+    )
+    assert bad["error"] is True
+
+
 # --- budgets -----------------------------------------------------------------
 
 

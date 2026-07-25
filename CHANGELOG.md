@@ -7,6 +7,32 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Changed / Added — field-driven diagnostics fidelity (from the f4ai bundle, ADR 0058)
+
+A 14-day production bundle from the `f4ai` repo, compared against the raw transcripts, surfaced four
+gaps — all now closed:
+
+- **commit-gate no longer blocks on a gate that can't run.** A non-zero exit whose output shows a
+  missing lint script / uninstalled linter / missing file (`guardrails.gate_unrunnable`) is
+  environment breakage, not a code-quality signal — it fails **open** (records an `anomaly`, allows
+  the commit) instead of blocking. All 10 diagnostics events in the field bundle were this
+  false-positive (`npm run lint` with no `lint` script / `eslint: command not found`). Real
+  failures still block.
+- **The bundle discloses its audit coverage.** `diag_bundle.session_coverage` compares the audit
+  trail's session ids against the repo's transcripts (metadata only, never content) and the README /
+  `log-summary.txt` show a `Coverage: R/M main session(s) … [K MISSED]` line — so a silent
+  audit-logging hole (the field bundle had 84 unlogged pre-2026.7.2 sessions) is visible from the
+  bundle alone.
+- **The audit trail records outcome.** `guardrails.audit_record` adds `error: true` on a clear
+  PostToolUse failure signal (`guardrails.tool_errored`; additive — absent on success), so the 441
+  failed calls that were invisible in the field trail are now marked.
+- **The digest ranks failing tools.** `observability.Digest` gains `errors` + `by_error_tool` and
+  `render` adds a "Failures" section — `log-summary.txt` now shows *which* tools fail most.
+
+Hook self-diagnostics were confirmed already present (every hook emits a diagnostics `error` on
+crash, ADR 0039); the residual blind spot — a hook killed on timeout — is documented, with the
+coverage disclosure as its safety net.
+
 ### Added — tested exit criterion for the develop/product review loops
 
 Formalised the bounded review loop's exit as **pure, tested logic** shared by both workflows, so

@@ -38,12 +38,15 @@ KEEP_AUDIT_BYTES = 5 * 1024 * 1024
 @dataclass(frozen=True)
 class Digest:
     """A summary of the audit log: total tool uses, per-tool counts (descending), distinct
-    sessions, and the busiest tool."""
+    sessions, the busiest tool, and (ADR 0058) how many calls were recorded as failed plus the
+    per-tool failure counts (descending) so triage can rank tools by *failure*, not just usage."""
 
     total: int
     by_tool: dict[str, int]
     sessions: int
     top_tool: str | None
+    errors: int = 0
+    by_error_tool: dict[str, int] | None = None
 
 
 def parse_lines(lines: list[str]) -> list[dict[str, Any]]:
@@ -70,11 +73,17 @@ def digest(lines: list[str]) -> Digest:
     sessions = {str(r["session_id"]) for r in records if r.get("session_id")}
     ranked = dict(sorted(by_tool.items(), key=lambda kv: (-kv[1], kv[0])))
     top_tool = next(iter(ranked), None)
+    errored = Counter(
+        str(r.get("tool", "unknown")) for r in records if r.get("error") is True
+    )
+    by_error = dict(sorted(errored.items(), key=lambda kv: (-kv[1], kv[0])))
     return Digest(
         total=len(records),
         by_tool=ranked,
         sessions=len(sessions),
         top_tool=top_tool,
+        errors=sum(errored.values()),
+        by_error_tool=by_error,
     )
 
 
@@ -88,6 +97,10 @@ def render(d: Digest) -> str:
         "By tool:",
     ]
     lines += [f"  {tool}: {count}" for tool, count in d.by_tool.items()]
+    if d.errors:
+        lines.append(f"Failures: {d.errors} tool call(s) recorded an error.")
+        for tool, count in (d.by_error_tool or {}).items():
+            lines.append(f"  {tool}: {count}")
     return "\n".join(lines)
 
 
