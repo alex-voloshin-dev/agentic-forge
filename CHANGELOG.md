@@ -7,6 +7,8 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.7.3] - 2026-07-25
+
 ### Changed / Added — field-driven diagnostics fidelity (from a production bundle, ADR 0058)
 
 A 14-day production bundle from a downstream repo, compared against the raw transcripts, surfaced four
