@@ -37,16 +37,23 @@ validated tier onto each agent's `model:` frontmatter, and Tier-0 (`validate_age
 agent's committed `model:` drifts from the validated policy — so live `Task` delegation can never run
 on an unvalidated tier. `dev/sync_models.py` regenerates the frontmatter from the policy.
 
-## External reviewer seam (`external_review.py`, ADR 0042 / 0057)
+## External reviewer seam (`external_review.py`, ADR 0042 / 0057 / 0060)
 
 A different model is an independent review lens — it catches what a same-family `reviewer` pass
 misses (see [adversarial-review.md](../../plugin/patterns/adversarial-review.md)). This seam runs a
 third-party reviewer CLI (e.g. `codex`) as that extra lens: a pure `build_prompt` / `parse_review`
 core plus a thin subprocess seam that **never raises** and degrades gracefully when the CLI is
 absent. Gated by the `external_reviewer.{enabled,command}` settings. **On by default (ADR 0057)** and
-**auto-wired** as an extra lens into two workflows — `develop`'s multi-aspect code-review gate
-(`--kind code`, findings inside the bounded N = 3 loop) and `product`'s skeptic pass (`--kind
-product`). codex is driven by *our* strict per-kind prompt (`build_prompt`) and runs
+**auto-wired** as an extra lens into **every workflow that writes a reviewable deliverable** —
+`develop`'s multi-aspect code-review gate (`--kind code`, findings inside the bounded N = 3 loop),
+`product`'s skeptic pass (`--kind product`), `architecture`'s (`--kind technical`) and `plan`'s
+(`--kind plan`) since ADR 0060, `research`'s (`--kind research`) and `ux-design`'s (`--kind ux`)
+since ADR 0061, and `marketing`'s claims pass (`--kind marketing`) since ADR 0062.
+There is **one `KINDS` entry per review-criteria set** — the failure modes of what a phase hands off,
+so a router whose deliverables share one failure mode needs only one (tested: the set is exact, the
+criteria distinct) — because an unknown kind falls back to the code criteria, wrong for a brief,
+spec, or design. In every case the findings fold into that phase's bounded loop, whose exit
+is the shared `review_loop_decision`. codex is driven by *our* strict per-kind prompt (`build_prompt`) and runs
 `exec --sandbox read-only`, so its findings aggregate with the internal aspects into one verdict.
 This is the one extension whose default is **on**, not opt-in: the safety valve is graceful skip
 when `codex` is absent (the common case) — so it only reaches a third party where the CLI is

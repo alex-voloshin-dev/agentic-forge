@@ -2,13 +2,17 @@
 """Run the external reviewer CLI (codex) as a subagent over a target file (ADR 0042).
 
 Reads the plugin settings (`external_reviewer.command`; refuses unless `enabled` or `--force`),
-runs the configured CLI to review a code change / plan / product or technical doc, prints the
-verdict + findings, and can write a `review.md` handoff (`--out`) so a codex review feeds the
-review-loop / review-scan ecosystem. Degrades gracefully (clear message, no crash) when the CLI is
-absent or disabled. See docs/architecture/decisions/0042-external-reviewer.md.
+runs the configured CLI to review one deliverable — `--kind` selects the criteria, one set per
+failure mode (`external_review.KINDS`: code change, marketing deliverable, plan, product spec,
+research brief, technical design, UX spec) — prints the verdict + findings, and can write a
+`review.md` handoff (`--out`) so a codex review feeds the review-loop / review-scan ecosystem.
+Degrades gracefully (clear message, no crash) when the CLI is absent or disabled. See ADR 0042
+(seam), 0057 (on by default), 0060 / 0061 / 0062 (auto-wired into every workflow that writes a
+reviewable deliverable) under docs/architecture/decisions/.
 
     python dev/external_review.py --target diff.txt --kind code
     python dev/external_review.py --target docs/sdlc/x/plan.md --kind plan --out review.md --force
+    python dev/external_review.py --target docs/sdlc/x/ux-spec.md --kind ux
 
 Exit 0 on approve / skipped (disabled or CLI absent); 1 on a `changes` verdict or an
 unparseable review.

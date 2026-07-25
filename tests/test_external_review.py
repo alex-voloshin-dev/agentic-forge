@@ -31,6 +31,23 @@ def test_build_prompt_kinds_and_fallback() -> None:
     assert external_review.build_prompt("t", "bogus") == external_review.build_prompt("t", "code")
 
 
+def test_every_handoff_kind_has_distinct_criteria() -> None:
+    # One kind per review-criteria set — the failure modes of what a phase hands off
+    # (ADR 0042/0060/0061/0062). A missing kind would silently fall back to the CODE criteria —
+    # actively wrong for a brief / spec / design — and a copy-pasted duplicate would review one
+    # artifact on another artifact's failure modes.
+    assert set(external_review.KINDS) == {
+        "code",
+        "marketing",
+        "plan",
+        "product",
+        "research",
+        "technical",
+        "ux",
+    }
+    assert len(set(external_review.KINDS.values())) == len(external_review.KINDS)
+
+
 # --- is_available / run_external (the subprocess seam) -----------------------
 
 

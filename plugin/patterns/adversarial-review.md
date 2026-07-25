@@ -50,9 +50,14 @@ opinion. For a quick single-file diff lint, a single `reviewer` pass is enough �
   multi-vote verification for "audit everything".
 - **External reviewer (independent lens, on by default).** When `external_reviewer.enabled`
   (settings, ADR 0041 — **on by default** since ADR 0057), an external CLI — `codex` (ADR 0042) —
-  serves as an extra lens whose *different model* catches what a same-family pass misses; it is
-  auto-invoked in `develop` (`--kind code`) and `product` (`--kind product`). Run it via
-  `dev/external_review.py` (`--kind code|plan|product|technical`, `--out review.md`); it degrades
+  serves as an extra lens whose *different model* catches what a same-family pass misses. It is
+  auto-invoked in **every workflow that writes a reviewable deliverable**, each on its own criteria:
+  `develop` (`--kind code`), `product` (`--kind product`), `architecture` (`--kind technical`) and
+  `plan` (`--kind plan`) since ADR 0060, `research` (`--kind research`) and `ux-design` (`--kind ux`)
+  since ADR 0061, and `marketing` (`--kind marketing`) since ADR 0062. Run it via
+  `dev/external_review.py` (`--kind code|marketing|plan|product|research|technical|ux`, `--out
+  review.md`); pick the kind that matches the deliverable — an unknown one falls back to the **code**
+  criteria, which is wrong for a brief, spec, or design. It degrades
   gracefully when absent. It runs **read-only**; it sends the target to a third-party agent, so
   **set `external_reviewer.enabled: false` on secret-bearing repos**, and treat its findings as
   advisory (prompt-injectable).

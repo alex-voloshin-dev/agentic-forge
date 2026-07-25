@@ -49,7 +49,7 @@
   "component": {
     "id": "ux-design",
     "type": "skill",
-    "purpose": "Design the UX for a feature — user flows, screens and states, accessibility — as a ux-spec handoff for develop (specs, not pixels). Stage 6; own behavior, gated at Tier-1 and Tier-2."
+    "purpose": "Design the UX for a feature — user flows, screens and states, accessibility — as a ux-spec handoff for develop (specs, not pixels), gated by a bounded adversarial loop over the accessibility + flow/state-completeness lenses plus the external-reviewer lens (--kind ux; exit via review_loop_decision, ADR 0061). Stage 6; own behavior, gated at Tier-1 and Tier-2."
   },
   "thresholds": {
     "tier1_trigger": {

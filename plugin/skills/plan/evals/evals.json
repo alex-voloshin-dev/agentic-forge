@@ -39,7 +39,7 @@
   "component": {
     "id": "plan",
     "type": "skill",
-    "purpose": "Phase workflow: turn a tech-design into a dependency-ordered work plan (tasks with deps, checkpoints, deferred) as a plan.md handoff for develop. Delegates sequencing to the built-in Plan agent; gated at Tier-1 (routing); quality via the plan schema + the Plan agent."
+    "purpose": "Phase workflow: turn a tech-design into a dependency-ordered work plan (tasks with deps, checkpoints, deferred) as a plan.md handoff for develop. Delegates sequencing to the built-in Plan agent, proves the DAG with planning.plan_batches, and gates the handoff with a bounded skeptic loop (reviewer + the external-reviewer lens, --kind plan; exit via review_loop_decision, ADR 0060). Gated at Tier-1 (routing); quality via the plan schema + the Plan agent + that loop."
   },
   "thresholds": {
     "tier1_trigger": { "recall": 0.9, "specificity": 0.9 }

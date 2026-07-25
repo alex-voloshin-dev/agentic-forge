@@ -7,6 +7,126 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.7.5] - 2026-07-25
+
+One review contract for the whole fleet. Before this release, four of the seven workflows that write
+a reviewable deliverable had a review pass whose *outcome did not gate the handoff* — or, in two
+cases, no independent review at all — and the external-reviewer lens (ADR 0057) reached only
+`develop` and `product`. Now every one of them runs the same shape: **draft → bounded review
+(internal roster + the external lens when enabled) → `handoff.review_loop_decision` → `proceed`
+ships, `escalate` stops**, with per-artifact criteria for the external reviewer and `Bash` in
+`allowed-tools` so those calls can actually run.
+
+### Added — the bounded skeptic loop + external reviewer reach `architecture` and `plan` (ADR 0060)
+
+`develop` and `product` gated their handoff with a bounded review loop plus the external-reviewer
+lens (ADR 0057); the two phases between them did not. `architecture`'s review pass was
+**"(Optional) … for a non-trivial design"** — no exit criterion, no external lens, and unmentioned in
+its definition of done — and `plan` had **no review step at all** (ADR 0037's audit bucketed the
+workflows into writers / reviewers / ops phases and missed `plan`, which writes `plan.md`). That is
+the worst place for the gap: a bad design or build order is cheapest to catch there and costliest
+once `develop` materialises it across every dependency level.
+
+- **`architecture` — a mandatory bounded skeptic pass (step 6).** A fresh `reviewer` (via `Task`)
+  attacks the design: each ADR alternative genuinely weighed (not a strawman), every PRD goal traced
+  to a component or decision, every risk carrying a mitigation, component boundaries / failure modes
+  sound. `deep-review` stays the fan-out option for a large design.
+- **`plan` — a mandatory bounded skeptic pass (new step 6).** A fresh `reviewer` attacks the plan:
+  every design component covered by a task, the dependency graph complete (no missing edge) as well
+  as acyclic, each task independently shippable with a verifiable checkpoint, the deferred list
+  explicit.
+- **The external-reviewer lens in both, on by default** (`external_reviewer.enabled`): `--kind
+  technical` over `tech-design.md`, `--kind plan` over `plan.md`. Both `KINDS` have shipped unused
+  since ADR 0042 — no new machinery, and the ADR 0042/0057 posture carries over verbatim (strict
+  `{verdict, findings[]}` prompt, `exec --sandbox read-only`, graceful skip when `codex` is absent,
+  findings advisory and verified before acting).
+- **One shared exit criterion.** Both compute `handoff.review_loop_decision(verdict, iteration,
+  cap=3, gate_green=<the phase's validation step passes>)`; `escalate` (still `changes` at N = 3)
+  surfaces the unresolved gaps and **does not hand off**. The loop early-exits on `approve`, so a
+  clean design or plan still converges in one round.
+- **`plan` now proves its DAG instead of asserting it.** Step 5 runs `planning.plan_batches(tasks)`
+  — the same helper `develop` batches with, which raises on a duplicate id, an unknown dependency, or
+  a cycle — so "dependencies form a cycle-free order" is a deterministic check at the phase that
+  writes the plan, not prose checked by the phase that consumes it.
+
+### Added — the same loop + lens reach `research` and `ux-design` (ADR 0061)
+
+Closing ADR 0060's deferral showed the gap was wider than recorded: **ADR 0037's audit missed two
+writers, not one.** `research` — the *first* phase of the spine, whose unsupported claim propagates
+into the PRD, the design, the plan, and the code — had **no independent review at all** (its
+"Synthesize & verify" step is the author's own verification, the exact blind spot the adversarial
+pattern exists to cover). `ux-design` had a real two-lens pass (ADR 0037) but no exit criterion, so
+as with `architecture` before 0060, "done" did not depend on the review's outcome.
+
+- **`research` — a mandatory bounded skeptic pass (new step 7).** A fresh `reviewer` (via `Task`)
+  attacks the brief: every load-bearing claim cited, no invented figures, source disagreements
+  reconciled rather than averaged, and the recommendation actually following from the findings.
+- **`ux-design` — its existing pass gains the contract.** The two lenses (accessibility, flow/state
+  completeness — unchanged, ADR 0037 chose them correctly) plus the external one aggregate to one
+  verdict and exit on `review_loop_decision(..., gate_green=<the ux-spec validates>)`; `escalate`
+  surfaces the gaps instead of handing off.
+- **Two new `external_review.KINDS`: `research` and `ux`.** Wiring the lens with an existing kind
+  would have been a defect, not a fix — an unknown kind falls back to the **code** criteria
+  ("correctness, bugs, security, integration/API breaks"), so codex would have critiqued a UX spec as
+  if it were a diff. Each phase now has criteria matching its own failure modes, and the invariant is
+  tested: **one kind per handoff artifact**, the set asserted exactly and every kind's criteria
+  distinct. `dev/external_review.py --kind` picks both up automatically (its choices derive from
+  `sorted(KINDS)`).
+- **All six artifact-writing phases** (`research`, `product`, `architecture`, `plan`, `ux-design`,
+  `develop`) now share one shape: draft → bounded review (internal roster + the external lens when
+  enabled) → `review_loop_decision` → `proceed` hands off, `escalate` stops.
+
+### Added — `marketing`'s claims pass gains the same contract (ADR 0062)
+
+`marketing` was the last workflow writing a reviewable deliverable outside the shape — not an
+oversight this time: ADR 0037 gave it a real bounded claims pass with the right lens (the evidence
+discipline). What it lacked was the contract around it — no `review_loop_decision`, so no `escalate`
+discipline and nothing saying "don't ship"; no external lens; and no `Output` section at all (the
+only workflow skill without one).
+
+- **The shared exit criterion, with a conditional gate — stated honestly.** The loop now computes
+  `review_loop_decision(..., gate_green=…)` where the gate depends on the sub-area: schema validation
+  for a typed handoff (`market-brief` / `marketing-strategy`), and — since content, offer docs and
+  audit reports have no schema — the **evidence discipline itself** for the untyped deliverables.
+  For that half the gate largely collapses onto the verdict, so the loop reduces to exit-on-`approve`
+  / `escalate` at N = 3. That is weaker than `develop`'s QA gate or `plan`'s `plan_batches`, and
+  still strictly stronger than the status quo (no escalate discipline at all). Inventing a schema for
+  landing copy to manufacture a deterministic gate would have been worse than naming the limit —
+  recorded in ADR 0062 and in `review-loop.md`.
+- **The external lens** (`--kind marketing`) over the same evidence discipline, plus an **`Output`
+  section** stating that `escalate` surfaces unsourced claims and does not ship.
+- **One new `KINDS` entry, not five** — the brief, strategy, offer doc, content and audit report all
+  fail the same way (fluff). This **refines ADR 0061's invariant** to *one kind per review-criteria
+  set* rather than per schema type; the test still asserts the kind set exactly and that every kind's
+  criteria are distinct.
+- **Every workflow that writes a reviewable deliverable now shares one shape.** Outside it by design:
+  the reviewer-side phases (`code-review`, `security-review` — review *producers*) and the
+  ops/deterministic ones (`release`, `deploy-watch`, `incident-response`). ADR 0037's closing claim
+  that the loop "reaches every workflow that writes a reviewable artifact" is now actually true.
+
+### Fixed
+
+- **`product`'s external-reviewer step could not actually run (ADR 0057 wiring).** The skill's
+  `allowed-tools` had no `Bash`, so the `external_review.review(...)` / `dev/external_review.py` call
+  ADR 0057 specified was unreachable — the same class of defect ADR 0037 fixed by adding `Task` to
+  `product` / `ux-design`. `Bash` is now in `allowed-tools` for `product`, `architecture`, `plan`
+  (which also need it for `handoff` / `planning`), and — same defect, same fix — `research` and
+  `ux-design`, whose `handoff.validate_header` calls were equally unreachable (ADR 0060 / 0061).
+- **`ux-design` now names where its artifact goes** — `ux-spec.md` under `docs/sdlc/<feature-slug>/`.
+  It was the only phase skill specifying the frontmatter but not the path, while
+  `patterns/handoff.md` and the Tier-3 checkpoints already assumed it.
+
+### Changed
+
+- Docs updated for the wider wiring: `configuration.md` (`external_reviewer.enabled` now lists all
+  seven workflows and their kinds), `architecture/extensions.md`, `architecture/spine.md` (phase
+  table), `architecture/design-onboarding.md`, `architecture/product-marketing.md`, `roadmap.md`, the
+  `dev/external_review.py` docstring, and the `adversarial-review` / `review-loop` patterns
+  (`gate_green` per workflow, including marketing's conditional one). `evals.json`
+  `component.purpose` for each touched skill describes the loop; **no `description` changes**, so
+  Tier-1 routing and the listing budget are untouched, and no eval assertions were added
+  (process-grading — ADR 0037 §5 / ADR 0020).
+
 ## [2026.7.4] - 2026-07-25
 
 Hotfix from the pre-publication deep review — corrects a defect in 2026.7.3's commit-gate change

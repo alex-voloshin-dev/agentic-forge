@@ -27,10 +27,10 @@ and content. Reference map per phase below.
 
 | # | Skill | Workflow does (stages) | Fans out over | Reads → Writes | ai-skills ref |
 | --- | --- | --- | --- | --- | --- |
-| 1 | `research` | gather inputs → plan parallel tracks → fan-out → synthesize → analyse/recommend | research directions (market, product, eng, …) | request → `research-brief.md` | `analyze`, `spike` |
+| 1 | `research` | gather inputs → plan parallel tracks → fan-out → synthesize → analyse/recommend → **bounded skeptic loop** (ADR 0061) | research directions (market, product, eng, …) | request → `research-brief.md` | `analyze`, `spike` |
 | 2 | `product` | digest research → assess current product → plan → user stories → define changes → PRD by template | product areas / user-story sets | `research-brief.md` → `prd.md` | `feature-design`, `product-manager` |
-| 3 | `architecture` | digest PRD → study system → weigh options → component design → ADRs → risks | design decisions / subsystems | `prd.md` → `tech-design.md` + `adr-*.md` | `architecture*`, `system/solution-architect` |
-| 4 | `plan` | digest design → decompose tasks → dependency order → checkpoints → deferred | work streams | `tech-design.md` → `plan.md` | `plan` |
+| 3 | `architecture` | digest PRD → study system → weigh options → component design → ADRs → risks → **bounded skeptic loop** (ADR 0060) | design decisions / subsystems | `prd.md` → `tech-design.md` + `adr-*.md` | `architecture*`, `system/solution-architect` |
+| 4 | `plan` | digest design → decompose tasks → dependency order → checkpoints → deferred → validate the DAG (`plan_batches`) → **bounded skeptic loop** (ADR 0060) | work streams | `tech-design.md` → `plan.md` | `plan` |
 | 5 | `develop` | pick plan step → git infra → **batch by dependency level (`plan_batches`) → fan out one worktree per independent task → integrate the level** → **multi-aspect review fan-out** (code / security / integration+API / lint) → loop-back on failure → **QA** (existing + new unit + e2e) | parallel worktrees (ADR 0034) | `plan.md` (+`tech-design`) → code in worktree(s) | `develop`, `feature-dev`, `qa`, `worktree-isolation`, `worktree-parallel` |
 | 6 | `code-review` | scope the diff → fan-out reviewers by code aspect → verify → synthesize verdict → `review.md` | code review aspects | diff (+`plan.md`) → `review.md` | `code-review`, `security-audit` |
 

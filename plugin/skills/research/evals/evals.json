@@ -38,7 +38,7 @@
   "component": {
     "id": "research",
     "type": "skill",
-    "purpose": "Phase workflow: investigate a feature before it is specified — fan out parallel research tracks (delegating codebase exploration to Explore and external research to deep-research), synthesize, and produce a research-brief.md with cited sources and recommendations. Gated at Tier-1 (routing); depth quality comes from the delegated deep-research skill + the brief schema."
+    "purpose": "Phase workflow: investigate a feature before it is specified — fan out parallel research tracks (delegating codebase exploration to Explore and external research to deep-research), synthesize, and produce a research-brief.md with cited sources and recommendations, gated by a bounded skeptic loop (reviewer + the external-reviewer lens, --kind research; exit via review_loop_decision, ADR 0061). Gated at Tier-1 (routing); depth quality comes from the delegated deep-research skill + the brief schema + that loop."
   },
   "thresholds": {
     "tier1_trigger": { "recall": 0.9, "specificity": 0.9 }
