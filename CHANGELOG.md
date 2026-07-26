@@ -7,6 +7,8 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.7.10] - 2026-07-26
+
 ### Added — `logs.enabled`: the audit trail finally has an off switch (ADR 0078)
 
 Reported from a production repo on 2026.7.9: they moved 8.1 MB of audit log out of the repository

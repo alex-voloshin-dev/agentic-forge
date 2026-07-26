@@ -1,6 +1,6 @@
 {
   "name": "agentic-forge",
-  "version": "2026.7.9",
+  "version": "2026.7.10",
   "description": "Skill-centric, eval-driven Claude Code plugin for the software lifecycle. Workflow skills auto-load by description; subagents, worktrees, review loops, and an Obsidian knowledge base run natively. Every component is standard-compliant (agentskills.io) and gated by tests plus numeric eval thresholds.",
   "author": {
     "name": "Alex Voloshin",
