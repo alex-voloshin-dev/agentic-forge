@@ -7,6 +7,26 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Added — `logs.enabled`: the audit trail finally has an off switch (ADR 0078)
+
+Reported from a production repo on 2026.7.9: they moved 8.1 MB of audit log out of the repository
+and **the directory reappeared within 16 seconds** — recreated by the `PostToolUse` hook recording
+the very `mv` that emptied it.
+
+ADR 0072 already moves every generated file out of the user's repo, but it is unreleased. What the
+report exposed on top of that: of the four state writers, three could be stopped (`diagnostics.enabled`,
+the scheduler only runs when invoked, the queue needs `pr_watcher.enabled` + `auto_watch`) and the
+audit log **could not** — it wrote on every tool call with no supported way to decline short of
+editing `hooks.json` inside the installed plugin.
+
+`logs.enabled` (config, `AGENTIC_FORGE_LOGS`) now gates it, **default on**: the trail is the only
+record of what the agent actually did and the substrate every field report here is built from,
+including the bundle behind ADRs 0072–0075. `write_audit` returns `Path | None`, so "deliberately
+not written" is distinguishable from "failed to write".
+
+Note what this does **not** do: it stops the writing, it does not move the file. Getting the
+directory out of a repo is ADR 0072, and that needs the release.
+
 ### Added — Tier-0 warns about an ADR nothing cites
 
 A deep pass over the post-0072..0077 state found **ADRs 0073 and 0074 orphaned**: the rules they

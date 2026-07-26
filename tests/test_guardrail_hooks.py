@@ -286,3 +286,20 @@ def test_write_audit_from_worktree_lands_in_main_repo(tmp_path: Path) -> None:
     assert path == diagnostics.state_root(main) / observability.AUDIT_FILE
     assert not (wt / ".agentic-forge").exists()
     assert json.loads(path.read_text(encoding="utf-8").strip())["tool"] == "Bash"
+
+
+def test_audit_log_respects_the_logs_gate(tmp_path: Path) -> None:
+    """`logs.enabled: false` stops the audit writer — the one hook that had no off switch until
+    ADR 0078, and the reason a production repo kept regrowing an in-repo log."""
+    cfg = tmp_path / ".agentic-forge"
+    cfg.mkdir(parents=True)
+    (cfg / "config.json").write_text('{"logs": {"enabled": false}}', encoding="utf-8")
+    payload = {"tool_name": "Bash", "tool_input": {"command": "ls"}, "cwd": str(tmp_path)}
+    assert audit_log.write_audit(payload, str(tmp_path)) is None
+    assert not (diagnostics.state_root(tmp_path) / observability.AUDIT_FILE).exists()
+
+
+def test_audit_log_writes_when_the_gate_is_on_by_default(tmp_path: Path) -> None:
+    payload = {"tool_name": "Bash", "tool_input": {"command": "ls"}, "cwd": str(tmp_path)}
+    path = audit_log.write_audit(payload, str(tmp_path))
+    assert path is not None and path.is_file()  # default is ON: the trail must not vanish silently

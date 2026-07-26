@@ -18,6 +18,7 @@ are optional. A ready, schema-valid example with **every** key ships at
 
 | Key | Type | Default | Effect |
 |---|---|---|---|
+| `logs.enabled` | bool | `true` | Write a redacted audit record per tool call (ADR 0019/0078). **On by default** — it is the only record of what the agent did, and the substrate of the diagnostics bundle. Turning it off stops the writing; it does not move the file (that is ADR 0072's state root). Overridable with `AGENTIC_FORGE_LOGS`. |
 | `diagnostics.enabled` | bool | `false` | Turn on the self-diagnostics log `~/.agentic-forge/state/<repo-slug>/diagnostics.jsonl` (ADR 0072) — guardrail denials, hook crashes, pipeline failures (ADR 0039). **This is "the logger."** |
 | `state.in_repo` | bool | `false` | Keep generated runtime state (diagnostics, audit, schedule, PR-watch queue) **inside** the project at `<repo>/.agentic-forge/` instead of the user-level state root. Off by default: the plugin must not write into a repo it does not own (ADR 0072). The committed `config.json` is unaffected — configuration is the project's, state is the runtime's. `AGENTIC_FORGE_STATE_HOME` relocates the root when the default is not wanted. |
 | `subagent_budget.soft` | int ≥ 0 | `25` | Per-session subagent (`Task`) count at which the budget hook warns. |
