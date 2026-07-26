@@ -21,6 +21,12 @@ the product requirements (`product`).
 
 ## Process
 
+> **Deliver in isolation** — when a `<feature-slug>` is in play, write into the feature's
+> shared documentation worktree rather than the checkout, and deliver the result as a pull
+> request (see [doc-delivery](../../patterns/doc-delivery.md)). One worktree and one PR per
+> **feature**, shared by every document phase — that is what lets the next phase read what
+> this one wrote. Skip it for a one-off document outside a feature flow.
+
 1. **Read the feature.** Load the feature description / `prd.md`; identify the actors and the jobs
    to be done.
 2. **User flows.** Map the key flows (happy path plus the important branches) as step sequences —
@@ -56,8 +62,8 @@ the product requirements (`product`).
    `handoff.review_loop_decision(verdict, iteration, cap=3, gate_green=<the ux-spec validates>)`
    (see [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
    [review-loop.md](../../patterns/review-loop.md)) — `revise` (loop back and fix worst-first),
-   `escalate` (still `changes` at N = 3 → **set the artifact's `status` to `in-review`**, surface the unresolved gaps and stop; the status is what makes "don't hand off" enforceable — the file is already on disk), or
-   `proceed` (`approve` **and** the spec validates → the spec is done). Don't hand off a spec with a
+   `escalate` (still `changes` at N = 3 → **commit nothing; mark the feature PR a draft** (the merge gate already refuses a draft), set the artifact's `status` to `in-review`, surface the unresolved gaps and stop; the status is what makes "don't hand off" enforceable — the file is already on disk), or
+   `proceed` (**commit this phase's artifact and push — opening or updating the feature PR per [doc-delivery](../../patterns/doc-delivery.md)**; `approve` **and** the spec validates → the spec is done). Don't hand off a spec with a
    dead-end flow or a screen missing its error state.
 
 ## Output

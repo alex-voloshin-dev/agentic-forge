@@ -185,3 +185,43 @@ def test_a_failed_create_is_never_enqueued() -> None:
 
 def test_a_non_create_command_is_never_enqueued() -> None:
     assert pr_hook.created_pr_ref(_payload("gh pr view 11", {"stdout": _URL})) is None
+
+
+# --- ADR 0069: the enqueue needs BOTH switches -------------------------------
+
+
+def _hook_env(tmp_path: Path, config: dict[str, Any] | None) -> subprocess.CompletedProcess[str]:
+    (tmp_path / ".agentic-forge").mkdir(parents=True, exist_ok=True)
+    if config is not None:
+        (tmp_path / ".agentic-forge" / "config.json").write_text(json.dumps(config), "utf-8")
+    payload = {
+        "tool_name": "Bash",
+        "tool_input": {"command": "gh pr create --fill"},
+        "tool_response": {"stdout": _URL},
+        "cwd": str(tmp_path),
+    }
+    return subprocess.run(
+        [sys.executable, str(HOOK)], input=json.dumps(payload),
+        capture_output=True, text=True, check=False,
+    )
+
+
+def _queued(tmp_path: Path) -> bool:
+    return (tmp_path / ".agentic-forge" / "pr-watch-queue.json").is_file()
+
+
+def test_no_queue_file_when_the_watcher_is_disabled(tmp_path: Path) -> None:
+    # auto_watch defaults ON, so `enabled` is the thing that keeps the plugin from writing into the
+    # repo of someone who never opted into a watcher and would never drain the queue (ADR 0069).
+    done = _hook_env(tmp_path, None)
+    assert done.returncode == 0 and not _queued(tmp_path)
+
+
+def test_no_queue_file_when_auto_watch_is_off(tmp_path: Path) -> None:
+    done = _hook_env(tmp_path, {"pr_watcher": {"enabled": True, "auto_watch": False}})
+    assert done.returncode == 0 and not _queued(tmp_path)
+
+
+def test_queued_when_both_are_on(tmp_path: Path) -> None:
+    done = _hook_env(tmp_path, {"pr_watcher": {"enabled": True}})  # auto_watch defaults on
+    assert done.returncode == 0 and _queued(tmp_path)

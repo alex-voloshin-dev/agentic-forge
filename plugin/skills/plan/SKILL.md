@@ -21,6 +21,12 @@ requirements (`product`), or implementation (`develop`).
 > **Recall first** — pull the project's relevant prior decisions from the knowledge vault (see
 > [knowledge-recall](../../patterns/knowledge-recall.md)); factor them in, and skip if the vault is empty.
 
+> **Deliver in isolation** — when a `<feature-slug>` is in play, write into the feature's
+> shared documentation worktree rather than the checkout, and deliver the result as a pull
+> request (see [doc-delivery](../../patterns/doc-delivery.md)). One worktree and one PR per
+> **feature**, shared by every document phase — that is what lets the next phase read what
+> this one wrote. Skip it for a one-off document outside a feature flow.
+
 1. **Read the inputs.** Load `tech-design.md`
    (`handoff.load_artifact(..., expected_type="tech-design")`; **refuse to plan from it unless `handoff.is_handoff_ready(header)`**) and the `prd.md` for acceptance
    context. Pick the `<feature-slug>`.
@@ -56,8 +62,8 @@ requirements (`product`), or implementation (`develop`).
    cap=3, gate_green=<step 5 passes>)` (see
    [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
    [review-loop.md](../../patterns/review-loop.md)) — `revise` (loop back and fix worst-first),
-   `escalate` (still `changes` at N = 3 → **set the artifact's `status` to `in-review`**, surface the unresolved gaps and stop; the status is what makes "don't hand off" enforceable — the file is already on disk), or
-   `proceed` (`approve` **and** the plan validates → the plan is done). Don't hand off a plan that
+   `escalate` (still `changes` at N = 3 → **commit nothing; mark the feature PR a draft** (the merge gate already refuses a draft), set the artifact's `status` to `in-review`, surface the unresolved gaps and stop; the status is what makes "don't hand off" enforceable — the file is already on disk), or
+   `proceed` (**commit this phase's artifact and push — opening or updating the feature PR per [doc-delivery](../../patterns/doc-delivery.md)**; `approve` **and** the plan validates → the plan is done). Don't hand off a plan that
    leaves a design component uncovered or a checkpoint unverifiable.
 
 ## Output

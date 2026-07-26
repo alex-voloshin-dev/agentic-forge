@@ -7,6 +7,57 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Added — delivery parity for the document phases (ADR 0070)
+
+Code changes got isolation, review, a PR and a gated merge; document changes — the PRD, tech design
+and ADRs, work plan, research brief, ux-spec, marketing deliverables — were written **straight into
+the user's checkout**. Verified across all six phase bodies: zero occurrences of worktree, branch,
+commit or `gh pr create`. The *review* contract was already identical (ADR 0060–0062); the gap was
+isolation and delivery, with a concrete consequence — an `escalate`d phase left its rejected
+artifact sitting in the working tree.
+
+- **One feature worktree and one PR — never per phase.** This is the load-bearing choice, not a
+  simplification: give each phase its own branch and `architecture` cannot read the PRD `product`
+  just wrote (it sits unmerged), which would either serialise the spine on merge latency or force
+  phases to read each other's git refs — contradicting ADR 0013's rule that phases are joined only
+  by committed artifacts. All six share `../wt-docs-<slug>` on `docs/<slug>`.
+- **`proceed` commits and pushes**, opening the PR the first time and updating it thereafter, so a
+  reviewer sees a feature's whole paper trail as one change set.
+- **`escalate` commits nothing and marks the PR a draft** — needing no new machinery, because the
+  merge gate already refuses a `draft PR` (ADR 0063).
+- `doc_delivery.py` is naming + argv only (slug validated rather than sanitised — a slug needing
+  escaping is a caller bug; **never** `--force`). The procedure lives in one pattern,
+  `patterns/doc-delivery.md`, rather than six skill bodies, so no `SKILL.md` grew materially and the
+  router budget is untouched.
+- **The delivery contract is a gate**: `test_review_loop_shape.py` now also pins that each of the six
+  links the pattern and states both exit branches — the contract class that shipped broken twice
+  before (ADR 0060 §4, 0061).
+
+**Stated limits.** A docs-only PR may never auto-merge: the gate blocks on `checks: NONE`, and many
+repos have no documentation CI — that is the gate working as designed, not a bug. The conversational
+phases (`product`, `ux-design`, `marketing`) now draft into a worktree the user's editor is not
+pointed at; mitigated by reporting the absolute path, and recorded as the strongest argument against
+the design. An orphan-worktree sweep is **deferred, not built**.
+
+### Changed — `auto_watch` on by default, bounded by `enabled` (ADR 0069)
+
+ADR 0068 shipped `auto_watch` off alongside `auto_merge` as "two switches, both off". That is one
+opt-in too many: a maintainer who has already enabled the watcher and set up the clock has plainly
+asked for their PRs to be watched.
+
+- **The enqueue now requires `enabled` AND `auto_watch`.** This is the part that makes the new
+  default safe — the previous gate was `auto_watch` alone, so flipping it would have made the plugin
+  write `.agentic-forge/pr-watch-queue.json` into **every** installing repo on **every**
+  `gh pr create`, including repos whose owner never enabled the watcher and would never drain the
+  queue.
+- **`auto_watch` defaults to `true`**, read as *"within an enabled watcher, watch the PRs you
+  create"* — it changes **which** PRs are watched, not **whether** the watcher runs.
+- **`auto_merge` is unchanged and stays off.** The distinction the two switches encode is preserved:
+  watching is reversible, merging is not.
+
+For a repo with the watcher off (still the default) behaviour is **unchanged**: no queue file, no
+writes. ADR 0068 §4's "both off by default" is annotated in place rather than left untrue.
+
 ## [2026.7.8] - 2026-07-26
 
 Closes the last gap in the PR pipeline: a created pull request can now be carried unattended,

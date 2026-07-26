@@ -69,3 +69,29 @@ def test_every_kind_is_claimed_by_exactly_one_skill() -> None:
     # A kind nobody uses is dead criteria; two skills sharing one means a phase is reviewed on
     # another phase's failure modes.
     assert sorted(REVIEW_LOOP_SKILLS.values()) == sorted(external_review.KINDS)
+
+
+# --- ADR 0070: the delivery contract is a gate too ---------------------------
+
+DOC_PHASES = ("research", "product", "architecture", "plan", "ux-design", "marketing")
+
+
+@pytest.mark.parametrize("skill", DOC_PHASES)
+def test_doc_phase_references_the_delivery_pattern(skill: str) -> None:
+    # The delivery procedure lives in one pattern rather than six bodies, so the only thing tying a
+    # phase to it is a link. Nothing else would notice if a body lost it — and this contract class
+    # has already shipped broken twice (ADR 0060 §4, 0061).
+    assert "doc-delivery" in _skill(skill)[1], f"{skill} must link the delivery pattern"
+
+
+@pytest.mark.parametrize("skill", DOC_PHASES)
+def test_doc_phase_states_both_exit_branches(skill: str) -> None:
+    body = _skill(skill)[1]
+    assert "commit this phase's artifact" in body, f"{skill} must commit on proceed"
+    assert "mark the feature PR a draft" in body, f"{skill} must re-draft the PR on escalate"
+
+
+def test_the_delivery_pattern_documents_the_one_pr_rule() -> None:
+    # The load-bearing choice: per-phase PRs would leave the next phase unable to read its input.
+    pattern = (PLUGIN / "patterns" / "doc-delivery.md").read_text(encoding="utf-8")
+    assert "per FEATURE" in pattern and "never per phase" in pattern

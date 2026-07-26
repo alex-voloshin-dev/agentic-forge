@@ -42,6 +42,12 @@ The failure mode of generated marketing is confident, low-signal fluff. So every
 
 ## Process
 
+> **Deliver in isolation** — when a `<feature-slug>` is in play, write into the feature's
+> shared documentation worktree rather than the checkout, and deliver the result as a pull
+> request (see [doc-delivery](../../patterns/doc-delivery.md)). One worktree and one PR per
+> **feature**, shared by every document phase — that is what lets the next phase read what
+> this one wrote. Skip it for a one-off document outside a feature flow.
+
 1. **Identify the sub-area** from the request and read its reference for the procedure + rubric.
 2. **Gather evidence.** Use provided research/notes if present; otherwise gather it **live with
    `WebSearch` / `WebFetch`** (analyst reports, competitor sites, pricing pages) — or fork the
@@ -69,8 +75,8 @@ The failure mode of generated marketing is confident, low-signal fluff. So every
    round, compute `handoff.review_loop_decision(verdict, iteration, cap=3, gate_green=<the gate
    below>)` (see [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
    [review-loop.md](../../patterns/review-loop.md)) — `revise` (loop back and fix worst-first),
-   `escalate` (still `changes` at N = 3 → for a typed handoff **set `status` to `in-review`**, surface the unresolved claims and stop; don't ship), or
-   `proceed` (`approve` **and** the gate → the deliverable is done). **The gate depends on what this
+   `escalate` (still `changes` at N = 3 → **commit nothing; mark the feature PR a draft** (the merge gate already refuses a draft); for a typed handoff **set `status` to `in-review`**, surface the unresolved claims and stop; don't ship), or
+   `proceed` (**commit this phase's artifact and push — opening or updating the feature PR per [doc-delivery](../../patterns/doc-delivery.md)**; `approve` **and** the gate → the deliverable is done). **The gate depends on what this
    sub-area produced:** for a typed handoff (`market-brief` / `marketing-strategy`) it is step 3's
    `handoff.validate_header`; for the untyped deliverables (offer doc, content files, audit report)
    there is no schema, so it is the evidence discipline itself — every claim cited or labelled, no

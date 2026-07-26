@@ -48,8 +48,10 @@ DEFAULTS: dict[str, Any] = {
         # start merging pull requests in every repo that installs it. poll_seconds is also the
         # window an external PR reviewer gets — the gate cannot open before the first post-CI poll.
         "auto_merge": False,
-        # auto_watch only ENQUEUES a created PR (ADR 0068); merging still needs auto_merge.
-        "auto_watch": False,
+        # auto_watch is ON by default *within an enabled watcher* (ADR 0069): `enabled` is the
+        # master switch, and once a user has opted into the watcher, watching the PRs they create
+        # is the expected behaviour. It still only ENQUEUES — merging needs auto_merge (off).
+        "auto_watch": True,
         "max_ticks": 144,  # 24 h at the 10-minute drain cadence — nothing is watched forever
         "merge_method": "rebase",
         "poll_seconds": 600,

@@ -24,12 +24,19 @@ from agentic_forge import diagnostics, pr_hook, pr_watch, settings  # noqa: E402
 def enqueue(cwd: str, payload: dict[str, Any]) -> bool:
     """Record the created PR in the watch queue (ADR 0068). Returns True if it was added.
 
-    Gated by ``pr_watcher.auto_watch`` (off by default). This is the whole of the hook's new
-    authority: it appends to a **gitignored local file**. It still starts no process and merges
-    nothing — the scheduled drain does that later, under the settings, through the audited
-    `dev/pr_watch.py` path. Recording intent is not starting an agent (ADR 0063 §6, narrowed)."""
+    Requires **both** ``pr_watcher.enabled`` (the master switch, off by default) and
+    ``pr_watcher.auto_watch`` (on by default *within* an enabled watcher — ADR 0069). `enabled` is
+    what keeps this inert for everyone who has not opted into the watcher: without it the queue file
+    is never created at all, so the plugin does not write into a repo whose owner never asked for a
+    watcher and would never drain the queue.
+
+    This is the whole of the hook's authority: it appends to a **gitignored local file**. It still
+    starts no process and merges nothing — the scheduled drain does that later, under the settings,
+    through the audited `dev/pr_watch.py` path. Recording intent is not starting an agent
+    (ADR 0063 §6, narrowed by 0068)."""
     root = diagnostics.main_repo_root(cwd)
-    if not settings.resolve(root).pr_watcher_auto_watch:
+    resolved = settings.resolve(root)
+    if not (resolved.pr_watcher_enabled and resolved.pr_watcher_auto_watch):
         return False
     ref = pr_hook.created_pr_ref(payload)
     if ref is None:

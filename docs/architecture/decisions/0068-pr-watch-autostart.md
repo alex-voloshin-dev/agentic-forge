@@ -63,9 +63,13 @@ slot indefinitely.
 
 ### 4. Two independent switches, both off by default
 
+> **Superseded by [ADR 0069](0069-auto-watch-on-by-default.md):** `auto_watch` now
+> defaults to **on**, bounded by `enabled` (which stays off). `auto_merge` is
+> unchanged and still off.
+
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `pr_watcher.auto_watch` | `false` | The hook enqueues a created PR. |
+| `pr_watcher.auto_watch` | ~~`false`~~ `true` (0069) | The hook enqueues a created PR — requires `enabled`. |
 | `pr_watcher.auto_merge` | `false` | The drain may merge when the gate opens. |
 
 Watching **without** merging is the safe middle setting and is genuinely useful on its own: it
