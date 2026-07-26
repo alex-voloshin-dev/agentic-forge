@@ -48,7 +48,7 @@ Branch naming: `feature/<feature-slug>` mirrors the artifact slug under
 - The orchestrator passes the worktree path in; the software-engineer does not create or remove
   worktrees itself.
 
-## Traps (all four hit in the field; two silently corrupt the main checkout)
+## Traps (ADR 0074 — all four hit in the field; two silently corrupt the main checkout)
 
 - **Writing through the main checkout's path lands the change on the base branch.** Tools still
   accept `/repo/foo.ts` while a worktree is active, and the edit goes to the main working tree —

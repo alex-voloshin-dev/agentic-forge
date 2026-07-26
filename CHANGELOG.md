@@ -7,6 +7,25 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Added — Tier-0 warns about an ADR nothing cites
+
+A deep pass over the post-0072..0077 state found **ADRs 0073 and 0074 orphaned**: the rules they
+introduced had shipped into `fan-out-fan-in.md`, `worktree.md`, the lens catalog, `code-review`,
+`engineering-standards` and all six agent roles — and not one of them named the ADR. For contrast,
+0072 was cited in twelve files.
+
+That matters here specifically: in this repo the **rule** lives in the skill/pattern/agent and the
+**evidence** lives in the ADR. An uncited ADR is a rule whose field evidence is unreachable, so the
+next person the rule inconveniences deletes it — never learning it cost someone a closed PR and a
+rebuilt branch.
+
+`validate_docs` now warns (never errors — a purely procedural ADR has no artifact to cite it) when
+no file outside `decisions/` mentions `ADR NNNN`. A citation from another ADR does not count.
+
+Running it found **11 orphans of 78**, not two: the constitution ADRs 0001–0008, 0027
+(deep-review + adversarial pattern), 0028 (handoff relaxation) and 0071 (review-artifact
+lifecycle, shipped the day before). All eleven now cited from the artifact they govern.
+
 ### Fixed — eval runs no longer inherit the operator's own config (ADR 0077)
 
 Running two Tier-2 suites that had **never been executed** produced graded artifacts in Russian.

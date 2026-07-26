@@ -89,3 +89,43 @@ def test_dangling_index_link_errors(tmp_path: Path) -> None:
 def test_real_repo_is_in_sync() -> None:
     # The live repo must satisfy its own doc-sync gate.
     assert validate_docs(_REPO).ok
+
+
+# --- orphaned ADRs (a rule whose rationale cannot be found from the rule) -----
+
+
+def test_uncited_adr_warns_but_does_not_block(tmp_path: Path) -> None:
+    _scaffold(
+        tmp_path,
+        modules=[], table_rows=[],
+        adr_files=["0042-a.md"], index_links=["0042-a.md"],
+    )
+    report = validate_docs(tmp_path)
+    assert report.ok  # a purely procedural ADR is legitimate -> warning, never an error
+    assert any("ADR 0042" in i.message for i in report.warnings)
+
+
+def test_adr_cited_from_an_artifact_is_not_flagged(tmp_path: Path) -> None:
+    _scaffold(
+        tmp_path,
+        modules=[], table_rows=[],
+        adr_files=["0042-a.md"], index_links=["0042-a.md"],
+    )
+    pattern = tmp_path / "plugin" / "patterns"
+    pattern.mkdir(parents=True)
+    (pattern / "thing.md").write_text("The rule, because of ADR 0042.\n", encoding="utf-8")
+    assert not validate_docs(tmp_path).warnings
+
+
+def test_a_citation_inside_decisions_does_not_count(tmp_path: Path) -> None:
+    """One ADR citing another must not make the cited one look reachable from a rule."""
+    _scaffold(
+        tmp_path,
+        modules=[], table_rows=[],
+        adr_files=["0042-a.md", "0043-b.md"], index_links=["0042-a.md", "0043-b.md"],
+    )
+    decisions = tmp_path / "docs" / "architecture" / "decisions"
+    (decisions / "0043-b.md").write_text("# adr\n\nSupersedes ADR 0042.\n", encoding="utf-8")
+    warned = {i.message for i in validate_docs(tmp_path).warnings}
+    assert any("ADR 0042" in m for m in warned)
+

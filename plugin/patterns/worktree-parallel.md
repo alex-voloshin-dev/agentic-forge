@@ -28,7 +28,7 @@ parallelism (a single chain) degrades to the plain one-worktree flow — no orch
    when this one is integrated, approved, and green.
 5. **Clean up.** Remove each worktree once merged or abandoned (worktree.md).
 
-## Contention (isolation is not automatic)
+## Contention (ADR 0074 — isolation is not automatic)
 
 A worktree isolates the *source tree*. It does not isolate what the build and the tests reach for.
 

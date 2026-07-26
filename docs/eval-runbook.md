@@ -42,6 +42,9 @@ CI is `.github/workflows/eval.yml`. Rationale: [ADR 0011](architecture/decisions
 
 ## What it does
 
+The harness is built on `skill-creator`'s eval model (ADR 0005), with a
+single-file `evals.json` that is a superset of the upstream shape (ADR 0006).
+
 For each role, for `runs` independent runs (default 5, from the contract):
 
 1. Run the role on each eval case (the role's system prompt from `plugin/agents/<role>.md`

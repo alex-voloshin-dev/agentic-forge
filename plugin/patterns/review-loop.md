@@ -35,7 +35,7 @@ if not approved:
     escalate(last_review.findings)                 # budget exhausted — see "exit" below
 ```
 
-## Persisting the loop
+## Persisting the loop (ADR 0071)
 
 Each round writes **one** review artifact — `review-<artifact>-<iteration>.md` under
 `docs/sdlc/<feature-slug>/` (`type: review`, `target`, `iteration`, `verdict`, `findings[]`; see
