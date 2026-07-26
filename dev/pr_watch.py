@@ -65,6 +65,33 @@ def _pusher(repo: Path, branch: str) -> pr_watch.Push:  # pragma: no cover
     return push
 
 
+def _merger(repo: Path, slug: str, number: int, method: str) -> pr_watch.Merge:  # pragma: no cover
+    """The live merge seam. `run_watch` decides IF this runs (auto_merge + the recomputed gate)."""
+
+    def merge() -> None:
+        subprocess.run(
+            pr_watch.merge_argv(slug, number, method),
+            cwd=str(repo), capture_output=True, text=True, check=True, timeout=300,
+        )
+
+    return merge
+
+
+def _merge_confirmer(  # pragma: no cover
+    repo: Path, slug: str, number: int
+) -> pr_watch.ConfirmMerged:
+    """Read the PR's own state — the outcome of a non-atomic `gh pr merge` (ADR 0065)."""
+
+    def confirm() -> bool:
+        done = subprocess.run(
+            pr_watch.merged_argv(slug, number),
+            cwd=str(repo), capture_output=True, text=True, check=True, timeout=120,
+        )
+        return pr_watch.parse_merged(json.loads(done.stdout or "{}"))
+
+    return confirm
+
+
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:  # pragma: no cover
     # core.hooksPath=/dev/null disables this repo's git hooks: a watched PR branch (especially a
     # fork's) can ship hostile *tracked* hooks (husky / .githooks) that would otherwise run on
@@ -140,6 +167,8 @@ def main(  # noqa: PLR0913 - the seams are injected for testing; production uses
     push: Any = None,
     fixer: Any = None,
     handle_conflict: Any = None,
+    merge: Any = None,
+    confirm_merged: Any = None,
 ) -> int:
     parser = argparse.ArgumentParser(description="Watch a GitHub PR and run the bounded fix loop.")
     parser.add_argument("--repo", type=Path, default=Path("."))
@@ -149,10 +178,20 @@ def main(  # noqa: PLR0913 - the seams are injected for testing; production uses
     parser.add_argument("--model", default="claude-opus-4-8")
     parser.add_argument("--max-threads", type=int, default=None)
     parser.add_argument("--apply", action="store_true", help="apply fixes + push (else dry plan)")
+    # Trust-boundary overrides (ADR 0067): the scheduled driver resolves these BEFORE checking out
+    # the PR and passes them down, so a PR cannot rewrite the watcher's own guardrails via the
+    # committed <repo>/.agentic-forge/config.json it just placed in the working tree.
+    parser.add_argument("--bot", default=None, help="trusted bot login (overrides the repo config)")
+    parser.add_argument("--merge-method", default=None, choices=list(pr_watch.MERGE_METHODS))
+    parser.add_argument("--auto-merge", action="store_true", help="trusted auto-merge opt-in")
     args = parser.parse_args(argv[1:])
 
     repo = args.repo.resolve()
     resolved = settings.resolve(repo)
+    bot = args.bot or resolved.pr_watcher_bot
+    merge_method = args.merge_method or resolved.pr_watcher_merge_method
+    # --auto-merge (trusted, from the driver) OR the repo config for a direct manual invocation.
+    auto_merge = args.auto_merge or (args.bot is None and resolved.pr_watcher_auto_merge)
     try:
         state = pr_watch.parse_pr(fetch(repo, args.owner, args.name, args.pr))
     except Exception as exc:  # never crash on a fetch/parse failure
@@ -161,7 +200,7 @@ def main(  # noqa: PLR0913 - the seams are injected for testing; production uses
     max_threads = max(1, args.max_threads or resolved.pr_watcher_max_threads)  # clamp >= 1
 
     if not args.apply:  # dry: plan only, no writes
-        plan = pr_watch.plan_watch(state, bot=resolved.pr_watcher_bot, max_threads=max_threads)
+        plan = pr_watch.plan_watch(state, bot=bot, max_threads=max_threads)
         print(
             f"PR #{state.number} ({state.branch}): {len(plan.actionable)} actionable thread(s); "
             f"conflicting={plan.conflicting}"
@@ -179,9 +218,10 @@ def main(  # noqa: PLR0913 - the seams are injected for testing; production uses
         return 0
 
     model = models.model_for("software-engineer", resolved.models, default=args.model)
+    slug = f"{args.owner}/{args.name}"
     result = pr_watch.run_watch(
         state,
-        bot=resolved.pr_watcher_bot,
+        bot=bot,
         max_threads=max_threads,
         fixer=fixer or _fixer(repo, model),
         gh_exec=gh_exec or _gh_exec(repo),
@@ -191,10 +231,17 @@ def main(  # noqa: PLR0913 - the seams are injected for testing; production uses
         ),  # outward GitHub writes are always audited, regardless of the diagnostics toggle
         handle_conflict=handle_conflict
         or _conflict_handler(repo, args.owner, args.name, state.number, state.base),
+        # The merge seam is wired ALWAYS; `auto_merge` (not the seam's presence) is the switch, so
+        # the library's recomputed gate is on the executing path either way (ADR 0067). With
+        # auto_merge off, run_watch records "merge held: auto_merge is off" and merges nothing.
+        merge=merge or _merger(repo, slug, state.number, merge_method),
+        auto_merge=auto_merge,
+        confirm_merged=confirm_merged or _merge_confirmer(repo, slug, state.number),
     )
     print(
         f"pr-watch: fixed {len(result.fixed)}, rejected {len(result.rejected)}, "
-        f"pushed={result.pushed}"
+        f"pushed={result.pushed}, merged={result.merged}"
+        + (f" (held: {'; '.join(result.merge_blocked_by)})" if result.merge_blocked_by else "")
     )
     return 0
 

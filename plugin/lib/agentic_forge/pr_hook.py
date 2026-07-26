@@ -30,20 +30,37 @@ NOTICE = (
 _PR_URL = re.compile(r"https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/\d+")
 
 
-def _segments(command: str) -> list[list[str]]:
-    """Split a shell command into token lists per segment (``;`` / ``&&`` / ``||`` / ``|``).
+_SEPARATORS = "\n;&|"
+# Tokens that may precede the real command word: an env assignment (`GH_TOKEN=x gh …`) or a
+# wrapper. Without this a perfectly ordinary invocation is invisible to the hook.
+_WRAPPERS = frozenset({"command", "sudo", "env", "nohup", "time", "exec"})
+_ENV_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
-    Quote-aware via ``shlex``, so a separator *inside* quotes stays data. An unparseable command
-    yields no segments — the hook then simply stays silent, which is the safe direction for a
-    reminder."""
+
+def _segments(command: str) -> list[list[str]]:
+    """Split a shell command into token lists per segment (newline, ``;``, ``&&``, ``||``, ``|``).
+
+    Quote-aware, so a separator *inside* quotes stays data. Two things the plain
+    ``shlex.split`` version missed (ADR 0067): **newlines** — the most common separator in a
+    generated multi-line command, previously collapsed into ordinary whitespace so `push` and
+    `create` merged into one segment — and **unspaced** operators (`a;b`, `a&&b`), which stayed
+    glued to their neighbours. ``punctuation_chars`` makes the lexer emit them as tokens regardless
+    of spacing.
+
+    An unparseable command yields no segments — the hook then simply stays silent, which is the safe
+    direction for a reminder."""
     try:
-        tokens = shlex.split(command, comments=False, posix=True)
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=_SEPARATORS)
+        lexer.whitespace_split = True
+        lexer.whitespace = " \t\r"  # newline must reach the punctuation logic, not be eaten
+        lexer.commenters = ""  # keep `#` as data, as the previous comments=False did
+        tokens = list(lexer)
     except ValueError:
         return []
     segments: list[list[str]] = []
     current: list[str] = []
     for token in tokens:
-        if token in (";", "&&", "||", "|", "&"):
+        if token and all(ch in _SEPARATORS for ch in token):
             if current:
                 segments.append(current)
             current = []
@@ -54,13 +71,23 @@ def _segments(command: str) -> list[list[str]]:
     return segments
 
 
+def _command_word(tokens: list[str]) -> list[str]:
+    """Drop leading env assignments and wrappers so the real command word comes first."""
+    i = 0
+    while i < len(tokens) and (_ENV_ASSIGN.match(tokens[i]) or tokens[i] in _WRAPPERS):
+        i += 1
+    return tokens[i:]
+
+
 def is_pr_create(command: str) -> bool:
     """True if ``command`` actually invokes ``gh pr create`` at a command position.
 
-    Matches the first three meaningful tokens of a segment, so `gh pr create …` fires while
-    `gh pr view`, `gh pr merge`, and a quoted `"gh pr create"` inside a `--body` do not."""
+    Matches the first three meaningful tokens of a segment — after stripping env assignments and
+    wrappers — so `gh pr create …`, `GH_TOKEN=x gh pr create` and a create on its own line all fire,
+    while `gh pr view`, `gh pr merge`, and a quoted `"gh pr create"` inside a `--body` do not."""
     for tokens in _segments(command):
-        if len(tokens) >= 3 and tokens[0] == "gh" and tokens[1] == "pr" and tokens[2] == "create":
+        head = _command_word(tokens)
+        if len(head) >= 3 and head[0] == "gh" and head[1] == "pr" and head[2] == "create":
             return True
     return False
 
@@ -80,12 +107,22 @@ def pr_created_notice(payload: dict[str, Any]) -> str:
     dry `--help`, a failed create, or a mere mention produces nothing."""
     if str(payload.get("tool_name") or "") != "Bash":
         return ""
-    command = str((payload.get("tool_input") or {}).get("command", ""))
+    tool_input = payload.get("tool_input")
+    command = str(tool_input.get("command", "")) if isinstance(tool_input, dict) else ""
     if not is_pr_create(command):
         return ""
     response = payload.get("tool_response")
-    # The response shape varies (a plain string, or a dict with stdout/output) — flatten to text so
-    # the URL search works either way. `default=str` keeps a non-serialisable value from raising.
-    blob = response if isinstance(response, str) else json.dumps(response, default=str)
+    # Read the SUCCESS channel only. `gh pr create` on a branch that already has a PR fails with
+    # `a pull request … already exists:` followed by that PR's URL — on stderr. Searching the whole
+    # flattened response therefore announced a PR this session did not create, which in autonomous
+    # mode is the trigger to start watching (and possibly merging) someone else's PR (ADR 0067).
+    if isinstance(response, str):
+        blob = response
+    elif isinstance(response, dict) and "stdout" in response:
+        blob = str(response.get("stdout") or "")
+    else:
+        blob = json.dumps(response, default=str)
+    if "already exists" in blob:
+        return ""
     url = created_pr_url(blob)
     return f"{NOTICE}\nPR: {url}" if url else ""

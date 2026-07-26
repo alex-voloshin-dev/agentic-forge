@@ -177,24 +177,38 @@ def test_run_watch_merges_when_gate_open() -> None:
         gh_exec=calls.append, push=lambda: None,
         record=log.append,
         merge=lambda: merged.append(True),
-        merge_decision=pr_watch.MergeDecision(ready=True),
+        auto_merge=True,
     )
     assert result.merged is True and merged == [True]
     assert any("merged" in line for line in log)
 
 
 def test_run_watch_reports_why_merge_held() -> None:
+    # The gate is recomputed from the STATE this pass saw, so a caller cannot assert readiness
+    # (ADR 0067). Red checks must hold it shut even with auto_merge on and the seam wired.
     calls, log = _seams()
     result = pr_watch.run_watch(
-        _state(), bot=_BOT, max_threads=10,
+        _state(checks="PENDING"), bot=_BOT, max_threads=10,
         fixer=lambda t: ("fixed", "ok"),
         gh_exec=calls.append, push=lambda: None,
         record=log.append,
         merge=lambda: pytest.fail("must not merge on a shut gate"),
-        merge_decision=pr_watch.MergeDecision(ready=False, reasons=["checks: PENDING"]),
+        auto_merge=True,
     )
     assert result.merged is False and result.merge_blocked_by == ["checks: PENDING"]
     assert any("merge held" in line for line in log)
+
+
+def test_run_watch_will_not_merge_with_auto_merge_off() -> None:
+    # The second, independent key: a perfectly ready PR with the seam wired still must not merge.
+    result = pr_watch.run_watch(
+        _state(), bot=_BOT, max_threads=10,
+        fixer=lambda t: ("fixed", "ok"),
+        gh_exec=lambda a: None, push=lambda: None,
+        merge=lambda: pytest.fail("auto_merge is off — must not merge"),
+        auto_merge=False,
+    )
+    assert result.merged is False and result.merge_blocked_by == ["auto_merge is off"]
 
 
 def test_run_watch_never_merges_in_the_pass_that_pushed() -> None:
@@ -207,7 +221,7 @@ def test_run_watch_never_merges_in_the_pass_that_pushed() -> None:
         gh_exec=calls.append, push=lambda: None,
         record=log.append,
         merge=lambda: pytest.fail("must not merge in the same pass as a fix push"),
-        merge_decision=pr_watch.MergeDecision(ready=True),
+        auto_merge=True,
     )
     assert result.pushed is True and result.merged is False
     assert result.merge_blocked_by == ["fixes pushed this pass; awaiting re-check"]
@@ -264,7 +278,7 @@ def test_failed_merge_command_but_pr_is_merged_reports_merged() -> None:
         fixer=lambda t: ("fixed", "ok"),
         gh_exec=lambda a: None, push=lambda: None, record=log.append,
         merge=boom,
-        merge_decision=pr_watch.MergeDecision(ready=True),
+        auto_merge=True,
         confirm_merged=lambda: True,
     )
     assert result.merged is True and result.merge_command_failed is True
@@ -277,7 +291,7 @@ def test_failed_merge_command_and_pr_not_merged_reports_the_failure() -> None:
         fixer=lambda t: ("fixed", "ok"),
         gh_exec=lambda a: None, push=lambda: None,
         merge=lambda: (_ for _ in ()).throw(RuntimeError("merge conflict")),
-        merge_decision=pr_watch.MergeDecision(ready=True),
+        auto_merge=True,
         confirm_merged=lambda: False,
     )
     assert result.merged is False and result.merge_command_failed is True
@@ -292,7 +306,7 @@ def test_successful_command_still_defers_to_the_observed_state() -> None:
         fixer=lambda t: ("fixed", "ok"),
         gh_exec=lambda a: None, push=lambda: None,
         merge=lambda: None,
-        merge_decision=pr_watch.MergeDecision(ready=True),
+        auto_merge=True,
         confirm_merged=lambda: False,
     )
     assert result.merged is False and result.merge_command_failed is False
@@ -306,7 +320,7 @@ def test_without_confirmation_seam_a_merge_failure_still_raises() -> None:
             fixer=lambda t: ("fixed", "ok"),
             gh_exec=lambda a: None, push=lambda: None,
             merge=lambda: (_ for _ in ()).throw(RuntimeError("boom")),
-            merge_decision=pr_watch.MergeDecision(ready=True),
+            auto_merge=True,
         )
 
 
@@ -316,6 +330,82 @@ def test_run_watch_needs_both_seam_and_decision_to_merge() -> None:
         _state(), bot=_BOT, max_threads=10,
         fixer=lambda t: ("fixed", "ok"),
         gh_exec=lambda a: None, push=lambda: None,
-        merge_decision=pr_watch.MergeDecision(ready=True),
+        auto_merge=True,
     )
     assert result.merged is False and result.merge_blocked_by == []
+
+
+# --- ADR 0067: the gate is recomputed, and it sees what the old one missed -----
+
+
+def test_changes_requested_blocks_even_with_no_threads() -> None:
+    # A "request changes" review whose body is a summary creates NO review thread, so the
+    # thread-count clause alone would let the gate open over an explicit objection.
+    state = _state(review_states=["CHANGES_REQUESTED"])
+    decision = pr_watch.merge_readiness(state, bot=_BOT)
+    assert decision.ready is False
+    assert any("requesting changes" in r for r in decision.reasons)
+
+
+def test_only_the_latest_review_per_author_counts() -> None:
+    # Changes requested and then approved must not keep blocking.
+    payload = {"data": {"repository": {"pullRequest": {
+        "number": 7, "mergeable": "MERGEABLE", "headRefName": "f", "baseRefName": "master",
+        "state": "OPEN", "reviewThreads": {"nodes": []},
+        "reviews": {"nodes": [
+            {"state": "CHANGES_REQUESTED", "author": {"login": "rev"}},
+            {"state": "APPROVED", "author": {"login": "rev"}},
+        ]},
+        "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}]},
+    }}}}
+    state = pr_watch.parse_pr(payload)
+    assert state.review_states == ["APPROVED"]
+    assert pr_watch.merge_readiness(state, bot=_BOT).ready is True
+
+
+def test_truncated_thread_list_blocks() -> None:
+    # >100 threads: a MISSING thread must not read as an ABSENT one — the same "absence is not
+    # green" rule the NONE check rollup already enforces.
+    decision = pr_watch.merge_readiness(_state(threads_truncated=True), bot=_BOT)
+    assert decision.ready is False and any("truncated" in r for r in decision.reasons)
+
+
+def test_a_closed_or_merged_pr_is_not_mergeable() -> None:
+    for pr_state in ("CLOSED", "MERGED"):
+        decision = pr_watch.merge_readiness(_state(state=pr_state), bot=_BOT)
+        assert decision.ready is False, pr_state
+        assert any(pr_state in r for r in decision.reasons)
+
+
+def test_confirmation_failure_does_not_lose_the_pass() -> None:
+    # The merge landed; an unreadable status must still be reported and audited, not raised away.
+    log: list[str] = []
+    result = pr_watch.run_watch(
+        _state(), bot=_BOT, max_threads=10,
+        fixer=lambda t: ("fixed", "ok"),
+        gh_exec=lambda a: None, push=lambda: None, record=log.append,
+        merge=lambda: None, auto_merge=True,
+        confirm_merged=lambda: (_ for _ in ()).throw(RuntimeError("gh: HTTP 502")),
+    )
+    assert result.merged is False
+    assert any("unconfirmed" in r for r in result.merge_blocked_by)
+    assert log, "the merge attempt must be audited even when its outcome is unknown"
+
+
+def test_success_but_unmerged_always_carries_a_reason() -> None:
+    # Otherwise the result is byte-identical to "no merge was ever attempted".
+    log: list[str] = []
+    result = pr_watch.run_watch(
+        _state(), bot=_BOT, max_threads=10,
+        fixer=lambda t: ("fixed", "ok"),
+        gh_exec=lambda a: None, push=lambda: None, record=log.append,
+        merge=lambda: None, auto_merge=True, confirm_merged=lambda: False,
+    )
+    assert result.merged is False and result.merge_blocked_by != []
+    assert log[-1] != "#7: merge held: "
+
+
+def test_parse_merged_state_vetoes_a_stray_timestamp() -> None:
+    assert pr_watch.parse_merged({"state": "OPEN", "mergedAt": "2026-01-01"}) is False
+    assert pr_watch.parse_merged({"state": "OPEN", "mergedAt": True}) is False
+    assert pr_watch.parse_merged({"mergedAt": "2026-01-01"}) is True  # no state -> fallback

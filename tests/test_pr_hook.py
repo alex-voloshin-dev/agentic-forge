@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from agentic_forge import pr_hook
 
 _URL = "https://github.com/owner/name/pull/11"
@@ -110,3 +112,57 @@ def test_hook_never_blocks_on_malformed_stdin() -> None:
     # A reminder hook must not break a session, whatever it is fed.
     done = _run_hook("not json at all")
     assert done.returncode == 0
+
+
+# --- ADR 0067: separators and success-channel precision -----------------------
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        # THE flagship shape: the create lands on its own line
+        "git push -u origin feat/x\ngh pr create --fill",
+        "# comment first\ngh pr create --fill",
+        "git push;gh pr create",                            # unspaced `;`
+        "git push&&gh pr create --fill",                    # unspaced `&&`
+        "GH_TOKEN=x gh pr create --fill",                   # env assignment prefix
+        "command gh pr create --fill",                      # wrapper
+        "gh pr create --fill | tee log",
+    ],
+)
+def test_detects_every_real_invocation_shape(command: str) -> None:
+    # A missed reminder is silent: nothing tells the operator the watch never started.
+    assert pr_hook.is_pr_create(command) is True, command
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "gh pr view 11", "gh pr merge 11 --rebase", "gh pr checks 11", "gh pr list",
+        'gh pr comment 1 --body "run gh pr create next"',
+        'echo "gh pr create"',
+        'gh pr comment 5 --body "line1\ngh pr create\nline3"',  # newline INSIDE quotes stays data
+    ],
+)
+def test_near_misses_still_do_not_fire(command: str) -> None:
+    assert pr_hook.is_pr_create(command) is False, command
+
+
+def test_failed_create_whose_error_carries_a_url_stays_silent() -> None:
+    # `gh pr create` on a branch that already has a PR fails — and prints THAT PR's URL on stderr.
+    # Announcing it would start an autonomous watch over a PR this session did not create.
+    response = {
+        "stdout": "",
+        "stderr": 'a pull request for branch "x" into branch "y" already exists:\n'
+                  "https://github.com/owner/name/pull/11",
+    }
+    assert pr_hook.pr_created_notice(_payload("gh pr create --fill", response)) == ""
+
+
+def test_success_is_read_from_stdout() -> None:
+    response = {"stdout": _URL, "stderr": "some warning mentioning /pull/99"}
+    assert _URL in pr_hook.pr_created_notice(_payload("gh pr create --fill", response))
+
+
+def test_non_dict_tool_input_does_not_raise() -> None:
+    assert pr_hook.pr_created_notice({"tool_name": "Bash", "tool_input": "gh pr create"}) == ""

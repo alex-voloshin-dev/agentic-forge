@@ -84,7 +84,9 @@ def test_render_and_system_prompt() -> None:
         ("none", "none"),
         ("", "invalid"),  # empty reply is NOT a "no skill fits" decision — no answer at all
         ("definitely no skill", "invalid"),  # 'no' is not 'none', and nothing known is named
-        ("I'd use product, or maybe plan", "product"),  # first-mentioned wins
+        # Two names and no commitment: "first-mentioned wins" was a GUESS dressed as a decision.
+        # An ambiguous reply is no decision at all (ADR 0067).
+        ("I'd use product, or maybe plan", "invalid"),
         ("skill-factory", "skill-factory"),
     ],
 )
@@ -356,3 +358,43 @@ def test_run_tier1_refuses_miswired_plugin(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="wiring problems"):
         run_tier1(tmp_path, run, runs=1, workdir=tmp_path)
+
+
+# --- ADR 0067: the guards the token cap alone could not provide ---------------
+
+
+def test_non_latin_prose_is_not_a_routing_decision() -> None:
+    # THE case ADR 0064 was written for — and missed. `[a-z0-9-]+` finds no tokens in Cyrillic, so
+    # the essay sailed under MAX_ANSWER_TOKENS and was scored as a vote for the one English word
+    # it contained.
+    ru = "Я изучу структуру репозитория и подготовлю research по конкурентам, прежде чем отвечать."
+    assert parse_selection(ru, sorted(ON_LISTING)) == "invalid"
+
+
+def test_a_negated_mention_is_not_a_vote() -> None:
+    # Scanning for the first known word scored this as a vote for `research` — on a
+    # should_not_trigger prompt that is a false fire against a router that answered correctly.
+    reply = "Your request mentions research, but none of the skills fit."
+    assert parse_selection(reply, sorted(ON_LISTING)) == "invalid"
+
+
+def test_the_model_performing_the_request_is_not_a_vote() -> None:
+    # The English twin of the non-Latin case: names a skill innocently, carries no negation.
+    reply = "I will now analyse the repository and prepare a research summary for you."
+    assert parse_selection(reply, sorted(ON_LISTING)) == "invalid"
+
+
+def test_a_natural_terse_answer_is_still_accepted() -> None:
+    # These run to 13 tokens; rejecting them made a correctly-answering router fail the gate.
+    for reply in (
+        "I'd route this to the `research` skill — it's the best match.",
+        "The request is about competitive research, so the best matching skill is `research`.",
+    ):
+        assert parse_selection(reply, sorted(ON_LISTING)) == "research", reply
+
+
+def test_a_decline_is_a_decision_however_phrased() -> None:
+    # `none` stays canonical; these are the same DECISION, and counting them as silence would
+    # drain specificity samples exactly where the router is right.
+    for reply in ("No skill fits.", "n/a", "not applicable", "Nothing fits."):
+        assert parse_selection(reply, sorted(ON_LISTING)) == "none", reply

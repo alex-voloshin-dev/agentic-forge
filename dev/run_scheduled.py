@@ -85,6 +85,12 @@ def _pr_list(repo: Path) -> Callable[[str, str], list[int]]:  # pragma: no cover
 
 def _watch_one_pr(repo: Path) -> Callable[[str, str, int], None]:  # pragma: no cover -- subprocess
     def watch_one(owner: str, name: str, number: int) -> None:
+        # TRUST BOUNDARY (ADR 0067): resolve the watcher's own settings from the tree as it stands
+        # BEFORE the PR is checked out. `<repo>/.agentic-forge/config.json` is a committed, tracked
+        # file, so a PR could otherwise rewrite `pr_watcher.bot` (hiding its author's threads from
+        # the gate) or set `auto_merge`, and the watcher would read its kill switch from inside its
+        # own blast radius. The trusted values are passed down as argv.
+        trusted = settings.resolve(repo)
         # Check out the PR branch first: the fixer commits to HEAD and the conflict handler merges
         # into the current branch, so both need the PR's head branch checked out (same-repo PRs).
         checkout = subprocess.run(
@@ -94,11 +100,15 @@ def _watch_one_pr(repo: Path) -> Callable[[str, str, int], None]:  # pragma: no 
         if checkout.returncode != 0:  # ABORT — never run --apply on the wrong branch (HEAD unmoved)
             print(f"pr-watch: skip #{number} ({owner}/{name}) — checkout failed", file=sys.stderr)
             return
-        subprocess.run(
-            [sys.executable, str(_REPO_ROOT / "dev" / "pr_watch.py"), "--repo", str(repo),
-             "--owner", owner, "--name", name, "--pr", str(number), "--apply"],
-            cwd=str(repo), timeout=1800,
-        )
+        cmd = [
+            sys.executable, str(_REPO_ROOT / "dev" / "pr_watch.py"), "--repo", str(repo),
+            "--owner", owner, "--name", name, "--pr", str(number), "--apply",
+            "--bot", trusted.pr_watcher_bot,          # from the PRE-checkout tree
+            "--merge-method", trusted.pr_watcher_merge_method,
+        ]
+        if trusted.pr_watcher_auto_merge:
+            cmd.append("--auto-merge")
+        subprocess.run(cmd, cwd=str(repo), timeout=1800)
 
     return watch_one
 

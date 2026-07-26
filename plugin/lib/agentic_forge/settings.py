@@ -160,7 +160,10 @@ def _settings_from(data: dict[str, Any]) -> Settings:
         pr_watcher_bot=str(pr["bot"]),
         pr_watcher_max_threads=_int(pr["max_threads"], DEFAULTS["pr_watcher"]["max_threads"]),
         pr_watcher_repos=[str(r) for r in repos],
-        pr_watcher_auto_merge=_coerce_bool(pr.get("auto_merge")),
+        # `is True` — NOT _coerce_bool: merging is irreversible, so it demands the exact documented
+        # boolean rather than the widened truthy set ("yes"/"on"/1) that a config slipping past an
+        # absent `jsonschema` could otherwise carry (ADR 0067).
+        pr_watcher_auto_merge=pr.get("auto_merge") is True,
         pr_watcher_merge_method=method,
         pr_watcher_poll_seconds=_int(
             pr.get("poll_seconds"), DEFAULTS["pr_watcher"]["poll_seconds"]

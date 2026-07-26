@@ -65,11 +65,17 @@ PR_QUERY = (
     "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name)"
     "{pullRequest(number:$number){number mergeable isDraft createdAt headRefName baseRefName "
     "isCrossRepository "
-    "reviewThreads(first:100){nodes{id isResolved "
+    "state "
+    "reviewThreads(first:100){pageInfo{hasNextPage} nodes{id isResolved "
     "comments(first:1){nodes{body path line author{login}}}}} "
     "reviews(first:50){nodes{state author{login}}} "
     "commits(last:1){nodes{commit{statusCheckRollup{state}}}}}}}"
 )
+
+# Review states that must block a merge. A "request changes" review with only a summary body
+# creates NO review thread, so without this the gate would open over an explicit objection
+# (ADR 0067).
+BLOCKING_REVIEW_STATES = ("CHANGES_REQUESTED",)
 
 
 @dataclass(frozen=True)
@@ -96,9 +102,12 @@ class PrState:
     mergeable: str  # MERGEABLE | CONFLICTING | UNKNOWN
     threads: list[ReviewThread]
     draft: bool = False
-    created_at: str = ""  # ISO-8601 from the API; the caller turns it into an age
+    created_at: str = ""  # ISO-8601 from the API; report-only (no age-based gate clause — 0063 §3)
     checks: str = "NONE"  # statusCheckRollup state: SUCCESS | PENDING | FAILURE | ERROR | NONE
     review_authors: list[str] = field(default_factory=list)  # logins that submitted a review
+    review_states: list[str] = field(default_factory=list)  # latest review state per author
+    state: str = "OPEN"  # OPEN | CLOSED | MERGED — the loop's terminal signal (ADR 0067)
+    threads_truncated: bool = False  # >100 review threads: the thread list is INCOMPLETE
 
     @property
     def conflicting(self) -> bool:
@@ -176,7 +185,29 @@ def parse_pr(data: dict[str, Any]) -> PrState:
         created_at=str(pr.get("createdAt", "") or ""),
         checks=_checks_state(pr),
         review_authors=_review_authors(pr),
+        review_states=_review_states(pr),
+        state=str(pr.get("state", "OPEN") or "OPEN"),
+        threads_truncated=bool(
+            ((pr.get("reviewThreads") or {}).get("pageInfo") or {}).get("hasNextPage", False)
+        ),
     )
+
+
+def _review_states(pr: dict[str, Any]) -> list[str]:
+    """The LATEST review state per author, upper-cased.
+
+    Per author, because a reviewer who requested changes and then approved must not keep blocking;
+    GitHub returns reviews in chronological order, so the last one per login wins."""
+    nodes = ((pr.get("reviews") or {}).get("nodes")) or []
+    latest: dict[str, str] = {}
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        login = str((node.get("author") or {}).get("login") or "")
+        state = str(node.get("state") or "").strip().upper()
+        if login and state:
+            latest[login] = state
+    return list(latest.values())
 
 
 def _checks_state(pr: dict[str, Any]) -> str:
@@ -216,9 +247,11 @@ def merge_readiness(state: PrState, *, bot: str) -> MergeDecision:
     Pure — no clock, no I/O, so it is fully testable. Every unmet condition adds a human-readable
     reason; ``ready`` is exactly ``not reasons``.
 
-    Conditions: not a draft; the check rollup is green (``NONE`` — no CI at all — blocks, because
-    "no builds" is not "green builds"); no unresolved actionable threads (a triaged-and-resolved PR
-    *is* comment-free); and ``MERGEABLE``.
+    Conditions: the PR is ``OPEN``; not a draft; the check rollup is green (``NONE`` — no CI at all
+    — blocks, because "no builds" is not "green builds"); no unresolved actionable threads (a
+    triaged-and-resolved PR *is* comment-free) **and the thread list was not truncated** (a missing
+    thread must not read as an absent one); no reviewer's latest state is ``CHANGES_REQUESTED``
+    (such a review may carry no inline thread at all); and ``MERGEABLE``.
 
     **There is deliberately no "wait for reviewer X" clause.** The window an external reviewer gets
     is the watch's own poll interval (``pr_watcher.poll_seconds``, default 600): the first pass sees
@@ -227,6 +260,8 @@ def merge_readiness(state: PrState, *, bot: str) -> MergeDecision:
     shorter (a static gate finishing in ~30s would otherwise open the gate before any reviewer
     looked). Shortening ``poll_seconds`` shortens the reviewer's window with it."""
     reasons: list[str] = []
+    if state.state.upper() != "OPEN":
+        reasons.append(f"state: {state.state or 'UNKNOWN'}")
     if state.draft:
         reasons.append("draft PR")
     if not state.checks_green:
@@ -234,6 +269,11 @@ def merge_readiness(state: PrState, *, bot: str) -> MergeDecision:
     open_threads = actionable_threads(state, bot=bot)
     if open_threads:
         reasons.append(f"{len(open_threads)} unresolved review thread(s)")
+    if state.threads_truncated:
+        reasons.append("review threads truncated (>100) — cannot confirm all are resolved")
+    blocking = [s for s in state.review_states if s in BLOCKING_REVIEW_STATES]
+    if blocking:
+        reasons.append(f"{len(blocking)} review(s) requesting changes")
     if state.mergeable.upper() != "MERGEABLE":
         reasons.append(f"mergeable: {state.mergeable or 'UNKNOWN'}")
     return MergeDecision(ready=not reasons, reasons=reasons)
@@ -294,12 +334,20 @@ def parse_merged(payload: Any) -> bool:
     """True if the ``gh pr view --json state,mergedAt`` payload says the PR is merged.
 
     Tolerant of shape and of junk (a `gh` error object, a string, ``None``): anything that is not a
-    clear MERGED reads as *not merged*, so a failed status read never fabricates a merge."""
+    clear MERGED reads as *not merged*, so a failed status read never fabricates a merge.
+
+    An explicit, recognised ``state`` **vetoes** ``mergedAt`` — the fallback is a tiebreak for a
+    missing state, not an alternative source of truth (ADR 0067). ``mergedAt`` must also be a real
+    string, so a stray ``True`` cannot read as merged."""
     if not isinstance(payload, dict):
         return False
-    if str(payload.get("state", "")).strip().upper() == "MERGED":
+    state = str(payload.get("state", "")).strip().upper()
+    if state == "MERGED":
         return True
-    return bool(str(payload.get("mergedAt") or "").strip())
+    if state in ("OPEN", "CLOSED"):
+        return False  # the PR says what it is; don't let a stray timestamp overrule it
+    merged_at = payload.get("mergedAt")
+    return isinstance(merged_at, str) and bool(merged_at.strip())
 
 
 def pr_comment_argv(repo: str, number: int, body: str) -> list[str]:
@@ -343,7 +391,7 @@ def run_watch(
     record: Callable[[str], object] | None = None,
     handle_conflict: Callable[[], bool] | None = None,
     merge: Merge | None = None,
-    merge_decision: MergeDecision | None = None,
+    auto_merge: bool = False,
     confirm_merged: ConfirmMerged | None = None,
 ) -> WatchResult:
     """Run the bounded auto-fix loop over a PR's actionable threads (ADR 0044): per thread the
@@ -360,11 +408,20 @@ def run_watch(
     because the new commit has not been tested yet, so the merge waits for the next poll. Never
     force-pushes.
 
+    **Merging requires BOTH a ``merge`` seam and ``auto_merge=True``, and the gate is recomputed
+    here** (ADR 0067). The caller does not get to assert readiness: ``run_watch`` calls
+    :func:`merge_readiness` on the ``state`` it was given, so a caller that forgets the check — or
+    computes it against a stale snapshot — cannot merge. ``auto_merge`` mirrors
+    ``settings.pr_watcher.auto_merge`` and defaults to ``False``, so the capability is off unless a
+    caller passes it explicitly.
+
     **``confirm_merged`` decides the outcome when given** (ADR 0065): ``gh pr merge`` merges on
     GitHub and *then* does local work that can fail on its own, so a non-zero exit does not mean the
     PR is unmerged. With the seam wired, a failing merge command is recorded
     (``merge_command_failed``) but ``merged`` comes from reading the PR's state. Without it, the
     failure propagates as before — guessing in either direction would be worse than raising.
+    A confirmation that *itself* raises is caught too: the merge already happened, so the pass is
+    recorded with an unconfirmed outcome rather than lost to an exception (ADR 0067).
 
     ``record`` (if given) logs each action for diagnostics. The caller gates this on
     ``settings.pr_watcher.enabled`` + a non-dry run."""
@@ -397,12 +454,17 @@ def run_watch(
         if record:  # the push is an outward write — audit it explicitly (invariant: audit all)
             record(f"pushed HEAD:{state.branch} on #{state.number}")
 
-    if merge is not None and merge_decision is not None:
-        if result.pushed or result.fixed:
+    if merge is not None:
+        # The gate is recomputed HERE, from the state this pass actually saw — a caller cannot
+        # assert readiness (ADR 0067). `auto_merge` is the second, independent key.
+        decision = merge_readiness(state, bot=bot)
+        if not auto_merge:
+            result.merge_blocked_by = ["auto_merge is off"]
+        elif result.pushed or result.fixed:
             # This pass changed the head. The decision's green checks describe the OLD commit, so
             # merging now would ship an untested one — wait for the next poll (ADR 0063 §4).
             result.merge_blocked_by = ["fixes pushed this pass; awaiting re-check"]
-        elif merge_decision.ready:
+        elif decision.ready:
             failure: Exception | None = None
             try:
                 merge()
@@ -412,9 +474,19 @@ def run_watch(
             if confirm_merged is not None:
                 # Ground truth: read the PR. `gh pr merge` merges remotely and THEN does local work
                 # that can fail on its own, so its exit status is not the outcome (ADR 0065).
-                result.merged = confirm_merged()
-                if failure is not None and not result.merged:
-                    result.merge_blocked_by = [f"merge failed: {failure}"]
+                try:
+                    result.merged = confirm_merged()
+                except Exception as exc:  # noqa: BLE001 — the merge may already have landed
+                    # Never let the CONFIRMATION lose the pass: the irreversible action is done, so
+                    # an unreadable status must still be reported and audited (ADR 0067).
+                    result.merge_blocked_by = [f"merge outcome unconfirmed: {exc}"]
+                else:
+                    if not result.merged:
+                        result.merge_blocked_by = [
+                            f"merge failed: {failure}"
+                            if failure is not None
+                            else "merge command returned but the PR does not read as merged"
+                        ]
             elif failure is not None:
                 # No way to observe the truth — do not guess in either direction. Propagating keeps
                 # the pre-0065 contract for callers that wire no confirmation seam.
@@ -422,7 +494,7 @@ def run_watch(
             else:
                 result.merged = True
         else:
-            result.merge_blocked_by = list(merge_decision.reasons)
+            result.merge_blocked_by = list(decision.reasons)
         if record:
             if result.merged:
                 note = "merged" + (
