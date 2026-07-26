@@ -28,6 +28,23 @@ language/framework idioms.
   justify any new dependency.
 - **Leave the gate green.** Match the repo's lint/type/test gate before handing off.
 
+## Debugging a defect (before you write the fix)
+
+- **Systemic or per-input?** If it fails for *every* case — never worked for anyone, since launch
+  — the cause is almost always parsing, serialization, or one config/wiring mistake. Do not
+  theorize about input-specific edge cases. A query showing the feature never once succeeded is
+  the tell.
+- **Two-strike rule.** After ~2 failed hypotheses, **stop shipping fixes**. Get ground truth
+  first: add temporary diagnostic logging (or raise existing DEBUG logs to INFO) and capture one
+  real failing run before the next change. Production log levels routinely hide diagnostics that
+  already exist; a tiny raise-then-revert is faster than another speculative fix.
+- **Read the signal, not the theory.** An empty result on an HTTP 200 with a populated body is a
+  **parsing** bug, not a reachability bug. External APIs are not type-uniform — the same object can
+  return `"0.03"` as a string beside sibling fields that are numbers.
+- **Verify against the real failure, not the unit tests.** Field case: two consecutive wrong fixes
+  were reviewed, merged and deployed, both with green tests; one diagnostic run found the cause
+  immediately.
+
 ## Don't
 
 - Don't restate or re-derive well-known concepts in code comments or output — be concise.

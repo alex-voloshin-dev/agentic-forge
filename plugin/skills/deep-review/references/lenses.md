@@ -24,6 +24,18 @@ target; one reviewer per lens, prompted adversarially, returning structured find
   should not.
 - **Safety defaults** — are protective behaviors enforced, not opt-in? (a sandbox/isolation
   that only holds when a flag is passed is a latent hazard).
+- **Concurrent-change conflicts** — *no textual conflict ≠ no semantic conflict.* When the diff
+  adds or changes a **claim, lock, lease, dedup guard, or status transition**, look for other
+  in-flight branches and open PRs touching the **same state transition**, not merely the same
+  files: `gh pr list` plus a grep for the transition's enum values and the table/column it writes.
+  Two independent implementations of one shared precondition are usually mutually exclusive.
+  Observed: one PR pre-claimed `QUEUED → PROCESSING` in the scheduler, another added an atomic
+  `UPDATE … WHERE status = QUEUED` in the worker; different files, clean merge, both CI runs green
+  (each tested only its own entry point) — together they halted all processing. Reconcile to a
+  single guard point before either lands, and prefer claiming **atomically at the point of work**:
+  an upstream pre-claim opens a window where the row looks claimed but no worker owns it, which
+  recovery sweeps then misclassify. For the tests lens, the tell is that **cross-entry-point**
+  coverage is what would have caught it.
 
 ## Docs
 

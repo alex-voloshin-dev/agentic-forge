@@ -36,6 +36,13 @@ Follow [multi-aspect-review.md](../../patterns/multi-aspect-review.md):
    - **style / lint / warnings** → run the detected stack's real tools (the `stacks` profile's
      toolchain — ruff/mypy, eslint/tsc, go vet, … — preferring the repo's declared commands) and
      treat their output as evidence.
+   - **concurrent-change conflicts** → whenever the diff adds or changes a **claim, lock, lease,
+     dedup guard, or status transition**, check other in-flight branches and open PRs for the
+     **same state transition** (`gh pr list` + grep the transition's enum values and the
+     table/column it writes) — not merely the same files. *No textual conflict ≠ no semantic
+     conflict*: two independent guards on one precondition are usually mutually exclusive, merge
+     cleanly, and pass both CI runs because each tests only its own entry point. Reconcile to one
+     guard point before either lands; prefer claiming atomically **at the point of work**.
 3. **Verify** each finding against the source (open the file, re-run the tool) — drop or
    downgrade what doesn't hold.
 4. **Synthesize one verdict.** Aggregate across aspects: **any `blocker`/`major` → `changes`**,
