@@ -34,7 +34,9 @@ art, market/competitors, user needs, technical feasibility. Not for deciding req
    the load-bearing claims against their sources (drop unsupported ones).
 5. **Analyse → recommend.** Draw conclusions and a recommendation for the `product` phase.
 6. **Write the brief.** Emit `research-brief.md` (frontmatter `type, feature, status, date,
-   sources[]`; body = findings, conclusions, recommendations) under `docs/sdlc/<feature-slug>/`;
+   sources[]`; body = findings, conclusions, recommendations; **valid YAML — quote any value
+   containing a colon**, which a source URL always has, or the whole artifact fails to parse for
+   `product`) under `docs/sdlc/<feature-slug>/`;
    validate it (`handoff.validate_header(..., expected_type="research-brief")`).
 7. **Skeptic pass (bounded).** Step 4 is your *own* verification; this is an **independent** one.
    Fork a fresh `reviewer` (via `Task`) to attack the brief adversarially — every load-bearing claim

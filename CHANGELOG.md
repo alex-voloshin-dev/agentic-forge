@@ -7,6 +7,41 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Fixed — every artifact-writing skill now demands valid YAML frontmatter (ADR 0066)
+
+Found by the **first live Tier-3 run**. The `spine` scenario failed on `architecture` and `plan` —
+the artifacts existed but did not *parse*:
+
+```
+invalid YAML in frontmatter: mapping values are not allowed here
+  ... New module-level mapping {"high": 0, "normal": 1, "low": 2} serv ...
+```
+
+An unquoted colon inside a frontmatter list entry ends the value and makes the line look like a
+mapping; one such value invalidates the **whole artifact**, so every downstream phase gets nothing.
+
+The revealing part is where the guidance already lived: `ux-design` (ADR 0023) says *"quote any
+value containing a colon"*, and one E2E scenario repeats it in its prompts — **nobody else did**. So
+this had been hit before and patched twice, locally, in the two places where it hurt, and never
+generalised. `architecture`, `plan`, `product`, `research` and `marketing` all tell a model to write
+YAML frontmatter and none warned about it; `spine` had been passing on content that happened to
+contain no colon.
+
+The same run proved the cause by contrast: `product-inception` — whose prompt *does* carry the hint —
+passed `architecture` while `spine` failed it, same skill, same model, same run.
+
+- All five now state the constraint, each naming **its own** likely offender (a risk describing
+  `{"high": 0}`; a checkpoint asserting `PRIORITY_RANK == {"high": 0}`; an acceptance criterion; a
+  cited source **URL**, which always contains `https:`) plus the consequence, so it reads as
+  load-bearing rather than stylistic. Six of six artifact-writing skills now carry it.
+- **The fix is in the skills, not the E2E prompt.** Copying the hint into the `spine` scenario would
+  have made the test green while every user running `/architecture` in their own repo still produced
+  an unparseable artifact. Patching the fixture to match a broken product is exactly how this gap
+  survived. The scenario prompts are left thin on purpose.
+- Also an argument for running Tier-3 **live** on spine changes: the dry run (wiring only) was green,
+  and Tier-0/1/2 all passed. Only the live E2E — which asks a model to write the artifact and then
+  parses it — could surface this.
+
 ### Fixed — Tier-1 scored broken router calls as routing decisions (ADR 0064)
 
 A Tier-1 run on six **unchanged** skills would not stabilise: `product`, measured three times
