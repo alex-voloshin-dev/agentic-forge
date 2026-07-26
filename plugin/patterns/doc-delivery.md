@@ -46,6 +46,12 @@ So every document phase working on `<feature-slug>` shares `../wt-docs-<slug>` o
 shared workspace, which is why no single phase removes it (unlike `develop`, which owns and removes
 its own).
 
+## Language
+
+The delivered documents, the commit messages and the PR body follow the **project's** language
+convention (usually English). The summary reported back in the conversation follows the **user's**
+language — see [handoff.md](handoff.md#language-artifact-vs-summary).
+
 ## What this does not promise
 
 **A docs-only PR may never auto-merge.** The gate blocks on `checks: NONE` — "no builds" is not

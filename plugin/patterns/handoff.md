@@ -73,6 +73,15 @@ frontmatter, or a header that fails its schema (wrong `type`, missing required f
 enum). Use `validate_header(header, expected_type=...)` to get the list of problems without
 raising, and `schema_for(type)` to inspect a schema.
 
+## Language: artifact vs summary
+
+**Written artifacts follow the project's convention** — for most repos that is English, and it
+covers files, commit messages and PR text. **The user-facing summary follows the language of the
+conversation.** These are different audiences: the artifact outlives the session and is read by the
+project, the summary is read by the person in front of you. When the two differ, say so once
+(*"the artifacts are in English; this summary is in your language"*) rather than switching the
+artifacts to match the chat.
+
 ## A subagent's self-report is a claim, not a record
 
 The artifact is the contract precisely because the *narration around it* is unreliable. A

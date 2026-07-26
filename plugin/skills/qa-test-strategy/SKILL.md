@@ -38,6 +38,15 @@ reviewing already-written code (`code-review`), or assembling a release (`releas
    (minimal repro, expected vs actual, evidence, severity rationale) and the charter-driven
    exploratory pass whose findings feed the strategy's risk areas.
 
+## Environment discipline (non-negotiable)
+
+**Never issue mutating requests (`POST`/`PUT`/`PATCH`/`DELETE`) against production while verifying.**
+Rate-limited public endpoints are the worst case: each call burns a real quota unit, warms a
+production cache keyed by the target, and makes every later assertion on that endpoint
+non-reproducible — including CI's. Verify with a read-only request, a local or stubbed environment,
+or a recorded fixture. If a live mutation is genuinely required, it needs **explicit human
+authorization and a named cleanup step** in the strategy.
+
 ## Output
 
 A `test-strategy` handoff: scope, risk areas, the test levels to cover, and a prioritized case

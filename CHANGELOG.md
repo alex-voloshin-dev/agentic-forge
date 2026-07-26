@@ -7,6 +7,50 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Added — the field report's P2 batch (ADR 0075)
+
+**Blocked: dumping a remote host's environment.** A `printenv` on a production pod filtered by a
+feature-flag prefix matched a variable whose name *extended into* a credential — `SCORING_VNEXT`
+matched `SCORING_VNEXT_CRUX_API_KEY` — and printed the secret into the transcript. A bare
+`printenv` / `env` / `set` reaching a remote host through `kubectl|oc exec`, `docker|podman exec`,
+`docker compose exec`, `ssh`, `fly ssh` or `heroku run` now blocks, with the block message naming
+both safe forms. Narrowed four ways so it is not friction: the dump must come **after** the remote
+marker (`grep ssh printenv.txt` passes), it must be **bare** (`printenv PGHOST`, `env VAR=1 cmd`,
+`set -e` all pass), **local dumps are untouched**, and a downstream redaction filter
+(`| grep -ivE 'KEY|SECRET|…'`) passes — it is the documented remedy. This blocks rather than warns
+because disclosure is irreversible: by the time a warning prints, the secret is already out.
+
+**Read the original before a behaviour-changing corrective** (`code-review`). Reviewing a migration
+diff, a reviewer answered *"what did the original do?"* from memory of an earlier partial read and
+issued a wrong correction. `git show <base>:<path>` first — a partial read is not ground truth, and
+neither is the pre-image of a truncated hunk.
+
+**No mutating requests to production during QA** (`qa-test-strategy`). Live `POST`s against
+rate-limited public endpoints consumed real quota and warmed a production cache that later CI
+assertions depended on. Read-only, stub, or fixture; a genuine live mutation needs explicit human
+authorization and a named cleanup step.
+
+**A decision record states an intent, not a deployment** (`knowledge`). A `status: current` record
+described a provider deprecation that was never implemented — the provider was still wired, and the
+record was believed for two months. Before acting on a note asserting a code/config/infra fact,
+verify against the artifact it names and **surface any disagreement**. On capture: name the artifact
+a decision changes, so verifying it is one grep.
+
+**The working tree is shared with a human** (`develop`). Untracked ≠ new — an untracked file is
+often a stale snapshot of work already merged upstream, and committing it silently reverts newer
+content; don't commit files the user copied in (their next `git pull` aborts); and after any pause
+re-run `git status --short` with no path narrowing before drawing conclusions.
+
+**Language follows the audience** (`handoff`, `doc-delivery`). Artifacts — files, commits, PR text —
+follow the project's convention; the **conversational summary follows the user's language**. When
+they differ, say so once rather than switching the artifacts.
+
+**Documented: the commit gate blocks the whole Bash command.** It is `PreToolUse`, so a prerequisite
+the gate itself needs cannot be established in the same command (`ln -s … node_modules && git commit`
+can never work). The preferred fix — telling "gate failed" from "gate could not run" — already
+shipped in ADR 0058/0059; the remaining option, scoping the gate to the staged diff, is recorded as
+**not built**.
+
 ### Added — four field traps the plugin never warned about (ADR 0074)
 
 **Worktree hazards** (`patterns/worktree.md`), all four hit in production, two of which silently

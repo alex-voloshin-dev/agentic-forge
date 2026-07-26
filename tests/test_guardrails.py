@@ -410,6 +410,46 @@ def test_bump_and_check_clamps_negative_counter(tmp_path: Path) -> None:
     assert c.read_text(encoding="utf-8") == "1"  # clamped to 0 then +1, re-armed (not -99)
 
 
+# --- remote environment dumps (ADR 0075) -------------------------------------
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "kubectl exec my-pod -- printenv | grep SCORING_VNEXT",  # the field case
+        "kubectl exec -it pod -n prod -- env",
+        "oc exec pod -- printenv",
+        "ssh deploy@host printenv",
+        "docker exec app set",
+        "podman exec app env",
+    ],
+)
+def test_remote_env_dump_blocks(command: str) -> None:
+    decision = guardrails.classify_command(command)
+    assert decision.block and "remote/production host" in decision.message
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        # the two documented safe forms
+        "kubectl exec pod -- printenv | grep -ivE 'KEY|SECRET|PASSWORD|PWD|TOKEN|CRED'",
+        "kubectl exec pod -- printenv PGHOST",
+        # a LOCAL dump is not this rule's business
+        "printenv | grep PATH",
+        "env",
+        "set -e",
+        # env/set used as wrappers, and a mere textual mention of ssh
+        "kubectl exec pod -- env VAR=1 ./run",
+        "ssh host 'set -e; ./deploy.sh'",
+        "grep ssh printenv.txt",
+        "kubectl get pods",
+    ],
+)
+def test_remote_env_dump_allows(command: str) -> None:
+    assert not guardrails.classify_command(command).block
+
+
 def test_module_exports() -> None:
     for name in guardrails.__all__:
         assert hasattr(guardrails, name)

@@ -83,6 +83,17 @@ designing (`architecture`), task breakdown (`plan`), or reviewing already-writte
    lifecycle — remove *each* worktree (`git worktree remove`) once its change is merged or
    abandoned, even on failure** (worktree.md).
 
+> **The working tree is shared with a human.** Before you commit: (a) **untracked ≠ new** — an
+> untracked file is often a *stale snapshot* of work already merged upstream, and committing it
+> silently reverts newer content (a lifecycle rename hides this especially well), so diff it
+> against the base first (`git show <base>:<path>`) and search the same content under other paths;
+> (b) **don't commit files the user copied in** — their next `git pull` aborts with *"untracked
+> working tree files would be overwritten"*; verify byte-identity and have them remove the local
+> copy instead; (c) **after any pause, re-run `git status --short` with no path narrowing** and
+> re-read files before drawing conclusions — the user commits, switches branches and prunes
+> concurrently, so uncommitted edits can vanish between turns. Unexplained changes are a concurrent
+> human session, not an agent ([handoff.md](../../patterns/handoff.md)).
+
 ## Output
 
 **A full develop run produces fully-ready code for the feature: every dependency level of the plan
