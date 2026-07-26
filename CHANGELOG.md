@@ -7,6 +7,13 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.7.6] - 2026-07-26
+
+The watcher carries a PR to done — and the eval harness stops lying about it. Two capabilities and
+two integrity fixes, three of the four found by *running* the thing rather than reading it: the
+Tier-1 corruption surfaced only when raw router replies were captured, and the frontmatter defect
+only when Tier-3 was finally run **live**.
+
 ### Fixed — every artifact-writing skill now demands valid YAML frontmatter (ADR 0066)
 
 Found by the **first live Tier-3 run**. The `spine` scenario failed on `architecture` and `plan` —
