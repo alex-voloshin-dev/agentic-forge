@@ -31,6 +31,8 @@ __all__ = ["CONFIG_PATH", "DEFAULTS", "Settings", "resolve"]
 CONFIG_PATH = ".agentic-forge/config.json"
 
 DEFAULTS: dict[str, Any] = {
+    # Generated state (logs, queues, job state) goes to the USER level unless this is on (ADR 0072).
+    "state": {"in_repo": False},
     "diagnostics": {"enabled": False},  # the self-diagnostics log collector (ADR 0039)
     "subagent_budget": {"soft": 25, "hard": 50},  # Task-spawn caps (budget hook)
     "test_gate": {"skip": False},  # skip the pre-commit test gate (commit_gate hook)
@@ -64,6 +66,7 @@ class Settings:
     """The resolved plugin configuration (defaults < user file < repo file < env)."""
 
     diagnostics_enabled: bool
+    state_in_repo: bool
     subagent_soft: int
     subagent_hard: int
     skip_test_gate: bool
@@ -156,6 +159,7 @@ def _settings_from(data: dict[str, Any]) -> Settings:
         method = str(DEFAULTS["pr_watcher"]["merge_method"])
     return Settings(
         diagnostics_enabled=_coerce_bool(data["diagnostics"]["enabled"]),
+        state_in_repo=_coerce_bool((data.get("state") or {}).get("in_repo")),
         subagent_soft=_int(data["subagent_budget"]["soft"], DEFAULTS["subagent_budget"]["soft"]),
         subagent_hard=_int(data["subagent_budget"]["hard"], DEFAULTS["subagent_budget"]["hard"]),
         skip_test_gate=_coerce_bool(data["test_gate"]["skip"]),

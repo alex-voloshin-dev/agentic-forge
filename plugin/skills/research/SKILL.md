@@ -52,7 +52,7 @@ art, market/competitors, user needs, technical feasibility. Not for deciding req
    (on by default, ADR 0057/0061):** when `external_reviewer.enabled` (settings), also run the
    external reviewer over `research-brief.md` — call `external_review.review(brief_text,
    "research", command=<cfg>)` from `${CLAUDE_PLUGIN_ROOT}/lib` (repo-side equivalent:
-   `dev/external_review.py --target docs/sdlc/<feature-slug>/research-brief.md --kind research`);
+   `${CLAUDE_PLUGIN_ROOT}/bin/external_review.py --target docs/sdlc/<feature-slug>/research-brief.md --kind research`);
    codex critiques the brief as an independent-model lens (citation support, reconciled
    disagreements, a recommendation that follows) and its `findings` fold into the same worst-first
    revision. It **degrades gracefully** (absent/disabled codex is skipped, not a failure) and its

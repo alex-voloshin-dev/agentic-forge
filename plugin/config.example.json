@@ -1,4 +1,7 @@
 {
+  "state": {
+    "in_repo": false
+  },
   "diagnostics": {
     "enabled": true
   },

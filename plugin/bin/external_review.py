@@ -10,9 +10,9 @@ Degrades gracefully (clear message, no crash) when the CLI is absent or disabled
 (seam), 0057 (on by default), 0060 / 0061 / 0062 (auto-wired into every workflow that writes a
 reviewable deliverable) under docs/architecture/decisions/.
 
-    python dev/external_review.py --target diff.txt --kind code
-    python dev/external_review.py --target docs/sdlc/x/plan.md --kind plan --out review.md --force
-    python dev/external_review.py --target docs/sdlc/x/ux-spec.md --kind ux
+    python plugin/bin/external_review.py --target diff.txt --kind code
+    python plugin/bin/external_review.py --target docs/sdlc/x/plan.md --kind plan --out review.md
+    python plugin/bin/external_review.py --target docs/sdlc/x/ux-spec.md --kind ux
 
 Exit 0 on approve / skipped (disabled or CLI absent); 1 on a `changes` verdict or an
 unparseable review.
@@ -27,8 +27,8 @@ from typing import Any
 
 import yaml
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(_REPO_ROOT / "plugin" / "lib"))
+_PLUGIN_ROOT = Path(__file__).resolve().parents[1]  # plugin/ — this ships to users
+sys.path.insert(0, str(_PLUGIN_ROOT / "lib"))
 
 from agentic_forge import external_review, settings  # noqa: E402
 

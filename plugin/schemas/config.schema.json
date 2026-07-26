@@ -123,6 +123,17 @@
           "description": "How many drains one queued PR may consume before it is dropped (default 144 = 24 h at the 10-minute cadence). Nothing is watched forever."
         }
       }
+    },
+    "state": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Where the plugin writes GENERATED state \u2014 logs, queues, job state (ADR 0072). Default: ~/.agentic-forge/state/<repo>/. This file itself is repo-scoped configuration and is unaffected.",
+      "properties": {
+        "in_repo": {
+          "type": "boolean",
+          "description": "Write generated state into <repo>/.agentic-forge/ instead of the user-level default. Off: a fresh run adds no untracked path to your repo."
+        }
+      }
     }
   }
 }

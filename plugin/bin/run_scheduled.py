@@ -7,9 +7,9 @@ each by reusing existing libs, and records the run under ``.agentic-forge/``. ``
 tested in ``agentic_forge.schedule``; this is the thin runner. See
 docs/architecture/scheduling-observability.md.
 
-    python dev/run_scheduled.py --dry        # list due jobs, run nothing
-    python dev/run_scheduled.py              # run the due jobs and record them
-    python dev/run_scheduled.py --force      # run every job regardless of cadence
+    python plugin/bin/run_scheduled.py --dry        # list due jobs, run nothing
+    python plugin/bin/run_scheduled.py              # run the due jobs and record them
+    python plugin/bin/run_scheduled.py --force      # run every job regardless of cadence
 """
 
 from __future__ import annotations
@@ -22,8 +22,9 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(_REPO_ROOT / "plugin" / "lib"))
+_HERE = Path(__file__).resolve().parent           # plugin/bin — the shipped CLI dir
+_PLUGIN_ROOT = _HERE.parent                       # plugin/ — this ships to users
+sys.path.insert(0, str(_PLUGIN_ROOT / "lib"))
 
 from agentic_forge import (  # noqa: E402
     connectors,
@@ -102,7 +103,7 @@ def _watch_one_pr(repo: Path) -> Callable[[str, str, int], None]:  # pragma: no 
             print(f"pr-watch: skip #{number} ({owner}/{name}) — checkout failed", file=sys.stderr)
             return
         cmd = [
-            sys.executable, str(_REPO_ROOT / "dev" / "pr_watch.py"), "--repo", str(repo),
+            sys.executable, str(_HERE / "pr_watch.py"), "--repo", str(repo),
             "--owner", owner, "--name", name, "--pr", str(number), "--apply",
             "--bot", trusted.pr_watcher_bot,          # from the PRE-checkout tree
             "--merge-method", trusted.pr_watcher_merge_method,
@@ -142,7 +143,7 @@ def _pr_watch_queue(repo: Path) -> str:
     resolved = settings.resolve(repo)
     if not resolved.pr_watcher_enabled:
         return "pr-watch-queue: disabled (set pr_watcher.enabled)"
-    path = repo / pr_watch.QUEUE_PATH
+    path = diagnostics.existing_state_file(repo, pr_watch.QUEUE_FILE, pr_watch.QUEUE_PATH)
     if not path.is_file():
         return "pr-watch-queue: empty"
     try:

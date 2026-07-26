@@ -72,5 +72,5 @@ def test_the_tick_budget_bounds_an_unmergeable_pr() -> None:
 def test_queue_path_is_not_committable() -> None:
     # The queue lives under .agentic-forge/, which .gitignore excludes except config.json — so a
     # pull request cannot enqueue itself by committing a file.
-    assert pr_watch.QUEUE_PATH.startswith(".agentic-forge/")
-    assert not pr_watch.QUEUE_PATH.endswith("config.json")
+    assert pr_watch.QUEUE_FILE == "pr-watch-queue.json"  # lives under the state root (0072)
+    assert not pr_watch.QUEUE_FILE.endswith("config.json")  # never the committed config

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Logging guardrail hook (PostToolUse): append a redacted audit record (ADR 0019).
 
-Writes one secret-redacted JSONL line per tool call to `<project>/.agentic-forge/audit.jsonl`.
+Writes one secret-redacted JSONL line per tool call to the project's audit log — under the
+user-level state root, never inside the project checkout (ADR 0072).
 Pure observability — it **never blocks** (always exits 0, even on error).
 """
 
@@ -15,7 +16,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
 
-from agentic_forge import diagnostics, guardrails  # noqa: E402
+from agentic_forge import diagnostics, guardrails, observability  # noqa: E402
 
 
 def write_audit(payload: dict[str, Any], cwd: str) -> Path:
@@ -23,7 +24,9 @@ def write_audit(payload: dict[str, Any], cwd: str) -> Path:
     The log lives at the MAIN working-tree root (worktree-aware via ``main_repo_root``), so a
     worktree-phase session's trail survives the worktree's removal."""
     record = guardrails.audit_record(payload, ts=datetime.now(timezone.utc).isoformat())
-    log_path = diagnostics.main_repo_root(cwd) / ".agentic-forge" / "audit.jsonl"
+    log_path = diagnostics.existing_state_file(
+        cwd, observability.AUDIT_FILE, observability.AUDIT_PATH
+    )
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record) + "\n")

@@ -51,7 +51,7 @@ acceptance criteria, user stories. Not for *what exists* (`research`), *how to b
    brief** — then revise worst-first. **External reviewer lens (on by default, ADR 0057):** when
    `external_reviewer.enabled` (settings), also run the external reviewer over `prd.md` — call
    `external_review.review(prd_text, "product", command=<cfg>)` from `${CLAUDE_PLUGIN_ROOT}/lib`
-   (repo-side equivalent: `dev/external_review.py --target docs/sdlc/<feature-slug>/prd.md --kind
+   (repo-side equivalent: `${CLAUDE_PLUGIN_ROOT}/bin/external_review.py --target docs/sdlc/<feature-slug>/prd.md --kind
    product`); codex critiques the PRD as an
    independent-model lens (testable criteria, measurable metrics, complete non-goals, traceability)
    and its `findings` fold into the same worst-first revision. It **degrades gracefully** (absent/

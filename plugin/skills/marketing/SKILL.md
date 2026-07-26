@@ -67,7 +67,7 @@ The failure mode of generated marketing is confident, low-signal fluff. So every
    **External reviewer lens (on by default, ADR 0057/0062):** when `external_reviewer.enabled`
    (settings), also run the external reviewer over the deliverable — call
    `external_review.review(deliverable_text, "marketing", command=<cfg>)` from
-   `${CLAUDE_PLUGIN_ROOT}/lib` (repo-side equivalent: `dev/external_review.py --target <the
+   `${CLAUDE_PLUGIN_ROOT}/lib` (repo-side equivalent: `${CLAUDE_PLUGIN_ROOT}/bin/external_review.py --target <the
    deliverable> --kind marketing`); codex attacks the same evidence discipline as an
    independent-model lens and its `findings` fold into the same worst-first revision. It **degrades
    gracefully** (absent/disabled codex is skipped, not a failure) and its findings are **advisory**

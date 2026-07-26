@@ -60,7 +60,7 @@ def _event() -> dict[str, object]:
 
 def test_record_event_disabled_writes_nothing(tmp_path: Path) -> None:
     assert diagnostics.record_event(tmp_path, _event(), env=_OFF) is None
-    assert not (tmp_path / diagnostics.DIAGNOSTICS_PATH).exists()
+    assert not (diagnostics.state_root(tmp_path) / diagnostics.DIAGNOSTICS_FILE).exists()
 
 
 def test_record_event_enabled_appends(tmp_path: Path) -> None:
@@ -71,9 +71,12 @@ def test_record_event_enabled_appends(tmp_path: Path) -> None:
 
 
 def test_record_event_io_error_returns_none(tmp_path: Path) -> None:
-    blocker = tmp_path / "afile"
-    blocker.write_text("not a dir")  # repo path is a FILE -> mkdir under it fails
-    assert diagnostics.record_event(blocker, _event(), env=_ON) is None
+    # State now lives under the state root (ADR 0072), so a FILE at the repo path no longer blocks
+    # the write — plant the blocker where the state dir must go instead.
+    target = diagnostics.state_root(tmp_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("not a dir")  # the state DIR path is a FILE -> mkdir fails
+    assert diagnostics.record_event(tmp_path, _event(), env=_ON) is None
 
 
 def test_record_event_force_writes_when_disabled(tmp_path: Path) -> None:
@@ -96,7 +99,7 @@ def test_record_event_enabled_via_config_file(tmp_path: Path) -> None:
 
 def test_emit_disabled_is_a_noop(tmp_path: Path) -> None:
     assert diagnostics.emit(tmp_path, kind="error", component="c", message="m", env=_OFF) is False
-    assert not (tmp_path / diagnostics.DIAGNOSTICS_PATH).exists()
+    assert not (diagnostics.state_root(tmp_path) / diagnostics.DIAGNOSTICS_FILE).exists()
 
 
 def test_emit_writes_with_fixed_now(tmp_path: Path) -> None:
@@ -105,13 +108,15 @@ def test_emit_writes_with_fixed_now(tmp_path: Path) -> None:
         severity="major", now="2026-06-28T12:00:00Z", env=_ON,
     )
     assert ok
-    rec = json.loads((tmp_path / diagnostics.DIAGNOSTICS_PATH).read_text().splitlines()[0])
+    log = diagnostics.state_root(tmp_path) / diagnostics.DIAGNOSTICS_FILE
+    rec = json.loads(log.read_text().splitlines()[0])
     assert rec["ts"] == "2026-06-28T12:00:00Z" and rec["kind"] == "block"
 
 
 def test_emit_stamps_now_when_omitted(tmp_path: Path) -> None:
     assert diagnostics.emit(tmp_path, kind="error", component="c", message="m", env=_ON)
-    rec = json.loads((tmp_path / diagnostics.DIAGNOSTICS_PATH).read_text().splitlines()[0])
+    log = diagnostics.state_root(tmp_path) / diagnostics.DIAGNOSTICS_FILE
+    rec = json.loads(log.read_text().splitlines()[0])
     assert rec["ts"]  # a real timestamp was stamped
 
 
@@ -288,7 +293,8 @@ def test_record_event_from_worktree_lands_in_main_repo(tmp_path) -> None:
         ts="2026-07-14T00:00:00+00:00", kind="block", component="security-hook", message="x"
     )
     path = diagnostics.record_event(wt, event, env={"AGENTIC_FORGE_DIAGNOSTICS": "1"})
-    assert path == main / diagnostics.DIAGNOSTICS_PATH  # NOT inside the worktree
+    # Keyed by the MAIN repo, under the state root — never inside the worktree (ADR 0072).
+    assert path == diagnostics.state_root(main) / diagnostics.DIAGNOSTICS_FILE
     assert not (wt / ".agentic-forge").exists()
 
 
@@ -306,11 +312,12 @@ def test_record_event_gating_follows_the_logs_home(tmp_path) -> None:
     assert diagnostics.record_event(wt, event, env=env) is None  # main root: not enabled
     (main / ".agentic-forge").mkdir()
     (main / ".agentic-forge" / "config.json").write_text('{"diagnostics": {"enabled": true}}')
-    assert diagnostics.record_event(wt, event, env=env) == main / diagnostics.DIAGNOSTICS_PATH
+    log = diagnostics.state_root(main) / diagnostics.DIAGNOSTICS_FILE
+    assert diagnostics.record_event(wt, event, env=env) == log
     # force=True bypasses the toggle entirely (outward-action audit invariant)
     assert (
         diagnostics.record_event(wt, event, env={}, force=True)
-        == main / diagnostics.DIAGNOSTICS_PATH
+        == diagnostics.state_root(main) / diagnostics.DIAGNOSTICS_FILE
     )
 
 

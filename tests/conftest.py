@@ -59,3 +59,12 @@ def make_skill(tmp_path: Path):
         return skill_dir
 
     return _make
+
+
+@pytest.fixture(autouse=True)
+def _isolated_state_home(tmp_path_factory, monkeypatch):
+    """Keep generated plugin state out of the developer's real home (ADR 0072).
+
+    `state_root` defaults to `~/.agentic-forge`; without this every test run would write there and
+    leak between tests — the same class of pollution the ADR removes from repositories."""
+    monkeypatch.setenv("AGENTIC_FORGE_STATE_HOME", str(tmp_path_factory.mktemp("state-home")))

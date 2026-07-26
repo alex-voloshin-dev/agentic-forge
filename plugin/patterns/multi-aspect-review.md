@@ -21,7 +21,7 @@ treats their output as evidence, not opinion.
 
 **External reviewer lens (on by default, ADR 0042 / 0057).** When `external_reviewer.enabled`
 (settings — on by default), add the external CLI (`codex`) as one more lens over the same diff via
-`external_review.review(diff, "code")` / `dev/external_review.py --kind code`. Its *different model*
+`external_review.review(diff, "code")` / `${CLAUDE_PLUGIN_ROOT}/bin/external_review.py --kind code`. Its *different model*
 catches what the same-family aspects miss. It runs **read-only**, **degrades gracefully** when the
 CLI is absent (skipped, not a failure), and its findings are **advisory** (prompt-injectable) —
 verify against the source, then fold them into the synthesis at their severity like any aspect.

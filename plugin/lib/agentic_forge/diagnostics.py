@@ -13,7 +13,9 @@ Pure (deterministic, fully tested): ``signature`` / ``make_event`` / ``parse_lin
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import re
 from collections import Counter
 from dataclasses import dataclass
@@ -25,6 +27,11 @@ from . import guardrails, handoff, settings
 
 __all__ = [
     "DIAGNOSTICS_PATH",
+    "DIAGNOSTICS_FILE",
+    "STATE_DIRNAME",
+    "repo_slug",
+    "state_root",
+    "existing_state_file",
     "KINDS",
     "DEFAULT_REVIEW_CAP",
     "Problem",
@@ -42,7 +49,8 @@ __all__ = [
     "scan_reviews",
 ]
 
-DIAGNOSTICS_PATH = ".agentic-forge/diagnostics.jsonl"
+DIAGNOSTICS_PATH = ".agentic-forge/diagnostics.jsonl"  # legacy in-repo location (readers only)
+DIAGNOSTICS_FILE = "diagnostics.jsonl"  # resolved under state_root() — ADR 0072
 KINDS = ("block", "warning", "error", "anomaly")
 DEFAULT_REVIEW_CAP = handoff.REVIEW_LOOP_BUDGET  # canonical bounded review-loop budget (handoff.py)
 REVIEW_GLOB = "docs/sdlc/**/review*.md"  # review handoff artifacts: code-review's
@@ -52,6 +60,60 @@ _SEVERITY_ORDER = {"blocker": 0, "major": 1, "minor": 2, "nit": 3}
 # Volatile bits (hex/object ids, absolute paths, bare numbers) normalised out so the SAME problem
 # fingerprints to one stable signature across runs (different temp paths / line counts / pids).
 _VOLATILE = re.compile(r"0x[0-9a-fA-F]+|/[^\s'\"]+|\b\d+\b")
+
+
+# Plugin-GENERATED state (logs, queues, job state) lives at the USER level by default (ADR 0072).
+# A field report: a standing operator policy forbids agent state inside project repositories —
+# earlier tools leaked state dirs into src/, build output, worktrees and deep package trees, and
+# sweeping them up was recurring manual toil. `<repo>/.agentic-forge/config.json` is exempt: it is
+# committed CONFIGURATION, not generated state, and is legitimately repo-scoped.
+STATE_DIRNAME = ".agentic-forge"
+
+
+def repo_slug(root: Path | str) -> str:
+    """A stable, collision-resistant directory name for a repo under the user-level state root.
+
+    The basename alone would collide across two checkouts of the same project, so a short digest
+    of the absolute path is appended."""
+    resolved = Path(root).resolve()
+    digest = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()[:8]
+    return f"{resolved.name}-{digest}"
+
+
+def state_root(cwd: Path | str) -> Path:
+    """Where this plugin writes generated state for the repo containing ``cwd``.
+
+    ``~/.agentic-forge/state/<repo>-<hash>/`` by default; ``<repo>/.agentic-forge/`` only when
+    ``state.in_repo`` is explicitly enabled. Never raises — an unreadable config falls back to the
+    user-level default, which is the direction that cannot dirty someone's repository."""
+    root = main_repo_root(cwd)
+    try:
+        from . import settings as _settings
+
+        if _settings.resolve(root).state_in_repo:
+            return root / STATE_DIRNAME
+    except Exception:  # noqa: BLE001 — a state path must resolve even if config resolution breaks
+        pass
+    base = os.environ.get("AGENTIC_FORGE_STATE_HOME")
+    # The env override exists for two reasons: an operator relocating state (XDG-style layouts,
+    # a shared box), and hermetic tests — without it every test would write into the developer's
+    # real home directory, which is the exact pollution this ADR is removing from repos.
+    home = Path(base) if base else Path.home() / STATE_DIRNAME
+    return home / "state" / repo_slug(root)
+
+
+def existing_state_file(cwd: Path | str, filename: str, legacy_rel: str) -> Path:
+    """The path a READER should use for a state file (ADR 0072).
+
+    Writes always go to :func:`state_root`, but an upgrading user already has data at the old
+    in-repo location — so a reader prefers the new path when it exists and otherwise falls back to
+    the legacy one. Without this, moving the state root would silently blank every digest and job
+    history on upgrade."""
+    new = state_root(cwd) / filename
+    if new.exists():
+        return new
+    legacy = main_repo_root(cwd) / legacy_rel
+    return legacy if legacy.exists() else new
 
 
 def main_repo_root(cwd: Path | str) -> Path:
@@ -153,7 +215,7 @@ def record_event(
     if not force and not settings.resolve(root, env=env).diagnostics_enabled:
         return None
     try:
-        path = root / DIAGNOSTICS_PATH
+        path = state_root(root) / DIAGNOSTICS_FILE
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(event) + "\n")
@@ -308,7 +370,7 @@ def load(repo: Path | str, *, max_lines: int | None = None) -> list[str]:
     a bounded window so a long-lived log doesn't load wholesale. ``repo`` is normalised like the
     writer (:func:`main_repo_root`), so readers and writers agree on the log's home even from
     inside a worktree. Thin I/O seam; the digest is tested."""
-    path = main_repo_root(repo) / DIAGNOSTICS_PATH
+    path = existing_state_file(repo, DIAGNOSTICS_FILE, DIAGNOSTICS_PATH)
     if not path.is_file():
         return []
     lines = path.read_text(encoding="utf-8").splitlines()

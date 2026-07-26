@@ -44,7 +44,7 @@ session — except where blocking is the whole point (security, test-gate).
 - **budgets** (`PreToolUse` / Task, `budget.py`) — a per-session subagent counter; **warns** over
   the soft cap and **blocks** over the hard cap (`AGENTIC_FORGE_SUBAGENT_SOFT` / `_HARD`).
 - **logging** (`PostToolUse`, `audit_log.py`) — appends a secret-redacted JSONL audit line to
-  `<project>/.agentic-forge/audit.jsonl`. Pure observability; **never blocks**. Each record also
+  `~/.agentic-forge/state/<repo-slug>/audit.jsonl` (out of the project checkout — ADR 0072). Pure observability; **never blocks**. Each record also
   carries `error: true` when the tool call clearly failed (`guardrails.tool_errored`, additive —
   absent on success), so the digest can rank tools by *failure*, not just usage (ADR 0058). The log
   dir is the **main** working-tree root (`diagnostics.main_repo_root` resolves a linked worktree's

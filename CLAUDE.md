@@ -90,7 +90,8 @@ plugin/
   eval/{README.md, fixtures/}             # harness docs + agent eval fixtures
   schemas/                  # JSON Schema for evals.json + contract
 tests/                      # pytest for lib + hooks + harness
-dev/{validate.py, run_agent_evals.py, run_skill_evals.py, run_tier1_evals.py, run_spine_e2e.py, run_scheduled.py, audit_digest.py, diagnostics_digest.py, external_review.py, pr_watch.py, ralph.py, sync_models.py}  # Tier 0/1/2/3 gates + scheduling/observability/diagnostics + external-review + PR-watcher + Ralph-loop + model-routing CLIs
+dev/{validate.py, run_agent_evals.py, run_skill_evals.py, run_tier1_evals.py, run_spine_e2e.py, audit_digest.py, diagnostics_digest.py, ralph.py, sync_models.py}  # maintainer + eval CLIs — NOT shipped
+plugin/bin/{run_scheduled.py, pr_watch.py, external_review.py}  # runtime CLIs that DO ship to users (ADR 0072)
 docs/                       # product vision, architecture, ADRs, roadmap
 CHANGELOG.md                # what changed, by milestone
 ```

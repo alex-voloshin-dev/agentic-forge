@@ -58,7 +58,7 @@ is the shared `review_loop_decision`. codex is driven by *our* strict per-kind p
 This is the one extension whose default is **on**, not opt-in: the safety valve is graceful skip
 when `codex` is absent (the common case) — so it only reaches a third party where the CLI is
 installed. It sends the target to that third party, so **set `enabled: false` on secret-bearing
-repos**. Driver: `dev/external_review.py`.
+repos**. Driver: `plugin/bin/external_review.py`.
 
 ## PR watcher (`pr_watch.py`, ADR 0044 / 0045)
 
@@ -77,7 +77,7 @@ It is gated by
 `pr_watcher.auto_merge`, **off by default**, and never merges in the same pass that pushed a fix (the
 green checks describe the pre-fix commit). A `PostToolUse` hook notices `gh pr create` and prompts
 the watch; it only suggests — a guardrail must not silently launch an agent that can merge. Two surfaces:
-the scheduled multi-repo driver `dev/pr_watch.py` (maintainer/CI), and the **`pr-watch` skill**
+the scheduled multi-repo driver `plugin/bin/pr_watch.py` (maintainer/CI), and the **`pr-watch` skill**
 (off-listing, manual `/pr-watch`) — interactive single-PR babysitting over the same lib, added
 after field bundles showed users hand-rolling `gh pr view` polling loops.
 
