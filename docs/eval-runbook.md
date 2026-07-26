@@ -364,8 +364,10 @@ auto-fix autonomy applies to every open same-repo PR).
   *the component plus whoever ran it* — a personal "always answer in <language>" rule reached the
   graded artifacts, and pass rates were not comparable across machines. Numbers recorded before that
   change came from the old regime; treat a cross-version comparison spanning it with care. A
-  project-level `.claude/` in the repo under test still participates, by design — it is committed,
-  so it is the same for everyone.
+  project-level `.claude/` **and the repo's root `CLAUDE.md`** still participate, by design — they
+  are committed, so they are the same for everyone. Verified: an isolated run still answers repo
+  questions from this project's constitution. So a Tier-2 number describes the component **under
+  this repo's constitution**, not in a neutral checkout.
 - **A Tier-2 skill eval grades the final TEXT, not the run's tool calls.** An assertion about
   *which* subagent type, tool, or file the skill used cannot be verified — the grader never sees
   that. Such a rule can only be gated as *"the skill states the rule and its reason"*, which is
