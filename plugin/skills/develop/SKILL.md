@@ -75,7 +75,9 @@ designing (`architecture`), task breakdown (`plan`), or reviewing already-writte
    strengthen the suite (existing + new unit + end-to-end) and run it. A
    surfaced defect re-enters at step 3 → step 4 (re-review) → step 6, under the **same N = 3
    budget**; if still failing at the budget, surface the defect and stop. Never weaken a test
-   to pass.
+   to pass. **Two-strike rule** (`engineering-standards`): after ~2 failed hypotheses about a
+   defect, stop shipping fixes and get ground truth — a diagnostic run beats a third guess, and a
+   defect that fails for *every* input is parsing/serialization/wiring, not an edge case.
 7. **Hand off and clean up.** On `approve` + green suite: the integrated base holds the reviewed,
    tested change, ready to merge. Report the change summary. **develop owns the worktree
    lifecycle — remove *each* worktree (`git worktree remove`) once its change is merged or

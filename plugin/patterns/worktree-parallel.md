@@ -28,6 +28,23 @@ parallelism (a single chain) degrades to the plain one-worktree flow — no orch
    when this one is integrated, approved, and green.
 5. **Clean up.** Remove each worktree once merged or abandoned (worktree.md).
 
+## Contention (isolation is not automatic)
+
+A worktree isolates the *source tree*. It does not isolate what the build and the tests reach for.
+
+- **Serialize agents that compile the same module.** Fan out across **modules**, not within one:
+  two concurrent builds in the same module directory clobber the shared build output
+  (`target/`, `dist/`, `build/`) — one deletes classes the other is mid-way through using, and it
+  surfaces as nondeterministic compile or missing-class errors. Parallel builds across *different*
+  modules are fine. If two agents must touch one module, give each a worktree with its own build
+  directory, or run them in sequence.
+- **Suspect contention before regression.** Container-backed suites (Testcontainers and the like)
+  running concurrently across worktrees produce transient startup failures that read exactly like
+  real test regressions. **A failure in a parallel run is contention until proven otherwise:**
+  re-run that suite in isolation *before* reporting a regression or starting a bisect.
+- The same applies to any other shared singleton the tests grab — a fixed port, a named volume, a
+  shared database, a lockfile in the user's home.
+
 ## Why
 
 - **Worktree isolation** keeps concurrent edits from colliding; conflicts are contained to the

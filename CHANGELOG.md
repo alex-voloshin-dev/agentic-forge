@@ -7,6 +7,38 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Added — four field traps the plugin never warned about (ADR 0074)
+
+**Worktree hazards** (`patterns/worktree.md`), all four hit in production, two of which silently
+corrupt the main checkout: a write through the *main* checkout's path while a worktree is active
+lands outside the branch and vanishes from the PR (re-derive every path from the worktree root);
+`git diff <base>` in a stale worktree renders everything the base gained as **deletions in your
+branch** (diff against the merge-base); `git worktree remove --force` follows a `node_modules`
+symlink and empties its **target** — the main checkout's; and code generators run through a
+symlinked dependency tree emit output the project's own module resolution rejects.
+
+**Contention is not conflict** (`patterns/worktree-parallel.md`). A worktree isolates the source
+tree, not the build directory or the container runtime. Serialize agents that compile the same
+module — fan out across *modules*, not within one. And **suspect contention before regression**: a
+container-startup failure in a parallel run is contention until proven otherwise; re-run in
+isolation before reporting a regression or bisecting.
+
+**No textual conflict ≠ no semantic conflict** — a new review lens (`deep-review`) and
+`code-review` aspect. Two PRs each added a guard for the same `QUEUED → PROCESSING` transition; they
+touched different files, merged cleanly and both CI runs were green because each tested only its
+own entry point. Together they halted all processing, and it was found in production. When a diff
+adds or changes a claim, lock, lease, dedup guard or status transition, search other open PRs for
+the same **state transition**, not the same files; reconcile to one guard point; prefer claiming
+atomically at the point of work.
+
+**A two-strike stop rule for speculative fixing** (`engineering-standards`, and `develop`'s QA
+loop). A feature that returned no data for *every* input since launch got two input-specific fixes
+— reviewed, merged, deployed, both with green tests, both wrong. The cause was serialization
+(`"0.03"` as a string among numeric siblings) and one diagnostic run exposed it. Now: a defect that
+fails for everyone is parsing/serialization/wiring, not an edge case; after ~2 failed hypotheses
+stop shipping fixes and get ground truth; an empty result on a populated HTTP 200 is a parsing bug;
+verify against the real failure, not the unit tests.
+
 ### Fixed — subagent dispatch: type is containment, degenerate lenses are failures, self-reports are claims (ADR 0073)
 
 Three P0s from the same field report, all failures of *instruction* rather than code (AF-01/02/03).

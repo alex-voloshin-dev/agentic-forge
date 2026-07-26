@@ -48,11 +48,32 @@ Branch naming: `feature/<feature-slug>` mirrors the artifact slug under
 - The orchestrator passes the worktree path in; the software-engineer does not create or remove
   worktrees itself.
 
+## Traps (all four hit in the field; two silently corrupt the main checkout)
+
+- **Writing through the main checkout's path lands the change on the base branch.** Tools still
+  accept `/repo/foo.ts` while a worktree is active, and the edit goes to the main working tree —
+  outside the branch, silently absent from the PR. **Re-derive every write path from the worktree
+  root; never reuse a path captured before the worktree existed.**
+- **`git diff <base>` in a stale worktree shows phantom deletions.** As the base advances past the
+  cut point, everything it gained is rendered as *deletions in your branch* — which reviewers and
+  agents read as massive off-scope removal. **Diff against the merge-base:**
+  `git diff $(git merge-base HEAD <base>)`. Merge `origin/<base>` in first if you need plain
+  `git diff <base>` to mean anything.
+- **Removing a worktree can empty a directory outside it.** `git worktree remove --force` follows
+  a dependency **symlink** (e.g. `node_modules`) and deletes its *target's* contents — the main
+  checkout's. **`rm` the symlink itself before removing the worktree, and never `--force` a
+  worktree containing symlinks that point outside itself.**
+- **Code generators must run in the package's native checkout.** Through a symlinked dependency
+  tree a generator resolves different packages and can emit output the project's own module
+  resolution rejects (observed: ESM imports missing the required `.js` extension → unresolved-module
+  build failures). If you must generate in a worktree, verify the emitted output against the
+  package's resolution mode before committing.
+
 ## Cleanup
 
 Always remove the worktree when done (`git worktree remove`), even on failure, so stale
 directories and branches do not accumulate. If the change is abandoned, remove the worktree
-and delete the branch.
+and delete the branch. Check for outward-pointing symlinks first (see the trap above).
 
 ## Why worktrees (not branches alone)
 
