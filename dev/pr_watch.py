@@ -2,8 +2,9 @@
 """Watch a GitHub PR: read its review threads + conflicts and run the bounded fix loop (ADR 0044).
 
 **Dry by default** (plan only). With `--apply` AND `pr_watcher.enabled` in settings it fixes each
-actionable reviewer comment, pushes to the PR branch, and replies/resolves the thread — it **never
-merges** and **never force-pushes**; every outward action is recorded in diagnostics. Auth is your
+actionable reviewer comment, pushes to the PR branch, and replies/resolves the thread. It merges
+only when `pr_watcher.auto_merge` is on AND the library's recomputed gate opens (ADR 0063/0067);
+it **never force-pushes**; every outward action is recorded in diagnostics. Auth is your
 `gh` CLI. The deterministic core (`agentic_forge.pr_watch`) is unit-tested; the live `gh`/`git`/fix
 calls are seams validated on a real PR.
 

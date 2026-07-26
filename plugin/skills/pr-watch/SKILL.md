@@ -9,7 +9,8 @@ allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Task
 
 Interactive babysitting for one PR: snapshot → report → paced re-poll → report *transitions* →
 stop at a terminal state. The outward-action machinery (reply / resolve / push argv builders,
-idempotent thread triage, the never-merge / never-force-push invariants) is the tested
+idempotent thread triage, the never-force-push invariant — merging is opt-in behind
+`pr_watcher.auto_merge` plus the `merge_readiness` gate, ADR 0063/0067) is the tested
 `agentic_forge.pr_watch` lib (ADR 0044/0045); this skill wires it to a live session. Production
 audit logs motivated it: 232 hand-rolled `gh pr view` polls in one week.
 

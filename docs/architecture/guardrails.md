@@ -1,6 +1,6 @@
 # Layer 4 — Guardrails (hooks)
 
-Status: **Built** ([ADR 0019](decisions/0019-l4-guardrails.md)) — four deterministic guardrail
+Status: **Built** ([ADR 0019](decisions/0019-l4-guardrails.md)) — five deterministic guardrail
 hooks on tool use, on top of L3's session-start hook. **Scheduling & observability shipped
 separately** ([ADR 0024](decisions/0024-stage7-scheduling-observability.md),
 [scheduling-observability.md](scheduling-observability.md)); this doc covers only the hooks.
@@ -99,4 +99,4 @@ a determined adversary. Known, accepted limits:
 **observability** (the audit-log digest) are not guardrails, so they live outside L4 — now
 **built** in `schedule.py` / `observability.py` + the `run_scheduled` / `audit_digest` CLIs + a
 cron workflow ([ADR 0024](decisions/0024-stage7-scheduling-observability.md)). A richer
-observability dashboard remains an optional follow-on. L4 itself = the four hooks per CLAUDE.md.
+observability dashboard remains an optional follow-on. L4 itself = the five hooks per CLAUDE.md.

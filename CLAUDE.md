@@ -71,7 +71,7 @@ This file is the project constitution. Every contributor (human or agent) MUST f
   review, review loop, Ralph loop, worktree(-parallel), knowledge-recall, handoff).
 - L2 Workflow skills: a phase-workflow per SDLC phase (fan out → synthesize a handoff artifact), depth via references.
 - L3 Knowledge base: Obsidian vault, recall skill, session-start injection.
-- L4 Guardrails & observability: hooks (security, test-gate, logging, budgets); scheduling + audit
+- L4 Guardrails & observability: hooks (security, test-gate, logging, budgets, pr-created); scheduling + audit
   digest; an opt-in self-diagnostics channel (`diagnostics.py`, ADR 0039) for errors/anomalies.
 - Plugin extensions (cross-cutting, opt-in; not a new layer — see `docs/architecture/extensions.md`):
   plugin config (`settings.py`, ADR 0041/0049), model tiering + runtime routing (`models.py`, ADR
@@ -85,7 +85,7 @@ plugin/
   skills/<name>/{SKILL.md, references/, assets/, scripts/, evals/evals.json}
   agents/<name>.md          # + agents/evals/<name>.evals.json (agent contracts)
   patterns/                 # engine pattern references (handoff, multi-aspect/adversarial review, review-loop, fan-out/fan-in, worktree(-parallel), knowledge-recall, ralph)
-  hooks/{hooks.json, scripts/*.py}        # L3 session-start + L4 guardrail hooks (security, test-gate, logging, budgets)
+  hooks/{hooks.json, scripts/*.py}        # L3 session-start + L4 guardrail hooks (security, test-gate, logging, budgets, pr-created)
   lib/agentic_forge/        # shared, importable, tested
   eval/{README.md, fixtures/}             # harness docs + agent eval fixtures
   schemas/                  # JSON Schema for evals.json + contract

@@ -22,7 +22,7 @@ acceptance criteria, user stories. Not for *what exists* (`research`), *how to b
 > [knowledge-recall](../../patterns/knowledge-recall.md)); factor them in, and skip if the vault is empty.
 
 1. **Digest the inputs.** Load `research-brief.md`
-   (`handoff.load_artifact(..., expected_type="research-brief")`) and assess the current product
+   (`handoff.load_artifact(..., expected_type="research-brief")`; **refuse to build on it unless `handoff.is_handoff_ready(header)` — an escalated upstream run leaves a schema-valid but rejected artifact on disk**) and assess the current product
    (repo, existing docs). Pick the `<feature-slug>`.
 2. **Frame the change.** From the brief's findings + recommendation, decide the **goals** and
    the explicit **non-goals** (what's out of scope), and the **success metrics**. When the ask
@@ -50,11 +50,11 @@ acceptance criteria, user stories. Not for *what exists* (`research`), *how to b
    independent-model lens (testable criteria, measurable metrics, complete non-goals, traceability)
    and its `findings` fold into the same worst-first revision. It **degrades gracefully** (absent/
    disabled codex is skipped, not a failure) and its findings are **advisory** (prompt-injectable) —
-   verify before acting. **Exit criterion (the shared, tested rule):** each round, compute
+   verify before acting. **Persist each round** — write `docs/sdlc/<feature-slug>/review-<artifact>.md` (`type: review`, `target`, `iteration`, `verdict`, `findings[]`; `dev/external_review.py --out … --iteration N` already emits this shape). Without it the loop leaves no trace and the scheduled non-convergence scan (ADR 0040) cannot see it. **Exit criterion (the shared, tested rule):** each round, compute
    `handoff.review_loop_decision(verdict, iteration, cap=3, gate_green=<prd.md validates>)` (see
    [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
    [review-loop.md](../../patterns/review-loop.md)) — `revise` (loop back and fix worst-first),
-   `escalate` (still `changes` at N = 3 → surface the unresolved gaps and stop; don't hand off), or
+   `escalate` (still `changes` at N = 3 → **set the artifact's `status` to `in-review`**, surface the unresolved gaps and stop; the status is what makes "don't hand off" enforceable — the file is already on disk), or
    `proceed` (`approve` **and** the PRD validates → the doc is done). Don't hand off a PRD with
    untestable acceptance criteria.
 

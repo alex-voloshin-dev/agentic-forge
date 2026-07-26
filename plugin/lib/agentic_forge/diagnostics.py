@@ -45,7 +45,8 @@ __all__ = [
 DIAGNOSTICS_PATH = ".agentic-forge/diagnostics.jsonl"
 KINDS = ("block", "warning", "error", "anomaly")
 DEFAULT_REVIEW_CAP = handoff.REVIEW_LOOP_BUDGET  # canonical bounded review-loop budget (handoff.py)
-REVIEW_GLOB = "docs/sdlc/**/review.md"  # where review handoff artifacts live
+REVIEW_GLOB = "docs/sdlc/**/review*.md"  # review handoff artifacts: code-review's
+# `review.md` AND the per-round `review-<artifact>.md` the seven writer loops persist (0067)
 _MAX_LEN = 500  # cap each string so a giant traceback can't bloat the log
 _SEVERITY_ORDER = {"blocker": 0, "major": 1, "minor": 2, "nit": 3}
 # Volatile bits (hex/object ids, absolute paths, bare numbers) normalised out so the SAME problem

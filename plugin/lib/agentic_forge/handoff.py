@@ -52,12 +52,21 @@ __all__ = [
     "load_artifact",
     "blocks_approve",
     "review_loop_decision",
+    "READY_STATUSES",
+    "is_handoff_ready",
 ]
 
 # Recommended status vocabulary for feature artifacts (documented guidance, NOT enforced — the
 # schema accepts any non-empty status string, since real artifacts use varied lifecycle labels
 # such as "complete"/"ready"). Downstream phases that branch on status should map liberally.
 STATUSES = ["draft", "in-review", "approved", "final", "superseded"]
+
+# The statuses that mean "this artifact's review loop reached `proceed`" — the only ones a
+# downstream phase should build on. A phase whose loop `escalate`s writes `in-review` instead, which
+# is what makes "escalate does not hand off" enforceable: before ADR 0067 the artifact was already
+# on disk and schema-valid, so the next phase consumed a rejected one and Tier-3 scored the run
+# green (its checkpoints assert only "exists and validates").
+READY_STATUSES = ("approved", "final")
 
 # Review verdict vocabulary. `approve` is the early-exit signal for the bounded review loop.
 VERDICTS = ["approve", "changes"]
@@ -400,3 +409,18 @@ def review_loop_decision(
         return "revise"
     # verdict is `changes` (or unknown → treated as changes): loop while budget remains, else stop
     return "revise" if iteration < cap else "escalate"
+
+
+def is_handoff_ready(header: dict[str, Any]) -> bool:
+    """True if an artifact's header says its review loop reached ``proceed`` (ADR 0067).
+
+    A consuming phase calls this on the artifact it loaded. Schema validation is not enough: an
+    escalated run leaves a **schema-valid** artifact on disk (it is written before the loop runs),
+    so without this check "escalate stops the handoff" is unenforceable the moment anyone starts the
+    next phase.
+
+    Deliberately conservative — an unknown or missing status reads as **not ready**. `STATUSES` is
+    documented guidance rather than a schema constraint, so real artifacts carry varied labels; a
+    phase that means to hand off must say so explicitly with one of :data:`READY_STATUSES`.
+    """
+    return str(header.get("status", "")).strip().lower() in READY_STATUSES
