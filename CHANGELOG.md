@@ -7,6 +7,23 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Added — pre-merge preflight, warning-only (ADR 0076)
+
+`gh pr merge` merges on the **server**, then updates the **local** checkout. The local half failed
+twice in one session here: a worktree still held `master` (`'master' is already used by worktree`),
+and the local base was ahead of upstream after a rebase-merge (`Not possible to fast-forward`). Both
+times the remote merge succeeded — but the second left the checkout on the pre-merge commit, so the
+working tree *looked* as if every change had been reverted.
+
+A new `PreToolUse`/Bash hook now reads `origin/HEAD`, the worktree list and the base's ahead-count
+before `gh pr merge` and prints what will break. **It warns and never blocks**: the merge is durable
+regardless, the base branch is only approximated from `origin/HEAD` (wrong for a stacked PR), and
+refusing a merge would wedge the auto-merge watcher. The main checkout holding the base is the normal
+case and stays silent. Decision logic is pure and tested; the script is the I/O seam.
+
+This is the first guardrail sourced from **our own development** rather than a downstream field
+report.
+
 ### Added — the AF-05/AF-06 fixes became gates, plus two process rules
 
 **`tests/test_packaging_contract.py` (new).** Both invariants ADR 0072 established were fixed once

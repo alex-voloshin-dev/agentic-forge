@@ -25,6 +25,9 @@ __all__ = [
     "ALLOW",
     "classify_command",
     "is_commit_or_push",
+    "is_pr_merge",
+    "worktree_branches",
+    "merge_preflight",
     "choose_gate",
     "gate_unrunnable",
     "GATE_UNRUNNABLE_EXIT_CODES",
@@ -525,6 +528,64 @@ _COMMIT_PUSH = re.compile(
 
 def is_commit_or_push(command: str) -> bool:
     return bool(_COMMIT_PUSH.search(command))
+
+
+# --- pre-merge preflight: local state that will break the merge's local half (ADR 0076) ------
+# `gh pr merge` merges on the SERVER and then tries to update the local checkout. Two local
+# conditions make that second half fail, both hit while developing this plugin: another worktree
+# already holds the base branch ("'master' is already used by worktree"), and a local base branch
+# ahead of its upstream ("Not possible to fast-forward, aborting"). Neither loses work — the merge
+# itself succeeded both times — so this WARNS and never blocks (see ADR 0076 for why).
+
+# `gh` global flags may carry a separate argument (`gh --repo o/n pr merge`), so accept any
+# leading tokens that are not the `pr` subcommand itself.
+_PR_MERGE = re.compile(r"(?:^|[\n;&|]\s*)(?:\w+=\S+\s+)*gh\s+(?:(?!pr\b)\S+\s+)*pr\s+merge\b")
+
+
+def is_pr_merge(command: str) -> bool:
+    """True for `gh pr merge` in command position (not a quoted mention of it)."""
+    return bool(_PR_MERGE.search(command))
+
+
+def worktree_branches(porcelain: str) -> dict[str, str]:
+    """Parse `git worktree list --porcelain` into ``{worktree path: branch}``.
+
+    Pure so the parsing is testable without a git repo; detached worktrees are omitted (they hold
+    no branch and so cannot collide)."""
+    result: dict[str, str] = {}
+    path = ""
+    for line in porcelain.splitlines():
+        if line.startswith("worktree "):
+            path = line[len("worktree ") :].strip()
+        elif line.startswith("branch ") and path:
+            result[path] = line[len("branch ") :].strip().removeprefix("refs/heads/")
+    return result
+
+
+def merge_preflight(
+    base: str, worktrees: dict[str, str], ahead: int, *, main_root: str
+) -> Decision:
+    """Warn about local state that will break the local half of `gh pr merge`. Never blocks.
+
+    ``worktrees`` is :func:`worktree_branches`' output, ``main_root`` the main checkout (which is
+    *allowed* to hold ``base`` — that is the normal case), ``ahead`` how many commits local ``base``
+    has that its upstream does not."""
+    problems = []
+    holders = [p for p, branch in worktrees.items() if branch == base and p != main_root]
+    if holders:
+        problems.append(
+            f"a worktree holds '{base}' ({', '.join(sorted(holders))}) — `gh` cannot check it out; "
+            f"`git worktree remove` it first"
+        )
+    if ahead > 0:
+        problems.append(
+            f"local '{base}' is ahead of its upstream by {ahead} — `gh` will fail to fast-forward "
+            f"your checkout after the merge; `git fetch` and reconcile (the merge itself still "
+            f"succeeds on the server)"
+        )
+    if not problems:
+        return ALLOW
+    return Decision(False, "pre-merge: " + "; ".join(problems))
 
 
 def choose_gate(cwd: Path | str) -> list[str] | None:
