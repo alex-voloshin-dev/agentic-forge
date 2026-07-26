@@ -49,4 +49,4 @@ Return a structured change summary:
   against `git log` and its own tool-call log — never reconstruct a plausible history for work you
   cannot account for, never state that the user approved something (you have no channel to ask
   them), and never claim a review you could not have run: subagents cannot spawn subagents.
-  "I cannot account for X" is a correct report; fluency is not evidence.
+  "I cannot account for X" is a correct report; fluency is not evidence (ADR 0073).

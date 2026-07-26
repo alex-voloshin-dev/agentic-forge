@@ -6,17 +6,17 @@ This file is the project constitution. Every contributor (human or agent) MUST f
 
 ## What this is
 
-- A **Claude Code plugin only**. No multi-vendor packaging. We use Claude Code native
+- A **Claude Code plugin only** (ADR 0001). No multi-vendor packaging. We use Claude Code native
   primitives directly: skills, subagents, hooks, plan mode, git worktrees, review loops,
   Ralph loops, and headless runs.
-- **Standard-compliant**: every skill conforms to the [Agent Skills](https://agentskills.io)
+- **Standard-compliant** (ADR 0002): every skill conforms to the [Agent Skills](https://agentskills.io)
   open standard and passes `python dev/validate.py` (a `skills-ref`-style check; the external
   `skills-ref` CLI is not required). Claude Code extensions live only in
   documented optional frontmatter fields.
 
 ## Core principles (non-negotiable)
 
-1. **Skill-centric.** Skills are the primary unit and express *workflows*. Users do not
+1. **Skill-centric** (ADR 0004)**.** Skills are the primary unit and express *workflows*. Users do not
    call agents or commands by hand — skills auto-load by `name` + `description`. Agents are
    executors that skills delegate to via the `Task` tool (declared in `allowed-tools`,
    referencing the subagent role by name); hooks are guardrails.
@@ -33,12 +33,12 @@ This file is the project constitution. Every contributor (human or agent) MUST f
    the longest descriptions or move a router off-listing. A weekly CI cron re-runs Tier-1 so a
    routing regression surfaces.
 
-3. **Eval-driven, contract-first.** No component is built before its contract and its
+3. **Eval-driven, contract-first** (ADR 0008)**.** No component is built before its contract and its
    eval set exist. Order is always: (a) contract (purpose, triggers, inputs/outputs),
    (b) `evals/evals.json` with numeric thresholds, (c) implementation, (d) pass the gate.
    Numeric thresholds are the definition of done.
 
-4. **The eval pyramid.**
+4. **The eval pyramid** (ADR 0003)**.**
    - Tier 0 (static, always blocks): `dev/validate.py` (skills-ref-style validation), frontmatter
      lint, body <= 500 lines, references resolve, doc-sync (the meta-core lib table + the ADR index
      match the tree), `pytest` green, `ruff` + `mypy` clean, script coverage >= 80%. (`validate.py`
@@ -56,7 +56,7 @@ This file is the project constitution. Every contributor (human or agent) MUST f
    - Tier 3 (E2E): workflow scenarios pass with all checkpoints green.
    Thresholds are starting points; recalibrate per component and record the rationale.
 
-5. **Python-only scripts, all tested.** No shell scripts. Skill-specific executables live
+5. **Python-only scripts, all tested** (ADR 0007)**.** No shell scripts. Skill-specific executables live
    in `skills/<name>/scripts/` (referenced via `${CLAUDE_SKILL_DIR}`); shared code lives in
    `plugin/lib/agentic_forge/` and is imported by scripts and hooks. Everything under
    `pytest`.

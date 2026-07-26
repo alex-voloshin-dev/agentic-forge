@@ -295,13 +295,39 @@ _ADR_LINK = re.compile(r"\]\((\d{4}-[a-z0-9-]+\.md)\)")
 _ADR_FILE = re.compile(r"^\d{4}-[a-z0-9-]+\.md$")
 
 
+_ADR_CITATION = re.compile(r"ADR (\d{4})")
+_CITATION_ROOTS = ("plugin", "docs", "CLAUDE.md", "README.md")
+
+
+def _adr_citations(repo_root: Path) -> set[str]:
+    """Every `ADR NNNN` referenced from outside `docs/architecture/decisions/`."""
+    found: set[str] = set()
+    for rel in _CITATION_ROOTS:
+        target = repo_root / rel
+        paths = [target] if target.is_file() else target.rglob("*")
+        for path in paths:
+            if not path.is_file() or path.suffix not in {".md", ".py", ".json"}:
+                continue
+            if "decisions" in path.parts or "__pycache__" in path.parts:
+                continue
+            try:
+                found.update(_ADR_CITATION.findall(path.read_text(encoding="utf-8")))
+            except (OSError, UnicodeDecodeError):
+                continue
+    return found
+
+
 def validate_docs(repo_root: Path) -> Report:
     """Doc-sync checks that keep the two living indexes from drifting out of the tree:
 
     1. the `docs/architecture/meta-core.md` shared-library table lists exactly the modules in
        `plugin/lib/agentic_forge/` (no missing row, no stale row);
     2. every ADR file under `docs/architecture/decisions/` is linked from that dir's `README.md`
-       index, and every index link resolves.
+       index, and every index link resolves;
+    3. an ADR that introduces a RULE is cited from at least one artifact outside `decisions/`
+       (warning). In this repo the rule lives in the skill/pattern/agent and the *evidence* lives
+       in the ADR — an uncited ADR is a rule whose field evidence is unreachable, so the next
+       person it inconveniences deletes it. Two ADRs written on 2026-07-26 were orphaned this way.
 
     Cheap, deterministic, LLM-free — part of the Tier-0 gate when run from the repo root.
     """
@@ -330,6 +356,18 @@ def validate_docs(repo_root: Path) -> Report:
             report.error(loc, f"ADR '{missing}' is not linked from the decisions index")
         for dangling in sorted(linked - on_disk):
             report.error(loc, f"decisions index links '{dangling}', which does not exist")
+
+        # 3) an ADR nothing cites (a WARNING — a purely procedural ADR legitimately has no
+        # artifact to cite it, so this must not block the gate).
+        cited = _adr_citations(repo_root)
+        for name in sorted(on_disk):
+            number = name[:4]
+            if number not in cited:
+                report.warning(
+                    f"docs/architecture/decisions/{name}",
+                    f"no artifact outside decisions/ cites 'ADR {number}' — a rule whose "
+                    f"rationale cannot be found from the rule",
+                )
 
     return report
 

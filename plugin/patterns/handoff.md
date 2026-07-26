@@ -34,6 +34,7 @@ slug is a short kebab-case name for the feature (e.g. `search`, `oauth-login`).
 | `onboarding.md` | `repo-onboarding` skill | `type, feature, status, components[], entry_points[], conventions[], risks[]` |
 
 `status` is recommended to be one of `draft | in-review | approved | final | superseded`
+(the contract is deliberately open — ADR 0028)
 (the schema accepts any non-empty string). `verdict` is
 `approve | changes`. Finding `severity` is `blocker | major | minor | nit`.
 
@@ -83,6 +84,8 @@ project, the summary is read by the person in front of you. When the two differ,
 artifacts to match the chat.
 
 ## A subagent's self-report is a claim, not a record
+
+*(ADR 0073.)*
 
 The artifact is the contract precisely because the *narration around it* is unreliable. A
 long-running or resumed agent asked to account for its own history can produce a fluent, specific,

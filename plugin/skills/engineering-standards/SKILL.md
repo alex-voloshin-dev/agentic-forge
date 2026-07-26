@@ -28,7 +28,7 @@ language/framework idioms.
   justify any new dependency.
 - **Leave the gate green.** Match the repo's lint/type/test gate before handing off.
 
-## Debugging a defect (before you write the fix)
+## Debugging a defect (before you write the fix) — ADR 0074
 
 - **Systemic or per-input?** If it fails for *every* case — never worked for anyone, since launch
   — the cause is almost always parsing, serialization, or one config/wiring mistake. Do not

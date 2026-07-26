@@ -1,5 +1,7 @@
 # Pattern: adversarial fan-out review
 
+*(ADR 0027.)*
+
 A high-fidelity review that resists the blind spots of a single pass (especially an author's
 own). Decompose the review into independent **lenses**, **fan out** one fresh reviewer per
 lens, **verify** every finding against the source, then **synthesize** one deduplicated,
@@ -30,7 +32,7 @@ opinion. For a quick single-file diff lint, a single `reviewer` pass is enough �
    produce false positives and hallucinations — confirm the claim is real (open the file,
    re-run the check). Drop or downgrade what doesn't hold; record notable false alarms with
    the reason. *This step is what separates a trustworthy review from a pile of guesses.*
-3b. **Triage the lenses themselves before synthesizing.** Open each lens's actual content: one
+3b. **Triage the lenses themselves before synthesizing** (ADR 0073). Open each lens's actual content: one
    that returns a placeholder, a single generic finding, or nothing *after a long tool run* is
    **degenerate, not clean** — the output-heaviest lenses are exactly the ones that die at the
    structured-output step, and they are not the redundant ones (one such re-run produced the

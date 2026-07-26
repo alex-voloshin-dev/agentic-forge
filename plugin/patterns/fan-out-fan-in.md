@@ -33,6 +33,9 @@ fan out only the independent sub-parts.
 
 ## Choosing the subagent type
 
+*(ADR 0073 — field evidence: a fork given a READ-ONLY prompt
+opened a real PR.)*
+
 The type is a **containment decision**, not a convenience one — it decides what the child is
 allowed to become.
 
@@ -51,6 +54,8 @@ allowed to become.
   implementing agent.
 
 ## Output discipline
+
+*(ADR 0073.)*
 
 A lens can do 40–70 tool calls of real work and still be lost at the **final structured-output
 step**: hitting the retry cap kills it outright, or it degenerates into a placeholder finding. The
