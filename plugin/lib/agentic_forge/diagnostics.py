@@ -103,6 +103,34 @@ def state_root(cwd: Path | str) -> Path:
     return home / "state" / repo_slug(root)
 
 
+def legacy_state_notice(cwd: Path | str) -> str:
+    """A one-line notice when a legacy in-repo state dir still holds files, or "" if not.
+
+    The migration failure this exists for is **silent in both directions at once** (ADR 0080): a
+    user who moves the directory to a guessed name orphans their history *and* keeps the in-repo
+    directory alive, because :func:`existing_state_file` finds no file at the resolved root and
+    falls back to the legacy path — which then keeps growing. Everything behaves correctly and the
+    cleanup looks like it worked. Naming the resolved root is what turns a wrong guess visible."""
+    root = main_repo_root(cwd)
+    legacy = root / STATE_DIRNAME
+    if not legacy.is_dir():
+        return ""
+    stale = sorted(
+        p.name for p in legacy.iterdir() if p.is_file() and p.name != "config.json"
+    )
+    if not stale:
+        return ""
+    resolved = state_root(cwd)
+    if resolved == legacy:  # state.in_repo is on — this is where it belongs
+        return ""
+    return (
+        f"agentic-forge: runtime state still lives in the repo ({', '.join(stale)}). "
+        f"Its home is now {resolved} — run `python3 "
+        f"${{CLAUDE_PLUGIN_ROOT}}/bin/state_migrate.py --repo {root}` to merge and clean up "
+        f"(ADR 0072/0080)."
+    )
+
+
 def existing_state_file(cwd: Path | str, filename: str, legacy_rel: str) -> Path:
     """The path a READER should use for a state file (ADR 0072).
 

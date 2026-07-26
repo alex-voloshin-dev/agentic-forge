@@ -18,7 +18,7 @@ from pathlib import Path
 # tested vault helpers. <plugin>/hooks/scripts/session_start.py -> <plugin>/lib
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
 
-from agentic_forge import diagnostics, observability, vault  # noqa: E402
+from agentic_forge import diagnostics, observability, settings, vault  # noqa: E402
 
 
 def build_context(cwd: str) -> str:
@@ -33,7 +33,17 @@ def main() -> int:
         cwd = str(payload.get("cwd") or ".")
         # Once-per-session audit-log rotation (size-bounded; never raises) — the natural place
         # for it: cheap here, and the per-tool-call logging hook stays a pure append.
-        observability.rotate_audit(diagnostics.main_repo_root(cwd))
+        limits = settings.resolve(cwd)
+        observability.rotate_audit(
+            diagnostics.main_repo_root(cwd),
+            max_bytes=limits.logs_max_bytes,
+            keep_bytes=limits.logs_keep_bytes,
+        )
+        # Surface a half-done state migration ONCE per session: it is otherwise silent in
+        # both directions — orphaned history and a resurrected in-repo directory (ADR 0080).
+        notice = diagnostics.legacy_state_notice(cwd)
+        if notice:
+            print(notice, file=sys.stderr)
         context = build_context(cwd)
         if context.strip():
             print(

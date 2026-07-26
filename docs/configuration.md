@@ -18,6 +18,8 @@ are optional. A ready, schema-valid example with **every** key ships at
 
 | Key | Type | Default | Effect |
 |---|---|---|---|
+| `logs.max_bytes` | int | `10485760` | Rotate the audit log past this size. It is a **bounded rolling window**: the trim discards the oldest records, and one active repo reaches the default inside a fortnight (field measurement: 8.1 MB in ten days). Raise it if the history must last; a rotation records what it dropped (ADR 0080). |
+| `logs.keep_bytes` | int | `5242880` | Bytes of the newest records kept when rotating — the rest is discarded. |
 | `logs.enabled` | bool | `true` | Write a redacted audit record per tool call (ADR 0019/0078). **On by default** — it is the only record of what the agent did, and the substrate of the diagnostics bundle. Turning it off stops the writing; it does not move the file (that is ADR 0072's state root). Overridable with `AGENTIC_FORGE_LOGS`. |
 | `diagnostics.enabled` | bool | `false` | Turn on the self-diagnostics log `~/.agentic-forge/state/<repo-slug>/diagnostics.jsonl` (ADR 0072) — guardrail denials, hook crashes, pipeline failures (ADR 0039). **This is "the logger."** |
 | `state.in_repo` | bool | `false` | Keep generated runtime state (diagnostics, audit, schedule, PR-watch queue) **inside** the project at `<repo>/.agentic-forge/` instead of the user-level state root. Off by default: the plugin must not write into a repo it does not own (ADR 0072). The committed `config.json` is unaffected — configuration is the project's, state is the runtime's. `AGENTIC_FORGE_STATE_HOME` relocates the root when the default is not wanted. |

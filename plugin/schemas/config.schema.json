@@ -143,6 +143,16 @@
         "enabled": {
           "type": "boolean",
           "description": "Write an audit record per tool call. On by default \u2014 it is the only record of what the agent did."
+        },
+        "max_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Rotate the audit log once it exceeds this size. Default 10 MiB."
+        },
+        "keep_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Bytes of the most recent records to keep when rotating. Default 5 MiB \u2014 the rest is DISCARDED."
         }
       }
     }

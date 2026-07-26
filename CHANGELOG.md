@@ -7,6 +7,49 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Fixed — a heredoc body is data, not a command (ADR 0079)
+
+Field-verified 2026.7.10 and immediately hit its first false positive: appending a section to a
+report with `cat >> report.md <<'EOF'` was **blocked by the environment-dump rule**, because the
+*document being written* quoted the commands it documents. Reproduced here at once — and the
+reproduction script could not itself be written with a heredoc, for the same reason.
+
+Root cause is wider than that one rule: the check scanned the whole command string, which skips
+ADR 0054's discipline that rules fire on the command word of a quote-aware segment. Demonstrated
+twice in one session: writing the CHANGELOG entry you are reading tripped a *different* rule — the
+recursive-delete blocker — because the entry quotes a destructive command as an example.
+
+`classify_command` now strips heredoc **bodies** first — unless the receiver runs them: an
+interpreter on the opening line (including `cat <<EOF | bash`) or a remote shell
+(`ssh host <<EOF`). `strip_heredoc_bodies` is pure and separately tested, because it is the one
+place a false block and a real bypass are told apart. The block message also now names the
+workaround the reporter had to find blind: *use a file-write tool rather than a shell heredoc*.
+
+### Added — state migration tooling, and the audit log's contract (ADR 0080)
+
+The same verification confirmed ADR 0072 works — and found what it left out.
+
+**A hand migration fails silently in both directions at once.** The reporter moved their state to
+`~/.agentic-forge/state/f4ai/`, the obvious guess; the real slug is `f4ai-7afa8034` (name + digest
+of the absolute path). So reads found nothing at the resolved root, fell back to the legacy in-repo
+path, and kept using it: the directory **stayed alive** and 16,676 records were **orphaned**, with
+everything behaving exactly as designed and the cleanup looking like it worked.
+
+- `session_start` now prints the **resolved state root** once when a legacy in-repo directory still
+  holds state files. Silent wrong guess to obvious one.
+- **`plugin/bin/state_migrate.py`** ships it properly: dry-run by default, and `--apply`
+  **concatenates** rather than moves (the old install kept appending during their migration — 102
+  records landed after the copy), de-duplicates so re-running is safe, validates every line parses
+  before removing anything, and never touches the committed `config.json`.
+
+**The audit log is a bounded rolling window, not durable history** — now stated instead of implied.
+Ten days of one repo's use is 8.1 MB / 16,780 records, so the 10 MB bound is reached inside a
+fortnight and the trim discards exactly the history a migrating user preserved. Archiving the head
+would be unbounded growth by another name, so the contract stays and two things change: the bounds
+are configurable (`logs.max_bytes`, `logs.keep_bytes`, defaults unchanged), and **a rotation now
+records what it discarded** (`force=True`, so it lands even with diagnostics off). Durable evidence
+is the diagnostics bundle.
+
 ## [2026.7.10] - 2026-07-26
 
 ### Added — `logs.enabled`: the audit trail finally has an off switch (ADR 0078)

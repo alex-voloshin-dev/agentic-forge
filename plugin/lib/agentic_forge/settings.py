@@ -37,7 +37,11 @@ DEFAULTS: dict[str, Any] = {
     # The PostToolUse audit trail (ADR 0019). ON by default — it is the only record of what the
     # agent actually did, and the field evidence this project runs on. The switch exists because
     # until 2026.7.10 it was the one writer with no way to turn it off (ADR 0078).
-    "logs": {"enabled": True},
+    # Rotation bounds. The audit log is a BOUNDED ROLLING WINDOW, not durable history: at ~8 MB
+    # per ten days on one active repo (field measurement) the default reaches rotation inside a
+    # fortnight, and the trim discards the oldest records. Raise these if the history must last;
+    # collect a diagnostics bundle if it must be kept (ADR 0080).
+    "logs": {"enabled": True, "max_bytes": 10 * 1024 * 1024, "keep_bytes": 5 * 1024 * 1024},
     "subagent_budget": {"soft": 25, "hard": 50},  # Task-spawn caps (budget hook)
     "test_gate": {"skip": False},  # skip the pre-commit test gate (commit_gate hook)
     "review": {"passes": 3},  # the bounded review-loop budget N (review-loop.md)
@@ -71,6 +75,8 @@ class Settings:
 
     diagnostics_enabled: bool
     logs_enabled: bool
+    logs_max_bytes: int
+    logs_keep_bytes: int
     state_in_repo: bool
     subagent_soft: int
     subagent_hard: int
@@ -165,6 +171,8 @@ def _settings_from(data: dict[str, Any]) -> Settings:
     return Settings(
         diagnostics_enabled=_coerce_bool(data["diagnostics"]["enabled"]),
         logs_enabled=_coerce_bool(data["logs"]["enabled"]),
+        logs_max_bytes=_coerce_int(data["logs"]["max_bytes"]) or DEFAULTS["logs"]["max_bytes"],
+        logs_keep_bytes=_coerce_int(data["logs"]["keep_bytes"]) or DEFAULTS["logs"]["keep_bytes"],
         state_in_repo=_coerce_bool((data.get("state") or {}).get("in_repo")),
         subagent_soft=_int(data["subagent_budget"]["soft"], DEFAULTS["subagent_budget"]["soft"]),
         subagent_hard=_int(data["subagent_budget"]["hard"], DEFAULTS["subagent_budget"]["hard"]),

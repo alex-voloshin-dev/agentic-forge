@@ -34,6 +34,8 @@
     "max_ticks": 144
   },
   "logs": {
-    "enabled": true
+    "enabled": true,
+    "max_bytes": 10485760,
+    "keep_bytes": 5242880
   }
 }
