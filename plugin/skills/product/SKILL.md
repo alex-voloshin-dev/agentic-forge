@@ -34,7 +34,9 @@ acceptance criteria, user stories. Not for *what exists* (`research`), *how to b
 4. **Acceptance.** Turn the stories into concrete, testable **acceptance criteria** for the
    feature. Elicit anything ambiguous from the user — don't guess load-bearing decisions.
 5. **Write the PRD.** Produce `prd.md` (frontmatter `type`, `feature`, `status`, `goals`, `non_goals`, `metrics`,
-   `acceptance`; body = context + user stories) under `docs/sdlc/<feature-slug>/`; validate it
+   `acceptance`; body = context + user stories; **valid YAML — quote any value containing a colon**,
+   e.g. an acceptance criterion naming `{"high": 0}`, or the whole artifact fails to parse for every
+   downstream phase) under `docs/sdlc/<feature-slug>/`; validate it
    (`handoff.validate_header(..., expected_type="prd")`). Keep every requirement traceable to
    the brief.
 6. **Skeptic pass (bounded).** Before handing off, fork a fresh `reviewer` (via `Task`) to

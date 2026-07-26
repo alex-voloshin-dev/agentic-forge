@@ -48,7 +48,9 @@ The failure mode of generated marketing is confident, low-signal fluff. So every
    `research` / `Explore` roles via `Task` for deeper tracks — **keeping every source URL**. Then
    apply the evidence discipline above (cite or mark every claim; no fabrication).
 3. **Synthesize** the sub-area's output: the handoff artifact — `market-brief` (frontmatter `type`, `feature`, `status`, `competitors`, `segments`, `sources`) or `marketing-strategy` (`type`, `feature`, `status`, `positioning`, `channels`) — validated via
-   `handoff.validate_header(header, expected_type="market-brief")` or `"marketing-strategy"`
+   `handoff.validate_header(header, expected_type="market-brief")` or `"marketing-strategy"` —
+   **valid YAML: quote any value containing a colon**, which a cited source URL always has, or the
+   whole artifact fails to parse
    (see [handoff.md](../../patterns/handoff.md)); or the untyped deliverables per the reference —
    content files, the offer doc, or the audit report — grounded in the evidence and the upstream
    `prd.md` where relevant.

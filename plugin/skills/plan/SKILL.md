@@ -30,7 +30,9 @@ requirements (`product`), or implementation (`develop`).
 4. **Checkpoints & deferred.** Define verifiable checkpoints (milestones / definition of done
    per task) and an explicit list of deferred / out-of-scope items.
 5. **Write the plan, then validate it.** Produce `plan.md` (frontmatter `type`, `feature`, `status`, `tasks[]` with `id` + `deps`,
-   `checkpoints[]`, `deferred[]`; body = task detail) under `docs/sdlc/<feature-slug>/`;
+   `checkpoints[]`, `deferred[]`; body = task detail; **valid YAML — quote any value containing a
+   colon**, e.g. a checkpoint asserting `PRIORITY_RANK == {"high": 0}`, or the whole artifact fails
+   to parse for `develop`) under `docs/sdlc/<feature-slug>/`;
    validate it (`handoff.validate_header(..., expected_type="plan")`) **and confirm the graph
    resolves** — `planning.plan_batches(tasks)` (from `${CLAUDE_PLUGIN_ROOT}/lib`, the same helper
    `develop` batches with) raises on a duplicate id, an unknown dependency, or a cycle, so a clean
