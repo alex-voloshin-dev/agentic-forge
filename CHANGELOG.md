@@ -7,6 +7,40 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Added — auto-start the PR watch: intent queue + a 10-minute drain (ADR 0068)
+
+Nothing connected a created PR to the watcher: `develop` never opens a PR, the hook only printed a
+reminder, and `pr-watch` is manual-only. Now a created PR can be carried unattended.
+
+- **The hook records intent; it still starts nothing.** With `pr_watcher.auto_watch` (new, off by
+  default) a real `gh pr create` appends the PR to the gitignored
+  `.agentic-forge/pr-watch-queue.json`. This narrows ADR 0063 §6 rather than deleting it —
+  **recording intent is not starting an agent**: the hook still never blocks, never spawns a
+  process, and never merges. What it leaves is a file a human can read and delete.
+- **The existing scheduler drains it** via a new `10min` cadence and a `pr-watch-queue` job, running
+  each entry through the *existing* `dev/pr_watch.py --apply` path. **No new merge path exists** —
+  the ADR 0067 trust boundary, the recomputed gate, `auto_merge` and `confirm_merged` all apply
+  unchanged; the drain only decides *which* PRs get a pass.
+- **Bounded and self-clearing**: an entry leaves on `MERGED`/`CLOSED` or when `max_ticks` (default
+  144 = 24 h) is spent, each drop audited. A PR that never becomes mergeable cannot hold a slot
+  forever.
+- **Two independent switches, both off.** `auto_watch` (enqueue) and `auto_merge` (merge). Watching
+  without merging is the safe middle setting and useful on its own — it triages comments and
+  resolves conflicts while the merge stays a human decision.
+- **The queue is untrusted input**: written by a hook that runs in any session, so the drain
+  validates on read (slug pattern, positive int, `True`-is-not-a-number, hard cap) and drops rather
+  than executes anything malformed. `.gitignore` keeps a PR from committing entries.
+
+**Prerequisite the plugin cannot satisfy for you:** it has no daemon (ADR 0024), so the cadence only
+gates how often the job *may* run — the external clock decides how often the runner is invoked at
+all. A 10-minute tick needs `*/10 * * * * python dev/run_scheduled.py`; with an hourly cron the
+drain is hourly. Stated at the setting so the feature cannot look broken to someone who enables it
+without changing their cron.
+
+**Not validated end to end**: the watcher has still never been driven against a real pull request
+(a debt since ADR 0045). Enabling `auto_merge` on top of `auto_watch` automates a path nobody has
+watched work — the recommended order is `auto_watch` first, `auto_merge` after one real PR.
+
 ## [2026.7.7] - 2026-07-26
 
 Remediation release. A six-lens adversarial deep review of 2026.7.5/7.6 — releases that had passed

@@ -38,6 +38,10 @@ __all__ = [
 # Coarse cadence -> minimum seconds between runs. Coarse on purpose: the external scheduler
 # (CI cron / OS cron) sets the polling rhythm; this only gates how often each job actually runs.
 CADENCES: dict[str, int] = {
+    # The PR-watch queue drain (ADR 0068). NOTE: this only gates how often the job MAY run — the
+    # external clock (cron/launchd/CI) decides how often the runner is invoked at all, so a 10-min
+    # tick needs a 10-min cron. With an hourly cron the drain is hourly whatever this says.
+    "10min": 10 * 60,
     "hourly": 60 * 60,  # for the PR watcher (ADR 0044), driven by an hourly cron
     "daily": 24 * 60 * 60,
     "weekly": 7 * 24 * 60 * 60,
@@ -74,6 +78,12 @@ class JobState:
 
 
 JOBS: tuple[Job, ...] = (
+    Job(
+        "pr-watch-queue",
+        "10min",
+        "Drain the PR-watch queue: run the watcher over each enqueued PR (ADR 0068).",
+        "pr_watch_queue",
+    ),
     Job(
         "kb-maintenance",
         "weekly",

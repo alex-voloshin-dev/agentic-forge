@@ -166,3 +166,22 @@ def test_success_is_read_from_stdout() -> None:
 
 def test_non_dict_tool_input_does_not_raise() -> None:
     assert pr_hook.pr_created_notice({"tool_name": "Bash", "tool_input": "gh pr create"}) == ""
+
+
+# --- ADR 0068: the queue reference ---------------------------------------------
+
+
+def test_created_pr_ref_extracts_owner_name_number() -> None:
+    payload = _payload("gh pr create --fill", {"stdout": "https://github.com/acme/widgets/pull/42"})
+    assert pr_hook.created_pr_ref(payload) == ("acme", "widgets", 42)
+
+
+def test_a_failed_create_is_never_enqueued() -> None:
+    # The queue must be fed by exactly the events that produce the reminder — no more. Otherwise
+    # `already exists:` would enqueue a watch (and possibly a merge) over someone else's PR.
+    response = {"stdout": "", "stderr": "already exists:\nhttps://github.com/acme/widgets/pull/9"}
+    assert pr_hook.created_pr_ref(_payload("gh pr create --fill", response)) is None
+
+
+def test_a_non_create_command_is_never_enqueued() -> None:
+    assert pr_hook.created_pr_ref(_payload("gh pr view 11", {"stdout": _URL})) is None

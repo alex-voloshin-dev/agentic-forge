@@ -48,6 +48,9 @@ DEFAULTS: dict[str, Any] = {
         # start merging pull requests in every repo that installs it. poll_seconds is also the
         # window an external PR reviewer gets — the gate cannot open before the first post-CI poll.
         "auto_merge": False,
+        # auto_watch only ENQUEUES a created PR (ADR 0068); merging still needs auto_merge.
+        "auto_watch": False,
+        "max_ticks": 144,  # 24 h at the 10-minute drain cadence — nothing is watched forever
         "merge_method": "rebase",
         "poll_seconds": 600,
     },
@@ -71,6 +74,8 @@ class Settings:
     pr_watcher_max_threads: int
     pr_watcher_repos: list[str]
     pr_watcher_auto_merge: bool
+    pr_watcher_auto_watch: bool
+    pr_watcher_max_ticks: int
     pr_watcher_merge_method: str
     pr_watcher_poll_seconds: int
 
@@ -164,6 +169,8 @@ def _settings_from(data: dict[str, Any]) -> Settings:
         # boolean rather than the widened truthy set ("yes"/"on"/1) that a config slipping past an
         # absent `jsonschema` could otherwise carry (ADR 0067).
         pr_watcher_auto_merge=pr.get("auto_merge") is True,
+        pr_watcher_auto_watch=pr.get("auto_watch") is True,
+        pr_watcher_max_ticks=_int(pr.get("max_ticks"), DEFAULTS["pr_watcher"]["max_ticks"]),
         pr_watcher_merge_method=method,
         pr_watcher_poll_seconds=_int(
             pr.get("poll_seconds"), DEFAULTS["pr_watcher"]["poll_seconds"]

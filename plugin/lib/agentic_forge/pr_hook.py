@@ -16,7 +16,7 @@ import re
 import shlex
 from typing import Any
 
-__all__ = ["created_pr_url", "is_pr_create", "pr_created_notice", "NOTICE"]
+__all__ = ["created_pr_url", "is_pr_create", "pr_created_notice", "created_pr_ref", "NOTICE"]
 
 # The reminder printed into the transcript. It names the follow-up explicitly so the session can act
 # on it; it does not itself start anything (a hook must not launch a merging agent — ADR 0063 §6).
@@ -126,3 +126,21 @@ def pr_created_notice(payload: dict[str, Any]) -> str:
         return ""
     url = created_pr_url(blob)
     return f"{NOTICE}\nPR: {url}" if url else ""
+
+
+# owner/name/number from a PR URL — what the watch queue needs to identify the PR (ADR 0068).
+_PR_REF = re.compile(r"https://github\.com/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)/pull/(\d+)")
+
+
+def created_pr_ref(payload: dict[str, Any]) -> tuple[str, str, int] | None:
+    """``(owner, name, number)`` for a PR this payload reports as **created**, else ``None``.
+
+    Deliberately reuses :func:`pr_created_notice`'s decision rather than re-deriving it: the queue
+    must be fed by exactly the events that produce the reminder — no more (a failed create must not
+    enqueue) and no fewer. The caller gates on ``pr_watcher.auto_watch``; this function only reads.
+    """
+    notice = pr_created_notice(payload)
+    if not notice:
+        return None
+    match = _PR_REF.search(notice)
+    return (match.group(1), match.group(2), int(match.group(3))) if match else None
