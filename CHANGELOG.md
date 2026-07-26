@@ -164,7 +164,7 @@ happen**; prefer the mundane explanation (unexplained tree changes are usually a
 session); and *"I cannot account for X"* is a correct report — fluency is not evidence.
 
 Two evals hold the rules: `deep-review` case 4 (standing implement-directive + READ-ONLY ask must
-resolve to a fresh agent, reason stated) and `software-engineer` case 5 (foreign edits in the tree
+resolve to a fresh agent, reason stated) and `software-engineer` case 4 (foreign edits in the tree
 must be reported as unaccounted-for, with no invented review and no invented approval).
 
 ### Fixed — the plugin ships its runtime CLIs, and stops writing state into the user's repo (ADR 0072)
