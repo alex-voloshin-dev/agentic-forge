@@ -17,15 +17,28 @@ opinion. For a quick single-file diff lint, a single `reviewer` pass is enough �
 1. **Decompose** the target into lenses appropriate to its type (see the lens catalog in
    `deep-review`'s `references/lenses.md`). Each lens is one angle a reviewer is blind to the
    others on.
-2. **Fan out** one **fresh, independent** reviewer per lens — a forked `reviewer` role or a
+2. **Fan out** one **fresh, independent** reviewer per lens — the `reviewer` role or a
    general-purpose subagent with *no* prior context (so it can't inherit the author's
-   assumptions). Prompt each **adversarially** ("assume problems exist; hunt them") and make
+   assumptions). **Never the `fork` subagent type**: a fork inherits the parent's context *and its
+   standing directive*, which is both the assumption-leak this step exists to prevent and a licence
+   to act — see [fan-out-fan-in.md](fan-out-fan-in.md#choosing-the-subagent-type). Because
+   subagents cannot spawn subagents, these lenses must run at the **top level**; a lens claimed by
+   the agent that wrote the code never ran. Prompt each **adversarially** ("assume problems exist; hunt them") and make
    it return a **structured** result: per finding — `severity`, `location`, `issue`, `evidence`,
    `suggested fix`. Run them concurrently (Task fan-out; a Workflow when the user opted in).
 3. **Verify** every substantive finding against the source before accepting it. Reviewers
    produce false positives and hallucinations — confirm the claim is real (open the file,
    re-run the check). Drop or downgrade what doesn't hold; record notable false alarms with
    the reason. *This step is what separates a trustworthy review from a pile of guesses.*
+3b. **Triage the lenses themselves before synthesizing.** Open each lens's actual content: one
+   that returns a placeholder, a single generic finding, or nothing *after a long tool run* is
+   **degenerate, not clean** — the output-heaviest lenses are exactly the ones that die at the
+   structured-output step, and they are not the redundant ones (one such re-run produced the
+   highest-impact finding of its audit). Re-run failed and degenerate lenses in a second, smaller
+   run with the same verify rigor plus the output caps in
+   [fan-out-fan-in.md](fan-out-fan-in.md#output-discipline) — and **never by resuming the prior
+   run id**, which replays the same failing prompt and serves the degenerate lens from cache as
+   "done". A synthesis over unchecked lenses reports success it did not earn.
 4. **Dedupe & prioritize** across lenses (and the author's own pass) by `severity`
    (`blocker | major | minor | nit`, as in [handoff.md](handoff.md)).
 5. **Synthesize** one report: verified findings with concrete fixes, false alarms filtered

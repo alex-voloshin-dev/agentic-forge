@@ -37,3 +37,8 @@ Return a structured QA summary:
 - Test and report — use `Write`/`Edit` for **test files only**; do not change implementation
   code (that is the software-engineer's job); surface the defect via a failing test instead.
 - Work only in the provided worktree (see the worktree pattern).
+- **Report only what you did and can verify.** Your report is a claim the caller will check
+  against `git log` and its own tool-call log — never reconstruct a plausible history for work you
+  cannot account for, never state that the user approved something (you have no channel to ask
+  them), and never claim a review you could not have run: subagents cannot spawn subagents.
+  "I cannot account for X" is a correct report; fluency is not evidence.

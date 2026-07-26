@@ -31,6 +31,43 @@ fan out only the independent sub-parts.
 5. **(Optional) completeness critic** — one pass asking "what's missing — a unit not covered, a
    conflict unresolved?"; its answer seeds another round. Bound the rounds.
 
+## Choosing the subagent type
+
+The type is a **containment decision**, not a convenience one — it decides what the child is
+allowed to become.
+
+- **Never use `fork` for recon that must not act.** A fork inherits the parent's full context
+  *including any standing directive* ("implement this work package"), and an inherited standing
+  directive **overrides** a per-call "READ-ONLY, do not edit or commit" prompt. Field evidence: a
+  fork given exactly that prompt implemented the change, committed, pushed and opened a real PR.
+  For read-only investigation spawn a **fresh** agent (`Explore` / `general-purpose`), which
+  inherits nothing. Reserve `fork` for when you genuinely want the child to *continue the
+  implementation* with your context.
+- **If a subagent must touch files, pass `isolation: "worktree"`** so its edits are contained and
+  cannot reach the shared branch or the remote unreviewed (see [worktree.md](worktree.md)).
+- **Subagents cannot spawn subagents** (nesting is capped at depth 1). So any *"I reviewed my own
+  work with N lenses"* claim coming from a subagent is **false by construction** — it was the
+  implementer grading its own diff. Run review lenses at the **top level**, never inside the
+  implementing agent.
+
+## Output discipline
+
+A lens can do 40–70 tool calls of real work and still be lost at the **final structured-output
+step**: hitting the retry cap kills it outright, or it degenerates into a placeholder finding. The
+output-heaviest lenses are the ones that fail — and they are not the redundant ones.
+
+- **Explore deep, emit compact.** Tell each unit: do the exploration with tools, then return a
+  *compact* structured result. Cap the findings (~10) and the field lengths (description ≈ 700
+  chars, impact ≈ 500, reasoning ≈ 1200) and auxiliary arrays (≈ 4 entries).
+- **Scope any regression sweep to that unit's own prior IDs**, not the global set.
+- **Health-check the content, not the count.** A unit that returns a placeholder, one generic
+  finding, or an empty array *after a long tool run* is **degenerate, not clean** — treat it as
+  failed. Counting completed units is not a health check: a degenerate unit still emits
+  schema-valid JSON, and the run still reports success.
+- **Re-run failed and degenerate units** in a second, smaller run with the same rigor plus the
+  caps above. **Do not resume from the prior run id** — resume replays the identical failing
+  prompt and schema, and serves the degenerate unit from cache as "done".
+
 ## Partitioning rules
 
 - Each unit must be **self-contained**: its inputs are fixed up front, it shares no mutable
