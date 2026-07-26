@@ -27,7 +27,7 @@
     "auto_merge": false,
     "merge_method": "rebase",
     "poll_seconds": 600,
-    "auto_watch": false,
+    "auto_watch": true,
     "max_ticks": 144
   }
 }

@@ -115,7 +115,7 @@
         },
         "auto_watch": {
           "type": "boolean",
-          "description": "Let the PR-created hook ENQUEUE a new PR for the scheduled watch (ADR 0068). OFF by default. Merging still requires auto_merge \u2014 watching without merging is the safe middle setting."
+          "description": "Let the PR-created hook ENQUEUE a new PR for the scheduled watch (ADR 0068/0069). ON by default, but requires `enabled` too \u2014 with the watcher off the queue file is never created. Merging still requires auto_merge, which stays off: watching without merging is the safe middle setting."
         },
         "max_ticks": {
           "type": "integer",
