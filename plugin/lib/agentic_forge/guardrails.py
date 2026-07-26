@@ -28,6 +28,7 @@ __all__ = [
     "is_pr_merge",
     "worktree_branches",
     "merge_preflight",
+    "strip_heredoc_bodies",
     "choose_gate",
     "gate_unrunnable",
     "GATE_UNRUNNABLE_EXIT_CODES",
@@ -490,7 +491,8 @@ _MSG_ENV_DUMP = (
     "blocked: dumping the environment of a remote/production host leaks secrets into the "
     "transcript. Query the exact variable (`printenv PGHOST`) or append a redaction filter "
     "(`| grep -ivE 'KEY|SECRET|PASSWORD|PWD|TOKEN|CRED'`) — a prefix match eventually matches a "
-    "secret whose name starts with a non-secret prefix."
+    "secret whose name starts with a non-secret prefix. If this pattern is quoted TEXT you are "
+    "writing to a file, use a file-write tool rather than a shell heredoc."
 )
 
 
@@ -505,6 +507,53 @@ def _remote_env_dump(command: str) -> bool:
     return bool(_ENV_DUMP.search(command, remote.end()))
 
 
+# --- heredoc bodies are DATA, not command text (ADR 0079) --------------------
+# Field case: writing a *document* about the environment-dump rule with `cat > doc.md <<EOF`
+# blocked, because the classifier scanned the whole command string and the document quoted the
+# very commands it documents. A heredoc body is stdin, not command text — EXCEPT when the
+# receiver executes it: an interpreter (`bash <<EOF`) or a remote shell (`ssh host <<EOF`) is
+# handed its PROGRAM that way, so those bodies stay in scope.
+_HEREDOC_OPEN = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+_HEREDOC_EXECUTORS = frozenset(
+    {"sh", "bash", "zsh", "ksh", "dash", "python", "python3", "perl", "ruby", "node"}
+)
+
+
+def _body_is_executed(opening_line: str) -> bool:
+    """True if whatever receives this heredoc will RUN its body (interpreter or remote shell)."""
+    if _REMOTE_EXEC.search(opening_line):
+        return True
+    words = opening_line.replace("|", " ").replace("(", " ").split()
+    return any(word.rsplit("/", 1)[-1] in _HEREDOC_EXECUTORS for word in words)
+
+
+def strip_heredoc_bodies(command: str) -> str:
+    """Drop heredoc bodies that are data, keeping the ones that are programs.
+
+    Pure and separately tested: it decides what the deny-list is allowed to look at, so it is the
+    one place a false block (documentation) and a real bypass (`bash <<EOF`) are told apart."""
+    lines = command.split("\n")
+    kept: list[str] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        kept.append(line)
+        index += 1
+        match = _HEREDOC_OPEN.search(line)
+        if not match:
+            continue
+        delimiter = match.group(2)
+        executed = _body_is_executed(line)
+        while index < len(lines) and lines[index].strip() != delimiter:
+            if executed:
+                kept.append(lines[index])
+            index += 1
+        if index < len(lines):
+            kept.append(lines[index])  # the terminator line itself
+            index += 1
+    return "\n".join(kept)
+
+
 def classify_command(command: str) -> Decision:
     """Block (Decision.block) a clearly-dangerous Bash command; otherwise ALLOW.
 
@@ -513,8 +562,12 @@ def classify_command(command: str) -> Decision:
     quotes a dangerous-looking string (`git commit -m "block rm -rf /"`, a `python3 -c` script,
     a grep pattern) never blocks, while `sh -c` payloads and `$(…)`/backtick substitutions are
     followed recursively and unparseable segments degrade to the legacy text checks.
+
+    Heredoc bodies are stripped first unless their receiver executes them
+    (:func:`strip_heredoc_bodies`), so writing a document *about* a dangerous command does not
+    trip the deny-list (ADR 0079).
     """
-    return _classify(command, 0)
+    return _classify(strip_heredoc_bodies(command), 0)
 
 
 # --- test-gate: fast gate before commit/push ---------------------------------

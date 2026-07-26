@@ -114,7 +114,8 @@ def rotate_audit(
     tail starts at its first complete line (nothing is dropped when the window already starts on
     one). The rewrite is atomic (`os.replace`), so a crash mid-rotation can't destroy the log.
     Returns True when a trim happened; never raises (called from the session-start hook, which
-    must not break a session)."""
+    must not break a session). The bounds are the caller's (``logs.max_bytes`` /
+    ``logs.keep_bytes``), and a trim is **recorded** rather than silent — see ADR 0080."""
     from . import diagnostics
 
     path = diagnostics.existing_state_file(repo, AUDIT_FILE, AUDIT_PATH)
@@ -132,6 +133,18 @@ def rotate_audit(
         tmp = path.with_suffix(".jsonl.rotating")
         tmp.write_bytes(tail)
         os.replace(tmp, path)
+        # Rotation DISCARDS the oldest records. Announce it: a user who migrated specifically to
+        # preserve that history must not learn about the loss by noticing it missing (ADR 0080).
+        diagnostics.emit(
+            repo, kind="anomaly", component="audit-rotation",
+            message=(
+                f"audit log rotated: {len(data) - len(tail)} bytes of the oldest records were "
+                f"discarded (bound {max_bytes}, kept {len(tail)}). The audit log is a bounded "
+                f"rolling window — raise logs.max_bytes/logs.keep_bytes, or collect a diagnostics "
+                f"bundle, if this history must last."
+            ),
+            severity="minor", force=True,
+        )
         return True
     except Exception:  # any failure leaves the log as it was; a session must not break
         return False

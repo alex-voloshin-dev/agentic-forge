@@ -44,7 +44,7 @@ plugin/
   eval/{README.md, fixtures/}         # harness architecture + agent eval fixtures (L1)
   hooks/{hooks.json, scripts/*.py}    # L3 session-start + L4 guardrail hooks (ADR 0018/0019)
 dev/{validate.py, run_agent_evals.py, run_skill_evals.py, run_tier1_evals.py, run_spine_e2e.py, audit_digest.py, diagnostics_digest.py, ralph.py, sync_models.py}  # maintainer + eval CLIs — NOT shipped
-plugin/bin/{run_scheduled.py, pr_watch.py, external_review.py}  # runtime CLIs that DO ship to users (ADR 0072)
+plugin/bin/{run_scheduled.py, pr_watch.py, external_review.py, state_migrate.py}  # runtime CLIs that DO ship to users (ADR 0072)
 tests/                                # pytest for lib + harness + plugin integrity
 pyproject.toml                        # uv / pytest / ruff / mypy config
 .github/workflows/{ci.yml,eval.yml}   # Tier-0 always; Tier 1/2/3 cost-gated

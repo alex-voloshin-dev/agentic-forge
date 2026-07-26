@@ -91,7 +91,7 @@ plugin/
   schemas/                  # JSON Schema for evals.json + contract
 tests/                      # pytest for lib + hooks + harness
 dev/{validate.py, run_agent_evals.py, run_skill_evals.py, run_tier1_evals.py, run_spine_e2e.py, audit_digest.py, diagnostics_digest.py, ralph.py, sync_models.py}  # maintainer + eval CLIs — NOT shipped
-plugin/bin/{run_scheduled.py, pr_watch.py, external_review.py}  # runtime CLIs that DO ship to users (ADR 0072)
+plugin/bin/{run_scheduled.py, pr_watch.py, external_review.py, state_migrate.py}  # runtime CLIs that DO ship (ADR 0072)
 docs/                       # product vision, architecture, ADRs, roadmap
 CHANGELOG.md                # what changed, by milestone
 ```
