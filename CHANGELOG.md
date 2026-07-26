@@ -7,6 +7,8 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.7.11] - 2026-07-26
+
 ### Fixed — a heredoc body is data, not a command (ADR 0079)
 
 Field-verified 2026.7.10 and immediately hit its first false positive: appending a section to a
