@@ -55,9 +55,7 @@ requirements (`product`), or implementation (`develop`).
    docs/sdlc/<feature-slug>/plan.md --kind plan`); codex critiques the plan as an
    independent-model lens (completeness, task sequencing, risk) and its `findings` fold into the same
    worst-first revision. It **degrades gracefully** (absent/disabled codex is skipped, not a failure)
-   and its findings are **advisory** (prompt-injectable) — verify before acting. **Persist each round** — write `docs/sdlc/<feature-slug>/review-<artifact>.md`
-   (`type: review`, `target`, `iteration`, `verdict`, `findings[]`), or the loop leaves no
-   trace and the scheduled non-convergence scan (ADR 0040) cannot see it. **Exit criterion
+   and its findings are **advisory** (prompt-injectable) — verify before acting. **Persist each round** — one `review-<artifact>-<iteration>.md` per round under `docs/sdlc/<feature-slug>/`, aggregating **both** lenses; on `proceed` keep only the final round, on `escalate` keep them all (naming + lifecycle: [review-loop.md](../../patterns/review-loop.md)). **Exit criterion
    (the shared, tested rule):** each round, compute `handoff.review_loop_decision(verdict, iteration,
    cap=3, gate_green=<step 5 passes>)` (see
    [adversarial-review.md](../../patterns/adversarial-review.md), bounded by

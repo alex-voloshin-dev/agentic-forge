@@ -7,6 +7,31 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Fixed — review artifacts: indexed by iteration, one per round, cleaned on success (ADR 0071)
+
+**From a field report, not a gate:** a live `architecture` run left several review files behind, with
+different contents, and removed none. Every gate was green — this is behaviour of model-followed
+instructions, which no unit test observes. The instruction ADR 0067 §7 shipped was at fault, in three
+ways:
+
+- **The filename could not satisfy its own requirement.** It said *"persist each round — write
+  `review-<artifact>.md`"*: one fixed name, with the round only in the frontmatter. But
+  `review-loop.md` requires the history to be *auditable*, and a fixed name overwrites. The two asks
+  were incompatible, so a writer honouring auditability had to invent a convention — and did. The
+  iteration is now in the **filename**: `review-<artifact>-<iteration>.md`.
+- **Two lenses per round, no rule about where each goes** — and the instruction even suggested
+  `--out … --iteration N`, inviting a separate file for the external lens. That is the second
+  multiplier behind "several files with different reviews". Now: **one artifact per round,
+  aggregating every lens**, matching how the verdict is already aggregated.
+- **No lifecycle.** Partly deliberate — ADR 0040's scan reads these files — but that only holds for a
+  loop that *failed*. Now: keep every round on `escalate` (they are the evidence), keep only the
+  final round on `proceed` and delete the rest (they gate nothing, and the scan can never flag a
+  converged loop).
+
+The contract moved into `review-loop.md` — one place for all seven loops — and
+`test_review_loop_shape.py` pins the indexed name and the cleanup clause so it cannot drift.
+`diagnostics.REVIEW_GLOB` already matches the indexed names (verified, unchanged).
+
 ## [2026.7.9] - 2026-07-26
 
 Documents now ship the way code does. Plus the default that makes the PR watch useful once you

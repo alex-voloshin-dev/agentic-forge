@@ -60,9 +60,7 @@ designing (`architecture`), task breakdown (`plan`), or reviewing already-writte
    findings are **advisory** (prompt-injectable): verify each against the source before acting, like
    any finding. Aggregate all aspects (internal + external) to one approve/changes verdict. **Advance to the next dependency level only after this one integrates,
    is approved, and its QA is green.**
-5. **Loop back (bounded) — the exit criterion.** **Persist each round** — write
-   `docs/sdlc/<feature-slug>/review-<artifact>.md` (`type: review`, `target`, `iteration`,
-   `verdict`, `findings[]`) so the non-convergence scan (ADR 0040) can see this loop. Compute the next action with the shared, tested
+5. **Loop back (bounded) — the exit criterion.** **Persist each round** — one `review-<artifact>-<iteration>.md` per round under `docs/sdlc/<feature-slug>/`, aggregating **both** lenses; on `proceed` keep only the final round, on `escalate` keep them all (naming + lifecycle: [review-loop.md](../../patterns/review-loop.md)). Compute the next action with the shared, tested
    rule `handoff.review_loop_decision(verdict, iteration, cap=3, gate_green=<suite green + QA
    passed>)` (see [patterns/review-loop.md](../../patterns/review-loop.md)):
    - **`revise`** — verdict `changes` and iteration < 3: return the findings to step 3, fix

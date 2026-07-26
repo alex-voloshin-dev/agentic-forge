@@ -95,3 +95,22 @@ def test_the_delivery_pattern_documents_the_one_pr_rule() -> None:
     # The load-bearing choice: per-phase PRs would leave the next phase unable to read its input.
     pattern = (PLUGIN / "patterns" / "doc-delivery.md").read_text(encoding="utf-8")
     assert "per FEATURE" in pattern and "never per phase" in pattern
+
+
+def test_every_loop_indexes_its_review_artifact_by_iteration(  # noqa: D103
+) -> None:
+    # A single fixed filename cannot hold a history — writing it each round overwrites the previous
+    # one — so "persist each round" + "the history is auditable" are incompatible unless the
+    # iteration is in the NAME. Field report: the writer invented its own convention and left a pile
+    # of files behind (ADR 0071).
+    for skill in (*REVIEW_LOOP_SKILLS,):
+        body = _skill(skill)[1]
+        assert "review-<artifact>-<iteration>.md" in body, f"{skill} must index the review file"
+        assert "on `proceed` keep only the" in body, f"{skill} must state the cleanup rule"
+
+
+def test_the_pattern_owns_the_persistence_contract() -> None:
+    pattern = (PLUGIN / "patterns" / "review-loop.md").read_text(encoding="utf-8")
+    assert "Persisting the loop" in pattern
+    assert "One artifact per round" in pattern  # not one per lens
+    assert "delete the earlier ones" in pattern  # the lifecycle the field report was missing
