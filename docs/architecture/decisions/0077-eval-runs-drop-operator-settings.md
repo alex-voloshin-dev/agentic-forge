@@ -59,8 +59,15 @@ invocation above authenticated normally.
   with numbers taken after this change. They are not invalidated — nothing suggests the language
   drift changed a verdict — but a cross-version comparison spanning this commit should be read with
   that in mind.
-- **A project-level `.claude/` in a repo under test still participates.** That is intended: it is
-  part of the artifact being evaluated, and it is committed, so it is the same for everyone.
+- **The repo's own project memory still participates — including the root `CLAUDE.md`.** Verified
+  after the change: asked "does this project allow shell scripts?", an isolated run answered *"No —
+  ADR 0007 mandates Python-only scripts"*, straight out of this repository's constitution. That is
+  **reproducible** (the file is committed, so it is identical for everyone), which is what this ADR
+  set out to fix. But be precise about what is therefore measured: **a skill's Tier-2 number
+  describes the skill running under *this* repo's constitution**, not in a neutral repo, and a user
+  invoking it in their own project has their own `CLAUDE.md` in that slot instead. Isolating that
+  too would mean dropping project sources as well — at which point the run stops resembling any
+  real installation. The current line is the right one; it just has to be stated.
 - **The gap existed for every eval this project has ever run.** It was found only by running a
   suite and *reading the artifacts* rather than the pass rate — the same "inspect content, not
   counts" rule ADR 0073 imported from the field report, applied to our own harness.
