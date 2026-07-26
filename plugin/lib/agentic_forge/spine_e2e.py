@@ -147,13 +147,9 @@ def _sdlc(repo: Path, slug: str) -> Path:
 
 
 def check_architecture(repo: Path, slug: str = FEATURE_SLUG) -> list[Checkpoint]:
-    sdlc = _sdlc(repo, slug)
-    td = sdlc / "tech-design.md"
-    adrs = sorted(sdlc.glob("adr-*.md"))
+    adrs = sorted(_sdlc(repo, slug).glob("adr-*.md"))
     return [
-        Checkpoint(
-            "tech-design.md exists and validates", td.is_file() and _valid(td, "tech-design")
-        ),
+        _artifact_checkpoint(repo, "tech-design.md", "tech-design", slug),
         Checkpoint("at least one ADR", len(adrs) >= 1, f"{len(adrs)} ADR(s)"),
     ]
 
@@ -196,9 +192,15 @@ def check_code_review(repo: Path, slug: str = FEATURE_SLUG) -> list[Checkpoint]:
 def _artifact_checkpoint(
     repo: Path, filename: str, artifact_type: str, slug: str = FEATURE_SLUG
 ) -> Checkpoint:
+    """The artifact exists, validates, **and its review loop reached `proceed`** (ADR 0067).
+
+    Readiness is part of the checkpoint because an escalated run leaves a schema-valid artifact on
+    disk — asserting only "exists and validates" scored such a run **green**, which is exactly how a
+    rejected design could reach the next phase unnoticed."""
     path = _sdlc(repo, slug) / filename
-    ok = path.is_file() and _valid(path, artifact_type)
-    return Checkpoint(f"{filename} exists and validates", ok)
+    art = _load(path, artifact_type)
+    ok = art is not None and handoff.is_handoff_ready(art.header)
+    return Checkpoint(f"{filename} exists, validates and is handed off (status ready)", ok)
 
 
 def check_research(repo: Path, slug: str = FEATURE_SLUG) -> list[Checkpoint]:
@@ -367,23 +369,26 @@ def _phase_prompt(phase: str) -> str:
         "research": (
             f"Your working directory is a checkout of the target repo. Read FEATURE_REQUEST.md and "
             f"the code, research the feature (prior art / options / feasibility), and write "
-            f"{sdlc}research-brief.md (frontmatter type: research-brief, feature, status, date, "
+            f"{sdlc}research-brief.md (frontmatter type: research-brief, feature, status: "
+            f"approved, date, "
             "sources[]) with synthesized findings and a recommendation. No code changes."
         ),
         "product": (
             f"Read {sdlc}research-brief.md and the code. Write the product spec to {sdlc}prd.md "
-            "(frontmatter type: prd, feature, status, goals[], non_goals[], metrics[], "
+            "(frontmatter type: prd, feature, status: approved, goals[], non_goals[], metrics[], "
             "acceptance[]) with user stories. Requirements only — no design or code."
         ),
         "architecture": (
             f"Read {sdlc}prd.md and the code, and produce the technical design: write "
-            f"{sdlc}tech-design.md (frontmatter type: tech-design, feature, status, decisions, "
+            f"{sdlc}tech-design.md (frontmatter type: tech-design, feature, status: approved, "
+            f"decisions, "
             "components, risks) and at least one adr-*.md (Context/Decision/Alternatives/"
             "Consequences) in that directory. Design only — no code changes."
         ),
         "plan": (
             f"Read {sdlc}tech-design.md. Write the work plan to {sdlc}plan.md (frontmatter "
-            "type: plan, feature, status, tasks[] with id+deps, checkpoints[], deferred[]). "
+            "type: plan, feature, status: approved, tasks[] with id+deps, checkpoints[], "
+            "deferred[]). "
             "A plan only — no code."
         ),
         "develop": (
@@ -525,7 +530,8 @@ def _quality_gate() -> Scenario:
                 "qa-test-strategy",
                 f"Read {sdlc}prd.md and {sdlc}tech-design.md and the code. Plan the tests for the "
                 f"priority feature and write {sdlc}test-strategy.md (frontmatter type: "
-                "test-strategy, feature, status, test_levels[], risks[], cases[]). No code.",
+                "test-strategy, feature, status: approved, test_levels[], risks[], cases[]). No "
+                "code.",
                 lambda repo: check_test_strategy(
                     repo, slug, risk_keywords=("priorit", "invalid", "order")
                 ),
@@ -545,7 +551,8 @@ def _quality_gate() -> Scenario:
             Phase(
                 "release",
                 f"Decide the next version from the commits since {tag} and write {sdlc}release.md "
-                "(frontmatter type: release, feature, status, version, changelog[], breaking[]). "
+                "(frontmatter type: release, feature, status: approved, version, changelog[], "
+                "breaking[]). "
                 "Aggregate the whole release's changelog.",
                 lambda repo: check_release(
                     repo, slug, expected_version=expected_release_version(repo, base, tag)
@@ -590,7 +597,8 @@ def _ops_incident() -> Scenario:
             Phase(
                 "release",
                 f"Cut the hotfix release for the rollback. Write {sdlc}release.md with YAML "
-                "frontmatter containing ALL of: type: release, feature, status, version (a semver "
+                "frontmatter containing ALL of: type: release, feature, status: approved, version "
+                "(a semver "
                 "string such as 1.4.3), and a non-empty changelog list (e.g. '- Fixed: roll back "
                 "the failing deploy').",
                 lambda repo: check_release(repo, slug, expected_version=None),  # schema-only
@@ -616,7 +624,8 @@ def _product_inception() -> Scenario:
                 "repo-onboarding",
                 "Analyze this codebase (app.py, worker.py, README.md): map components, entry "
                 f"points, conventions, and risks and write {sdlc}onboarding.md (frontmatter type: "
-                "onboarding, feature, status, components[], entry_points[], conventions[], "
+                "onboarding, feature, status: approved, components[], entry_points[], "
+                "conventions[], "
                 "risks[]). Seed the knowledge vault (docs/knowledge/) with linked notes via the "
                 "agentic_forge.vault helper (so it validates clean).",
                 lambda repo: check_onboarding(repo, slug),
@@ -626,13 +635,14 @@ def _product_inception() -> Scenario:
             Phase(
                 "research",
                 f"Research the app's domain and write {sdlc}research-brief.md (frontmatter type: "
-                "research-brief, feature, status, date, sources[]).",
+                "research-brief, feature, status: approved, date, sources[]).",
                 lambda repo: check_research(repo, slug),
             ),
             Phase(
                 "product",
                 f"Read {sdlc}research-brief.md and write {sdlc}prd.md with YAML frontmatter "
-                "containing ALL of: type: prd, feature, status, a non-empty goals list, non_goals, "
+                "containing ALL of: type: prd, feature, status: approved, a non-empty goals list, "
+                "non_goals, "
                 "metrics, and a non-empty acceptance list. Add user stories in the body.",
                 lambda repo: check_product(repo, slug),
             ),
@@ -640,7 +650,8 @@ def _product_inception() -> Scenario:
                 "ux-design",
                 f"Read {sdlc}prd.md and design the UX. Write {sdlc}ux-spec.md with VALID YAML "
                 "frontmatter (quote any value containing a colon) holding ALL of: type: ux-spec, "
-                "feature, status, a non-empty flows list, screens, a non-empty accessibility list, "
+                "feature, status: approved, a non-empty flows list, screens, a non-empty "
+                "accessibility list, "
                 "and design_system.",
                 lambda repo: check_ux_spec(repo, slug),
             ),
@@ -648,7 +659,8 @@ def _product_inception() -> Scenario:
                 "architecture",
                 f"Read {sdlc}prd.md and {sdlc}ux-spec.md and write {sdlc}tech-design.md with VALID "
                 "YAML frontmatter (quote any value containing a colon) holding type: tech-design, "
-                "feature, status, a non-empty decisions list, a non-empty components list, and "
+                "feature, status: approved, a non-empty decisions list, a non-empty components "
+                "list, and "
                 "risks; plus at least one adr-*.md.",
                 lambda repo: check_architecture(repo, slug),
             ),
@@ -668,7 +680,8 @@ def _market_brief() -> Scenario:
             Phase(
                 "marketing",
                 f"Read market-notes.md and write {sdlc}market-brief.md (frontmatter type: "
-                "market-brief, feature, status, segments[], competitors[], sizing, sources[]). "
+                "market-brief, feature, status: approved, segments[], competitors[], sizing, "
+                "sources[]). "
                 "Name the competitors from the notes, cite sources, and do not fabricate figures.",
                 lambda repo: check_market_brief(
                     repo, slug, competitors=("Algolia", "Elastic", "Typesense")

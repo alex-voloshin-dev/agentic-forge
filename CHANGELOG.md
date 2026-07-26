@@ -7,6 +7,51 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Fixed — deep-review remediation: the safety machinery is connected (ADR 0067)
+
+A six-lens adversarial review of 2026.7.5/7.6, every finding verified against source. Those releases
+had passed **the whole pyramid** — Tier-0, live Tier-1 (6/6 at 1.000), live Tier-2 (2/2) and live
+Tier-3 (three scenarios) — and the review still found two blockers, because the pyramid checks
+*behaviour* while these were defects of **wiring, contract and truthfulness**. Three independent
+lenses converged on the first one.
+
+- **The merge rails had no production caller.** `merge_readiness`, the no-merge-after-push rail and
+  `confirm_merged` were never invoked: `dev/pr_watch.py` passed no merge seam and
+  `pr_watcher_auto_merge` was read by nothing, so the only path that could merge was a skill telling
+  a model to run `gh pr merge` over Bash — where every rail was prose. `run_watch` now **recomputes**
+  the gate from the state it was given (the `merge_decision=` parameter is gone, so a caller cannot
+  assert readiness) and requires an explicit `auto_merge=True`; the CLI wires the seams always, with
+  `auto_merge` as the switch.
+- **`escalate` did not stop anything.** Artifacts are written before the loop, `status` was inert and
+  no consumer checked it — so an escalated run handed off a rejected artifact and **Tier-3 scored it
+  green** (its checkpoints assert "exists and validates", which is exactly `gate_green`).
+  `handoff.is_handoff_ready` is now the shared rule; the writers mark `in-review` on escalate,
+  consumers refuse an unready upstream artifact, and the E2E checkpoint asserts readiness.
+- **The watcher read its kill switch from inside its blast radius.** `.agentic-forge/config.json` is
+  committed, and settings were resolved *after* `gh pr checkout` — so a PR could rewrite
+  `pr_watcher.bot` (hiding its own threads from the gate) or set `auto_merge`. Settings are now
+  resolved **before** checkout and passed down as argv; `auto_merge` demands a real boolean.
+- **The gate was blind to a "request changes" review** (such a review often carries no inline thread
+  at all), to a **truncated >100 thread list** (a missing thread read as an absent one — the same
+  rule `checks: NONE` already follows), and to a **closed PR** (the loop had no terminal signal).
+- **The Tier-1 fix had missed its own founding case.** ADR 0064 was written because a *Russian* prose
+  reply was scored as a routing decision — and its token cap counts ASCII runs, which finds almost
+  nothing in Cyrillic. Added: a non-Latin guard, rejection of negated mentions and of the model
+  performing the request, an explicit decline vocabulary (declining IS a decision), rejection of
+  ambiguity instead of "first-mentioned wins", and a minimum-valid-samples floor.
+- **The hook missed the shape it was built for**: newlines were not separators, so
+  `git push …\ngh pr create …` never fired; and a *failed* create (`already exists:` plus that PR's
+  URL on stderr) announced success, which in autonomous mode starts a watch over someone else's PR.
+- **Observability restored**: the seven loops persist a per-round review artifact, so ADR 0040's
+  non-convergence scan — whose premise is that the loop records its state — can finally see them.
+- **The shape is now a gate**: `tests/test_review_loop_shape.py` pins Bash+Task, the shared exit rule
+  and each skill's own `KINDS` key. That contract had shipped broken twice (ADR 0060 §4, 0061), both
+  times found by a human sweep.
+- Docs corrected: the CHANGELOG's fifth merge-gate condition (stale from the dropped design), the
+  `pr-watch` skill still advertising the reversed never-merge invariant, leaked tool-call XML in
+  `extensions.md`, the hook count (4→5), and `review.passes` — documented as the loop budget while
+  being read only by the scan.
+
 ## [2026.7.6] - 2026-07-26
 
 The watcher carries a PR to done — and the eval harness stops lying about it. Two capabilities and
@@ -113,8 +158,7 @@ human. It can now carry a PR to done: monitoring starts at PR creation, re-check
 cadence, triages each review comment, resolves conflicts, and merges once the gate opens.
 
 - **`merge_readiness()` — the merge gate as a pure, tested function.** It opens only when: not a
-  draft, the check rollup is green, no unresolved *actionable* threads, `MERGEABLE`, and the awaited
-  external review has been seen. Every unmet condition becomes a human-readable reason, so a watch
+  draft, the check rollup is green, no unresolved *actionable* threads, and `MERGEABLE`. Every unmet condition becomes a human-readable reason, so a watch
   report says *why* a PR is waiting. Two deliberate readings of the ask: **"no comments" means no
   unresolved actionable threads** (a triaged-and-resolved PR is mergeable — the literal reading would
   make any reviewed PR permanently unmergeable), and **"green builds" requires builds to exist** — a

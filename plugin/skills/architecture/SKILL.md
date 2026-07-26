@@ -23,7 +23,7 @@ task breakdown (`plan`), or implementation (`develop`).
 > [knowledge-recall](../../patterns/knowledge-recall.md)); factor them in, and skip if the vault is empty.
 
 1. **Read the inputs.** Load the `prd.md` handoff (`docs/sdlc/<feature-slug>/prd.md`) — use
-   `agentic_forge.handoff.load_artifact(..., expected_type="prd")` — and study how the current
+   `agentic_forge.handoff.load_artifact(..., expected_type="prd")` and **refuse to design from it unless `handoff.is_handoff_ready(header)`** — and study how the current
    system is built so the design fits reality.
 2. **Find the decisions that matter.** Identify the few choices that shape the design
    (datastore, boundaries, sync model, …). When several are independent, evaluate them in
@@ -52,11 +52,11 @@ task breakdown (`plan`), or implementation (`develop`).
    codex critiques the design as an independent-model lens (soundness, rejected alternatives, risks)
    and its `findings` fold into the same worst-first revision. It **degrades gracefully** (absent/
    disabled codex is skipped, not a failure) and its findings are **advisory** (prompt-injectable) —
-   verify before acting. **Exit criterion (the shared, tested rule):** each round, compute
+   verify before acting. **Persist each round** — write `docs/sdlc/<feature-slug>/review-<artifact>.md` (`type: review`, `target`, `iteration`, `verdict`, `findings[]`; `dev/external_review.py --out … --iteration N` already emits this shape). Without it the loop leaves no trace and the scheduled non-convergence scan (ADR 0040) cannot see it. **Exit criterion (the shared, tested rule):** each round, compute
    `handoff.review_loop_decision(verdict, iteration, cap=3, gate_green=<step 5 passes>)` (see
    [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
    [review-loop.md](../../patterns/review-loop.md)) — `revise` (loop back and fix worst-first),
-   `escalate` (still `changes` at N = 3 → surface the unresolved gaps and stop; don't hand off), or
+   `escalate` (still `changes` at N = 3 → **set the artifact's `status` to `in-review`**, surface the unresolved gaps and stop; the status is what makes "don't hand off" enforceable — the file is already on disk), or
    `proceed` (`approve` **and** the design validates → the design is done). Don't hand off a design
    whose goals don't trace or whose ADRs weigh strawmen.
 

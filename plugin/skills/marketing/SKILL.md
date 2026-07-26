@@ -65,11 +65,11 @@ The failure mode of generated marketing is confident, low-signal fluff. So every
    deliverable> --kind marketing`); codex attacks the same evidence discipline as an
    independent-model lens and its `findings` fold into the same worst-first revision. It **degrades
    gracefully** (absent/disabled codex is skipped, not a failure) and its findings are **advisory**
-   (prompt-injectable) — verify before acting. **Exit criterion (the shared, tested rule):** each
+   (prompt-injectable) — verify before acting. **Persist each round** — write `docs/sdlc/<feature-slug>/review-<artifact>.md` (`type: review`, `target`, `iteration`, `verdict`, `findings[]`; `dev/external_review.py --out … --iteration N` already emits this shape). Without it the loop leaves no trace and the scheduled non-convergence scan (ADR 0040) cannot see it. **Exit criterion (the shared, tested rule):** each
    round, compute `handoff.review_loop_decision(verdict, iteration, cap=3, gate_green=<the gate
    below>)` (see [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
    [review-loop.md](../../patterns/review-loop.md)) — `revise` (loop back and fix worst-first),
-   `escalate` (still `changes` at N = 3 → surface the unresolved claims and stop; don't ship), or
+   `escalate` (still `changes` at N = 3 → for a typed handoff **set `status` to `in-review`**, surface the unresolved claims and stop; don't ship), or
    `proceed` (`approve` **and** the gate → the deliverable is done). **The gate depends on what this
    sub-area produced:** for a typed handoff (`market-brief` / `marketing-strategy`) it is step 3's
    `handoff.validate_header`; for the untyped deliverables (offer doc, content files, audit report)

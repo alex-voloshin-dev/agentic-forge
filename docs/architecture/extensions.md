@@ -90,5 +90,3 @@ after field bundles showed users hand-rolling `gh pr view` polling loops.
   [scheduling & observability](scheduling-observability.md).
 - **Review-loop non-convergence scan** (ADR 0040) and **hook import safety** (ADR 0050) — guardrail
   hardening; see [guardrails](guardrails.md).
-</content>
-</invoke>
