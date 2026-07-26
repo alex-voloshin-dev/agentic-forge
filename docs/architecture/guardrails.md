@@ -1,6 +1,6 @@
 # Layer 4 — Guardrails (hooks)
 
-Status: **Built** ([ADR 0019](decisions/0019-l4-guardrails.md)) — five deterministic guardrail
+Status: **Built** ([ADR 0019](decisions/0019-l4-guardrails.md)) — six deterministic guardrail
 hooks on tool use, on top of L3's session-start hook. **Scheduling & observability shipped
 separately** ([ADR 0024](decisions/0024-stage7-scheduling-observability.md),
 [scheduling-observability.md](scheduling-observability.md)); this doc covers only the hooks.
@@ -54,6 +54,13 @@ session — except where blocking is the whole point (security, test-gate).
   (field case: `SCORING_VNEXT` matched `SCORING_VNEXT_CRUX_API_KEY` and printed it into the
   transcript). Local dumps, exact-name lookups (`printenv PGHOST`), `env`/`set` used as wrappers,
   and a dump piped through a redaction filter (`| grep -ivE 'KEY|SECRET|…'`) all pass (ADR 0075).
+- **merge preflight** (`PreToolUse` / Bash, `merge_preflight.py`) — on `gh pr merge`, reads
+  `origin/HEAD`, the worktree list and the base branch's ahead-count, and **warns** when another
+  worktree holds the base branch or local `base` is ahead of upstream — the two conditions that
+  break the *local* half of the merge (`'master' is already used by worktree`, `Not possible to
+  fast-forward`). It **never blocks**: the merge itself happens on the server and is durable, the
+  base branch is only approximated from `origin/HEAD`, and refusing a merge would wedge the
+  auto-merge watcher (ADR 0076). The main checkout holding the base is normal and stays silent.
 - **budgets** (`PreToolUse` / Task, `budget.py`) — a per-session subagent counter; **warns** over
   the soft cap and **blocks** over the hard cap (`AGENTIC_FORGE_SUBAGENT_SOFT` / `_HARD`).
 - **logging** (`PostToolUse`, `audit_log.py`) — appends a secret-redacted JSONL audit line to
@@ -112,4 +119,4 @@ a determined adversary. Known, accepted limits:
 **observability** (the audit-log digest) are not guardrails, so they live outside L4 — now
 **built** in `schedule.py` / `observability.py` + the `run_scheduled` / `audit_digest` CLIs + a
 cron workflow ([ADR 0024](decisions/0024-stage7-scheduling-observability.md)). A richer
-observability dashboard remains an optional follow-on. L4 itself = the five hooks per CLAUDE.md.
+observability dashboard remains an optional follow-on. L4 itself = the six hooks per CLAUDE.md.
