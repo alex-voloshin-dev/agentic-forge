@@ -100,7 +100,11 @@ Per pass, in this order:
    draft, checks green (**no checks at all blocks** — "no builds" is not "green builds"), zero
    unresolved actionable threads, and `MERGEABLE`. If shut, report its `reasons` and wait for the
    next pass. If open **and** this pass pushed nothing: merge with `merge_argv(repo, number,
-   method)`.
+   method)`, then **confirm by reading the PR** — `merged_argv` + `parse_merged`. `gh pr merge` is
+   **not atomic**: it merges on GitHub and *then* does local work (branch switch, branch delete)
+   that can fail on its own, so a non-zero exit does **not** mean the PR is unmerged (observed:
+   `fatal: 'master' is already used by worktree` — exit non-zero, PR merged). Report the outcome
+   from the PR's state, never from the command's exit status.
 
    There is **no separate wait for an external reviewer**: right after the PR opens its checks are
    `PENDING`, so the first pass can't merge, and the earliest merge is one `poll_seconds` later —

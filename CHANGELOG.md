@@ -43,6 +43,27 @@ no headroom, to repair a defect that was never in the description. **No skill, d
 threshold was changed.** Recorded Tier-1 figures from before this fix should be read as "≥ this,
 possibly higher"; the runbook now says so.
 
+### Fixed — the merge outcome is observed, not inferred from the command (ADR 0065)
+
+`gh pr merge` is **not atomic**: it merges on GitHub and *then* does local work (branch switch,
+branch delete) that can fail on its own. Observed cutting a PR in this repo: the command exited
+non-zero with `fatal: 'master' is already used by worktree`, and `gh pr view` reported
+`state=MERGED`. ADR 0063's watcher took the call returning as success, so that case would report a
+merged PR as unmerged — and, worse for an autonomous loop, the next poll would find an already-merged
+PR, try to merge it again, fail again, and never converge.
+
+- **`merged_argv` + `parse_merged`** read the PR's own `state` / `mergedAt`. Tolerant of junk — a
+  `gh` error object, a bare string, `None` all read as *not merged* — so a failed status read can
+  never fabricate a merge.
+- **`run_watch(..., confirm_merged=…)` lets the observation decide, in both directions:** a raising
+  merge command is recorded as `merge_command_failed` but `merged` comes from reading the PR; a
+  command that *succeeded* while the PR is not merged is likewise reported as unmerged. An exit
+  status is evidence about a process, not about the pull request.
+- **Without the seam a failure still propagates** — a caller that cannot observe the truth shouldn't
+  guess in either direction, and the pre-0065 contract is preserved exactly.
+- The report keeps the anomaly rather than smoothing it: `merged (merge command errored; PR state
+  confirms it landed)`.
+
 ### Added — autonomous PR watch: merge gate, comment triage, conflict resolve (ADR 0063)
 
 The PR watcher (ADR 0044/0045) stopped at the review-thread fix loop and left every merge to a

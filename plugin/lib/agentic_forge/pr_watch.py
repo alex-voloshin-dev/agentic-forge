@@ -35,6 +35,8 @@ __all__ = [
     "resolve_argv",
     "push_argv",
     "merge_argv",
+    "merged_argv",
+    "parse_merged",
     "pr_comment_argv",
     "conflict_notice_present",
     "plan_watch",
@@ -118,8 +120,9 @@ class WatchResult:
     conflicting: bool = False
     conflict_resolved: bool = False  # a CONFLICTING PR was rebased clean (1b, ADR 0045)
     conflict_unresolved: bool = False  # couldn't auto-resolve -> surfaced a comment
-    merged: bool = False  # the gate opened and the merge seam ran (ADR 0063)
+    merged: bool = False  # the PR is merged — CONFIRMED by reading its state where possible (0065)
     merge_blocked_by: list[str] = field(default_factory=list)  # why the gate stayed shut
+    merge_command_failed: bool = False  # the merge command errored (the PR may still be merged)
 
 
 @dataclass(frozen=True)
@@ -277,6 +280,28 @@ def merge_argv(repo: str, number: int, method: str = "rebase") -> list[str]:
     return ["gh", "pr", "merge", str(number), "-R", repo, f"--{method}", "--delete-branch"]
 
 
+def merged_argv(repo: str, number: int) -> list[str]:
+    """argv to read a PR's merged state — the ground truth for "did the merge land?" (ADR 0065).
+
+    ``gh pr merge`` is **not atomic**: it merges on GitHub and then does local work (switching
+    branches, deleting the branch), and the local half can fail *after* the remote merge succeeded —
+    observed 2026-07-25, ``fatal: 'master' is already used by worktree``, exit non-zero, PR merged.
+    Treating that exit status as the outcome reports a merged PR as unmerged."""
+    return ["gh", "pr", "view", str(number), "-R", repo, "--json", "state,mergedAt"]
+
+
+def parse_merged(payload: Any) -> bool:
+    """True if the ``gh pr view --json state,mergedAt`` payload says the PR is merged.
+
+    Tolerant of shape and of junk (a `gh` error object, a string, ``None``): anything that is not a
+    clear MERGED reads as *not merged*, so a failed status read never fabricates a merge."""
+    if not isinstance(payload, dict):
+        return False
+    if str(payload.get("state", "")).strip().upper() == "MERGED":
+        return True
+    return bool(str(payload.get("mergedAt") or "").strip())
+
+
 def pr_comment_argv(repo: str, number: int, body: str) -> list[str]:
     """argv to post a PR-level comment (e.g. an un-resolvable-conflict notice — 1b, ADR 0045)."""
     return ["gh", "pr", "comment", str(number), "-R", repo, "--body", body]
@@ -302,6 +327,9 @@ Fixer = Callable[[ReviewThread], "tuple[str, str]"]
 GhExec = Callable[[list[str]], None]
 Push = Callable[[], None]
 Merge = Callable[[], None]
+# Reads the PR's own merged state (see `merged_argv` / `parse_merged`). Supplying it makes the
+# merge outcome an OBSERVATION rather than an inference from the merge command's exit status.
+ConfirmMerged = Callable[[], bool]
 
 
 def run_watch(
@@ -316,6 +344,7 @@ def run_watch(
     handle_conflict: Callable[[], bool] | None = None,
     merge: Merge | None = None,
     merge_decision: MergeDecision | None = None,
+    confirm_merged: ConfirmMerged | None = None,
 ) -> WatchResult:
     """Run the bounded auto-fix loop over a PR's actionable threads (ADR 0044): per thread the
     ``fixer`` decides fix-vs-reject and the reply; a fix posts the reply, resolves the thread; a
@@ -329,7 +358,15 @@ def run_watch(
     :func:`merge_readiness` — *and* this pass neither fixed nor pushed anything. That last rule is
     the important one: a fix push invalidates the green checks the decision was computed from,
     because the new commit has not been tested yet, so the merge waits for the next poll. Never
-    force-pushes. ``record`` (if given) logs each action for diagnostics. The caller gates this on
+    force-pushes.
+
+    **``confirm_merged`` decides the outcome when given** (ADR 0065): ``gh pr merge`` merges on
+    GitHub and *then* does local work that can fail on its own, so a non-zero exit does not mean the
+    PR is unmerged. With the seam wired, a failing merge command is recorded
+    (``merge_command_failed``) but ``merged`` comes from reading the PR's state. Without it, the
+    failure propagates as before — guessing in either direction would be worse than raising.
+
+    ``record`` (if given) logs each action for diagnostics. The caller gates this on
     ``settings.pr_watcher.enabled`` + a non-dry run."""
     result = WatchResult(conflicting=state.conflicting)
     for thread in actionable_threads(state, bot=bot)[:max_threads]:
@@ -366,16 +403,35 @@ def run_watch(
             # merging now would ship an untested one — wait for the next poll (ADR 0063 §4).
             result.merge_blocked_by = ["fixes pushed this pass; awaiting re-check"]
         elif merge_decision.ready:
-            merge()
-            result.merged = True
+            failure: Exception | None = None
+            try:
+                merge()
+            except Exception as exc:  # noqa: BLE001 — the outcome is decided by the PR's state
+                failure = exc
+            result.merge_command_failed = failure is not None
+            if confirm_merged is not None:
+                # Ground truth: read the PR. `gh pr merge` merges remotely and THEN does local work
+                # that can fail on its own, so its exit status is not the outcome (ADR 0065).
+                result.merged = confirm_merged()
+                if failure is not None and not result.merged:
+                    result.merge_blocked_by = [f"merge failed: {failure}"]
+            elif failure is not None:
+                # No way to observe the truth — do not guess in either direction. Propagating keeps
+                # the pre-0065 contract for callers that wire no confirmation seam.
+                raise failure
+            else:
+                result.merged = True
         else:
             result.merge_blocked_by = list(merge_decision.reasons)
         if record:
-            note = (
-                "merged"
-                if result.merged
-                else "merge held: " + "; ".join(result.merge_blocked_by)
-            )
+            if result.merged:
+                note = "merged" + (
+                    " (merge command errored; PR state confirms it landed)"
+                    if result.merge_command_failed
+                    else ""
+                )
+            else:
+                note = "merge held: " + "; ".join(result.merge_blocked_by)
             record(f"#{state.number}: {note}")
     return result
 
