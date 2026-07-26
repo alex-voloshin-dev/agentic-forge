@@ -567,7 +567,12 @@ def claude_cli_runner(
     system_flag = "--system-prompt" if replace_system else "--append-system-prompt"
 
     def run(system: str, prompt: str, workdir: Path) -> str:
+        # `--setting-sources project` drops the OPERATOR's user-level settings and `CLAUDE.md`
+        # (ADR 0077). Without it an eval inherits whoever is running it: a personal "always answer
+        # in <language>" rule reached the graded artifacts here, so the same case scored differently
+        # on different machines. Project settings stay — they are part of the repo under test.
         cmd = ["claude", "-p", prompt, system_flag, system, "--output-format", "json"]
+        cmd += ["--setting-sources", "project"]
         if allowed_tools is not None:
             cmd += ["--allowedTools", allowed_tools]
         if model:

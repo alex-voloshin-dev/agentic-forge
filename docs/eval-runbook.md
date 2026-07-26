@@ -356,3 +356,16 @@ auto-fix autonomy applies to every open same-repo PR).
   flags in `dev/run_agent_evals.py` if your CLI version expects a different format.
 - Results vary run to run; the gate intentionally uses the lower bound over `n ≥ 5` runs to
   absorb that noise.
+- **Runs load PROJECT settings only** (`--setting-sources project`, ADR 0077). Until 2026-07-26
+  they also loaded the operator's user-level settings and `~/.claude/CLAUDE.md`, so an eval measured
+  *the component plus whoever ran it* — a personal "always answer in <language>" rule reached the
+  graded artifacts, and pass rates were not comparable across machines. Numbers recorded before that
+  change came from the old regime; treat a cross-version comparison spanning it with care. A
+  project-level `.claude/` in the repo under test still participates, by design — it is committed,
+  so it is the same for everyone.
+- **A Tier-2 skill eval grades the final TEXT, not the run's tool calls.** An assertion about
+  *which* subagent type, tool, or file the skill used cannot be verified — the grader never sees
+  that. Such a rule can only be gated as *"the skill states the rule and its reason"*, which is
+  knowledge, not adherence. Writing the stronger-sounding assertion produces a case that passes or
+  fails on how talkative the run happened to be (observed: `0.0 / 0.5 / 1.0 / 0.5` across five runs
+  of one such case).

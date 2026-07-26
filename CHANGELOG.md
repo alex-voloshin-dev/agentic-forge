@@ -7,6 +7,32 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Fixed — eval runs no longer inherit the operator's own config (ADR 0077)
+
+Running two Tier-2 suites that had **never been executed** produced graded artifacts in Russian.
+Nothing in the plugin asks for that: the source was the maintainer's personal `~/.claude/CLAUDE.md`.
+A skill body is delivered with `--append-system-prompt` (ADR 0064) so it runs on top of Claude
+Code's real system prompt — which also loads the operator's user-level settings. Every eval this
+project has ever run measured *the component plus whoever ran it*, so Tier-2 numbers were not
+comparable across machines and a personal rule could move a gate.
+
+Runs now pass `--setting-sources project`. Verified directly: the same prompt answers in Russian
+without the flag and in English with it. Deliberately **not** a switch to `--system-prompt` — the
+component should still run on top of Claude Code, just not on top of one person's Claude Code.
+
+### Fixed — a new eval case that could not measure what it claimed (ADR 0073 amendment)
+
+`deep-review` case 4, added with ADR 0073 and never run, **failed** on first execution: 0.835
+against a 0.800 gate. Isolating it gave `0.0 / 0.5 / 1.0 / 0.5` across five runs — the case asked
+the skill to dispatch a recon and *narrate* which subagent type it chose, so it scored how talkative
+a run happened to be. A Tier-2 skill eval grades the final **text**; the grader never sees the tool
+calls, so adherence to a dispatch rule is not gateable here at all.
+
+Rewritten to ask the decision directly ("do not run it — which type, and why?"), and one causal
+claim that had been split into two independently-graded assertions was merged back. Now `1.0` across
+five runs, stddev `0.0`. ADR 0073 now states plainly what the case proves — that the rule is *known
+and articulated*, not that a run adhered to it.
+
 ### Added — pre-merge preflight, warning-only (ADR 0076)
 
 `gh pr merge` merges on the **server**, then updates the **local** checkout. The local half failed
