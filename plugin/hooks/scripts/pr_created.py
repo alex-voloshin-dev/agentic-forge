@@ -32,7 +32,8 @@ def enqueue(cwd: str, payload: dict[str, Any]) -> bool:
 
     This is the whole of the hook's authority: it appends to a **gitignored local file**. It still
     starts no process and merges nothing — the scheduled drain does that later, under the settings,
-    through the audited `dev/pr_watch.py` path. Recording intent is not starting an agent
+    through the audited `${CLAUDE_PLUGIN_ROOT}/bin/pr_watch.py` path. Recording intent is not
+    starting an agent
     (ADR 0063 §6, narrowed by 0068)."""
     root = diagnostics.main_repo_root(cwd)
     resolved = settings.resolve(root)
@@ -42,7 +43,7 @@ def enqueue(cwd: str, payload: dict[str, Any]) -> bool:
     if ref is None:
         return False
     owner, name, number = ref
-    path = root / pr_watch.QUEUE_PATH
+    path = diagnostics.existing_state_file(root, pr_watch.QUEUE_FILE, pr_watch.QUEUE_PATH)
     existing: Any = []
     if path.is_file():
         try:

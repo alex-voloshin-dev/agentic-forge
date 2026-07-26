@@ -55,7 +55,7 @@ opinion. For a quick single-file diff lint, a single `reviewer` pass is enough â
   `develop` (`--kind code`), `product` (`--kind product`), `architecture` (`--kind technical`) and
   `plan` (`--kind plan`) since ADR 0060, `research` (`--kind research`) and `ux-design` (`--kind ux`)
   since ADR 0061, and `marketing` (`--kind marketing`) since ADR 0062. Run it via
-  `dev/external_review.py` (`--kind code|marketing|plan|product|research|technical|ux`, `--out
+  `${CLAUDE_PLUGIN_ROOT}/bin/external_review.py` (`--kind code|marketing|plan|product|research|technical|ux`, `--out
   review.md`); pick the kind that matches the deliverable â€” an unknown one falls back to the **code**
   criteria, which is wrong for a brief, spec, or design. It degrades
   gracefully when absent. It runs **read-only**; it sends the target to a third-party agent, so

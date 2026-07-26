@@ -54,7 +54,7 @@ task breakdown (`plan`), or implementation (`develop`).
    reviewer lens (on by default, ADR 0057/0060):** when `external_reviewer.enabled` (settings), also
    run the external reviewer over `tech-design.md` — call `external_review.review(design_text,
    "technical", command=<cfg>)` from `${CLAUDE_PLUGIN_ROOT}/lib` (repo-side equivalent:
-   `dev/external_review.py --target docs/sdlc/<feature-slug>/tech-design.md --kind technical`);
+   `${CLAUDE_PLUGIN_ROOT}/bin/external_review.py --target docs/sdlc/<feature-slug>/tech-design.md --kind technical`);
    codex critiques the design as an independent-model lens (soundness, rejected alternatives, risks)
    and its `findings` fold into the same worst-first revision. It **degrades gracefully** (absent/
    disabled codex is skipped, not a failure) and its findings are **advisory** (prompt-injectable) —

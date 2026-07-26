@@ -53,7 +53,7 @@ designing (`architecture`), task breakdown (`plan`), or reviewing already-writte
    ADR 0057):** when `external_reviewer.enabled` (settings), also run the external reviewer over the
    same diff — call `agentic_forge`'s `external_review.review(diff, "code", command=<cfg>)` from
    `${CLAUDE_PLUGIN_ROOT}/lib` (the same way this workflow already calls `handoff` / `stacks` /
-   `planning`; the repo-side CLI `dev/external_review.py --kind code` is the equivalent entry point
+   `planning`; the repo-side CLI `${CLAUDE_PLUGIN_ROOT}/bin/external_review.py --kind code` is the equivalent entry point
    when running in this repo). codex reviews it **read-only** as an independent-model lens and its
    `findings` fold into the aggregation at their own severity. It
    **degrades gracefully** — absent/disabled/unparseable codex is *skipped, not a failure* — and its

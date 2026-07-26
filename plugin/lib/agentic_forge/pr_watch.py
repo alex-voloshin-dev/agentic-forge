@@ -544,7 +544,8 @@ def watch_repos(
 # The hook records INTENT here; the scheduled drain executes it through the same `run_watch` path.
 # Pure functions only — the file I/O belongs to the hook and the runner.
 
-QUEUE_PATH = ".agentic-forge/pr-watch-queue.json"  # gitignored: a PR cannot commit entries
+QUEUE_PATH = ".agentic-forge/pr-watch-queue.json"  # legacy in-repo location (read fallback)
+QUEUE_FILE = "pr-watch-queue.json"  # resolved under diagnostics.state_root() — ADR 0072
 MAX_QUEUE = 50  # a hook bug must not enqueue unboundedly
 _SLUG = re.compile(r"^[A-Za-z0-9._-]+$")
 

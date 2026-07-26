@@ -455,7 +455,7 @@ bugs (neutral `config.example.json` + configuration.md python/models clarificati
 - **Evidence:** 232 `gh pr view`/`gh run` polling commands and 42 `ScheduleWakeup` calls across the
   week; one session polled a single PR 57 times with hand-rolled wait loops ("test-playwright-smoke
   на #461 ещё pending…"). The PR-watcher core exists (ADR 0044/0045) but only as a maintainer CLI
-  (`dev/pr_watch.py`) + an opt-in scheduled job — nothing a plugin user can reach; the field session
+  (`plugin/bin/pr_watch.py`) + an opt-in scheduled job — nothing a plugin user can reach; the field session
   even asked the user about enabling it (AskUserQuestion) and it stayed off.
 - **Goal:** a thin skill that babysits a PR/CI run *interactively*: poll checks + review threads at
   a sane cadence, report state transitions, and (opt-in) delegate fixable failures to `develop` /

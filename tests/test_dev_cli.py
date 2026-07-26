@@ -8,20 +8,25 @@ import pytest
 
 _REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO / "dev"))
+# The runtime CLIs moved into the SHIPPED tree (ADR 0072) — dev/ keeps only the maintainer
+# and eval CLIs, which do not reach an installed user.
+sys.path.insert(0, str(_REPO / "plugin" / "bin"))
+
+import external_review as external_review_cli  # noqa: E402
+import pr_watch as pr_watch_cli  # noqa: E402
+import run_scheduled  # noqa: E402
 
 import audit_digest  # noqa: E402
 import diagnostics_bundle as diagnostics_bundle_cli  # noqa: E402
 import diagnostics_digest  # noqa: E402
-import external_review as external_review_cli  # noqa: E402
-import pr_watch as pr_watch_cli  # noqa: E402
 import ralph as ralph_cli  # noqa: E402
 import run_agent_evals  # noqa: E402
-import run_scheduled  # noqa: E402
 import run_skill_evals  # noqa: E402
 import run_spine_e2e  # noqa: E402
 import run_tier1_evals  # noqa: E402
 import sync_models as sync_models_cli  # noqa: E402
 import validate as validate_cli  # noqa: E402
+from agentic_forge import diagnostics, schedule  # noqa: E402
 
 
 def test_validate_cli_main_ok() -> None:
@@ -89,7 +94,7 @@ def test_run_scheduled_dry_lists_due_jobs(tmp_path: Path, capsys: pytest.Capture
 def test_run_scheduled_force_runs_and_records(tmp_path: Path) -> None:
     # --force runs every job (actions degrade gracefully on an empty repo) and records the run.
     assert run_scheduled.main(["run", "--repo", str(tmp_path), "--force"]) == 0
-    assert (tmp_path / ".agentic-forge" / "schedule-state.json").is_file()
+    assert (diagnostics.state_root(tmp_path) / schedule.STATE_FILE).is_file()
 
 
 def test_run_scheduled_returns_1_when_a_job_fails(
@@ -101,7 +106,7 @@ def test_run_scheduled_returns_1_when_a_job_fails(
 
     monkeypatch.setitem(run_scheduled._ACTIONS, "kb_maintenance", boom)
     assert run_scheduled.main(["run", "--repo", str(tmp_path), "--force"]) == 1
-    assert (tmp_path / ".agentic-forge" / "schedule-state.json").is_file()  # still records outcomes
+    assert (diagnostics.state_root(tmp_path) / schedule.STATE_FILE).is_file()  # records outcomes
 
 
 def test_run_scheduled_none_due_after_run(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
@@ -241,7 +246,7 @@ def test_runner_records_diagnostic_when_enabled(
 
     monkeypatch.setattr(run_skill_evals.skill_eval, "run_skill", boom)
     assert run_skill_evals.main(["run", "--runner", "claude", "--skill", "python-patterns"]) == 1
-    log = tmp_path / ".agentic-forge" / "diagnostics.jsonl"
+    log = diagnostics.state_root(tmp_path) / diagnostics.DIAGNOSTICS_FILE
     assert log.is_file() and "kaboom" in log.read_text()  # the crash was recorded
 
 
@@ -255,7 +260,7 @@ def test_review_scan_action(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
         encoding="utf-8",
     )
     assert "recorded 1" in run_scheduled._review_scan(tmp_path)  # non-converged loop captured
-    assert (tmp_path / ".agentic-forge" / "diagnostics.jsonl").is_file()
+    assert (diagnostics.state_root(tmp_path) / diagnostics.DIAGNOSTICS_FILE).is_file()
 
 
 # --- real-runner aggregation / exit-code paths (stubbed transport; no model calls) -----------

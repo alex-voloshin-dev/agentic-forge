@@ -17,7 +17,7 @@ audit logs motivated it: 232 hand-rolled `gh pr view` polls in one week.
 ## When to use
 
 When asked to watch/babysit a PR or CI run, wait for checks, or work through a PR's review
-comments interactively. **Not** for the scheduled multi-repo watcher (that is `dev/pr_watch.py`
+comments interactively. **Not** for the scheduled multi-repo watcher (that is `${CLAUDE_PLUGIN_ROOT}/bin/pr_watch.py`
 driven by the job registry), cutting a release (`release`), or rollout monitoring (`deploy-watch`).
 
 ## Process

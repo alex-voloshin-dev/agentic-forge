@@ -23,6 +23,6 @@ jobs:
       - name: Install
         run: pip install -e ".[dev]"
       - name: List due jobs (dry-run)
-        run: python dev/run_scheduled.py --dry
+        run: python plugin/bin/run_scheduled.py --dry
       - name: Run due scheduled jobs
-        run: python dev/run_scheduled.py
+        run: python plugin/bin/run_scheduled.py

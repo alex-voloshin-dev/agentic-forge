@@ -7,6 +7,38 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Fixed — the plugin ships its runtime CLIs, and stops writing state into the user's repo (ADR 0072)
+
+**Both found in the field, both invisible here** because this repo is the plugin's source *and* its
+test subject (field report AF-06, AF-05).
+
+**AF-06 — commands the plugin promised but did not ship.** `marketplace.json` declares
+`"source": "./plugin"`, so only `plugin/` reaches an installed user — yet three *runtime* entry
+points lived in `dev/`: `run_scheduled.py` (the scheduler's only entry point, ADR 0024),
+`pr_watch.py` (the sole production caller of the merge rails, ADR 0067) and `external_review.py`
+(the reviewer seam seven skills invoke, ADR 0042). Thirteen shipped files told users to run paths
+their installation does not contain. All three now live in **`plugin/bin/`** and resolve imports
+from the plugin tree; shipped references use `${CLAUDE_PLUGIN_ROOT}/bin/…`. `dev/` keeps only
+maintainer and eval CLIs, and `CLAUDE.md` + `meta-core.md` now state which directory ships.
+The deciding rule: **if a shipped artifact tells someone to run it, it ships.**
+
+**AF-05 — the plugin wrote its own state into repositories it does not own.** `diagnostics.jsonl`,
+`audit.jsonl`, `schedule-state.json` and `pr-watch-queue.json` were created under
+`<user-repo>/.agentic-forge/` — the audit log on *every* tool call. That violates the standing rule
+that agent state lives at the user level, leaves untracked files in a downstream `git status`, and
+keys session-scoped records to the wrong thing. New rule: **configuration is the project's, state is
+the runtime's** — a committed `<repo>/.agentic-forge/config.json` stays; everything generated moves
+to `~/.agentic-forge/state/<repo-slug>/` via a single `diagnostics.state_root()`.
+
+- The worktree invariant survives: `main_repo_root` still collapses a worktree to its main repo, so
+  one project has one state stream — now "one slug" instead of "one directory in the checkout".
+- The slug is `<dirname>-<sha256(abspath)[:8]>`: two checkouts of one repository stay distinct.
+- **Reads fall back to the legacy in-repo file when it exists**, so a repo already running the
+  plugin keeps one continuous history rather than silently starting a second.
+- `state.in_repo` (off by default) restores the old layout for anyone who wants it;
+  `AGENTIC_FORGE_STATE_HOME` relocates the root and makes the suite hermetic — without it the tests
+  would now write into the developer's real `$HOME`.
+
 ### Fixed — review artifacts: indexed by iteration, one per round, cleaned on success (ADR 0071)
 
 **From a field report, not a gate:** a live `architecture` run left several review files behind, with

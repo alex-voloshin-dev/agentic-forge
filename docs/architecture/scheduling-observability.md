@@ -12,7 +12,7 @@ adds them. It introduces **no new model-invocable skills** — it is determinist
 A Claude Code plugin can't run a long-lived scheduler. So "scheduling" is three pieces:
 
 1. a **declarative job registry** + due-logic in `lib/` (pure, tested),
-2. a **headless runner CLI** (`dev/run_scheduled.py`) that runs the due jobs and records when each
+2. a **headless runner CLI** (`plugin/bin/run_scheduled.py`) that runs the due jobs and records when each
    last ran,
 3. a **cron-triggered CI workflow** (`.github/workflows/scheduled.yml`, GitHub Actions
    `schedule:`) that invokes the runner — the external clock.
@@ -65,7 +65,7 @@ into this usage digest was dropped in favour of that dedicated channel.
 Self-troubleshooting: collect the plugin's own **errors + behaviour anomalies** so maintainers can
 fix it. The guardrail hooks (security / commit_gate denials, budget warn/block, hook crashes) and
 the dev eval runners (uncaught exceptions, gate FAILs) `emit` a redacted event to
-`.agentic-forge/diagnostics.jsonl` **when capture is enabled** (`AGENTIC_FORGE_DIAGNOSTICS`). It is
+`~/.agentic-forge/state/<repo-slug>/diagnostics.jsonl` **when capture is enabled** (`AGENTIC_FORGE_DIAGNOSTICS`). It is
 **opt-in, never blocks, never leaks secrets** (`guardrails.redact_secrets`), and **local-only** (no
 outward routing). `digest(lines)` groups events by **signature** into ranked "top problems";
 `render` reports them. Pure logic + a thin I/O seam, mirroring observability.
@@ -78,7 +78,7 @@ artifacts and emits an anomaly for any whose `verdict` is still `changes` at `it
 
 ## CLIs
 
-- `dev/run_scheduled.py` — compute due jobs (`schedule.due_jobs`), run each (seam), and record each
+- `plugin/bin/run_scheduled.py` — compute due jobs (`schedule.due_jobs`), run each (seam), and record each
   outcome (`schedule.record_run`; a failed job is retried next poll, not fatal). `--dry` lists what
   *would* run without running it (the roadmap's "dry-run green"); `--health` prints the per-job run
   history (status / runs / failures) without running anything.

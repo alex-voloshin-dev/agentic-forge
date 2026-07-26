@@ -63,4 +63,4 @@ deployments, non-Normal events — and record the deploy-status handoff." --allo
 Cadence guidance: match the check to how fast the state changes (the field precedent was every
 2 h). Keep the run read-only (`kubectl` reads + the handoff write); pair it with the plugin's
 scheduled-job registry (`docs/architecture/scheduling-observability.md`) if the repo already uses
-`dev/run_scheduled.py`.
+`${CLAUDE_PLUGIN_ROOT}/bin/run_scheduled.py`.

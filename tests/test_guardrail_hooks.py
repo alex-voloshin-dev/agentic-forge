@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from agentic_forge import diagnostics
+
 _REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO / "plugin" / "hooks" / "scripts"))
 
@@ -16,7 +18,7 @@ import budget  # noqa: E402
 import commit_gate  # noqa: E402
 import security  # noqa: E402
 
-from agentic_forge import guardrails  # noqa: E402
+from agentic_forge import guardrails, observability  # noqa: E402
 
 
 def _stdin(monkeypatch, payload: dict) -> None:
@@ -93,7 +95,8 @@ def test_commit_gate_fails_open_on_infra_error(monkeypatch, tmp_path: Path) -> N
     assert commit_gate.gate_decision(payload) == guardrails.ALLOW
     # the fail-open must be OBSERVABLE (ADR 0039): an empty diagnostics log should mean "nothing
     # went wrong", not "the gate never actually ran".
-    events = (tmp_path / ".agentic-forge" / "diagnostics.jsonl").read_text(encoding="utf-8")
+    log = diagnostics.state_root(tmp_path) / diagnostics.DIAGNOSTICS_FILE
+    events = log.read_text(encoding="utf-8")
     event = json.loads(events.strip().splitlines()[-1])
     assert event["kind"] == "anomaly" and event["component"] == "commit-gate"
     assert "fail-open" in event["message"] and "FileNotFoundError" in event["message"]
@@ -119,7 +122,7 @@ def test_commit_gate_fails_open_when_gate_unrunnable(monkeypatch, tmp_path: Path
     }
     assert commit_gate.gate_decision(payload) == guardrails.ALLOW
     event = json.loads(
-        (tmp_path / ".agentic-forge" / "diagnostics.jsonl")
+        (diagnostics.state_root(tmp_path) / diagnostics.DIAGNOSTICS_FILE)
         .read_text(encoding="utf-8")
         .strip()
         .splitlines()[-1]
@@ -239,7 +242,7 @@ def test_audit_log_main_appends(monkeypatch, tmp_path: Path) -> None:
     payload = {"tool_name": "Read", "tool_input": {"file_path": "a"}, "cwd": str(tmp_path)}
     _stdin(monkeypatch, payload)
     assert audit_log.main() == 0
-    assert (tmp_path / ".agentic-forge" / "audit.jsonl").is_file()
+    assert (diagnostics.state_root(tmp_path) / observability.AUDIT_FILE).is_file()
 
 
 def test_audit_log_bad_stdin_safe(monkeypatch) -> None:
@@ -279,6 +282,7 @@ def test_write_audit_from_worktree_lands_in_main_repo(tmp_path: Path) -> None:
     payload = {"tool_name": "Bash", "tool_input": {"command": "ls"}, "session_id": "s"}
     path = audit_log.write_audit(payload, str(wt))
     # the trail must survive worktree removal -> it lives in the MAIN repo (field fix)
-    assert path == main / ".agentic-forge" / "audit.jsonl"
+    # Keyed by the MAIN repo, under the state root — never inside the worktree (ADR 0072).
+    assert path == diagnostics.state_root(main) / observability.AUDIT_FILE
     assert not (wt / ".agentic-forge").exists()
     assert json.loads(path.read_text(encoding="utf-8").strip())["tool"] == "Bash"

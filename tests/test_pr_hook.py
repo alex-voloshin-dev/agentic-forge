@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from agentic_forge import pr_hook
+from agentic_forge import diagnostics, pr_hook, pr_watch
 
 _URL = "https://github.com/owner/name/pull/11"
 HOOK = Path(__file__).resolve().parents[1] / "plugin" / "hooks" / "scripts" / "pr_created.py"
@@ -207,7 +207,7 @@ def _hook_env(tmp_path: Path, config: dict[str, Any] | None) -> subprocess.Compl
 
 
 def _queued(tmp_path: Path) -> bool:
-    return (tmp_path / ".agentic-forge" / "pr-watch-queue.json").is_file()
+    return (diagnostics.state_root(tmp_path) / pr_watch.QUEUE_FILE).is_file()
 
 
 def test_no_queue_file_when_the_watcher_is_disabled(tmp_path: Path) -> None:

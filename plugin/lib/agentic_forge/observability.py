@@ -18,6 +18,7 @@ from typing import Any
 
 __all__ = [
     "AUDIT_PATH",
+    "AUDIT_FILE",
     "MAX_AUDIT_BYTES",
     "KEEP_AUDIT_BYTES",
     "Digest",
@@ -27,7 +28,8 @@ __all__ = [
     "rotate_audit",
 ]
 
-AUDIT_PATH = ".agentic-forge/audit.jsonl"  # written by the logging guardrail hook
+AUDIT_PATH = ".agentic-forge/audit.jsonl"  # legacy in-repo location (readers only)
+AUDIT_FILE = "audit.jsonl"  # resolved under diagnostics.state_root() — ADR 0072
 
 # Rotation bounds: a real repo accrued ~2.6 MB/week, so 10 MB ≈ a month of history; the kept tail
 # comfortably covers the diagnostics bundle's default 7-day window.
@@ -113,7 +115,9 @@ def rotate_audit(
     one). The rewrite is atomic (`os.replace`), so a crash mid-rotation can't destroy the log.
     Returns True when a trim happened; never raises (called from the session-start hook, which
     must not break a session)."""
-    path = Path(repo) / AUDIT_PATH
+    from . import diagnostics
+
+    path = diagnostics.existing_state_file(repo, AUDIT_FILE, AUDIT_PATH)
     try:
         if not path.is_file() or path.stat().st_size <= max_bytes:
             return False
@@ -141,7 +145,8 @@ def load_audit(repo: Path | str, *, max_lines: int | None = None) -> list[str]: 
     digest logic is tested."""
     from . import diagnostics  # local import: diagnostics ↔ observability must not cycle at load
 
-    path = diagnostics.main_repo_root(repo) / AUDIT_PATH
+
+    path = diagnostics.existing_state_file(repo, AUDIT_FILE, AUDIT_PATH)
     if not path.is_file():
         return []
     lines = path.read_text(encoding="utf-8").splitlines()

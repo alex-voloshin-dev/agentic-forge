@@ -2,7 +2,8 @@
 
 A Claude Code plugin has no daemon, so this is the deterministic core: the built-in scheduled
 jobs, their coarse cadence, and which are *due* given the persisted per-job state. The runner CLI
-(``dev/run_scheduled.py``) and a cron-triggered CI workflow are the external clock; executing a
+(``${CLAUDE_PLUGIN_ROOT}/bin/run_scheduled.py``) and a cron-triggered CI workflow are the external
+clock; executing a
 job is the runner's seam. The due-logic is pure (timestamps are passed in, never read from the
 clock) and fully tested. See docs/architecture/scheduling-observability.md.
 
@@ -52,7 +53,17 @@ CADENCES: dict[str, int] = {
 # which it backs off to its normal cadence (so a persistently-broken job can't run every poll).
 MAX_RETRIES = 3
 
-STATE_PATH = ".agentic-forge/schedule-state.json"  # per-job state, under the project dir
+STATE_PATH = ".agentic-forge/schedule-state.json"  # legacy in-repo location
+STATE_FILE = "schedule-state.json"  # resolved under diagnostics.state_root() — ADR 0072
+
+
+def _state_path(repo: Path | str) -> Path:
+    """Per-job state under the state root (user-level by default, ADR 0072).
+
+    Reads fall back to the legacy in-repo path so an upgrade does not lose the run history."""
+    from . import diagnostics
+
+    return diagnostics.existing_state_file(repo, STATE_FILE, STATE_PATH)  # per-job state
 
 
 @dataclass(frozen=True)
@@ -186,7 +197,7 @@ def _coerce(value: object) -> JobState | None:
 def load_state(repo: Path | str) -> dict[str, JobState]:
     """Load per-job state (empty if absent or unreadable — a fresh schedule). Legacy flat
     ``{name: last_run}`` files are migrated to :class:`JobState` transparently."""
-    path = Path(repo) / STATE_PATH
+    path = _state_path(repo)
     if not path.is_file():
         return {}
     try:
@@ -205,7 +216,7 @@ def load_state(repo: Path | str) -> dict[str, JobState]:
 
 def save_state(repo: Path | str, state: dict[str, JobState]) -> Path:
     """Persist per-job state under the project dir; return the state file path."""
-    path = Path(repo) / STATE_PATH
+    path = _state_path(repo)
     path.parent.mkdir(parents=True, exist_ok=True)
     data = {
         name: {

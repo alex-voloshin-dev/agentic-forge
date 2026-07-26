@@ -8,8 +8,8 @@ it **never force-pushes**; every outward action is recorded in diagnostics. Auth
 `gh` CLI. The deterministic core (`agentic_forge.pr_watch`) is unit-tested; the live `gh`/`git`/fix
 calls are seams validated on a real PR.
 
-    python dev/pr_watch.py --owner O --name R --pr 42           # dry: plan only
-    python dev/pr_watch.py --owner O --name R --pr 42 --apply   # live (needs pr_watcher.enabled)
+    python plugin/bin/pr_watch.py --owner O --name R --pr 42           # dry: plan only
+    python plugin/bin/pr_watch.py --owner O --name R --pr 42 --apply   # live (needs .enabled)
 """
 
 from __future__ import annotations
@@ -22,8 +22,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(_REPO_ROOT / "plugin" / "lib"))
+_PLUGIN_ROOT = Path(__file__).resolve().parents[1]  # plugin/ — this ships to users
+sys.path.insert(0, str(_PLUGIN_ROOT / "lib"))
 
 from agentic_forge import agent_eval, diagnostics, models, pr_watch, settings  # noqa: E402
 

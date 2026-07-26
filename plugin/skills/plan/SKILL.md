@@ -51,7 +51,7 @@ requirements (`product`), or implementation (`develop`).
    (nothing silently dropped) — then revise worst-first. **External reviewer lens (on by default,
    ADR 0057/0060):** when `external_reviewer.enabled` (settings), also run the external reviewer over
    `plan.md` — call `external_review.review(plan_text, "plan", command=<cfg>)` from
-   `${CLAUDE_PLUGIN_ROOT}/lib` (repo-side equivalent: `dev/external_review.py --target
+   `${CLAUDE_PLUGIN_ROOT}/lib` (repo-side equivalent: `${CLAUDE_PLUGIN_ROOT}/bin/external_review.py --target
    docs/sdlc/<feature-slug>/plan.md --kind plan`); codex critiques the plan as an
    independent-model lens (completeness, task sequencing, risk) and its `findings` fold into the same
    worst-first revision. It **degrades gracefully** (absent/disabled codex is skipped, not a failure)

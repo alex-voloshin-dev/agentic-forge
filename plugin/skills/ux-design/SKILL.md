@@ -53,7 +53,7 @@ the product requirements (`product`).
    a11y items engineers forget. **External reviewer lens (on by default, ADR 0057/0061):** when
    `external_reviewer.enabled` (settings), also run the external reviewer over the spec — call
    `external_review.review(spec_text, "ux", command=<cfg>)` from `${CLAUDE_PLUGIN_ROOT}/lib`
-   (repo-side equivalent: `dev/external_review.py --target docs/sdlc/<feature-slug>/ux-spec.md
+   (repo-side equivalent: `${CLAUDE_PLUGIN_ROOT}/bin/external_review.py --target docs/sdlc/<feature-slug>/ux-spec.md
    --kind ux`); codex critiques it as an independent-model lens over the same two concerns and its
    `findings` fold into the same worst-first revision. It **degrades gracefully** (absent/disabled
    codex is skipped, not a failure) and its findings are **advisory** (prompt-injectable) — verify

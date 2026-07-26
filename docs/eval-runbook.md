@@ -322,7 +322,7 @@ PR on a repo you own** — never a real PR first.
 1. **Auth + scope.** `gh auth status` must be logged in with `repo` scope; the watcher pushes to the
    PR branch and posts comments as you.
 2. **Dry plan (no writes).** From the repo:
-   `python dev/pr_watch.py --owner <you> --name <repo> --pr <N>` — confirm it prints the actionable
+   `python plugin/bin/pr_watch.py --owner <you> --name <repo> --pr <N>` — confirm it prints the actionable
    thread count + `conflicting=<bool>` and the thread ids, and makes **no** writes (check GitHub).
 3. **Enable + apply on the throwaway PR.** Set `{"pr_watcher": {"enabled": true}}` in
    `.agentic-forge/config.json`, `gh pr checkout <N>`, then run with `--apply` and verify each
@@ -332,14 +332,14 @@ PR on a repo you own** — never a real PR first.
    - a merge conflict → base **merged** into the branch and pushed (no force-push), or a single
      "please rebase" comment if it couldn't; **never a force-push or a PR merge/close** (verify via
      the PR timeline + `git reflog`);
-   - every outward action appears in `.agentic-forge/diagnostics.jsonl` (audited even if diagnostics
+   - every outward action appears in `~/.agentic-forge/state/<repo-slug>/diagnostics.jsonl` (audited even if diagnostics
      is off).
 4. **Idempotency.** Re-run `--apply` with nothing new → **no** writes (resolved / bot-authored
    threads skipped; a still-conflicted PR does **not** get a second "please rebase" comment).
 5. **Fork PR.** Point `--apply` at a fork PR → it must **refuse** ("same-repo auto-apply only") while
    the dry plan still works.
 6. **Scheduled wiring.** Add the repo to `pr_watcher.repos`, run
-   `python dev/run_scheduled.py run --repo . --force`, and confirm the `pr-watch` job fans out over
+   `python plugin/bin/run_scheduled.py run --repo . --force`, and confirm the `pr-watch` job fans out over
    the configured repos' open PRs (and no-ops with a message when disabled / no repos).
 
 Enable the hourly cron only after all six pass — and only for repos whose PR authors you trust (the
