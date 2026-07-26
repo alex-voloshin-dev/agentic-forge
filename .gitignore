@@ -35,3 +35,6 @@ eval-report.html
 .DS_Store
 .idea/
 .vscode/
+
+# Local artifact of the optional `uv` path in CONTRIBUTING — not a project lockfile
+uv.lock
