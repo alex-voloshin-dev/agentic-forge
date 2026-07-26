@@ -473,10 +473,11 @@ def build_bundle(
     days: int | None = DEFAULT_WINDOW_DAYS,
     now: str | None = None,
 ) -> Path:
-    """Package ``repo``'s diagnostics into a zip and return its path. Reads the two logs from
-    ``<repo>/.agentic-forge/``, keeps only records within the last ``days`` (default 7; ``None`` =
-    all), reads the user config + ``~/.claude`` metadata from ``home`` (default ``Path.home()``),
-    snapshots the environment, then writes the redacted manifest under a ``<prefix>-<ts>/`` root.
+    """Package ``repo``'s diagnostics into a zip and return its path. Reads the two logs from the
+    repo's state root (ADR 0072), keeps only records within the last ``days`` (default 7; ``None``
+    = all), reads the user config + ``~/.claude`` metadata from ``home`` (default
+    ``Path.home()``), snapshots the environment, then writes the redacted manifest under a
+    ``<prefix>-<ts>/`` root.
     ``out_path`` defaults to the strict ``<home>/Downloads/<prefix>-<ts>.zip`` (ADR 0053).
     Best-effort: missing metadata is omitted, never fatal."""
     # Normalise to the main working-tree root: hooks WRITE the logs there (worktree-aware), so a

@@ -64,4 +64,9 @@ changes — ready for the user to review and tag. Nothing is tagged or pushed wi
 - The changelog is grouped into Keep-a-Changelog sections; breaking changes are called out;
   uncategorised commits (chore/docs) are omitted.
 - The artifact validates as a `release` type (version + non-empty changelog); nothing fabricated.
+- **Eval cases that have never executed are named in the release notes.** A case added but never
+  run is not coverage — it is an untested assertion that *reads* like coverage. List them under a
+  "Not validated" heading with the same weight as a skipped test (the "inspect content, not counts"
+  rule from [fan-out-fan-in.md](../../patterns/fan-out-fan-in.md#output-discipline), applied to our
+  own gate).
 - No tag is created or pushed without an explicit request.
