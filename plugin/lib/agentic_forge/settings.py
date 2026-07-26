@@ -34,6 +34,10 @@ DEFAULTS: dict[str, Any] = {
     # Generated state (logs, queues, job state) goes to the USER level unless this is on (ADR 0072).
     "state": {"in_repo": False},
     "diagnostics": {"enabled": False},  # the self-diagnostics log collector (ADR 0039)
+    # The PostToolUse audit trail (ADR 0019). ON by default — it is the only record of what the
+    # agent actually did, and the field evidence this project runs on. The switch exists because
+    # until 2026.7.10 it was the one writer with no way to turn it off (ADR 0078).
+    "logs": {"enabled": True},
     "subagent_budget": {"soft": 25, "hard": 50},  # Task-spawn caps (budget hook)
     "test_gate": {"skip": False},  # skip the pre-commit test gate (commit_gate hook)
     "review": {"passes": 3},  # the bounded review-loop budget N (review-loop.md)
@@ -66,6 +70,7 @@ class Settings:
     """The resolved plugin configuration (defaults < user file < repo file < env)."""
 
     diagnostics_enabled: bool
+    logs_enabled: bool
     state_in_repo: bool
     subagent_soft: int
     subagent_hard: int
@@ -159,6 +164,7 @@ def _settings_from(data: dict[str, Any]) -> Settings:
         method = str(DEFAULTS["pr_watcher"]["merge_method"])
     return Settings(
         diagnostics_enabled=_coerce_bool(data["diagnostics"]["enabled"]),
+        logs_enabled=_coerce_bool(data["logs"]["enabled"]),
         state_in_repo=_coerce_bool((data.get("state") or {}).get("in_repo")),
         subagent_soft=_int(data["subagent_budget"]["soft"], DEFAULTS["subagent_budget"]["soft"]),
         subagent_hard=_int(data["subagent_budget"]["hard"], DEFAULTS["subagent_budget"]["hard"]),
@@ -203,6 +209,8 @@ def resolve(
         # malformed (unvalidated) file that left a non-mapping in place can't raise here either.
         if src.get("AGENTIC_FORGE_DIAGNOSTICS"):
             data["diagnostics"]["enabled"] = _coerce_bool(src["AGENTIC_FORGE_DIAGNOSTICS"])
+        if src.get("AGENTIC_FORGE_LOGS"):
+            data["logs"]["enabled"] = _coerce_bool(src["AGENTIC_FORGE_LOGS"])
         soft = _coerce_int(src.get("AGENTIC_FORGE_SUBAGENT_SOFT"))
         if soft is not None:
             data["subagent_budget"]["soft"] = soft

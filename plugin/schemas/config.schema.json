@@ -134,6 +134,17 @@
           "description": "Write generated state into <repo>/.agentic-forge/ instead of the user-level default. Off: a fresh run adds no untracked path to your repo."
         }
       }
+    },
+    "logs": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The PostToolUse audit trail (ADR 0019/0078).",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Write an audit record per tool call. On by default \u2014 it is the only record of what the agent did."
+        }
+      }
     }
   }
 }

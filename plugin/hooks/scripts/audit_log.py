@@ -16,13 +16,17 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
 
-from agentic_forge import diagnostics, guardrails, observability  # noqa: E402
+from agentic_forge import diagnostics, guardrails, observability, settings  # noqa: E402
 
 
-def write_audit(payload: dict[str, Any], cwd: str) -> Path:
-    """Append ``payload``'s redacted audit record to the project audit log; return its path.
-    The log lives at the MAIN working-tree root (worktree-aware via ``main_repo_root``), so a
-    worktree-phase session's trail survives the worktree's removal."""
+def write_audit(payload: dict[str, Any], cwd: str) -> Path | None:
+    """Append ``payload``'s redacted audit record to the audit log; return its path.
+
+    Returns ``None`` when ``logs.enabled`` is off (ADR 0078). The log is keyed to the MAIN
+    working-tree root (worktree-aware via ``main_repo_root``), so a worktree-phase session's trail
+    survives the worktree's removal."""
+    if not settings.resolve(cwd).logs_enabled:
+        return None
     record = guardrails.audit_record(payload, ts=datetime.now(timezone.utc).isoformat())
     log_path = diagnostics.existing_state_file(
         cwd, observability.AUDIT_FILE, observability.AUDIT_PATH

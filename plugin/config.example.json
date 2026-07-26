@@ -32,5 +32,8 @@
     "poll_seconds": 600,
     "auto_watch": true,
     "max_ticks": 144
+  },
+  "logs": {
+    "enabled": true
   }
 }
