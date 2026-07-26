@@ -58,7 +58,42 @@ INVALID = "invalid"
 # Longest reply still treated as the terse answer the format demands. A conforming reply is one
 # name (or `none`), sometimes wrapped in backticks or a short sentence; anything longer is prose —
 # the model answering some *other* question — and must not be mined for a skill name.
-MAX_ANSWER_TOKENS = 12
+# Raised from 12 (ADR 0067): natural terse answers such as "I'd route this to the `research` skill —
+# it's the best match." run to 13 tokens, and rejecting those made a correctly-answering router fail
+# the gate. Precision no longer rests on the count — the script, negation and acting guards below do
+# that work — so this is only a coarse prose ceiling.
+MAX_ANSWER_TOKENS = 16
+
+# Hard character ceiling, applied BEFORE tokenisation — a coarse "this is prose" guard.
+MAX_ANSWER_CHARS = 200
+
+# The skill names and the answer format are English, so a reply carrying a run of non-Latin letters
+# is the model doing something other than routing. This is the guard the token count CANNOT provide:
+# `[a-z0-9-]+` sees no tokens at all in Cyrillic prose, so such a reply slid under MAX_ANSWER_TOKENS
+# and was scored as a vote for whatever English word it happened to contain — and the reply that
+# motivated ADR 0064 was Russian, so the original fix missed its own founding case (corrected by
+# ADR 0067). Punctuation like an em dash is not alphabetic and does not count.
+MAX_NON_LATIN_LETTERS = 8
+
+# Words that signal the reply is reasoning ABOUT the routing rather than giving it. One of these
+# next to a skill name means the sentence may be *rejecting* that skill — "…mentions research, but
+# none of the skills fit" — so the reply is not a usable decision either way.
+_NEGATION = frozenset(
+    "but not no none neither nor however although isn t doesn don cannot can won".split()
+)
+
+# Words that mark the model CARRYING OUT the request instead of routing it ("I will analyse the
+# repository and prepare a research summary…"). Such a reply names a skill innocently and carries no
+# negation, so only this catches it — and it is the English twin of the non-Latin case above.
+_ACTING = frozenset(
+    "will ll let going start starting begin beginning proceed analyse analyze gather review "
+    "reading read write writing produce producing summary".split()
+)
+
+# Ways a router declines that are not the literal token `none`. `none` remains the canonical answer;
+# these are accepted as the same DECISION so a correctly-declining router is not scored as silent
+# (which would drain specificity samples exactly where the router is right).
+_DECLINE = re.compile(r"^\W*(none|no\s+skill|nothing|n/?a|not\s+applicable)\b")
 
 ROUTER_INSTRUCTION = (
     "You are the skill router for Claude Code. Skills auto-load by how well their description "
@@ -181,16 +216,27 @@ def parse_selection(reply: str, names: list[str]) -> str:
     specificity at a perfect 1.000 (prose rarely names the skill under test either). The result
     was an unstable metric that invited description edits to chase measurement noise.
     """
-    known = {n.lower(): n for n in names}
-    tokens = re.findall(r"[a-z0-9-]+", reply.lower())
+    text = reply.strip()
+    if len(text) > MAX_ANSWER_CHARS:
+        return INVALID  # prose by sheer length
+    if sum(1 for ch in text if ch.isalpha() and not ch.isascii()) > MAX_NON_LATIN_LETTERS:
+        return INVALID  # prose in another script — invisible to an ASCII token count
+    lowered = text.lower()
+    tokens = re.findall(r"[a-z0-9_-]+", lowered)
     if len(tokens) > MAX_ANSWER_TOKENS:
-        return INVALID  # prose, not an answer — never mine it for a name
-    for token in tokens:
-        if token in known:
-            return known[token]
-        if token == "none":
-            return "none"
-    return INVALID  # empty / unparseable / names nothing known: no decision was made
+        return INVALID
+    if _DECLINE.match(lowered):
+        return "none"  # an explicit decline IS a decision, however it is phrased
+    if any(t in _NEGATION or t in _ACTING for t in tokens):
+        return INVALID  # the reply argues about the routing, or performs it — neither states one
+    known = {n.lower(): n for n in names}
+    # `_` is normalised to `-` so `code_review` still names `code-review` rather than fragmenting.
+    named = {known[t.replace("_", "-")] for t in tokens if t.replace("_", "-") in known}
+    if len(named) == 1:
+        return named.pop()
+    if "none" in tokens and not named:
+        return "none"
+    return INVALID  # empty, ambiguous (several names), or naming nothing known: no decision
 
 
 @dataclass(frozen=True)
@@ -235,6 +281,12 @@ def selection_rate(
         elif pick == target:
             hits += 1
     valid = runs - invalid
+    # A rate from ONE surviving call carried the same weight in the mean as one from five, so a
+    # single stray answer could set a prompt to a flat 0.0 or 1.0 (ADR 0067). Below half the
+    # samples there is not enough evidence to average — treat the prompt as unmeasured, which is
+    # the loud path that already exists, rather than a confident number from thin data.
+    if valid * 2 < runs:
+        return PromptRate(rate=None, invalid=invalid, runs=runs)
     return PromptRate(rate=(hits / valid) if valid else None, invalid=invalid, runs=runs)
 
 
