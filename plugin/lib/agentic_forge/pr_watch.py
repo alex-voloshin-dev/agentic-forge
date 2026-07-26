@@ -402,12 +402,9 @@ def run_watch(
     rebase landed clean (so the push delivers it) and is expected to post a comment + return False
     when it can't. The push fires once if anything was fixed **or** a conflict was resolved.
 
-    **Merging (ADR 0063)** happens only when the caller passes both a ``merge`` seam (which it
-    gates on ``pr_watcher.auto_merge``) and a ready ``merge_decision`` from
-    :func:`merge_readiness` — *and* this pass neither fixed nor pushed anything. That last rule is
-    the important one: a fix push invalidates the green checks the decision was computed from,
-    because the new commit has not been tested yet, so the merge waits for the next poll. Never
-    force-pushes.
+    **Merging never happens in the pass that fixed or pushed anything** (ADR 0063 §4): a fix push
+    invalidates the green checks the gate was computed from, because the new commit has not been
+    tested yet, so the merge waits for the next poll. Never force-pushes.
 
     **Merging requires BOTH a ``merge`` seam and ``auto_merge=True``, and the gate is recomputed
     here** (ADR 0067). The caller does not get to assert readiness: ``run_watch`` calls

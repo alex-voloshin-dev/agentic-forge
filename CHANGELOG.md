@@ -176,6 +176,14 @@ ways:
 The contract moved into `review-loop.md` — one place for all seven loops — and
 `test_review_loop_shape.py` pins the indexed name and the cleanup clause so it cannot drift.
 `diagnostics.REVIEW_GLOB` already matches the indexed names (verified, unchanged).
+### Fixed — `run_watch`'s docstring described two contradictory merge contracts
+
+- **`run_watch`'s docstring described two contradictory merge contracts.** ADR 0067 added the
+  paragraph explaining that the gate is recomputed inside `run_watch` and that a caller cannot
+  assert readiness — but left the preceding paragraph, which still said the caller passes "a ready
+  `merge_decision`" (a parameter that ADR 0067 removed). Code and tests were always correct; the
+  stale half was removed. Found by a post-release consistency sweep looking for survivals of removed
+  API, which is the same doc-vs-code drift the 2026.7.7 deep review was written about.
 
 ## [2026.7.9] - 2026-07-26
 
