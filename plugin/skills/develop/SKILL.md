@@ -34,8 +34,9 @@ designing (`architecture`), task breakdown (`plan`), or reviewing already-writte
    **concurrently** (see [worktree-parallel.md](../../patterns/worktree-parallel.md) +
    [worktree.md](../../patterns/worktree.md)); a one-task level (or a plan with no parallelism) is
    the single-worktree case. `git init` + an initial commit first if the target is not yet a git repo.
-3. **Implement (per task, concurrently).** For each task in the level, fork a
-   [`software-engineer`](../../agents/software-engineer.md) (via `Task`) into **its own worktree**;
+3. **Implement (per task, concurrently).** For each task in the level, spawn a
+   [`software-engineer`](../../agents/software-engineer.md) (via `Task`, **not the `fork` subagent
+   type** — [subagent-type rule](../../patterns/fan-out-fan-in.md#choosing-the-subagent-type)) into **its own worktree**;
    each re-derives the stack profile there (the same `stacks` helper, so the result matches step 1)
    and loads `engineering-standards` + the detected `<stack>-patterns` pack (e.g. `python-patterns`;
    if the profile has no pack, the standards + the profile's toolchain), writes the code and its

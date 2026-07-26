@@ -8,7 +8,9 @@ and it **exits early** on approval so it does not waste iterations.
 
 - **Writer** — the skill or role that produced the work: the `software-engineer` for code, the
   `architect` for a design, or a workflow skill for an artifact.
-- **Reviewer** — the [`reviewer`](../agents/reviewer.md) role, invoked in a forked subagent
+- **Reviewer** — the [`reviewer`](../agents/reviewer.md) role, invoked in a fresh subagent (never
+  the `fork` type, which would inherit the author's context — see
+  [fan-out-fan-in.md](fan-out-fan-in.md#choosing-the-subagent-type))
   by the orchestrator so it judges in a clean context. It returns a `verdict` (`approve` |
   `changes`) and structured `findings`.
 - **Orchestrator** — the workflow skill that owns the loop, the iteration budget, and the
@@ -22,7 +24,7 @@ Default budget: **N = 3** iterations. Stop early on `approve`.
 iteration = 1
 approved = False
 while iteration <= N:
-    review = reviewer(target, criteria)            # forked subagent: verdict + findings
+    review = reviewer(target, criteria)            # fresh subagent: verdict + findings
     write review.md (type: review, target, iteration, verdict, findings[])
     if review.verdict == "approve":
         approved = True

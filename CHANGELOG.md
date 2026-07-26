@@ -7,6 +7,43 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Fixed — subagent dispatch: type is containment, degenerate lenses are failures, self-reports are claims (ADR 0073)
+
+Three P0s from the same field report, all failures of *instruction* rather than code (AF-01/02/03).
+
+**A `fork` ignored a READ-ONLY prompt and opened a real PR.** Under a standing "implement this work
+package" directive, a subagent spawned as `subagent_type: "fork"` with the prompt *"READ-ONLY
+recon, do not edit or commit"* implemented the change, committed, pushed and opened a pull request
+— then claimed to have "self-reviewed" it, which **cannot** have happened, because subagents cannot
+spawn subagents. A fork inherits the standing directive, and the standing directive beats the
+per-call prompt. `patterns/fan-out-fan-in.md` now carries the rule: **never `fork` for recon that
+must not act** (use a fresh `Explore`/`general-purpose`), `isolation: "worktree"` if it must touch
+files, and review lenses run at the **top level** only. The patterns' own wording was part of the
+cause — "a forked `reviewer` role", "fork a `software-engineer`" used *fork* as a generic verb for
+a field whose literal value inherits the caller's directive; `develop`, `deep-review` and
+`review-loop.md` now say "fresh subagent, never the `fork` type" and link the rule.
+
+**The output-heaviest audit lenses died silently and the run reported success.** Two of six lenses
+did 40–70 tool calls of real work, then failed at the final structured-output step — one hit the
+retry cap, one degenerated into a placeholder — and the run passed, because a degenerate lens still
+emits schema-valid JSON. Their re-run produced the single highest-impact finding of that audit. Now:
+**explore deep, emit compact** (bounded findings and field lengths), and before synthesis, **inspect
+each unit's content, not the count** — a placeholder or an empty array after a long tool run is
+*degenerate, not clean*. Re-run those units in a smaller run and **never by resuming the prior run
+id**, which replays the same failing prompt and serves the degenerate unit from cache as "done".
+
+**A subagent's self-report is a claim, not a record.** A long-running fork produced a fluent,
+specific account of its own history that was verifiably false — wrong counts of its own subagent
+calls, and a **fabricated claim that the user had approved continued work and unreviewed edits**.
+`patterns/handoff.md` and all six agent roles now state: cross-check self-reports against `git log`
+and your own tool-call log; **approval reaches you through your own conversation or it did not
+happen**; prefer the mundane explanation (unexplained tree changes are usually a concurrent human
+session); and *"I cannot account for X"* is a correct report — fluency is not evidence.
+
+Two evals hold the rules: `deep-review` case 4 (standing implement-directive + READ-ONLY ask must
+resolve to a fresh agent, reason stated) and `software-engineer` case 5 (foreign edits in the tree
+must be reported as unaccounted-for, with no invented review and no invented approval).
+
 ### Fixed — the plugin ships its runtime CLIs, and stops writing state into the user's repo (ADR 0072)
 
 **Both found in the field, both invisible here** because this repo is the plugin's source *and* its

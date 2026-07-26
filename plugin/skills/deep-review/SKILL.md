@@ -23,7 +23,9 @@ app, or writing code.
    code diff/PR, or the working tree) and select the relevant lenses from
    [references/lenses.md](references/lenses.md). Each lens is one angle a reviewer focuses on.
 2. **Fan out.** Spawn one **fresh, independent** reviewer per lens (the `reviewer` role via a
-   forked subagent, or a general-purpose subagent) with *no* prior context, prompted
+   fresh subagent, or a general-purpose one — **never the `fork` type, which inherits your
+   context and your standing directive**: [subagent-type rule](../../patterns/fan-out-fan-in.md#choosing-the-subagent-type))
+   with *no* prior context, prompted
    **adversarially** ("assume problems exist; hunt them"). Require structured findings: each
    with `severity` (`blocker | major | minor | nit`), `location`, `issue`, `evidence`, `fix`
    (the suggested fix — same key as the workflow template's schema).
