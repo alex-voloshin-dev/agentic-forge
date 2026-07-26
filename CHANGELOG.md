@@ -7,7 +7,16 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
-### Fixed — deep-review remediation: the safety machinery is connected (ADR 0067)
+## [2026.7.7] - 2026-07-26
+
+Remediation release. A six-lens adversarial deep review of 2026.7.5/7.6 — releases that had passed
+**the entire pyramid**, including live Tier-1, Tier-2 and Tier-3 — found two blockers and a dozen
+majors. Everything here is a defect the gates could not see, because they check *behaviour* while
+these were defects of **wiring, contract and truthfulness**.
+
+The headline: **the safety machinery for merging pull requests was never connected to anything.**
+
+### Fixed
 
 A six-lens adversarial review of 2026.7.5/7.6, every finding verified against source. Those releases
 had passed **the whole pyramid** — Tier-0, live Tier-1 (6/6 at 1.000), live Tier-2 (2/2) and live
