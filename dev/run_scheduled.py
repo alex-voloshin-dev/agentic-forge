@@ -15,6 +15,7 @@ docs/architecture/scheduling-observability.md.
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 import time
@@ -129,6 +130,65 @@ def _pr_watch(repo: Path) -> str:
     return _run_pr_watch_live(repo, specs)
 
 
+def _pr_watch_queue(repo: Path) -> str:
+    """Drain the auto-watch queue (ADR 0068): one watch pass per enqueued PR, then re-persist.
+
+    Reuses `_watch_one_pr` — so the ADR 0067 trust boundary (settings resolved BEFORE
+    `gh pr checkout`), the recomputed merge gate, `auto_merge` and `confirm_merged` all apply
+    unchanged. **No new merge path exists**; this only decides *which* PRs get a pass.
+
+    An entry leaves the queue when its PR is finished or its tick budget runs out, so a PR that
+    never becomes mergeable cannot hold a slot forever."""
+    resolved = settings.resolve(repo)
+    if not resolved.pr_watcher_enabled:
+        return "pr-watch-queue: disabled (set pr_watcher.enabled)"
+    path = repo / pr_watch.QUEUE_PATH
+    if not path.is_file():
+        return "pr-watch-queue: empty"
+    try:
+        queue = pr_watch.parse_queue(json.loads(path.read_text(encoding="utf-8")))
+    except (json.JSONDecodeError, OSError) as exc:
+        return f"pr-watch-queue: unreadable ({exc})"
+    if not queue:
+        return "pr-watch-queue: empty"
+
+    watch_one = _watch_one_pr(repo)
+    kept: list[pr_watch.WatchEntry] = []
+    dropped = 0
+    for entry in queue:
+        watch_one(entry.owner, entry.name, entry.number)
+        nxt = pr_watch.queue_after_tick(
+            entry, finished=_pr_finished(repo, entry), max_ticks=resolved.pr_watcher_max_ticks
+        )
+        if nxt is None:
+            dropped += 1
+            diagnostics.emit(  # leaving the queue is an outcome worth auditing
+                repo, kind="anomaly", component="pr-watch-queue",
+                message=f"dropped {entry.slug}#{entry.number} (finished or tick budget spent)",
+                severity="major", force=True,
+            )
+        else:
+            kept.append(nxt)
+    path.write_text(json.dumps(pr_watch.queue_dump(kept), indent=2) + "\n", encoding="utf-8")
+    return f"pr-watch-queue: {len(queue)} watched, {dropped} dropped, {len(kept)} remaining"
+
+
+def _pr_finished(repo: Path, entry: pr_watch.WatchEntry) -> bool:  # pragma: no cover -- real gh
+    """True if the PR is merged or closed (so the queue can let it go)."""
+    done = subprocess.run(
+        pr_watch.merged_argv(entry.slug, entry.number),
+        cwd=str(repo), capture_output=True, text=True, timeout=120,
+    )
+    if done.returncode != 0:
+        return False  # can't tell -> keep watching; the tick budget still bounds it
+    try:
+        payload = json.loads(done.stdout or "{}")
+    except json.JSONDecodeError:
+        return False
+    state = str(payload.get("state", "")).strip().upper()
+    return state in ("MERGED", "CLOSED")
+
+
 def _deploy_digest(repo: Path) -> str:
     # Connectors auto-detect: GhPipelineSource (gh on PATH) + GrafanaAlertSource (GRAFANA_URL set).
     # Both degrade to empty in-memory sources, so this stays graceful when nothing is configured.
@@ -150,6 +210,7 @@ _ACTIONS = {
     "diagnostics_digest": _diagnostics_digest,
     "review_scan": _review_scan,
     "pr_watch": _pr_watch,
+    "pr_watch_queue": _pr_watch_queue,
 }
 
 

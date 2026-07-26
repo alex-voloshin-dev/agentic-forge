@@ -1,17 +1,33 @@
 {
-  "diagnostics": { "enabled": true },
-  "subagent_budget": { "soft": 25, "hard": 50 },
-  "test_gate": { "skip": false },
-  "review": { "passes": 3 },
-  "external_reviewer": { "enabled": true, "command": "codex" },
+  "diagnostics": {
+    "enabled": true
+  },
+  "subagent_budget": {
+    "soft": 25,
+    "hard": 50
+  },
+  "test_gate": {
+    "skip": false
+  },
+  "review": {
+    "passes": 3
+  },
+  "external_reviewer": {
+    "enabled": true,
+    "command": "codex"
+  },
   "models": {},
   "pr_watcher": {
     "enabled": false,
     "bot": "github-actions[bot]",
     "max_threads": 10,
-    "repos": ["owner/repo"],
+    "repos": [
+      "owner/repo"
+    ],
     "auto_merge": false,
     "merge_method": "rebase",
-    "poll_seconds": 600
+    "poll_seconds": 600,
+    "auto_watch": false,
+    "max_ticks": 144
   }
 }

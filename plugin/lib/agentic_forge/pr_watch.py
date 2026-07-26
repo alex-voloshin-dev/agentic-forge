@@ -15,6 +15,7 @@ force-pushes" was not.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -537,3 +538,81 @@ def watch_repos(
             watch_one(owner, name, number)
             prs += 1
     return {"repos": len(specs), "prs": prs}
+
+
+# --- the auto-watch queue (ADR 0068) -----------------------------------------
+# The hook records INTENT here; the scheduled drain executes it through the same `run_watch` path.
+# Pure functions only — the file I/O belongs to the hook and the runner.
+
+QUEUE_PATH = ".agentic-forge/pr-watch-queue.json"  # gitignored: a PR cannot commit entries
+MAX_QUEUE = 50  # a hook bug must not enqueue unboundedly
+_SLUG = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+@dataclass(frozen=True)
+class WatchEntry:
+    """One PR the watcher was asked to carry. ``ticks`` counts drains spent on it."""
+
+    owner: str
+    name: str
+    number: int
+    branch: str = ""
+    ticks: int = 0
+
+    @property
+    def slug(self) -> str:
+        return f"{self.owner}/{self.name}"
+
+
+def parse_queue(payload: Any) -> list[WatchEntry]:
+    """Parse the queue file's contents, dropping anything malformed.
+
+    The file is written by a hook that runs in any session, so it is treated as **untrusted**: an
+    entry whose owner/name is not a bare slug segment, or whose number is not a positive int, is
+    discarded rather than executed. A non-list payload yields an empty queue (never raises — a
+    corrupt queue must not break the scheduler)."""
+    if not isinstance(payload, list):
+        return []
+    out: list[WatchEntry] = []
+    for item in payload[:MAX_QUEUE]:
+        if not isinstance(item, dict):
+            continue
+        owner, name = str(item.get("owner", "")), str(item.get("name", ""))
+        number = item.get("number")
+        if not (_SLUG.match(owner) and _SLUG.match(name)):
+            continue
+        if not isinstance(number, int) or isinstance(number, bool) or number <= 0:
+            continue
+        out.append(
+            WatchEntry(owner, name, number, str(item.get("branch", "") or ""),
+                       int(item.get("ticks", 0) or 0))
+        )
+    return out
+
+
+def queue_add(queue: list[WatchEntry], entry: WatchEntry) -> list[WatchEntry]:
+    """Append ``entry`` unless the same PR is already queued (a re-created PR must not double it),
+    capped at :data:`MAX_QUEUE`."""
+    if any(e.slug == entry.slug and e.number == entry.number for e in queue):
+        return queue
+    return [*queue, entry][:MAX_QUEUE]
+
+
+def queue_after_tick(entry: WatchEntry, *, finished: bool, max_ticks: int) -> WatchEntry | None:
+    """The entry's next state, or ``None`` when it should leave the queue (ADR 0068).
+
+    It leaves when the PR is finished (merged/closed — the gate already reads `state`) or when its
+    tick budget is exhausted. Nothing is watched forever: a PR that never becomes mergeable would
+    otherwise hold a poll slot indefinitely."""
+    if finished:
+        return None
+    nxt = WatchEntry(entry.owner, entry.name, entry.number, entry.branch, entry.ticks + 1)
+    return None if nxt.ticks >= max_ticks else nxt
+
+
+def queue_dump(queue: list[WatchEntry]) -> list[dict[str, Any]]:
+    """The queue as plain JSON-serialisable data."""
+    return [
+        {"owner": e.owner, "name": e.name, "number": e.number, "branch": e.branch, "ticks": e.ticks}
+        for e in queue
+    ]
