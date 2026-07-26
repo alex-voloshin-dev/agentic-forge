@@ -41,6 +41,19 @@ session — except where blocking is the whole point (security, test-gate).
   and allowed rather than blocking a commit. The signatures are deliberately narrow — a bare
   `not found` / `no such file` would match genuine failures and wrongly let broken code commit
   (ADR 0058, tightened by ADR 0059).
+  **The gate is `PreToolUse`, so it blocks the *whole* Bash command before any of it runs** — a
+  prerequisite the gate itself needs cannot be established in the same command. `ln -sfn …/node_modules
+  ./node_modules && git commit -m …` fails permanently: the gate runs `npm run lint` first, the
+  linker has not run yet, and eslint is missing. Establish prerequisites in a **separate, earlier**
+  command (one with no `git commit` substring anywhere in it), verify the tool resolves, then
+  commit. Scoping the gate to the staged diff — so a commit touching no linted path needs no lint
+  toolchain — would remove the sharp edge entirely and is **not built** (field report AF-04).
+- **security: no remote environment dumps** — a bare `printenv` / `env` / `set` reaching a remote
+  host through `kubectl|oc exec`, `ssh`, `docker|podman exec`, `fly ssh` or `heroku run` is blocked.
+  A prefix-filtered dump eventually matches a secret whose name *starts with* a non-secret prefix
+  (field case: `SCORING_VNEXT` matched `SCORING_VNEXT_CRUX_API_KEY` and printed it into the
+  transcript). Local dumps, exact-name lookups (`printenv PGHOST`), `env`/`set` used as wrappers,
+  and a dump piped through a redaction filter (`| grep -ivE 'KEY|SECRET|…'`) all pass (ADR 0075).
 - **budgets** (`PreToolUse` / Task, `budget.py`) — a per-session subagent counter; **warns** over
   the soft cap and **blocks** over the hard cap (`AGENTIC_FORGE_SUBAGENT_SOFT` / `_HARD`).
 - **logging** (`PostToolUse`, `audit_log.py`) — appends a secret-redacted JSONL audit line to

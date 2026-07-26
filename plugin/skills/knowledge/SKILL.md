@@ -55,10 +55,15 @@ tags: [tag-a, tag-b]
 2. `vault.add_note(repo, name, title, body, tags=...)` — writes the note and links it from the
    root MOC. Use `[[wikilinks]]` in the body to connect related notes; add or extend a themed
    MOC (`moc=...`) for a cluster.
-3. `vault.validate_vault(repo)` and fix any broken link or orphan before finishing.
+3. When a note records a decision that changes a **code, config or infrastructure artifact, name
+   that artifact in the note** (the file, the manifest, the flag). A reader can then verify the
+   decision actually shipped with one grep — a note is an intent, and intents go unimplemented.
+4. `vault.validate_vault(repo)` and fix any broken link or orphan before finishing.
 
 ## Definition of done
 
 - Recall answers are grounded in real notes and cite `[[links]]`, or state the vault is silent.
+- A recalled note asserting a code/config fact was checked against that artifact before being acted
+  on, and any disagreement was surfaced rather than resolved silently.
 - Captured notes are atomic, tagged, wikilinked, and reachable from a MOC; `validate_vault` is
   clean — no broken links, no orphans.

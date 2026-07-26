@@ -44,7 +44,10 @@ Follow [multi-aspect-review.md](../../patterns/multi-aspect-review.md):
      cleanly, and pass both CI runs because each tests only its own entry point. Reconcile to one
      guard point before either lands; prefer claiming atomically **at the point of work**.
 3. **Verify** each finding against the source (open the file, re-run the tool) — drop or
-   downgrade what doesn't hold.
+   downgrade what doesn't hold. When the question is *"what did the original do?"* — a migration,
+   a refactor, a faithful port — **read the original**: `git show <base>:<path>`. Do this before
+   sending any corrective that would change behaviour. Memory of an earlier partial read is not
+   ground truth, and neither is the pre-image of a truncated diff hunk.
 4. **Synthesize one verdict.** Aggregate across aspects: **any `blocker`/`major` → `changes`**,
    else `approve`; dedupe, and on a severity conflict keep the highest.
 5. **Write the handoff.** Emit `review.md` (`type, target, iteration, verdict, findings[]` —

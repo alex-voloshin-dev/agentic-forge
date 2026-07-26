@@ -384,6 +384,8 @@ def _classify(command: str, depth: int) -> Decision:
     command-position rules with the legacy text fallback for unparseable segments."""
     if _dangerous_net_pipe(command):
         return Decision(True, "blocked: pipe a network download into a shell")
+    if _remote_env_dump(command):
+        return Decision(True, _MSG_ENV_DUMP)
     for pattern, reason in _BLOCKERS:
         if pattern.search(command):
             return Decision(True, f"blocked: {reason}")
@@ -457,6 +459,47 @@ def _dangerous_net_pipe(command: str) -> bool:
             if m and _interp_reads_stdin_as_program(m.group(1), m.group(2)):
                 return True
     return False
+
+
+# --- security: environment dumps on a REMOTE host (secret disclosure, ADR 0075) ---------------
+# Field case: `kubectl exec <pod> -- printenv | grep SCORING_VNEXT` matched
+# `SCORING_VNEXT_CRUX_API_KEY` — a prefix filter eventually matches a secret whose name STARTS with
+# a non-secret prefix — and printed the credential into the transcript. Disclosure is irreversible,
+# so this blocks rather than warns: the safe forms (exact name, or a redaction filter) are one edit
+# away. Local dumps are untouched; only a dump reaching a remote/production host matches.
+_REMOTE_EXEC = re.compile(
+    r"(?:^|[\s;&|(])(?:kubectl|oc)\s+[^|;&]*?\bexec\b"
+    r"|(?:^|[\s;&|(])(?:docker|podman|nerdctl)\s+[^|;&]*?\bexec\b"
+    r"|(?:^|[\s;&|(])(?:docker|podman)[- ]compose\s+[^|;&]*?\bexec\b"
+    r"|(?:^|[\s;&|(])ssh\b|(?:^|[\s;&|(])fly\s+ssh\b|(?:^|[\s;&|(])heroku\s+run\b"
+)
+# A BARE dump: the command word with no argument to narrow it (an argument means an exact lookup,
+# e.g. `printenv PGHOST`, and `env VAR=1 cmd` / `set -e` are wrappers, not dumps).
+_ENV_DUMP = re.compile(r"(?:^|[\s;&|]|--\s*)(?:printenv|env|set)\s*(?:$|[;&|\n])")
+# An explicit redaction filter downstream makes the dump safe again (the documented remedy).
+_ENV_REDACTION = re.compile(
+    r"\bgrep\b[^|;&\n]*(?<![\w-])-\w*[vi]\w*\b[^|;&\n]*"
+    r"(?:KEY|SECRET|PASSWORD|PASSWD|PWD|TOKEN|CRED)",
+    re.IGNORECASE,
+)
+
+_MSG_ENV_DUMP = (
+    "blocked: dumping the environment of a remote/production host leaks secrets into the "
+    "transcript. Query the exact variable (`printenv PGHOST`) or append a redaction filter "
+    "(`| grep -ivE 'KEY|SECRET|PASSWORD|PWD|TOKEN|CRED'`) — a prefix match eventually matches a "
+    "secret whose name starts with a non-secret prefix."
+)
+
+
+def _remote_env_dump(command: str) -> bool:
+    """True for a bare environment dump executed through a remote-exec wrapper, unredacted.
+
+    Requires the dump to appear **after** the remote marker, so a local command that merely
+    mentions `ssh` (``grep ssh printenv.txt``) does not match."""
+    remote = _REMOTE_EXEC.search(command)
+    if not remote or _ENV_REDACTION.search(command):
+        return False
+    return bool(_ENV_DUMP.search(command, remote.end()))
 
 
 def classify_command(command: str) -> Decision:

@@ -17,6 +17,13 @@ Every SDLC spine phase (`research → product → architecture → plan → deve
    phase's concern, e.g. "auth", "rate limiting").
 2. **Factor in.** Let recalled decisions shape the output; don't silently contradict a settled
    decision — call it out if you must diverge.
+2b. **A decision record states an intent, not a deployment.** `status: current` means the decision
+   stands, not that it shipped. Before acting on a note that asserts a **code, config or
+   infrastructure fact**, verify it against the artifact it names — grep the config file, the
+   manifest, the flag. If they disagree, **surface the conflict**; do not silently prefer either
+   source. Field case: a `current` record described a provider deprecation that was never
+   implemented — the provider was still wired and in active use, and the record was believed and
+   acted on for two months.
 3. **Cite.** When a choice leans on a note, reference it (`[[note]]`) so the trail is auditable.
 4. **Capture back (optional).** New durable decisions the phase makes are candidates for the
    `knowledge` skill to save.
