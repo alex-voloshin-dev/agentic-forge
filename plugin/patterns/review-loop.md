@@ -33,8 +33,27 @@ if not approved:
     escalate(last_review.findings)                 # budget exhausted — see "exit" below
 ```
 
-Each round writes a `review.md` handoff artifact (see [handoff.md](handoff.md)) with the
-`iteration` number and the findings, so the history of the review is auditable.
+## Persisting the loop
+
+Each round writes **one** review artifact — `review-<artifact>-<iteration>.md` under
+`docs/sdlc/<feature-slug>/` (`type: review`, `target`, `iteration`, `verdict`, `findings[]`; see
+[handoff.md](handoff.md)).
+
+Three rules, because getting any of them wrong litters the user's repository:
+
+1. **The iteration is in the FILENAME, not only the frontmatter.** A single fixed name cannot hold a
+   history — writing it every round overwrites the previous one — so a fixed name and "the history
+   is auditable" are incompatible asks. Indexing the name resolves it without the writer inventing
+   a convention.
+2. **One artifact per round, aggregating every lens.** The internal reviewer and the external
+   reviewer both run in a round; their verdicts are already aggregated into the one verdict the exit
+   rule consumes, so their findings belong in one file too. Writing a separate file per lens
+   multiplies the output by the number of lenses for no gain.
+3. **Lifecycle.** On `escalate` **keep every round** — they are the evidence for the unresolved
+   findings, and the non-convergence scan (ADR 0040) reads them. On `proceed` keep only the **final**
+   round (the one recording the `approve`) and delete the earlier ones: they gate nothing, the scan
+   can never flag a converged loop, and leaving them means handing the user files they did not ask
+   for.
 
 ## Convergence and exit
 

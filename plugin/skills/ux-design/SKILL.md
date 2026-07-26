@@ -57,7 +57,7 @@ the product requirements (`product`).
    --kind ux`); codex critiques it as an independent-model lens over the same two concerns and its
    `findings` fold into the same worst-first revision. It **degrades gracefully** (absent/disabled
    codex is skipped, not a failure) and its findings are **advisory** (prompt-injectable) — verify
-   before acting. **Persist each round** — write `docs/sdlc/<feature-slug>/review-<artifact>.md` (`type: review`, `target`, `iteration`, `verdict`, `findings[]`; `dev/external_review.py --out … --iteration N` already emits this shape). Without it the loop leaves no trace and the scheduled non-convergence scan (ADR 0040) cannot see it. **Exit criterion (the shared, tested rule):** each round, aggregate both lenses
+   before acting. **Persist each round** — one `review-<artifact>-<iteration>.md` per round under `docs/sdlc/<feature-slug>/`, aggregating **both** lenses; on `proceed` keep only the final round, on `escalate` keep them all (naming + lifecycle: [review-loop.md](../../patterns/review-loop.md)). **Exit criterion (the shared, tested rule):** each round, aggregate both lenses
    (plus the external one) to a single verdict and compute
    `handoff.review_loop_decision(verdict, iteration, cap=3, gate_green=<the ux-spec validates>)`
    (see [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
