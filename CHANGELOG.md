@@ -7,7 +7,12 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
-### Added — auto-start the PR watch: intent queue + a 10-minute drain (ADR 0068)
+## [2026.7.8] - 2026-07-26
+
+Closes the last gap in the PR pipeline: a created pull request can now be carried unattended,
+without giving any hook the authority to start a merging agent.
+
+### Added
 
 Nothing connected a created PR to the watcher: `develop` never opens a PR, the hook only printed a
 reminder, and `pr-watch` is manual-only. Now a created PR can be carried unattended.
