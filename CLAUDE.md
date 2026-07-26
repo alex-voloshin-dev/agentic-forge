@@ -117,3 +117,13 @@ before implementing it.
 - Use relative runtime paths and `${CLAUDE_SKILL_DIR}` / `${CLAUDE_PLUGIN_ROOT}`; never absolute user paths.
 - Every model-invocable skill MUST ship `evals/evals.json` with thresholds, or Tier 0 fails.
 - Run `python dev/validate.py` and `pytest` before every commit.
+- **Inventory before you change a shared thing.** Before editing a shared constant, path, helper
+  signature, or any contract with more than one caller: `grep` every reference across `plugin/`,
+  `dev/`, `tests/` and `docs/`, list the sites, and change them in **one pass**. The gate exists to
+  *confirm* the change, not to *discover* the callers — letting failing tests find them one at a
+  time costs rounds and leaves the docs behind (ADR 0067's "who actually calls this?", applied to
+  our own edits).
+- **Edit by reading, not by blind replace.** Use the editing tool (which requires a prior read and a
+  unique anchor). A scripted bulk edit must assert the anchor is *unique* (`count(a) == 1`), not
+  merely present, and must re-run the format check — a replace that lands on the wrong heading or
+  silently over-matches has corrupted this repo's CHANGELOG more than once.

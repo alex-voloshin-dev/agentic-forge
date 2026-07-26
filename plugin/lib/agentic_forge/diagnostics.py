@@ -2,7 +2,8 @@
 
 Where :mod:`observability` rolls up tool *usage* from ``audit.jsonl``, this module collects what
 went *wrong* — guardrail denials/warnings, hook crashes, and pipeline failures — into a redacted,
-gitignored ``.agentic-forge/diagnostics.jsonl`` so maintainers can fix the plugin. Capture is
+user-level ``diagnostics.jsonl`` (see :func:`state_root`) so maintainers can fix the plugin.
+Capture is
 **opt-in** (``AGENTIC_FORGE_DIAGNOSTICS``), **never blocks** a caller, **never leaks secrets**
 (every string is passed through :func:`guardrails.redact_secrets`), and **never sends anything
 outward** — it is a local log a maintainer reviews/digests.

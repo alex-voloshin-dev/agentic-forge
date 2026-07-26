@@ -1,7 +1,7 @@
 """Roll up the guardrail audit log into a digest (Stage 7 observability).
 
 The ``logging`` guardrail hook appends a redacted JSONL record per tool use to
-``.agentic-forge/audit.jsonl`` — each record is ``{tool, input, session_id?}`` (see
+the state root's ``audit.jsonl`` (ADR 0072) — each record is ``{tool, input, session_id?}`` (see
 ``guardrails.audit_record``). This module **reads** those records into a deterministic summary
 and renders a compact report. Pure functions, fully tested; the CLI (``dev/audit_digest.py``)
 does the file I/O. See docs/architecture/scheduling-observability.md.

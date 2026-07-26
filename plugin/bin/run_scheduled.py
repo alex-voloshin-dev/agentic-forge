@@ -2,9 +2,9 @@
 """Run due scheduled jobs headlessly (Stage 7). The external clock is CI cron / OS cron.
 
 Computes which built-in jobs (``schedule.JOBS``) are due given the recorded last-run times, runs
-each by reusing existing libs, and records the run under ``.agentic-forge/``. ``--dry`` lists what
-*would* run without running it (the roadmap's "dry-run green"). The scheduling logic is pure and
-tested in ``agentic_forge.schedule``; this is the thin runner. See
+each by reusing existing libs, and records the run under the state root (ADR 0072). ``--dry``
+lists what *would* run without running it (the roadmap's "dry-run green"). The scheduling logic is
+pure and tested in ``agentic_forge.schedule``; this is the thin runner. See
 docs/architecture/scheduling-observability.md.
 
     python plugin/bin/run_scheduled.py --dry        # list due jobs, run nothing

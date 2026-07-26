@@ -7,6 +7,36 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Added — the AF-05/AF-06 fixes became gates, plus two process rules
+
+**`tests/test_packaging_contract.py` (new).** Both invariants ADR 0072 established were fixed once
+with nothing stopping their return. Now pinned: no shipped file may reference a `dev/` runtime CLI;
+the three CLIs must exist under `plugin/bin/` and must not import a maintainer-only module; and no
+shipped module may name an in-repo state file outside a declared allow-list (the committed
+`config.json` and the four legacy read-fallback constants). Verified by mutation — planting a bad
+path literal and a `dev/pr_watch.py` reference fails the gate.
+
+The state check has to be **structural**, not behavioural: `conftest`'s `AGENTIC_FORGE_STATE_HOME`
+fixture would *hide* a regression, because a hard-coded `root / ".agentic-forge" / …` write lands
+harmlessly in a `tmp_path` and no behavioural test notices.
+
+**Fixed four stale docstrings** the same pass surfaced — `run_scheduled`, `diagnostics`,
+`observability` and `diag_bundle` still described the log's home as `<repo>/.agentic-forge/` after
+ADR 0072 moved it. The bundle *reader* was correct (it goes through `load_audit` / `load`); only the
+prose had drifted.
+
+### Changed — two rules in `CLAUDE.md`, one in `release`
+
+- **Inventory before changing a shared thing.** Grep every reference across `plugin/`, `dev/`,
+  `tests/`, `docs/` and change them in one pass; the gate confirms a change, it does not discover
+  the callers. Letting failing tests find them one at a time cost five rounds during the ADR 0072
+  refactor and left the docs behind.
+- **Edit by reading, not by blind replace.** A scripted bulk edit must assert the anchor is
+  *unique*, not merely present — an anchor-based replace has corrupted this repo's CHANGELOG more
+  than once.
+- **`release` must name eval cases that have never executed.** A case added but never run is not
+  coverage; it is an untested assertion that reads like coverage.
+
 ### Added — the field report's P2 batch (ADR 0075)
 
 **Blocked: dumping a remote host's environment.** A `printenv` on a production pod filtered by a
