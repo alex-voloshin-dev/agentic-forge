@@ -224,6 +224,92 @@ def test_run_watch_without_merge_seam_is_unchanged() -> None:
     assert result.merged is False and result.merge_blocked_by == []
 
 
+# --- merge confirmation: `gh pr merge` is not atomic (ADR 0065) ---------------
+
+
+def test_merged_argv_reads_state() -> None:
+    argv = pr_watch.merged_argv("o/n", 7)
+    assert argv[:5] == ["gh", "pr", "view", "7", "-R"]
+    assert "state,mergedAt" in argv
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ({"state": "MERGED", "mergedAt": "2026-07-25T17:12:24Z"}, True),
+        ({"state": "merged"}, True),  # case-insensitive
+        ({"state": "OPEN", "mergedAt": None}, False),
+        ({"state": "CLOSED", "mergedAt": ""}, False),
+        ({"mergedAt": "2026-07-25T17:12:24Z"}, True),  # mergedAt alone is enough
+        ({"message": "Not Found"}, False),  # a gh error object never reads as merged
+        ("nope", False),
+        (None, False),
+    ],
+)
+def test_parse_merged(payload: Any, expected: bool) -> None:
+    assert pr_watch.parse_merged(payload) is expected
+
+
+def test_failed_merge_command_but_pr_is_merged_reports_merged() -> None:
+    # THE observed case (2026-07-25): `gh pr merge` merged on GitHub, then its LOCAL half failed
+    # (`fatal: 'master' is already used by worktree`) and it exited non-zero. Trusting the exit
+    # status would report a merged PR as unmerged and make the watcher retry it forever.
+    log: list[str] = []
+
+    def boom() -> None:
+        raise RuntimeError("fatal: 'master' is already used by worktree at '/tmp/x'")
+
+    result = pr_watch.run_watch(
+        _state(), bot=_BOT, max_threads=10,
+        fixer=lambda t: ("fixed", "ok"),
+        gh_exec=lambda a: None, push=lambda: None, record=log.append,
+        merge=boom,
+        merge_decision=pr_watch.MergeDecision(ready=True),
+        confirm_merged=lambda: True,
+    )
+    assert result.merged is True and result.merge_command_failed is True
+    assert any("PR state confirms it landed" in line for line in log)
+
+
+def test_failed_merge_command_and_pr_not_merged_reports_the_failure() -> None:
+    result = pr_watch.run_watch(
+        _state(), bot=_BOT, max_threads=10,
+        fixer=lambda t: ("fixed", "ok"),
+        gh_exec=lambda a: None, push=lambda: None,
+        merge=lambda: (_ for _ in ()).throw(RuntimeError("merge conflict")),
+        merge_decision=pr_watch.MergeDecision(ready=True),
+        confirm_merged=lambda: False,
+    )
+    assert result.merged is False and result.merge_command_failed is True
+    assert any("merge failed" in r for r in result.merge_blocked_by)
+
+
+def test_successful_command_still_defers_to_the_observed_state() -> None:
+    # The seam is the ground truth in BOTH directions: a command that "succeeded" while the PR is
+    # not actually merged must not be reported as merged.
+    result = pr_watch.run_watch(
+        _state(), bot=_BOT, max_threads=10,
+        fixer=lambda t: ("fixed", "ok"),
+        gh_exec=lambda a: None, push=lambda: None,
+        merge=lambda: None,
+        merge_decision=pr_watch.MergeDecision(ready=True),
+        confirm_merged=lambda: False,
+    )
+    assert result.merged is False and result.merge_command_failed is False
+
+
+def test_without_confirmation_seam_a_merge_failure_still_raises() -> None:
+    # No way to observe the truth -> don't guess in either direction; keep the pre-0065 contract.
+    with pytest.raises(RuntimeError, match="boom"):
+        pr_watch.run_watch(
+            _state(), bot=_BOT, max_threads=10,
+            fixer=lambda t: ("fixed", "ok"),
+            gh_exec=lambda a: None, push=lambda: None,
+            merge=lambda: (_ for _ in ()).throw(RuntimeError("boom")),
+            merge_decision=pr_watch.MergeDecision(ready=True),
+        )
+
+
 def test_run_watch_needs_both_seam_and_decision_to_merge() -> None:
     # A decision without the seam (auto_merge off) must not merge, and must not claim it held it.
     result = pr_watch.run_watch(
