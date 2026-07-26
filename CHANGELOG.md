@@ -7,7 +7,12 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
-### Added — delivery parity for the document phases (ADR 0070)
+## [2026.7.9] - 2026-07-26
+
+Documents now ship the way code does. Plus the default that makes the PR watch useful once you
+enable it — and the bound that makes that default safe.
+
+### Added
 
 Code changes got isolation, review, a PR and a gated merge; document changes — the PRD, tech design
 and ADRs, work plan, research brief, ux-spec, marketing deliverables — were written **straight into

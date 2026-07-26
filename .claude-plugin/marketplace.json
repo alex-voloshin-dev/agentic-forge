@@ -10,7 +10,7 @@
       "name": "agentic-forge",
       "source": "./plugin",
       "description": "Skill-centric, eval-driven Claude Code plugin for the full software lifecycle: research, product, architecture, planning, development, code & security review, QA, deploy-watch, incident response, release, plus marketing and UX design — with an Obsidian knowledge base. Standard-compliant (agentskills.io), every component gated by tests and numeric eval thresholds.",
-      "version": "2026.7.8"
+      "version": "2026.7.9"
     }
   ]
 }
