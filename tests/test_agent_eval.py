@@ -86,6 +86,8 @@ def test_claude_cli_runner_argv_and_parse(monkeypatch: pytest.MonkeyPatch) -> No
     assert cmd[:6] == ["claude", "-p", "PROMPT", "--append-system-prompt", "SYS", "--output-format"]
     assert cmd[6] == "json"  # JSON output so usage is parseable
     assert "--allowedTools" in cmd and "Read,Grep" in cmd
+    # the operator's user-level settings/CLAUDE.md must NOT reach a graded run (ADR 0077)
+    assert cmd[cmd.index("--setting-sources") + 1] == "project"
     assert "--model" in cmd and "claude-x" in cmd
     assert "--max-turns" in cmd and "7" in cmd
     assert captured["kw"]["cwd"] == "/tmp" and captured["kw"]["timeout"] == 900
