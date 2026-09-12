@@ -158,6 +158,7 @@ class Tier1Report:
     invalid_reasons: dict[str, int] = field(default_factory=dict)  # reason -> count (ADR 0084)
     invalid_excerpts: list[str] = field(default_factory=list)  # what those calls said instead
     lost_to: dict[str, int] = field(default_factory=dict)  # should-trigger losses by winner (0087)
+    bare_collided: int = 0  # hits given under a bare name a built-in ALSO owns — ambiguous (0087)
 
     def summary_line(self) -> str:
         status = "PASS" if self.passed else "FAIL"
@@ -177,7 +178,12 @@ class Tier1Report:
                 )
             )
             noise = f"  [{self.invalid_calls}/{self.total_calls} no decision: {why}]"
-        return f"[{self.skill}] {status}  recall={rc} specificity={sp}{noise}{suffix}"
+        collided = (
+            f"  [{self.bare_collided} hit(s) under a bare name a built-in also owns — ambiguous]"
+            if self.bare_collided
+            else ""
+        )
+        return f"[{self.skill}] {status}  recall={rc} specificity={sp}{noise}{collided}{suffix}"
 
     def evidence_lines(self) -> list[str]:
         """Sample replies that produced no decision, and who won the should-trigger prompts this
@@ -395,6 +401,7 @@ class PromptRate:
     reasons: tuple[str, ...] = ()  # why each invalid call produced nothing (ADR 0084)
     excerpts: tuple[str, ...] = ()  # what those calls said instead, capped
     choices: tuple[str, ...] = ()  # valid decisions that were NOT the target — who won (ADR 0087)
+    hit_names: tuple[str, ...] = ()  # the name each hit was given under (target or an alias)
 
 
 def selection_rate(
@@ -406,6 +413,7 @@ def selection_rate(
     workdir: Path,
     *,
     target: str,
+    accept: frozenset[str] = frozenset(),
 ) -> PromptRate:
     """The fraction of **valid** router calls that select ``target`` for ``prompt``.
 
@@ -422,19 +430,26 @@ def selection_rate(
     reasons: list[str] = []
     excerpts: list[str] = []
     choices: list[str] = []
+    hit_names: list[str] = []
     for _ in range(runs):
         reply = classify_reply(run_fn(system, prompt, workdir), names)
         if reply.decision == INVALID:
             reasons.append(reply.reason)
             if reply.excerpt and len(excerpts) < 2:  # two samples are enough to see the shape
                 excerpts.append(reply.excerpt)
-        elif reply.decision == target:
+        elif reply.decision == target or reply.decision in accept:
             hits += 1
+            hit_names.append(reply.decision)
         else:
             choices.append(reply.choice or reply.decision)
     invalid = len(reasons)
     valid = runs - invalid
-    detail = {"reasons": tuple(reasons), "excerpts": tuple(excerpts), "choices": tuple(choices)}
+    detail = {
+        "reasons": tuple(reasons),
+        "excerpts": tuple(excerpts),
+        "choices": tuple(choices),
+        "hit_names": tuple(hit_names),
+    }
     # A rate from ONE surviving call carried the same weight in the mean as one from five, so a
     # single stray answer could set a prompt to a flat 0.0 or 1.0 (ADR 0067). Below half the
     # samples there is not enough evidence to average — treat the prompt as unmeasured, which is
@@ -482,6 +497,8 @@ def eval_skill(
     workdir: Path,
     *,
     target: str | None = None,
+    aliases: frozenset[str] = frozenset(),
+    collided: frozenset[str] = frozenset(),
 ) -> Tier1Report:
     """Measure recall/specificity for one skill against the live listing and gate it.
 
@@ -489,16 +506,21 @@ def eval_skill(
     means (a fabricated 0.0 would read as a routing failure) and instead **fail the gate** with an
     explicit reason. Not measuring something is not the same as it passing, and it is not the same
     as it failing either — so the report says exactly that (ADR 0064)."""
-    # the name as the LISTING shows it — namespaced under ADR 0086's built-in condition
+    # the name as the LISTING shows it — namespaced under ADR 0086's built-in condition. The bare
+    # name is accepted as the same choice: the router drops the prefix for every skill, namesake
+    # or not (ADR 0087, corrected), so a bare answer is not evidence of choosing someone else.
     want = target or trig.name
     st = [
-        selection_rate(run_fn, system, p, names, runs, workdir, target=want)
+        selection_rate(run_fn, system, p, names, runs, workdir, target=want, accept=aliases)
         for p in trig.should_trigger
     ]
     sn = [
-        selection_rate(run_fn, system, p, names, runs, workdir, target=want)
+        selection_rate(run_fn, system, p, names, runs, workdir, target=want, accept=aliases)
         for p in trig.should_not_trigger
     ]
+    # A bare hit on a name that ALSO exists as a built-in is genuinely ambiguous — counted as ours,
+    # and reported, so the collision stays visible instead of vanishing into a green number.
+    bare_collided = sum(1 for rate in st for name in rate.hit_names if name in collided)
     st_rates = [r.rate for r in st if r.rate is not None]
     sn_rates = [r.rate for r in sn if r.rate is not None]
     unmeasured = [
@@ -538,6 +560,7 @@ def eval_skill(
         invalid_reasons=tally,
         invalid_excerpts=excerpts,
         lost_to=lost,
+        bare_collided=bare_collided,
     )
 
 
@@ -571,24 +594,33 @@ def run_tier1(
 
     ``extra_cards`` renders a COMPETING listing beside ours and ``namespace`` prefixes our names
     the way a live Claude Code session does (``agentic-forge:code-review`` beside the built-in
-    ``code-review``) — ADR 0086's condition. Under it a bare ``code-review`` reply is scored as the
-    built-in (:data:`OTHER`, a miss for us), which is the strict reading of a name collision.
+    ``code-review``) — ADR 0086's condition. A bare ``code-review`` reply counts as OURS and is
+    reported as ambiguous (ADR 0087, corrected): the router drops the prefix for every skill, so a
+    bare name is not a vote for the built-in.
     """
     if runs <= 0:
         raise ValueError(f"runs must be >= 1, got {runs}")
     problems = check_wiring(plugin_dir)
     if problems:
         raise ValueError("Tier-1 wiring problems: " + "; ".join(problems))
-    ours = load_listing(plugin_dir)
-    if namespace:
-        ours = [SkillCard(f"{namespace}:{c.name}", c.description) for c in ours]
-    names = [c.name for c in ours]
+    bare = load_listing(plugin_dir)
+    ours = [SkillCard(f"{namespace}:{c.name}", c.description) for c in bare] if namespace else bare
+    # The parser knows BOTH spellings of our names under a namespace: the router answers with the
+    # bare one for every skill (ADR 0087), and a bare answer is ours unless a built-in owns it too —
+    # in which case it is still counted as ours and reported as ambiguous.
+    names = [c.name for c in ours] + ([c.name for c in bare] if namespace else [])
     system = build_router_system([*ours, *(extra_cards or [])])
     work = workdir or plugin_dir
     triggers = [t for t in load_triggers(plugin_dir) if skills is None or t.name in skills]
     prefix = f"{namespace}:" if namespace else ""
+    collided = frozenset(c.name for c in (extra_cards or [])) & frozenset(c.name for c in bare)
     return [
-        eval_skill(t, names, run_fn, system, runs, work, target=f"{prefix}{t.name}")
+        eval_skill(
+            t, names, run_fn, system, runs, work,
+            target=f"{prefix}{t.name}",
+            aliases=frozenset({t.name}) if namespace else frozenset(),
+            collided=collided,
+        )
         for t in triggers
     ]
 

@@ -76,6 +76,46 @@ finished; the quality job had by then consumed ~45 minutes of the subscription f
   it — a plugin skill is invoked as `agentic-forge:security-review`. So 0.000 is not an artifact
   of scoring; it is what a user asking for a security review would get.
 
+## Corrected the same day: the attributed run
+
+Decision 1 ran, and it overturned the reading in *Context* §1.
+
+```
+[deploy-watch]       FAIL 0.200   lost should-trigger calls to: deploy-watch x28
+[incident-response]  FAIL 0.050   lost should-trigger calls to: incident-response x19
+[marketing]          FAIL 0.511   lost should-trigger calls to: marketing x22
+[security-review]    FAIL 0.050   lost should-trigger calls to: security-review x19
+[code-review]        FAIL 0.240   lost should-trigger calls to: code-review x15, review x3, security-review x1
+```
+
+`deploy-watch` lost to `deploy-watch`. No built-in of that name exists; the only `deploy-watch`
+in the listing is `agentic-forge:deploy-watch`. The router chose ours and answered with the bare
+name — and it did that for **every** skill, namesake or not. The strict reading in *Consequences*
+("0.000 is not an artifact of scoring") was wrong: a bare `security-review` is exactly as likely to
+be ours as a bare `deploy-watch` is, which is to say, it is ours. The arithmetic confirms it line
+by line — `incident-response`: 1 hit + 19 bare = 20 = 4 prompts × 5; `marketing`: 23 + 22 = 45 =
+9 × 5; every skill returns to 1.000 except `code-review`, which keeps four real losses (`review`
+×3, `security-review` ×1) and lands near 0.84.
+
+What is real in the run, then:
+
+- **Not one loss to an actual built-in.** No `design`, `run`, `simplify` or `loop` appears as a
+  winner for any skill. Hypothesis (b) of ADR 0086 — the built-in listing wins *by meaning* — is
+  not supported by this data. The weight goes back to ADR 0081's (a), the competing repository
+  instruction, for the field gap.
+- **The name collision is unmeasurable by this method.** A bare `code-review` says nothing about
+  which entry the router meant, because it never writes the prefix for anyone. Which one Claude
+  Code *invokes* on a bare name is a product behaviour, observable only in a live session — and the
+  first field bundle already hints at the answer: its recorded invocations are
+  `agentic-forge:deploy-watch`, `agentic-forge:develop`, prefixed. The model prefixes when it
+  invokes, and abbreviates when it classifies.
+
+So the scoring is corrected: under the condition a bare own name is a **hit**, and a bare hit on
+a name a built-in also owns is counted as ours *and reported* — `[15 hit(s) under a bare name a
+built-in also owns — ambiguous]` — so the collision stays visible in the line rather than vanishing
+into a green number. The rename question stays open, and it is now the product check that decides
+it, not another eval.
+
 ## Alternatives considered
 
 - **Rename the two collided skills now.** Rejected for this ADR: it is the likely outcome, but the

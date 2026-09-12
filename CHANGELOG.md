@@ -125,6 +125,22 @@ This is the first direct evidence for ADR 0086's hypothesis: the built-in listin
 to the point of total loss on exact-name collisions. No description or name is changed here — the
 attributed re-run decides that.
 
+### Corrected — the router drops the namespace for everyone (ADR 0087, amended)
+
+The attributed re-run of the built-in listing condition overturned its own first reading.
+`deploy-watch` lost 28 should-trigger calls to… `deploy-watch` — a name no built-in owns. The
+router chose ours and abbreviated, for every skill alike; the "strict reading" that scored a bare
+`security-review` as the built-in was scoring a habit of speech. Re-read correctly, every skill
+returns to ~1.000 and **not one loss to an actual built-in** (`design`, `run`, `simplify`, `loop`)
+appears anywhere. ADR 0086's hypothesis (b) is not supported; the weight returns to ADR 0081's
+competing-instruction hypothesis for the field gap.
+
+- Under the condition a bare own name is now a **hit**; a bare hit on a name a built-in also owns
+  is counted as ours and reported — `[15 hit(s) under a bare name a built-in also owns —
+  ambiguous]` — so the collision stays visible without deciding it by fiat.
+- The name collision itself is unmeasurable by a router eval and becomes a product check: which
+  entry Claude Code invokes on a bare name in a live session.
+
 ### Measured — `deep-review` Tier-2, the last threshold the field bundle left open
 
 0.771 / 0.750 against a 0.800 bar in July; **PASS at mean 0.963, lower bound 0.928 (n=5)** today.

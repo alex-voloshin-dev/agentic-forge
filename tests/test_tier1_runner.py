@@ -623,9 +623,23 @@ def test_condition_namespaces_ours_and_renders_the_builtins_beside_them(tmp_path
     assert "\n- research:" not in listing  # no un-namespaced copy of ours
 
 
-def test_condition_scores_a_bare_collided_name_as_the_builtin(tmp_path: Path) -> None:
-    """`code-review` beside `agentic-forge:code-review`: a bare reply is the built-in — OTHER, a
-    miss for us. The strict reading of a name collision."""
+def test_condition_counts_a_bare_own_name_as_ours(tmp_path: Path) -> None:
+    """The router drops the namespace for EVERY skill — `deploy-watch x28` against a skill no
+    built-in owns (ADR 0087). A bare own name is a hit, not a loss to a namesake."""
+
+    def bare(system: str, prompt: str, workdir: Path) -> str:
+        return "deploy-watch"
+
+    (report,) = run_tier1(
+        PLUGIN, bare, skills=["deploy-watch"], runs=1, workdir=tmp_path,
+        extra_cards=load_extra_listing(BUILTINS), namespace="agentic-forge",
+    )
+    assert report.recall == 1.0 and report.lost_to == {} and report.bare_collided == 0
+
+
+def test_condition_counts_a_bare_collided_name_as_ours_but_says_so(tmp_path: Path) -> None:
+    """`code-review` beside `agentic-forge:code-review`: a bare reply is ours — and ambiguous, so
+    the report says how many hits rest on it instead of hiding it in a green number."""
 
     def bare(system: str, prompt: str, workdir: Path) -> str:
         return "code-review"
@@ -634,9 +648,22 @@ def test_condition_scores_a_bare_collided_name_as_the_builtin(tmp_path: Path) ->
         PLUGIN, bare, skills=["code-review"], runs=1, workdir=tmp_path,
         extra_cards=load_extra_listing(BUILTINS), namespace="agentic-forge",
     )
-    assert report.skill == "code-review"  # the report keeps the bare skill name
-    assert report.invalid_calls == 0  # measured, not discarded
-    assert report.recall == 0.0 and not report.passed  # …and every should-trigger missed
+    assert report.skill == "code-review" and report.invalid_calls == 0
+    assert report.recall == 1.0
+    n_should = len(next(t for t in load_triggers(PLUGIN) if t.name == "code-review").should_trigger)
+    assert report.bare_collided == n_should  # every should-trigger hit came in bare
+    assert "ambiguous" in report.summary_line()
+
+
+def test_condition_still_attributes_a_real_loss(tmp_path: Path) -> None:
+    def to_design(system: str, prompt: str, workdir: Path) -> str:
+        return "design"
+
+    (report,) = run_tier1(
+        PLUGIN, to_design, skills=["marketing"], runs=1, workdir=tmp_path,
+        extra_cards=load_extra_listing(BUILTINS), namespace="agentic-forge",
+    )
+    assert report.recall == 0.0 and set(report.lost_to) == {"design"}
 
 
 def test_condition_passes_when_the_router_uses_our_namespaced_name(tmp_path: Path) -> None:
