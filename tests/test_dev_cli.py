@@ -279,6 +279,7 @@ class _FakeReport:
         self.invalid_reasons: dict[str, int] = {}
         self.invalid_excerpts: list[str] = []
         self.lost_to: dict[str, int] = {}
+        self.bare_collided = 0
         self.evidence_lines = list  # callable returning [] — no samples on a fake report
         self.gate = types.SimpleNamespace(reasons=["fake reason"])
         # version-over-version A/B (ADR 0047): empty thresholds -> version_check is a no-op here.
