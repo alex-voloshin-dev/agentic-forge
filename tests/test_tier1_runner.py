@@ -14,6 +14,7 @@ from agentic_forge.tier1_runner import (
     check_wiring,
     classify_reply,
     eval_skill,
+    load_extra_listing,
     load_listing,
     load_triggers,
     parse_selection,
@@ -588,3 +589,67 @@ def test_other_requires_a_skill_shaped_terminal_token() -> None:
     assert trailing_answer("Best fit. 42", names) is None  # not a name shape
     assert trailing_answer("Best fit. Run!", names) == OTHER  # wrapper punctuation stripped
     assert trailing_answer("I would not run", names) is None  # inside the sentence
+
+
+# --- the built-in listing condition (ADR 0086) --------------------------------
+
+BUILTINS = PLUGIN / "eval" / "fixtures" / "claude-code-builtin-skills.json"
+
+
+def test_builtin_fixture_loads_and_collides_by_name() -> None:
+    cards = load_extra_listing(BUILTINS)
+    names = {c.name for c in cards}
+    assert {"run", "code-review", "security-review", "simplify"} <= names
+    assert all(c.description for c in cards)
+    # the collisions the condition exists to measure
+    assert {"code-review", "security-review"} <= (names & ON_LISTING)
+
+
+def test_condition_namespaces_ours_and_renders_the_builtins_beside_them(tmp_path: Path) -> None:
+    seen: dict[str, str] = {}
+
+    def spy(system: str, prompt: str, workdir: Path) -> str:
+        seen["system"] = system
+        return "agentic-forge:research"
+
+    run_tier1(
+        PLUGIN, spy, skills=["research"], runs=1, workdir=tmp_path,
+        extra_cards=load_extra_listing(BUILTINS), namespace="agentic-forge",
+    )
+    listing = seen["system"]
+    assert "- agentic-forge:research:" in listing  # ours, as a live session shows it
+    assert "- run:" in listing and "- code-review:" in listing  # the built-ins, bare
+    assert "\n- research:" not in listing  # no un-namespaced copy of ours
+
+
+def test_condition_scores_a_bare_collided_name_as_the_builtin(tmp_path: Path) -> None:
+    """`code-review` beside `agentic-forge:code-review`: a bare reply is the built-in — OTHER, a
+    miss for us. The strict reading of a name collision."""
+
+    def bare(system: str, prompt: str, workdir: Path) -> str:
+        return "code-review"
+
+    (report,) = run_tier1(
+        PLUGIN, bare, skills=["code-review"], runs=1, workdir=tmp_path,
+        extra_cards=load_extra_listing(BUILTINS), namespace="agentic-forge",
+    )
+    assert report.skill == "code-review"  # the report keeps the bare skill name
+    assert report.invalid_calls == 0  # measured, not discarded
+    assert report.recall == 0.0 and not report.passed  # …and every should-trigger missed
+
+
+def test_condition_passes_when_the_router_uses_our_namespaced_name(tmp_path: Path) -> None:
+    owner = {p: t.name for t in load_triggers(PLUGIN) for p in t.should_trigger}
+
+    def namespaced_oracle(system: str, prompt: str, workdir: Path) -> str:
+        return f"agentic-forge:{owner[prompt]}" if prompt in owner else "run"
+
+    reports = run_tier1(
+        PLUGIN, namespaced_oracle, runs=1, workdir=tmp_path,
+        extra_cards=load_extra_listing(BUILTINS), namespace="agentic-forge",
+    )
+    assert all_passed(reports), [r.summary_line() for r in reports if not r.passed]
+
+
+def test_namespaced_unknown_name_is_still_a_choice() -> None:
+    assert trailing_answer("Best fit. cloudflare:wrangler", sorted(ON_LISTING)) == OTHER

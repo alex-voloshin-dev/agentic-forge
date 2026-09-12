@@ -62,6 +62,13 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--runner", choices=["dry", "api", "claude"], default="dry")
     parser.add_argument("--model", default="claude-opus-4-8")
     parser.add_argument("--runs", type=int, default=tier1_runner.DEFAULT_RUNS)
+    parser.add_argument(
+        "--with-builtins",
+        action="store_true",
+        help="ADR 0086 condition: render Claude Code's built-in skills beside ours (namespaced "
+        "as a live session shows them) and score a bare built-in name as a miss for us. A "
+        "measurement of the production listing, recorded apart from the gate.",
+    )
     args = parser.parse_args(argv[1:])
 
     plugin_dir: Path = args.plugin.resolve()
@@ -88,14 +95,32 @@ def main(argv: list[str]) -> int:
     model = models.model_for("router", models_cfg, default=args.model)
     run_fn = _build_router(args.runner, model)
     print(f"running Tier-1 via {args.runner} (model={model}, runs={args.runs})...", flush=True)
+    extra = namespace = None
+    component = "tier1-eval"
+    if args.with_builtins:
+        extra = tier1_runner.load_extra_listing(
+            plugin_dir / "eval" / "fixtures" / "claude-code-builtin-skills.json"
+        )
+        namespace = "agentic-forge"
+        component = "tier1-builtins"  # a condition, not the gate: keep its records apart
+        print(
+            f"condition: +{len(extra)} built-in skills, ours namespaced `{namespace}:`",
+            flush=True,
+        )
     try:
         with tempfile.TemporaryDirectory() as tmp:
             reports = tier1_runner.run_tier1(
-                plugin_dir, run_fn, skills=args.skills, runs=args.runs, workdir=Path(tmp)
+                plugin_dir,
+                run_fn,
+                skills=args.skills,
+                runs=args.runs,
+                workdir=Path(tmp),
+                extra_cards=extra,
+                namespace=namespace,
             )
     except Exception as exc:  # a crash (e.g. mis-wired plugin) — record it, then fail
         print(f"Tier-1 ERROR — {exc}", flush=True)
-        _eval_cli.record_failure("tier1-eval", f"{type(exc).__name__}: {exc}")
+        _eval_cli.record_failure(component, f"{type(exc).__name__}: {exc}")
         return 1
     for report in reports:
         print(report.summary_line(), flush=True)
@@ -108,7 +133,7 @@ def main(argv: list[str]) -> int:
             if report.invalid_reasons:
                 counts = ", ".join(f"{k} x{v}" for k, v in sorted(report.invalid_reasons.items()))
                 detail = f"{detail}; no-decision: {counts}"
-            _eval_cli.record_failure(f"tier1-eval:{report.skill}", detail, kind="anomaly")
+            _eval_cli.record_failure(f"{component}:{report.skill}", detail, kind="anomaly")
     return 0 if tier1_runner.all_passed(reports) else 1
 
 

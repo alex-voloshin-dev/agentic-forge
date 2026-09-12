@@ -757,3 +757,27 @@ def test_ralph_apply_no_done_cmd_returns_0(tmp_path: Path) -> None:
         progressed=lambda: True,
     )
     assert rc == 0  # no done-cmd -> exhausting the budget is a normal end
+
+
+def test_run_tier1_evals_with_builtins_records_apart_from_the_gate(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """ADR 0086's condition is a measurement, not the gate: its failures are recorded under
+    `tier1-builtins:<skill>` so they never read as a routing regression."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(run_tier1_evals, "_build_router", lambda *a, **k: object())
+    captured: dict[str, object] = {}
+
+    def fake_run(*a: object, **k: object) -> list[object]:
+        captured.update(k)
+        return [_FakeReport(False)]
+
+    recorded: list[str] = []
+    monkeypatch.setattr(run_tier1_evals.tier1_runner, "run_tier1", fake_run)
+    monkeypatch.setattr(
+        run_tier1_evals._eval_cli, "record_failure", lambda comp, *a, **k: recorded.append(comp)
+    )
+    assert run_tier1_evals.main(["run", "--runner", "claude", "--with-builtins"]) == 1
+    assert captured["namespace"] == "agentic-forge" and captured["extra_cards"]
+    assert recorded == ["tier1-builtins:fake-skill"]
+    assert "condition: +" in capsys.readouterr().out

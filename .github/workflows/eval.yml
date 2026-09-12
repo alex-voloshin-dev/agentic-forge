@@ -24,7 +24,7 @@ on:
         required: false
         default: "all"
         type: choice
-        options: ["all", "trigger-only"]
+        options: ["all", "trigger-only", "builtins-condition"]
   schedule:
     - cron: "0 9 * * 1"  # Mondays 09:00 UTC — Tier-1 only
   pull_request:
@@ -94,8 +94,14 @@ jobs:
       # per-prompt routing rate, gated recall/specificity >= 0.9 (ADR 0016/0026). Skipped without
       # the token — on a fork, or a dispatch from someone who has none.
       - name: Skill Tier-1 trigger (subscription via claude)
-        if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+        if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' && github.event.inputs.tiers != 'builtins-condition' }}
         run: python dev/run_tier1_evals.py --runner claude --model "$EVAL_MODEL"
+
+      # ADR 0086's measurement, on demand: the same prompts against the listing a live session
+      # actually shows — Claude Code's built-ins beside ours, ours namespaced. Not the gate.
+      - name: Skill Tier-1 with the built-in listing (condition, not the gate)
+        if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' && github.event.inputs.tiers == 'builtins-condition' }}
+        run: python dev/run_tier1_evals.py --runner claude --model "$EVAL_MODEL" --with-builtins
       - name: Say what this measured
         if: ${{ always() }}
         run: |
