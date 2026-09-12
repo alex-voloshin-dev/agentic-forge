@@ -275,6 +275,10 @@ class _FakeReport:
         # role/skill reports expose `gate.reasons`; tier1 reports expose `reasons` + `skill`.
         self.reasons = ["fake reason"]
         self.skill = "fake-skill"
+        # tier1 reports also expose the no-decision breakdown and its samples (ADR 0084).
+        self.invalid_reasons: dict[str, int] = {}
+        self.invalid_excerpts: list[str] = []
+        self.evidence_lines = list  # callable returning [] — no samples on a fake report
         self.gate = types.SimpleNamespace(reasons=["fake reason"])
         # version-over-version A/B (ADR 0047): empty thresholds -> version_check is a no-op here.
         self.benchmark = {"run_summary": {"with_skill": {"pass_rate": {"mean": mean}, "n": 5}}}

@@ -30,6 +30,27 @@ Every job declares `timeout-minutes`, so a hung run can no longer eat a 6-hour r
 `workflow_dispatch` takes a `tiers` input (`all` / `trigger-only`) so a manual run can stay cheap.
 `CLAUDE.md` and the eval runbook say which tiers are weekly and which are on demand.
 
+### Fixed — a rejected router reply now says why it was rejected (ADR 0084)
+
+The first Tier-1 run in this repository's history where the token was present and the step actually
+executed ran 32 minutes and failed **seven** skills — every one of them at **recall 1.000 /
+specificity 1.000**. The routing was perfect everywhere it was measured; between 6% and 27% of
+router calls returned no decision at all, and a prompt whose every call comes back empty-handed is
+unmeasured, which correctly fails the gate (ADR 0064/0067, unchanged).
+
+The log could say nothing beyond "no decision", and that word covers six causes needing opposite
+responses — off-format prose is the rejection working, an empty reply is a transport fault.
+
+- `classify_reply` returns the decision **plus** the reason (`empty`, `prose-length`,
+  `prose-non-latin`, `prose-tokens`, `negation-or-acting`, `ambiguous`, `unknown-name`) and a
+  one-line 120-char excerpt of what came back instead. `parse_selection` is unchanged for callers.
+- The summary reads `[14/50 no decision: prose-tokens x11, unknown-name x3]`, a failing skill
+  prints its samples underneath, and the diagnostics record carries the same tally.
+- **No retry was added.** Reading the runner while implementing showed `claude_cli_runner` already
+  retries a failed or timed-out call three times and raises — so a broken call never reaches the
+  parser. The one remaining candidate is a call that succeeds and returns nothing, whose frequency
+  this change makes visible and nobody can yet state. Measure, then decide.
+
 ### Measured — `deep-review` Tier-2, the last threshold the field bundle left open
 
 0.771 / 0.750 against a 0.800 bar in July; **PASS at mean 0.963, lower bound 0.928 (n=5)** today.

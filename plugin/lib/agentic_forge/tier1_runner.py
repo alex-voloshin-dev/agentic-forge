@@ -39,6 +39,9 @@ __all__ = [
     "render_listing",
     "build_router_system",
     "parse_selection",
+    "classify_reply",
+    "Reply",
+    "INVALID_REASONS",
     "selection_rate",
     "load_triggers",
     "eval_skill",
@@ -140,6 +143,8 @@ class Tier1Report:
     invalid_calls: int = 0  # router calls that returned no decision at all (ADR 0064)
     total_calls: int = 0
     unmeasured: list[str] = field(default_factory=list)  # prompts where EVERY call was invalid
+    invalid_reasons: dict[str, int] = field(default_factory=dict)  # reason -> count (ADR 0084)
+    invalid_excerpts: list[str] = field(default_factory=list)  # what those calls said instead
 
     def summary_line(self) -> str:
         status = "PASS" if self.passed else "FAIL"
@@ -148,12 +153,23 @@ class Tier1Report:
         suffix = "" if self.passed else "  (" + "; ".join(self.reasons) + ")"
         # Surface discarded calls ALWAYS, pass or fail: a green number computed from half the
         # samples is weaker evidence than one from all of them, and hiding that is a silent cap.
-        noise = (
-            f"  [{self.invalid_calls}/{self.total_calls} calls returned no decision]"
-            if self.invalid_calls
-            else ""
-        )
+        # WHY they were discarded rides along, because "no decision" alone is not actionable:
+        # off-format prose and an empty reply need opposite fixes (ADR 0084).
+        noise = ""
+        if self.invalid_calls:
+            why = ", ".join(
+                f"{reason} x{count}"
+                for reason, count in sorted(
+                    self.invalid_reasons.items(), key=lambda kv: (-kv[1], kv[0])
+                )
+            )
+            noise = f"  [{self.invalid_calls}/{self.total_calls} no decision: {why}]"
         return f"[{self.skill}] {status}  recall={rc} specificity={sp}{noise}{suffix}"
+
+    def evidence_lines(self) -> list[str]:
+        """Sample replies that produced no decision — printed under a failing skill so the next
+        person does not have to re-run the eval to see what the router actually said."""
+        return [f"    no-decision sample: {e}" for e in self.invalid_excerpts]
 
 
 # --- live listing ------------------------------------------------------------
@@ -216,27 +232,73 @@ def parse_selection(reply: str, names: list[str]) -> str:
     specificity at a perfect 1.000 (prose rarely names the skill under test either). The result
     was an unstable metric that invited description edits to chase measurement noise.
     """
+    return classify_reply(reply, names).decision
+
+
+@dataclass(frozen=True)
+class Reply:
+    """One router reply, classified. ``reason`` is "" for a decision and otherwise names WHY the
+    call produced none — with a one-line ``excerpt`` of what came back instead (ADR 0084).
+
+    The first CI run that could actually measure failed seven skills on "no decision" and said
+    nothing about what the router had said, so the log could not tell an off-format answer from a
+    broken call. Same lesson as ADR 0081's `rule` + `evidence`: a rejection that does not say what
+    it rejected cannot be acted on."""
+
+    decision: str
+    reason: str = ""
+    excerpt: str = ""
+
+
+# Why a reply carried no routing decision. These are the levers: `prose-*` means the router
+# answered like an agent instead of a classifier (a prompt/system problem), `empty` means it
+# answered nothing at all (a transport problem), `ambiguous`/`unknown-name` mean it answered in
+# format but not usefully.
+INVALID_REASONS = (
+    "empty",
+    "prose-length",
+    "prose-non-latin",
+    "prose-tokens",
+    "negation-or-acting",
+    "ambiguous",
+    "unknown-name",
+)
+
+
+def _excerpt(text: str, limit: int = 120) -> str:
+    """A one-line, length-capped excerpt of a reply, for the failure line."""
+    flat = " ".join(text.split())
+    return flat if len(flat) <= limit else flat[: limit - 1] + "…"
+
+
+def classify_reply(reply: str, names: list[str]) -> Reply:
+    """:func:`parse_selection` plus the reason a rejected reply was rejected (ADR 0084)."""
     text = reply.strip()
+    if not text:
+        return Reply(INVALID, "empty", "")
     if len(text) > MAX_ANSWER_CHARS:
-        return INVALID  # prose by sheer length
+        return Reply(INVALID, "prose-length", _excerpt(text))  # prose by sheer length
     if sum(1 for ch in text if ch.isalpha() and not ch.isascii()) > MAX_NON_LATIN_LETTERS:
-        return INVALID  # prose in another script — invisible to an ASCII token count
+        # prose in another script — invisible to an ASCII token count
+        return Reply(INVALID, "prose-non-latin", _excerpt(text))
     lowered = text.lower()
     tokens = re.findall(r"[a-z0-9_-]+", lowered)
     if len(tokens) > MAX_ANSWER_TOKENS:
-        return INVALID
+        return Reply(INVALID, "prose-tokens", _excerpt(text))
     if _DECLINE.match(lowered):
-        return "none"  # an explicit decline IS a decision, however it is phrased
+        return Reply("none")  # an explicit decline IS a decision, however it is phrased
     if any(t in _NEGATION or t in _ACTING for t in tokens):
-        return INVALID  # the reply argues about the routing, or performs it — neither states one
+        # the reply argues about the routing, or performs it — neither states one
+        return Reply(INVALID, "negation-or-acting", _excerpt(text))
     known = {n.lower(): n for n in names}
     # `_` is normalised to `-` so `code_review` still names `code-review` rather than fragmenting.
     named = {known[t.replace("_", "-")] for t in tokens if t.replace("_", "-") in known}
     if len(named) == 1:
-        return named.pop()
+        return Reply(named.pop())
     if "none" in tokens and not named:
-        return "none"
-    return INVALID  # empty, ambiguous (several names), or naming nothing known: no decision
+        return Reply("none")
+    reason = "ambiguous" if named else "unknown-name"
+    return Reply(INVALID, reason, _excerpt(text))
 
 
 @dataclass(frozen=True)
@@ -249,6 +311,8 @@ class PromptRate:
     rate: float | None
     invalid: int
     runs: int
+    reasons: tuple[str, ...] = ()  # why each invalid call produced nothing (ADR 0084)
+    excerpts: tuple[str, ...] = ()  # what those calls said instead, capped
 
 
 def selection_rate(
@@ -273,21 +337,26 @@ def selection_rate(
     evidence as one from 5 of 5, and hiding that would be a silent cap.
     """
     hits = 0
-    invalid = 0
+    reasons: list[str] = []
+    excerpts: list[str] = []
     for _ in range(runs):
-        pick = parse_selection(run_fn(system, prompt, workdir), names)
-        if pick == INVALID:
-            invalid += 1
-        elif pick == target:
+        reply = classify_reply(run_fn(system, prompt, workdir), names)
+        if reply.decision == INVALID:
+            reasons.append(reply.reason)
+            if reply.excerpt and len(excerpts) < 2:  # two samples are enough to see the shape
+                excerpts.append(reply.excerpt)
+        elif reply.decision == target:
             hits += 1
+    invalid = len(reasons)
     valid = runs - invalid
+    detail = {"reasons": tuple(reasons), "excerpts": tuple(excerpts)}
     # A rate from ONE surviving call carried the same weight in the mean as one from five, so a
     # single stray answer could set a prompt to a flat 0.0 or 1.0 (ADR 0067). Below half the
     # samples there is not enough evidence to average — treat the prompt as unmeasured, which is
     # the loud path that already exists, rather than a confident number from thin data.
     if valid * 2 < runs:
-        return PromptRate(rate=None, invalid=invalid, runs=runs)
-    return PromptRate(rate=(hits / valid) if valid else None, invalid=invalid, runs=runs)
+        return PromptRate(rate=None, invalid=invalid, runs=runs, **detail)
+    return PromptRate(rate=(hits / valid) if valid else None, invalid=invalid, runs=runs, **detail)
 
 
 def load_triggers(plugin_dir: Path) -> list[SkillTrigger]:
@@ -353,6 +422,11 @@ def eval_skill(
     measured = gate.trigger_metrics(st_rates, sn_rates)
     result = gate.tier1_trigger(measured, trig.thresholds)
     reasons = list(result.reasons)
+    tally: dict[str, int] = {}
+    for rate in [*st, *sn]:
+        for why in rate.reasons:
+            tally[why] = tally.get(why, 0) + 1
+    excerpts = [e for rate in [*st, *sn] for e in rate.excerpts][:3]
     if unmeasured:
         reasons.append(
             f"{len(unmeasured)} prompt(s) unmeasured — every router call returned no decision"
@@ -368,6 +442,8 @@ def eval_skill(
         invalid_calls=sum(r.invalid for r in [*st, *sn]),
         total_calls=sum(r.runs for r in [*st, *sn]),
         unmeasured=unmeasured,
+        invalid_reasons=tally,
+        invalid_excerpts=excerpts,
     )
 
 
