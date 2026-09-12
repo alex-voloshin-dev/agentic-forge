@@ -17,6 +17,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -811,8 +812,16 @@ def gate_bin_dirs(cwd: Path | str) -> list[Path]:
     return [d for r in roots for name in _LOCAL_BIN_DIRS if (d := r / name).is_dir()]
 
 
+# Interpreters whose bare name is not guaranteed to exist. A modern macOS or a Homebrew install has
+# `python3` and NO `python` at all, and `choose_gate` writes the validator's interpreter as
+# `python`: the plugin's OWN repo recorded 78 fail-opens on `FileNotFoundError: 'python'` — the
+# Tier-0 gate silently off for the whole window, on the machine that develops the plugin (ADR 0082).
+_TOOL_ALTERNATIVES = {"python": ("python3",)}
+
+
 def resolve_gate(argv: list[str], cwd: Path | str) -> list[str]:
-    """``argv`` with its executable resolved project-first: a project-local bin, then ``PATH``.
+    """``argv`` with its executable resolved project-first: a project-local bin, then ``PATH``,
+    then a known alternative name for the same tool (``python`` -> ``python3``).
 
     Project-first is the order npm and a virtualenv already use — the repo's pinned linter beats
     whatever happens to be installed globally. An unresolvable tool is returned unchanged: the
@@ -826,7 +835,11 @@ def resolve_gate(argv: list[str], cwd: Path | str) -> list[str]:
         candidate = directory / tool
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return [str(candidate), *argv[1:]]
-    return argv  # not project-local: PATH resolution happens at exec time
+    if shutil.which(tool) is None:
+        for alternative in _TOOL_ALTERNATIVES.get(tool, ()):
+            if shutil.which(alternative):
+                return [alternative, *argv[1:]]
+    return argv  # nothing resolved: the fail-open reports the name the project asked for
 
 
 def gate_env(cwd: Path | str, env: dict[str, str] | None = None) -> dict[str, str]:

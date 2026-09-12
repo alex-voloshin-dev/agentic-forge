@@ -520,6 +520,14 @@ bugs (neutral `config.example.json` + configuration.md python/models clarificati
   already at its ceiling and the audit log records what ran, never what was considered. Measure
   first: (a) a Tier-1 condition that runs the should-trigger set *with* a competing project
   instruction in context, (b) one more bundle from a repo without a prescriptive `AGENTS.md`.
+  **Update (ADR 0082):** part of that measurement already existed and nobody could see it — this
+  repo's own July Tier-1 runs recorded recall **below** the 0.9 bar for exactly those skills
+  (`ux-design` 0.750, `product` 0.720-0.840, `research` 0.800, `marketing` 0.822), while the weekly
+  CI guard reported success without running them. The guard is fixed, and a live re-run on
+  2026-09-12 puts all four at **recall 1.000 / specificity 1.000** — so the descriptions are not
+  the problem and none was touched. A skill that routes perfectly when the router is asked, and
+  never fires in 27 days of field work, was not asked: the eval still missing is a Tier-1 condition
+  that carries a competing project instruction in context.
 - **Vault write-rate is low in daily work** (9 `docs/knowledge/` writes against 136 sessions) while
   the session-start injection runs everywhere. One week of one repo is too thin to justify
   auto-capture mechanics; keep watching across bundles before designing anything.

@@ -26,13 +26,27 @@ from agentic_forge import diagnostics, guardrails, settings  # noqa: E402
 _FAIL_OPEN_MARKER = "commit-gate:fail-open"
 
 
+_GATE_TIMEOUT = 110  # seconds; the hook itself is capped at 120 in hooks.json
+
+
 def fail_open_notice(gate: list[str], detail: str) -> str:
     """The one line an operator needs when the gate could not run: what did not run, and what to
-    do about it."""
-    return (
+    do about it. A timeout gets its own remedy — installing something is not the answer when the
+    lint ran fine and merely took too long (a field case: `npm run lint` on a large Next.js app,
+    ADR 0082)."""
+    head = (
         f"agentic-forge test-gate: `{' '.join(gate)}` could not run — this commit was NOT gated "
-        f"({detail}). Install the tool (or keep it in the project's .venv/node_modules), or set "
-        f"`test_gate.skip: true` in .agentic-forge/config.json to stop trying."
+    )
+    if "TimeoutExpired" in detail:
+        return (
+            f"{head}(timed out after {_GATE_TIMEOUT}s). The gate is capped by the hook's own "
+            f"{_GATE_TIMEOUT + 10}s budget, so a slow whole-repo lint can never fit: scope it to "
+            "the staged files (lint-staged, `eslint --cache`), or set `test_gate.skip: true` in "
+            ".agentic-forge/config.json and gate in CI instead."
+        )
+    return (
+        f"{head}({detail}). Install the tool (or keep it in the project's .venv/node_modules), or "
+        "set `test_gate.skip: true` in .agentic-forge/config.json to stop trying."
     )
 
 
@@ -65,7 +79,7 @@ def gate_decision(payload: dict[str, Any]) -> guardrails.Decision:
             cwd=cwd,
             capture_output=True,
             text=True,
-            timeout=110,
+            timeout=_GATE_TIMEOUT,
             env=guardrails.gate_env(cwd),
         )
     except Exception as exc:

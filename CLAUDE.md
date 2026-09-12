@@ -31,7 +31,10 @@ This file is the project constitution. Every contributor (human or agent) MUST f
    The on-listing set today is ~2,530 tokens (17 skills) — at/over the ~1% ceiling with no headroom,
    so **adding an on-listing skill (or growing a description) requires a budget review**: tighten
    the longest descriptions or move a router off-listing. A weekly CI cron re-runs Tier-1 so a
-   routing regression surfaces.
+   routing regression surfaces — **but only while `CLAUDE_CODE_OAUTH_TOKEN` is set in the repo
+   secrets**: without it every model-backed step is skipped and the run goes green having measured
+   nothing. It did exactly that for months (ADR 0082), so a scheduled run now fails when the token
+   is missing. A green `eval` run is evidence only if its summary says which tiers it measured.
 
 3. **Eval-driven, contract-first** (ADR 0008)**.** No component is built before its contract and its
    eval set exist. Order is always: (a) contract (purpose, triggers, inputs/outputs),

@@ -29,6 +29,16 @@ jobs:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       EVAL_MODEL: ${{ github.event.inputs.model || 'claude-opus-4-8' }}
     steps:
+      # A weekly guard that cannot measure must not report success. Every model-backed step below
+      # is gated on the subscription token, and for months the scheduled run went green in ~28s
+      # with all of them skipped — while the field bundle carried Tier-1 recall BELOW the bar for
+      # four skills (ADR 0082). On a schedule the missing token is now the failure it always was;
+      # a manual dispatch or a PR label still degrades to the dry-run wiring checks.
+      - name: The weekly run must actually run (token present)
+        if: ${{ github.event_name == 'schedule' && env.CLAUDE_CODE_OAUTH_TOKEN == '' }}
+        run: |
+          echo "::error title=Weekly eval cannot measure::CLAUDE_CODE_OAUTH_TOKEN is not set, so every Tier-1/2/3 step that needs a model would be SKIPPED and this run would report success having checked no threshold. Fix: run 'claude setup-token', then 'gh secret set CLAUDE_CODE_OAUTH_TOKEN'."
+          exit 1
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
@@ -92,3 +102,14 @@ jobs:
           python dev/run_spine_e2e.py --runner claude --model "$EVAL_MODEL"
           --scenario quality-gate --scenario ops-incident
           --scenario product-inception --scenario market-brief
+
+      # Say on the run's own summary page which tiers were measured. A green check that means
+      # "wiring resolves" and one that means "recall is above 0.9" must not look identical.
+      - name: What this run actually measured
+        if: ${{ always() }}
+        run: |
+          if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+            echo "Measured: Tier-1 trigger, Tier-2 quality (agents + skills), Tier-3 E2E — real model runs on \`$EVAL_MODEL\`." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "**Wiring only.** No subscription token, so every model-backed step was SKIPPED: contracts, prompts and fixtures resolve, but NO threshold was checked." >> "$GITHUB_STEP_SUMMARY"
+          fi

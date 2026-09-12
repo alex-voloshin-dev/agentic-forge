@@ -382,3 +382,37 @@ def test_commit_gate_runs_the_projects_own_linter(monkeypatch, tmp_path: Path) -
     )
     assert seen["cmd"] == [str(local / "ruff"), "check", "."]
     assert str(local) in str(seen["path"])  # a package script's own tools resolve too
+
+
+def test_commit_gate_timeout_notice_names_the_real_remedy() -> None:
+    """A slow lint is not a missing tool — "install it" is the wrong advice (ADR 0082)."""
+    timeout = commit_gate.fail_open_notice(
+        ["npm", "run", "lint"],
+        "TimeoutExpired: Command '['npm', 'run', 'lint']' timed out after 110 seconds",
+    )
+    assert "timed out" in timeout and "lint-staged" in timeout
+    assert "Install the tool" not in timeout
+    missing = commit_gate.fail_open_notice(["ruff", "check", "."], "FileNotFoundError: 'ruff'")
+    assert "Install the tool" in missing and "timed out" not in missing
+
+
+def test_commit_gate_resolves_python_to_python3(monkeypatch, tmp_path: Path) -> None:
+    """The plugin's own repo logged 78 fail-opens on `FileNotFoundError: 'python'` — this host has
+    only `python3`, and `choose_gate` writes the validator's interpreter as `python` (ADR 0082)."""
+    (tmp_path / "dev").mkdir()
+    (tmp_path / "dev" / "validate.py").write_text("", encoding="utf-8")
+    monkeypatch.delenv("AGENTIC_FORGE_SKIP_TEST_GATE", raising=False)
+    monkeypatch.setattr(
+        guardrails.shutil, "which", lambda name: "/usr/bin/python3" if name == "python3" else None
+    )
+    seen: dict[str, object] = {}
+
+    def run(cmd, **kwargs):
+        seen["cmd"] = cmd
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(commit_gate.subprocess, "run", run)
+    commit_gate.gate_decision(
+        {"tool_name": "Bash", "tool_input": {"command": "git commit"}, "cwd": str(tmp_path)}
+    )
+    assert seen["cmd"] == ["python3", "dev/validate.py"]
