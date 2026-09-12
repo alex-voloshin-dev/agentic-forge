@@ -7,6 +7,35 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Changed — the weekly eval measures routing, not everything (ADR 0083)
+
+2026.9.2 made a scheduled eval run fail when it cannot measure. It left the other half unasked:
+what would run if the token *were* set. Sized it — Agent Tier-2 is 95 graded sessions, Skill
+Tier-2 is **265** full sessions across 21 skills, plus Tier-1 and five Tier-3 chains. For
+calibration, `deep-review` alone (20 sessions) takes the better part of an hour, and a
+GitHub-hosted job is capped at 6 hours. Setting the secret would have turned a silent skip into a
+weekly red timeout.
+
+`eval.yml` is now three jobs sized to how often their subject changes:
+
+- **`wiring`** — every trigger, no credentials, ~1 minute: contracts, prompts and fixtures resolve.
+- **`trigger`** — Tier-1 routing on the **weekly cron** (plus dispatch and the `eval` label). This
+  is what the schedule is for: the router listing is at its context ceiling, so one description
+  edit can break a neighbour's routing and nothing else catches it. 2026.9.2's fail-when-blind
+  guard lives here.
+- **`quality`** — Tier-2 and Tier-3, **on demand only** (`workflow_dispatch`, or the `eval` label
+  on a PR). These move with a release, not with the calendar.
+
+Every job declares `timeout-minutes`, so a hung run can no longer eat a 6-hour runner, and
+`workflow_dispatch` takes a `tiers` input (`all` / `trigger-only`) so a manual run can stay cheap.
+`CLAUDE.md` and the eval runbook say which tiers are weekly and which are on demand.
+
+### Measured — `deep-review` Tier-2, the last threshold the field bundle left open
+
+0.771 / 0.750 against a 0.800 bar in July; **PASS at mean 0.963, lower bound 0.928 (n=5)** today.
+That closes the 2026-09 bundle: every threshold failure it carried was a July snapshot of a problem
+already fixed, and not one of the five needed a code change. What needed fixing was the reporting.
+
 ## [2026.9.2] - 2026-09-12
 
 ### Fixed — a weekly guard that was green because it measured nothing (ADR 0082)
