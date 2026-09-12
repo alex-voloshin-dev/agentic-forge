@@ -1,10 +1,16 @@
-name: eval (Tier 1-2)
+name: eval (Tier 1-3)
 
-# LLM-judged tiers are cost-gated: run on demand or when a PR is labelled "eval".
-# The real agent Tier-2 runs through the `claude` CLI authenticated with a Claude
-# subscription token (CLAUDE_CODE_OAUTH_TOKEN, from `claude setup-token`), so it bills to the
-# subscription rather than a per-token API key. Do NOT set ANTHROPIC_API_KEY here — it takes
-# precedence over the subscription token. See docs/eval-runbook.md.
+# The model-backed tiers run through the `claude` CLI authenticated with a Claude subscription
+# token (CLAUDE_CODE_OAUTH_TOKEN, from `claude setup-token`), so they bill to the subscription
+# rather than a per-token API key. Do NOT set ANTHROPIC_API_KEY here — it takes precedence over the
+# subscription token. See docs/eval-runbook.md.
+#
+# Three jobs, because "measured" and "affordable" are not the same size (ADR 0083):
+#   wiring   — every event, no credentials. Contracts, prompts and fixtures resolve.
+#   trigger  — Tier-1 routing, WEEKLY. ~17 skills x 5 runs; this is the routing guard CLAUDE.md
+#              promises, and the listing budget makes it the regression that actually bites.
+#   quality  — Tier-2 + Tier-3, ON DEMAND only. ~360 full agent sessions plus five E2E chains:
+#              hours of model time, past a 6h GitHub job on its own, and not weekly work.
 
 on:
   workflow_dispatch:
@@ -13,31 +19,64 @@ on:
         description: "Model id for the eval runs"
         required: false
         default: "claude-opus-4-8"
+      tiers:
+        description: "Which tiers to run"
+        required: false
+        default: "all"
+        type: choice
+        options: ["all", "trigger-only"]
   schedule:
-    # Weekly full run so Tier-1/2 routing + quality regressions surface without a human labelling a
-    # PR (deep review: the upper tiers were otherwise only spot-checked). Skips if the token is unset.
-    - cron: "0 9 * * 1"  # Mondays 09:00 UTC
+    - cron: "0 9 * * 1"  # Mondays 09:00 UTC — Tier-1 only
   pull_request:
     types: [labeled]
 
+env:
+  EVAL_MODEL: ${{ github.event.inputs.model || 'claude-opus-4-8' }}
+
 jobs:
-  quality:
-    name: Tier 1-2 (trigger + quality)
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || github.event.label.name == 'eval'
+  # Needs no credentials, so it runs on forks and on every triggering event: a mis-wired contract,
+  # an unresolvable fixture or a broken role prompt fails here in a minute, for free.
+  wiring:
+    name: Wiring (dry-run, no auth)
+    if: github.event_name != 'pull_request' || github.event.label.name == 'eval'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install (Python deps)
+        run: pip install -e ".[dev]"
+      - name: Agent Tier-2 wiring
+        run: python dev/run_agent_evals.py --runner dry
+      - name: Skill Tier-1 wiring
+        run: python dev/run_tier1_evals.py --runner dry
+      - name: Skill Tier-2 wiring
+        run: python dev/run_skill_evals.py --runner dry
+      - name: Tier-3 wiring — spine + domain scenarios
+        run: python dev/run_spine_e2e.py --runner dry --scenario all
+      - name: Say what this measured
+        if: ${{ always() }}
+        run: echo "**Wiring only** — contracts, prompts and fixtures resolve. NO threshold was checked." >> "$GITHUB_STEP_SUMMARY"
+
+  # Tier-1 on the weekly cron. The router listing is at its context ceiling, so one description
+  # edit can break a neighbour's routing; this is the regression worth catching on a schedule.
+  trigger:
+    name: Tier-1 trigger (routing)
+    if: github.event_name != 'pull_request' || github.event.label.name == 'eval'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
     env:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      EVAL_MODEL: ${{ github.event.inputs.model || 'claude-opus-4-8' }}
     steps:
-      # A weekly guard that cannot measure must not report success. Every model-backed step below
-      # is gated on the subscription token, and for months the scheduled run went green in ~28s
-      # with all of them skipped — while the field bundle carried Tier-1 recall BELOW the bar for
-      # four skills (ADR 0082). On a schedule the missing token is now the failure it always was;
-      # a manual dispatch or a PR label still degrades to the dry-run wiring checks.
+      # A weekly guard that cannot measure must not report success. For months this cron went green
+      # in ~28s with every model-backed step skipped for a missing token, while the field bundle
+      # carried Tier-1 recall BELOW the bar for four skills (ADR 0082).
       - name: The weekly run must actually run (token present)
         if: ${{ github.event_name == 'schedule' && env.CLAUDE_CODE_OAUTH_TOKEN == '' }}
         run: |
-          echo "::error title=Weekly eval cannot measure::CLAUDE_CODE_OAUTH_TOKEN is not set, so every Tier-1/2/3 step that needs a model would be SKIPPED and this run would report success having checked no threshold. Fix: run 'claude setup-token', then 'gh secret set CLAUDE_CODE_OAUTH_TOKEN'."
+          echo "::error title=Weekly eval cannot measure::CLAUDE_CODE_OAUTH_TOKEN is not set, so the Tier-1 routing run would be SKIPPED and this job would report success having checked no threshold. Fix: run 'claude setup-token', then 'gh secret set CLAUDE_CODE_OAUTH_TOKEN'."
           exit 1
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -51,47 +90,57 @@ jobs:
           pip install -e ".[dev]"
           npm install -g @anthropic-ai/claude-code
 
-      # Always verify the agent Tier-2 wiring — contracts, role prompts, and fixtures must
-      # resolve. Needs no credentials, so it runs even on forks without the secret.
-      - name: Agent Tier-2 wiring (dry-run, no auth)
-        run: python dev/run_agent_evals.py --runner dry
+      # Classifies each skill's trigger prompts against the LIVE listing, scored as the mean
+      # per-prompt routing rate, gated recall/specificity >= 0.9 (ADR 0016/0026). Skipped without
+      # the token — on a fork, or a dispatch from someone who has none.
+      - name: Skill Tier-1 trigger (subscription via claude)
+        if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+        run: python dev/run_tier1_evals.py --runner claude --model "$EVAL_MODEL"
+      - name: Say what this measured
+        if: ${{ always() }}
+        run: |
+          if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+            echo "Measured: **Tier-1 routing** on \`$EVAL_MODEL\` — recall/specificity gated at 0.9." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "**Skipped** — no subscription token, so no threshold was checked." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
-      # Real Tier-2 for the engine roles via the Claude subscription: runs each role on its
-      # fixtures, grades with the grader role, aggregates with agentic_forge.benchmark, and
-      # gates with agentic_forge.gate. Skipped when the subscription token is absent.
+  # The expensive half: ~95 role sessions + ~265 skill sessions + five Tier-3 chains. On demand
+  # only — a weekly run of this would not fit a 6h job, and these tiers move with a release, not
+  # with the calendar.
+  quality:
+    name: Tier-2 + Tier-3 (quality + E2E)
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.tiers != 'trigger-only' || github.event.label.name == 'eval'
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install (Python deps + Claude Code CLI)
+        run: |
+          pip install -e ".[dev]"
+          npm install -g @anthropic-ai/claude-code
+
+      # Each role on its fixtures, graded by the grader role, aggregated and gated mean-stddev.
       - name: Agent Tier-2 quality (subscription via claude)
         if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}
         run: python dev/run_agent_evals.py --runner claude --model "$EVAL_MODEL"
 
-      - name: Skill Tier-1 wiring (dry-run, no auth)
-        run: python dev/run_tier1_evals.py --runner dry
-
-      # Real Tier-1 for the on-listing router skills via the Claude subscription: classifies each
-      # skill's trigger prompts against the LIVE listing, scored as the mean per-prompt routing
-      # rate, and gates recall/specificity >= 0.9 with agentic_forge.gate (ADR 0016/0026). Skipped
-      # without the token.
-      - name: Skill Tier-1 trigger (subscription via claude)
-        if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}
-        run: python dev/run_tier1_evals.py --runner claude --model "$EVAL_MODEL"
-
-      - name: Skill Tier-2 wiring (dry-run, no auth)
-        run: python dev/run_skill_evals.py --runner dry
-
-      # Real Tier-2 for the tier2 skills via the Claude subscription: knowledge skills
-      # (*-patterns / engineering-standards) run as the software-engineer with them loaded,
-      # deep-review / skill-factory run directly; each graded, aggregated, gated mean-stddev
-      # >= 0.8 (ADR 0017). The most expensive eval (a full coding session per case x N), so it is
-      # the last cost-gated step; skipped without the token.
+      # Knowledge skills (*-patterns / engineering-standards) run as the software-engineer with
+      # them loaded; deep-review / skill-factory run directly. A full coding session per case x N.
       - name: Skill Tier-2 quality (subscription via claude)
         if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}
         run: python dev/run_skill_evals.py --runner claude --model "$EVAL_MODEL"
 
-      - name: Tier-3 wiring (dry-run, no auth) — spine + domain scenarios
-        run: python dev/run_spine_e2e.py --runner dry --scenario all
-
-      # Real Tier-3 end-to-end via the Claude subscription: carry a feature through a scenario's
-      # phases on an isolated fixture copy, checking deterministic per-phase artifacts/outcomes.
-      # The heaviest evals; skipped without the token.
+      # Carry a feature through a scenario's phases on an isolated fixture copy, checking
+      # deterministic per-phase artifacts and outcomes.
       - name: Spine Tier-3 E2E (subscription via claude)
         if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}
         run: python dev/run_spine_e2e.py --runner claude --model "$EVAL_MODEL" --scenario spine
@@ -103,13 +152,11 @@ jobs:
           --scenario quality-gate --scenario ops-incident
           --scenario product-inception --scenario market-brief
 
-      # Say on the run's own summary page which tiers were measured. A green check that means
-      # "wiring resolves" and one that means "recall is above 0.9" must not look identical.
-      - name: What this run actually measured
+      - name: Say what this measured
         if: ${{ always() }}
         run: |
           if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-            echo "Measured: Tier-1 trigger, Tier-2 quality (agents + skills), Tier-3 E2E — real model runs on \`$EVAL_MODEL\`." >> "$GITHUB_STEP_SUMMARY"
+            echo "Measured: **Tier-2 quality** (agents + skills) and **Tier-3 E2E** on \`$EVAL_MODEL\`." >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "**Wiring only.** No subscription token, so every model-backed step was SKIPPED: contracts, prompts and fixtures resolve, but NO threshold was checked." >> "$GITHUB_STEP_SUMMARY"
+            echo "**Skipped** — no subscription token, so no threshold was checked." >> "$GITHUB_STEP_SUMMARY"
           fi

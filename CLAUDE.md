@@ -30,11 +30,13 @@ This file is the project constitution. Every contributor (human or agent) MUST f
    true` is what drops a skill from the listing (manual `/name` only).
    The on-listing set today is ~2,530 tokens (17 skills) — at/over the ~1% ceiling with no headroom,
    so **adding an on-listing skill (or growing a description) requires a budget review**: tighten
-   the longest descriptions or move a router off-listing. A weekly CI cron re-runs Tier-1 so a
+   the longest descriptions or move a router off-listing. A weekly CI cron re-runs **Tier-1** so a
    routing regression surfaces — **but only while `CLAUDE_CODE_OAUTH_TOKEN` is set in the repo
-   secrets**: without it every model-backed step is skipped and the run goes green having measured
-   nothing. It did exactly that for months (ADR 0082), so a scheduled run now fails when the token
-   is missing. A green `eval` run is evidence only if its summary says which tiers it measured.
+   secrets**: without it the model-backed step is skipped and the run goes green having measured
+   nothing. It did exactly that for months (ADR 0082), so the weekly job now fails when the token
+   is missing, and every job says on its summary which tiers it measured. Tier-2/Tier-3 are **not**
+   weekly — ~360 agent sessions do not fit a 6-hour job; run them on demand (`workflow_dispatch`,
+   or the `eval` label on a PR) before a release or after touching a role (ADR 0083).
 
 3. **Eval-driven, contract-first** (ADR 0008)**.** No component is built before its contract and its
    eval set exist. Order is always: (a) contract (purpose, triggers, inputs/outputs),

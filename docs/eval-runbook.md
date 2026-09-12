@@ -255,17 +255,32 @@ Exit code is 0 only if every selected role's gate passes. Each role prints a lin
 
 ## In CI
 
-`eval.yml` is cost-gated: trigger it via **workflow_dispatch** (optionally choosing a model)
-or by adding the **`eval`** label to a PR. Setup:
+`eval.yml` runs as **three jobs**, because "worth measuring weekly" and "affordable weekly" are
+different sizes (ADR 0083):
+
+| job | when | what | cost |
+|---|---|---|---|
+| `wiring` | every trigger, no credentials | contracts, prompts and fixtures resolve | ~1 min, free |
+| `trigger` | **weekly cron** + dispatch + `eval` label | Tier-1 routing, gated at 0.9 | 17 skills x 5 runs |
+| `quality` | dispatch + `eval` label **only** | Tier-2 (agents + skills) and Tier-3 E2E | ~360 agent sessions + 5 chains |
+
+Tier-1 is the scheduled one because the router listing is at its context ceiling: one description
+edit can break a neighbour's routing, and nothing else catches that. Tier-2/3 move with a release,
+not with the calendar — and a weekly run of them would not fit a 6-hour GitHub job anyway.
+`workflow_dispatch` takes a `tiers` input (`all` / `trigger-only`) so a manual run can stay cheap.
+
+Setup:
 
 1. Run `claude setup-token` locally and copy the token.
 2. Add it as the GitHub Actions secret **`CLAUDE_CODE_OAUTH_TOKEN`** (repo → Settings →
    Secrets and variables → Actions). Do **not** add `ANTHROPIC_API_KEY`.
 
-The job installs the `claude` CLI (`npm i -g @anthropic-ai/claude-code`), always runs the
-dry-run wiring check, and runs the real `--runner claude` Tier-2 when the token secret is
-present. A failing gate fails the job. Note: a personal subscription token is a single point
-of failure; for team CI prefer a team/enterprise account's token.
+Each model-backed job installs the `claude` CLI (`npm i -g @anthropic-ai/claude-code`) and runs the
+real `--runner claude` tiers when the token is present. A failing gate fails the job. **The weekly
+`trigger` job fails outright when the token is missing** — a guard that cannot measure must not
+report success (ADR 0082); every job also writes to its summary which tiers it actually measured,
+so a green tick is never ambiguous. Note: a personal subscription token is a single point of
+failure; for team CI prefer a team/enterprise account's token.
 
 ## Model tiers (ADR 0043)
 
