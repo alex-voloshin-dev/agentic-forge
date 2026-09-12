@@ -77,6 +77,22 @@ names.
 Six of seventeen skills were failing on this, every one of them at recall 1.000 / specificity
 1.000 — the gate reporting a fault in its own measurement, not in the routing.
 
+### Fixed — a skill that is not ours is still a choice (ADR 0086)
+
+The one Tier-1 failure left after ADR 0085: *"Run the app and screenshot it"* — a should-NOT-trigger
+prompt for `deep-review` — is routed by the router to `run`, Claude Code's built-in skill, which is
+exactly right. `run` is not in the listing the harness renders, so five correct non-selections were
+discarded as `unknown-name` and the prompt went unmeasured.
+
+A skill-shaped terminal token that is not one of ours is now `OTHER`: a decision, never a hit. It is
+a **miss** on recall and a correct non-selection on specificity — the asymmetry that keeps the gate
+honest, since a router answering nonsense scores `OTHER` everywhere and fails every recall check.
+
+It also exposed that Tier-1 measures routing in an environment production does not have: the eval
+renders only our listing, while a live session has the built-ins competing beside it — including
+exact name collisions on `code-review` and `security-review`. Recorded in the roadmap as a second,
+cheaper hypothesis for ADR 0081's field finding; not changed here.
+
 ### Measured — `deep-review` Tier-2, the last threshold the field bundle left open
 
 0.771 / 0.750 against a 0.800 bar in July; **PASS at mean 0.963, lower bound 0.928 (n=5)** today.

@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from agentic_forge.tier1_runner import (
+    OTHER,
     Reply,
     SkillTrigger,
     Tier1Report,
@@ -416,7 +417,7 @@ def test_a_decline_is_a_decision_however_phrased() -> None:
         (" ".join(["word"] * 30), "prose-tokens"),
         ("I will start analysing the repo and write it up", "negation-or-acting"),
         ("research or product", "ambiguous"),
-        ("kubernetes", "unknown-name"),
+        ("some words then the name kubernetes", "unknown-name"),  # mid-sentence, not terminal
     ],
 )
 def test_classify_reply_names_the_reason(reply: str, reason: str) -> None:
@@ -554,3 +555,36 @@ def test_non_latin_prose_with_a_terminal_answer_is_a_decision() -> None:
         classify_reply("Тут упоминается research, но это не подходит", sorted(ON_LISTING)).reason
         == "prose-non-latin"
     )
+
+
+# --- a skill that is not ours is still a choice (ADR 0086) -------------------
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "The `run` skill matches best. run",  # verbatim: CI, "Run the app and screenshot it"
+        "The `run` skill matches this request. `run`",
+        "run",
+        "simplify",
+    ],
+)
+def test_a_built_in_skill_name_is_a_choice_not_a_non_answer(reply: str) -> None:
+    out = classify_reply(reply, sorted(ON_LISTING))
+    assert out == Reply(OTHER)  # a decision, so no reason and no excerpt
+
+
+def test_other_is_a_miss_on_recall_and_a_correct_non_selection_on_specificity() -> None:
+    """The asymmetry that keeps the gate honest: OTHER can never be a hit."""
+    names = sorted(ON_LISTING)
+    replies = iter(["run"] * 5)
+    run = lambda system, prompt, workdir: next(replies)  # noqa: E731
+    rate = selection_rate(run, "sys", "p", names, 5, Path("."), target="deep-review")
+    assert rate.invalid == 0 and rate.rate == 0.0  # measured, and NOT the target
+
+
+def test_other_requires_a_skill_shaped_terminal_token() -> None:
+    names = sorted(ON_LISTING)
+    assert trailing_answer("Best fit. 42", names) is None  # not a name shape
+    assert trailing_answer("Best fit. Run!", names) == OTHER  # wrapper punctuation stripped
+    assert trailing_answer("I would not run", names) is None  # inside the sentence
