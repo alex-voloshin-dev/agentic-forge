@@ -7,6 +7,8 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.9.2] - 2026-09-12
+
 ### Fixed — a weekly guard that was green because it measured nothing (ADR 0082)
 
 The second 2026-09 field bundle carries two repositories at once: this plugin developing itself,
