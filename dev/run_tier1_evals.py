@@ -100,9 +100,15 @@ def main(argv: list[str]) -> int:
     for report in reports:
         print(report.summary_line(), flush=True)
         if not report.passed:
-            _eval_cli.record_failure(
-                f"tier1-eval:{report.skill}", "; ".join(report.reasons), kind="anomaly"
-            )
+            # Print what the router actually said, so a failure is diagnosable from the CI log
+            # without paying for the run again (ADR 0084).
+            for line in report.evidence_lines():
+                print(line, flush=True)
+            detail = "; ".join(report.reasons)
+            if report.invalid_reasons:
+                counts = ", ".join(f"{k} x{v}" for k, v in sorted(report.invalid_reasons.items()))
+                detail = f"{detail}; no-decision: {counts}"
+            _eval_cli.record_failure(f"tier1-eval:{report.skill}", detail, kind="anomaly")
     return 0 if tier1_runner.all_passed(reports) else 1
 
 

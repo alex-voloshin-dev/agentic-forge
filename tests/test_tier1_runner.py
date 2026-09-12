@@ -5,10 +5,13 @@ from pathlib import Path
 import pytest
 
 from agentic_forge.tier1_runner import (
+    Reply,
     SkillTrigger,
+    Tier1Report,
     all_passed,
     build_router_system,
     check_wiring,
+    classify_reply,
     eval_skill,
     load_listing,
     load_triggers,
@@ -398,3 +401,72 @@ def test_a_decline_is_a_decision_however_phrased() -> None:
     # drain specificity samples exactly where the router is right.
     for reply in ("No skill fits.", "n/a", "not applicable", "Nothing fits."):
         assert parse_selection(reply, sorted(ON_LISTING)) == "none", reply
+
+
+# --- a rejected reply must say WHY, and show what it said (ADR 0084) ---------
+
+
+@pytest.mark.parametrize(
+    ("reply", "reason"),
+    [
+        ("", "empty"),
+        ("x" * 250, "prose-length"),
+        ("Я подробно разберу репозиторий и подготовлю отчёт по архитектуре", "prose-non-latin"),
+        (" ".join(["word"] * 30), "prose-tokens"),
+        ("I will start analysing the repo and write it up", "negation-or-acting"),
+        ("research or product", "ambiguous"),
+        ("kubernetes", "unknown-name"),
+    ],
+)
+def test_classify_reply_names_the_reason(reply: str, reason: str) -> None:
+    out = classify_reply(reply, sorted(ON_LISTING))
+    assert out.decision == "invalid"
+    assert out.reason == reason
+    if reply:
+        assert out.excerpt and "\n" not in out.excerpt
+
+
+def test_classify_reply_excerpt_is_capped_and_single_line() -> None:
+    out = classify_reply("first line\n" + "very long prose " * 40, sorted(ON_LISTING))
+    assert len(out.excerpt) <= 120 and "\n" not in out.excerpt
+
+
+def test_a_decision_carries_no_reason() -> None:
+    assert classify_reply("research", sorted(ON_LISTING)) == Reply("research")
+    assert classify_reply("none", sorted(ON_LISTING)).reason == ""
+
+
+def test_report_summary_breaks_down_the_no_decision_calls() -> None:
+    """The first CI run that could measure failed seven skills on "no decision" and said nothing
+    about what the router had replied — off-format prose and an empty reply need opposite fixes."""
+    report = Tier1Report(
+        skill="develop",
+        recall=1.0,
+        specificity=1.0,
+        passed=False,
+        reasons=["3 prompt(s) unmeasured — every router call returned no decision"],
+        invalid_calls=14,
+        total_calls=50,
+        invalid_reasons={"prose-tokens": 11, "unknown-name": 3},
+        invalid_excerpts=["I'll start by reading the plan and implementing step 3"],
+    )
+    line = report.summary_line()
+    assert "14/50 no decision: prose-tokens x11, unknown-name x3" in line
+    assert report.evidence_lines() == [
+        "    no-decision sample: I'll start by reading the plan and implementing step 3"
+    ]
+
+
+def test_selection_rate_collects_reasons_and_samples() -> None:
+    replies = iter(["research", "I will analyse the repo and write it up", "", "research", "none"])
+
+    def run(system: str, prompt: str, workdir: Path) -> str:
+        return next(replies)
+
+    rate = selection_rate(
+        run, "sys", "prompt", sorted(ON_LISTING), 5, Path("."), target="research"
+    )
+    assert rate.invalid == 2
+    assert sorted(rate.reasons) == ["empty", "negation-or-acting"]
+    assert len(rate.excerpts) == 1  # the empty reply has nothing to quote
+    assert rate.rate == 2 / 3  # 2 hits of 3 VALID calls — the invalid ones are not misses
