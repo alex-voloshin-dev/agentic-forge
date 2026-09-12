@@ -19,6 +19,7 @@ from agentic_forge.tier1_runner import (
     render_listing,
     run_tier1,
     selection_rate,
+    trailing_answer,
 )
 
 PLUGIN = Path(__file__).resolve().parents[1] / "plugin"
@@ -470,3 +471,86 @@ def test_selection_rate_collects_reasons_and_samples() -> None:
     assert sorted(rate.reasons) == ["empty", "negation-or-acting"]
     assert len(rate.excerpts) == 1  # the empty reply has nothing to quote
     assert rate.rate == 2 / 3  # 2 hits of 3 VALID calls — the invalid ones are not misses
+
+
+# --- the answer may come last (ADR 0085) -------------------------------------
+
+# Verbatim from the CI run that failed six skills at recall 1.000 — the router answered
+# correctly and prefixed one sentence of reasoning, and every one of these was thrown away.
+CI_SAMPLES = [
+    ("The user wants a thorough adversarial review of docs. deep-review", "deep-review"),
+    (
+        "The user wants a thorough adversarial review of docs — that maps to deep-review. "
+        "deep-review",
+        "deep-review",
+    ),
+    (
+        "The user wants to implement the next step of a plan, which matches the develop skill. "
+        "develop",
+        "develop",
+    ),
+    ("The user wants me to route this request, not perform it. develop", "develop"),
+    (
+        "This is a Kubernetes/YAML fixing task — it doesn't match any of the available skills' "
+        "domains. none",
+        "none",
+    ),
+    (
+        'The user\'s request "Analyze this codebase and seed the knowledge base" matches: '
+        "repo-onboarding",
+        "repo-onboarding",
+    ),
+]
+
+
+@pytest.mark.parametrize(("reply", "expected"), CI_SAMPLES)
+def test_reasoning_then_answer_is_a_decision(reply: str, expected: str) -> None:
+    assert classify_reply(reply, sorted(ON_LISTING)).decision == expected
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        # The ADR 0064 failure this must NOT reopen: the name is INSIDE the sentence that
+        # rejects it, so there is no stated decision to read.
+        "This is a deployment question and it isn't deep-review",
+        "The request mentions research but none of the skills fit research",
+        "I'll read the plan and then write the code with develop",
+        # …and a name mid-sentence with the reasoning continuing after it.
+        "It looks like develop, though the plan is not written yet",
+    ],
+)
+def test_a_name_inside_a_sentence_is_still_no_decision(reply: str) -> None:
+    assert classify_reply(reply, sorted(ON_LISTING)).decision == "invalid"
+
+
+def test_trailing_answer_requires_a_sentence_boundary() -> None:
+    names = sorted(ON_LISTING)
+    assert trailing_answer("Reasoning here. develop", names) == "develop"
+    assert trailing_answer("Reasoning here: develop", names) == "develop"
+    assert trailing_answer("develop", names) == "develop"  # the bare answer
+    assert trailing_answer("I would not use develop", names) is None
+    assert trailing_answer("Nothing here at all", names) is None
+    # a hyphenated name must survive tokenisation — `-` is not a sentence boundary
+    assert trailing_answer("That is the one. qa-test-strategy", names) == "qa-test-strategy"
+
+
+def test_trailing_answer_accepts_a_wrapped_or_punctuated_final_token() -> None:
+    names = sorted(ON_LISTING)
+    assert trailing_answer("The match is clear. `research`.", names) == "research"
+    assert trailing_answer("Best fit: **product**", names) == "product"
+
+
+def test_non_latin_prose_with_a_terminal_answer_is_a_decision() -> None:
+    """ADR 0067's script guard defends against MINING a Cyrillic reply; a terminal, standalone
+    answer after it is still an answer."""
+    assert (
+        classify_reply("Это запрос на исследование вариантов. research", sorted(ON_LISTING))
+        .decision
+        == "research"
+    )
+    # …but a Cyrillic reply that only mentions the name mid-sentence stays invalid.
+    assert (
+        classify_reply("Тут упоминается research, но это не подходит", sorted(ON_LISTING)).reason
+        == "prose-non-latin"
+    )

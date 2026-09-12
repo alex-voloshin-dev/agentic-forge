@@ -40,6 +40,7 @@ __all__ = [
     "build_router_system",
     "parse_selection",
     "classify_reply",
+    "trailing_answer",
     "Reply",
     "INVALID_REASONS",
     "selection_rate",
@@ -271,11 +272,46 @@ def _excerpt(text: str, limit: int = 120) -> str:
     return flat if len(flat) <= limit else flat[: limit - 1] + "…"
 
 
+# Punctuation that ends a sentence, so what follows stands on its own. Deliberately NOT the ASCII
+# hyphen: it lives inside half the skill names (`deep-review`, `qa-test-strategy`).
+_ANSWER_BOUNDARY = (".", ":", "!", "?", "—", "–", "\n", ">")
+
+
+def trailing_answer(text: str, names: list[str]) -> str | None:
+    """The skill name (or ``none``) a reply ENDS with, when it stands as its own final sentence.
+
+    The router's commonest honest shape is one sentence of reasoning and then the answer:
+    ``The user wants to implement the next step of a plan. develop``. The prose guards
+    (ADR 0064/0067) were built against a different reply — a page of prose that was *mined* for the
+    first skill-like word — and they reject this one too, for its length or for a word like
+    "doesn't" in the reasoning. 65 of ~800 router calls in one CI run were thrown away that way,
+    and every sampled one of them ended in a correct answer (ADR 0085).
+
+    This is not mining. The name must be the LAST token AND be preceded by a sentence boundary, so
+    "…that isn't deep-review" — the name inside the sentence that rejects it — still yields nothing.
+    """
+    tokens = text.split()
+    if not tokens:
+        return None
+    key = tokens[-1].strip("`*\"'.,;:()[]{}").lower().replace("_", "-")
+    known = {n.lower(): n for n in names}
+    if key not in known and key != "none":
+        return None
+    head = text[: text.rfind(tokens[-1])].rstrip()
+    if head and not head.endswith(_ANSWER_BOUNDARY):
+        return None
+    return known.get(key, "none")
+
+
 def classify_reply(reply: str, names: list[str]) -> Reply:
     """:func:`parse_selection` plus the reason a rejected reply was rejected (ADR 0084)."""
     text = reply.strip()
     if not text:
         return Reply(INVALID, "empty", "")
+    # Answer-last wins over every prose guard below (ADR 0085): a terminal, standalone name is a
+    # stated decision however much reasoning precedes it.
+    if (final := trailing_answer(text, names)) is not None:
+        return Reply(final)
     if len(text) > MAX_ANSWER_CHARS:
         return Reply(INVALID, "prose-length", _excerpt(text))  # prose by sheer length
     if sum(1 for ch in text if ch.isalpha() and not ch.isascii()) > MAX_NON_LATIN_LETTERS:

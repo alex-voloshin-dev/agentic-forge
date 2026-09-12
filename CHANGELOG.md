@@ -51,6 +51,32 @@ responses — off-format prose is the rejection working, an empty reply is a tra
   parser. The one remaining candidate is a call that succeeds and returns nothing, whose frequency
   this change makes visible and nobody can yet state. Measure, then decide.
 
+### Fixed — the router's answer may come last (ADR 0085)
+
+ADR 0084's instrumentation answered its own question on the next run. Of ~800 router calls across
+17 skills, 65 produced no decision — and **zero** of them were empty, so the transport is healthy
+and the retry that was deliberately not added stays not added. The excerpts show what the 65
+actually were:
+
+```
+The user wants to implement the next step of a plan, which matches the develop skill. develop
+This is a Kubernetes/YAML fixing task — it doesn't match any of the available skills' domains. none
+```
+
+The router answered **correctly** and prefixed one sentence of reasoning; the parser discarded the
+whole reply for its length or for a word like `doesn't` in the reasoning. Two of those are worse
+than a lost sample — a correct *decline* on a should-not-trigger prompt, thrown away for containing
+"doesn't", drains specificity evidence exactly where the router is right.
+
+A terminal token that names a known skill (or `none`) **and stands as its own final sentence** is
+now the decision, checked before the prose guards. A name *inside* the sentence that rejects it
+("…and it isn't deep-review") still yields nothing — position and a sentence boundary do the work
+the word lists were doing badly. The ASCII hyphen is not a boundary: it lives inside half the skill
+names.
+
+Six of seventeen skills were failing on this, every one of them at recall 1.000 / specificity
+1.000 — the gate reporting a fault in its own measurement, not in the routing.
+
 ### Measured — `deep-review` Tier-2, the last threshold the field bundle left open
 
 0.771 / 0.750 against a 0.800 bar in July; **PASS at mean 0.963, lower bound 0.928 (n=5)** today.
