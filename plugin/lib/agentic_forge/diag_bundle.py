@@ -114,39 +114,73 @@ def audit_quality(audit_lines: list[str]) -> AuditQuality:
 @dataclass(frozen=True)
 class SessionCoverage:
     """How much of the repo's actual tool activity the audit trail captured (ADR 0058). ``main``
-    is the count of non-sidechain transcript sessions that made at least one tool call; ``recorded``
-    is how many of those appear in the audit trail; ``missed`` is the gap. A silent audit-coverage
-    hole (a hook not writing) shows up here as ``missed > 0``."""
+    is the count of non-sidechain transcript sessions that made at least one tool call **inside the
+    retained audit window**; ``recorded`` is how many of those appear in the audit trail; ``missed``
+    is the gap. ``outside`` counts sessions older than that window, which are expected to be absent.
+
+    The window matters because the two collections age at completely different rates (ADR 0082).
+    The audit log is a bounded rolling window; transcripts are not. A field bundle compared 18
+    transcripts against a log that physically retained 13 days and reported "3 MISSED (a hook may
+    not have logged them)" — a hook failure that never happened. The same check called another
+    repo "2/2 complete" while ten sessions sat in its audit log and only three transcripts
+    survived on disk. Both readings came from comparing sets with different retention."""
 
     main: int
     recorded: int
     missed: int
+    outside: int = 0
 
 
 def session_coverage(
-    audit_session_ids: set[str], transcripts: list[tuple[str, bool, bool]]
+    audit_session_ids: set[str],
+    transcripts: list[tuple[str, bool, bool, str | None]],
+    *,
+    retained_since: str | None = None,
 ) -> SessionCoverage:
     """Compare the audit trail's session ids against the repo's transcripts (pure). Each transcript
-    is ``(session_id, is_sidechain, has_tool_use)``; only **main** (non-sidechain) sessions that
-    actually called a tool are the denominator — sidechain/subagent and tool-free sessions are not
-    expected in the main audit log. Returns the main/recorded/missed counts."""
-    main_ids = {sid for sid, sidechain, has_tools in transcripts if has_tools and not sidechain}
-    recorded = len(main_ids & audit_session_ids)
-    return SessionCoverage(main=len(main_ids), recorded=recorded, missed=len(main_ids) - recorded)
+    is ``(session_id, is_sidechain, has_tool_use, last_activity)``; only **main** (non-sidechain)
+    sessions that actually called a tool are candidates — sidechain/subagent and tool-free sessions
+    are not expected in the main audit log.
+
+    ``retained_since`` is the timestamp of the OLDEST record the audit log still holds. A session
+    whose last activity predates it cannot be in the log however well the hook worked, so it is
+    counted in ``outside`` rather than blamed on a hook. A session with no readable timestamp is
+    given the benefit of the doubt and counted, since claiming a hole that is not there is the
+    failure mode this check exists to avoid."""
+    main: set[str] = set()
+    outside = 0
+    for sid, sidechain, has_tools, last_activity in transcripts:
+        if sidechain or not has_tools:
+            continue
+        if retained_since and last_activity and last_activity < retained_since:
+            outside += 1
+            continue
+        main.add(sid)
+    recorded = len(main & audit_session_ids)
+    return SessionCoverage(
+        main=len(main), recorded=recorded, missed=len(main) - recorded, outside=outside
+    )
 
 
 def coverage_line(coverage: SessionCoverage | None) -> str:
     """A one-line coverage disclosure for the README / summary, or "" when unknown (no transcripts
-    readable — never guess). Flags a shortfall so a silent audit hole is visible from the bundle."""
+    readable — never guess). Flags a shortfall so a silent audit hole is visible from the bundle,
+    and names the rotated-out sessions separately so they are not read as one."""
     if coverage is None or coverage.main == 0:
         return ""
     base = (
         f"Coverage: {coverage.recorded}/{coverage.main} main session(s) with tool activity are in "
         "the audit trail"
     )
+    tail = ""
+    if coverage.outside:
+        tail = (
+            f" {coverage.outside} older session(s) predate the log's retained window "
+            "(rotated out) and are not counted."
+        )
     if coverage.missed:
-        return f"{base} — {coverage.missed} MISSED (a hook may not have logged them)."
-    return f"{base} (complete)."
+        return f"{base} — {coverage.missed} MISSED (a hook may not have logged them).{tail}"
+    return f"{base} (complete).{tail}"
 
 
 def filter_by_window(lines: list[str], *, days: int | None, now: str) -> list[str]:
@@ -433,13 +467,16 @@ def _project_dir(home: Path, repo: Path) -> Path:
 
 def _read_transcript_sessions(  # pragma: no cover
     home: Path, repo: Path
-) -> list[tuple[str, bool, bool]]:
+) -> list[tuple[str, bool, bool, str | None]]:
     """Best-effort: read only session METADATA from the repo's transcripts for the coverage check
     (ADR 0058) — never the content, which is unredacted and must not ship. Returns
-    ``(session_id, is_sidechain, has_tool_use)`` per transcript; ``[]`` if the project dir is
-    unreadable. Thin I/O seam (excluded from coverage, like the other live seams)."""
+    ``(session_id, is_sidechain, has_tool_use, last_activity)`` per transcript; ``[]`` if the
+    project dir is unreadable. ``last_activity`` is the file's mtime as a UTC ISO timestamp — the
+    cheapest honest answer to "when did this session last do anything", and what tells a session
+    the audit log rotated away from one the hook failed to log (ADR 0082). Thin I/O seam (excluded
+    from coverage, like the other live seams)."""
     proj = _project_dir(home, repo)
-    out: list[tuple[str, bool, bool]] = []
+    out: list[tuple[str, bool, bool, str | None]] = []
     try:
         files = sorted(proj.glob("*.jsonl"))
     except OSError:
@@ -461,7 +498,11 @@ def _read_transcript_sessions(  # pragma: no cover
                         break
         except OSError:
             continue
-        out.append((sid, sidechain, has_tools))
+        try:
+            last = datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc).isoformat()
+        except OSError:
+            last = None
+        out.append((sid, sidechain, has_tools, last))
     return out
 
 
@@ -497,8 +538,17 @@ def build_bundle(
         for r in observability.parse_lines(audit_lines)
         if r.get("session_id")
     }
+    # The floor for the coverage check: the oldest record the audit log still holds. Anything older
+    # is gone to rotation, not to a broken hook (ADR 0082).
+    retained = sorted(
+        str(r["ts"]) for r in observability.parse_lines(audit_lines) if r.get("ts")
+    )
     transcripts = _read_transcript_sessions(home, repo)
-    coverage = session_coverage(audit_ids, transcripts) if transcripts else None
+    coverage = (
+        session_coverage(audit_ids, transcripts, retained_since=retained[0] if retained else None)
+        if transcripts
+        else None
+    )
     # The manifest ships INSIDE the plugin this lib runs from — the one authoritative location.
     # (`~/.claude/plugins/plugin.json` never existed; real bundles shipped without a version.)
     plugin_json = _read(_PLUGIN_ROOT / ".claude-plugin" / "plugin.json")

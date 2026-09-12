@@ -188,15 +188,40 @@ def test_log_summary_discloses_legacy_share() -> None:
 
 
 def test_session_coverage_counts_main_recorded_missed() -> None:
-    # transcripts: (session_id, is_sidechain, has_tool_use)
+    # transcripts: (session_id, is_sidechain, has_tool_use, last_activity)
     transcripts = [
-        ("s1", False, True),  # main + tools, in audit
-        ("s2", False, True),  # main + tools, NOT in audit -> missed
-        ("s3", True, True),  # sidechain -> not counted
-        ("s4", False, False),  # no tool use -> not counted
+        ("s1", False, True, "2026-09-10T00:00:00+00:00"),  # main + tools, in audit
+        ("s2", False, True, "2026-09-10T00:00:00+00:00"),  # main + tools, NOT in audit -> missed
+        ("s3", True, True, "2026-09-10T00:00:00+00:00"),  # sidechain -> not counted
+        ("s4", False, False, "2026-09-10T00:00:00+00:00"),  # no tool use -> not counted
     ]
     cov = diag_bundle.session_coverage({"s1"}, transcripts)
-    assert (cov.main, cov.recorded, cov.missed) == (2, 1, 1)
+    assert (cov.main, cov.recorded, cov.missed, cov.outside) == (2, 1, 1, 0)
+
+
+def test_session_coverage_does_not_blame_the_hook_for_rotation() -> None:
+    """The field case: 18 transcripts against a log physically retaining 13 days, reported as
+    "3 MISSED (a hook may not have logged them)" — a hook failure that never happened (ADR 0082)."""
+    transcripts = [
+        ("old1", False, True, "2026-08-01T00:00:00+00:00"),  # before the log's oldest record
+        ("old2", False, True, "2026-08-05T00:00:00+00:00"),
+        ("new1", False, True, "2026-09-01T00:00:00+00:00"),  # inside the window, logged
+        ("new2", False, True, "2026-09-02T00:00:00+00:00"),  # inside the window, NOT logged
+    ]
+    cov = diag_bundle.session_coverage(
+        {"new1"}, transcripts, retained_since="2026-08-22T00:00:00+00:00"
+    )
+    assert (cov.main, cov.recorded, cov.missed, cov.outside) == (2, 1, 1, 2)
+    line = diag_bundle.coverage_line(cov)
+    assert "1 MISSED" in line and "2 older session(s) predate" in line
+
+
+def test_session_coverage_keeps_an_undatable_transcript_in_the_denominator() -> None:
+    """No timestamp -> counted. Claiming a hole that is not there is the failure this check has."""
+    cov = diag_bundle.session_coverage(
+        set(), [("s1", False, True, None)], retained_since="2026-09-01T00:00:00+00:00"
+    )
+    assert (cov.main, cov.missed, cov.outside) == (1, 1, 0)
 
 
 def test_read_transcript_sessions_tolerates_bad_utf8(tmp_path: Path) -> None:
@@ -207,7 +232,9 @@ def test_read_transcript_sessions_tolerates_bad_utf8(tmp_path: Path) -> None:
     proj.mkdir(parents=True)
     (proj / "s1.jsonl").write_bytes(b'{"type":"tool_use"}\n\xff\xfe bad bytes\n')
     sessions = diag_bundle._read_transcript_sessions(tmp_path, repo)  # noqa: SLF001
-    assert sessions == [("s1", False, True)]  # parsed, did not raise
+    assert len(sessions) == 1
+    assert sessions[0][:3] == ("s1", False, True)  # parsed, did not raise
+    assert sessions[0][3] and sessions[0][3].startswith("20")  # mtime, for the retention window
 
 
 def test_coverage_line_flags_shortfall_and_completeness() -> None:

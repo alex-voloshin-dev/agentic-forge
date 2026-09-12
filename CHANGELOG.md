@@ -7,6 +7,63 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Fixed — a weekly guard that was green because it measured nothing (ADR 0082)
+
+The second 2026-09 field bundle carries two repositories at once: this plugin developing itself,
+and an unrelated production Next.js project. Both halves say the same thing — something reported
+success, nothing was checked.
+
+`CLAUDE.md` promised "a weekly CI cron re-runs Tier-1 so a routing regression surfaces". The last
+six scheduled runs finished **success in 23-32 seconds** with every model-backed step skipped:
+they are gated on `CLAUDE_CODE_OAUTH_TOKEN`, which is not set on the repository. A wiring check
+and a threshold check produced the same green tick.
+
+What it would have caught is in this repo's own diagnostics log, from July: `ux-design` recall
+0.750, `product` 0.720–0.840 (six records), `research` 0.800/0.840, `marketing` 0.822 — against a
+0.900 bar — and `deep-review` Tier-2 at 0.771/0.750 against 0.800. Those are the same doc-phase
+skills ADR 0081 recorded as never triggering in the field.
+
+- A **scheduled** run now fails when the token is absent, naming the two commands that fix it;
+  `workflow_dispatch` and the PR label still degrade to wiring-only on purpose.
+- Every run writes to its job summary which tiers it actually measured.
+- `CLAUDE.md` states the condition instead of the unconditional claim.
+
+Then the measurement was taken rather than assumed: Tier-1 re-run live against the listing (five
+runs each, 2026-09-12) puts `marketing`, `product`, `research` and `ux-design` at **recall 1.000 /
+specificity 1.000**. **No description was changed** — the July failures were real and were fixed in
+passing by the 2026.7.x description work, and nobody could tell, because a passing run writes no
+record and the guard that would have re-measured was skipping the step. It also sharpens ADR 0081's
+open question: recall is perfect for exactly the skills that never fired in 27 days of field work,
+so the router was not being asked — which is a matter for a Tier-1 condition carrying a competing
+project instruction, not for a better description.
+
+### Fixed — the Tier-0 gate was off on the machine that develops the plugin (ADR 0082)
+
+78 of this repo's 96 diagnostic records are one fail-open: `FileNotFoundError: 'python'`, gate
+`python dev/validate.py`. This host has no `python` at all — only `python3`. `resolve_gate` now
+consults a small alternative-name table (`python` → `python3`) after the project-local bins and
+`PATH`. ADR 0081's resolution had masked this here by finding `.venv/bin/python`; a repo without a
+virtualenv was still ungated.
+
+### Fixed — the audit-coverage check invented a hole, and hid a real one (ADR 0082)
+
+The production repo's bundle reported "9/12 — **3 MISSED** (a hook may not have logged them)". No
+hook failed: that log physically retains 13 days after three rotations discarded 17 MB, while the
+transcripts it is compared against go back months. The same check called this repo "2/2 complete"
+with ten sessions in its audit log and three transcripts on disk.
+
+`session_coverage` now takes the oldest retained record and each transcript's last activity:
+sessions older than the window are reported as "rotated out", not as missed. A transcript with no
+readable timestamp stays in the denominator — claiming a hole that is not there is the failure this
+check exists to avoid.
+
+### Changed — a gate that timed out is not a gate that is missing (ADR 0082)
+
+`npm run lint` on a large Next.js app hit the gate's 110s budget and failed open. The notice
+introduced in 2026.9.1 told the operator to install the tool, which was installed and working. A
+`TimeoutExpired` fail-open now says it timed out, names the hook's own 120s cap as the reason the
+budget cannot simply be raised, and points at scoping the lint to staged files or gating in CI.
+
 ## [2026.9.1] - 2026-09-11
 
 ### Fixed — a guardrail that read text as text, and two words were enough (ADR 0081)
