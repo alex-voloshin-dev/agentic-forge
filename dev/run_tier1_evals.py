@@ -133,6 +133,9 @@ def main(argv: list[str]) -> int:
             if report.invalid_reasons:
                 counts = ", ".join(f"{k} x{v}" for k, v in sorted(report.invalid_reasons.items()))
                 detail = f"{detail}; no-decision: {counts}"
+            if report.lost_to:
+                won = ", ".join(f"{k} x{v}" for k, v in sorted(report.lost_to.items()))
+                detail = f"{detail}; lost-to: {won}"
             _eval_cli.record_failure(f"{component}:{report.skill}", detail, kind="anomaly")
     return 0 if tier1_runner.all_passed(reports) else 1
 
