@@ -7,6 +7,8 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.9.1] - 2026-09-11
+
 ### Fixed — a guardrail that read text as text, and two words were enough (ADR 0081)
 
 The 2026-09 field bundle: 60 days, 92 diagnostic records, one workstation on `2026.7.11`. Every
