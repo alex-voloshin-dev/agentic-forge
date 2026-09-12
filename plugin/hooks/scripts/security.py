@@ -36,10 +36,16 @@ def main() -> int:
         return 0
     if decision.block:
         print(f"agentic-forge security hook {decision.message}", file=sys.stderr)
+        # `rule` + `evidence` keep the record self-contained: the command is capped at 500 chars,
+        # and in the field the matched text was usually in the part that got cut (ADR 0081).
         diagnostics.emit(
             str(payload.get("cwd") or "."), kind="block", component="security-hook",
             message=decision.message, severity="major",
-            context={"command": str((payload.get("tool_input") or {}).get("command", ""))},
+            context={
+                "command": str((payload.get("tool_input") or {}).get("command", "")),
+                "rule": decision.rule,
+                "evidence": decision.evidence,
+            },
             session_id=payload.get("session_id"),
         )
         return 2

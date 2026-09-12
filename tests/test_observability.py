@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import json
 
 from agentic_forge.observability import Digest, digest, parse_lines, render
@@ -96,10 +97,14 @@ def test_render_summary() -> None:
 
 
 def _seed_audit(repo, lines):
-    log = repo / ".agentic-forge"
-    log.mkdir(parents=True, exist_ok=True)
-    (log / "audit.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return log / "audit.jsonl"
+    """Seed the audit log where the WRITER puts it (the state root, ADR 0072/0081) — rotation
+    trims the file that is being appended to, not a legacy copy that no longer grows."""
+    from agentic_forge import diagnostics
+
+    path = diagnostics.state_file(repo, "audit.jsonl")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
 
 
 def test_rotate_audit_noop_under_threshold(tmp_path) -> None:
@@ -162,3 +167,64 @@ def test_load_audit_reads_from_main_root_for_worktree(tmp_path) -> None:
     log.parent.mkdir(parents=True)
     log.write_text('{"tool": "Bash"}\n', encoding="utf-8")
     assert load_audit(wt) == ['{"tool": "Bash"}']  # reader agrees with the writer's home
+
+
+# --- rotation archives rather than discards (ADR 0081) -----------------------
+
+
+def _dated(n: int, day: int) -> list[str]:
+    import json as _json
+
+    return [
+        _json.dumps({"tool": "Bash", "input": "{}", "ts": f"2026-09-{day:02d}T0{i % 10}:00:00"})
+        for i in range(n)
+    ]
+
+
+def test_rotate_audit_archives_the_discarded_records(tmp_path) -> None:
+    from agentic_forge.observability import rotate_audit
+
+    path = _seed_audit(tmp_path, _dated(400, 1) + _dated(400, 20))
+    assert rotate_audit(tmp_path, max_bytes=1_000, keep_bytes=800) is True
+    archives = sorted((path.parent / "archive").glob("audit-*.jsonl.gz"))
+    assert len(archives) == 1
+    with gzip.open(archives[0], "rt", encoding="utf-8") as handle:
+        recovered = handle.read().splitlines()
+    assert recovered  # the oldest records survive the rotation, compressed
+    assert len(recovered) + len(path.read_text(encoding="utf-8").splitlines()) == 800
+
+
+def test_rotate_audit_prunes_old_archives(tmp_path) -> None:
+    from agentic_forge.observability import rotate_audit
+
+    path = _seed_audit(tmp_path, _dated(400, 1))
+    for _ in range(3):
+        rotate_audit(tmp_path, max_bytes=1_000, keep_bytes=800, archives=2)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write("\n".join(_dated(400, 2)) + "\n")
+    assert len(list((path.parent / "archive").glob("*.jsonl.gz"))) <= 2
+
+
+def test_rotate_audit_can_still_discard(tmp_path) -> None:
+    from agentic_forge.observability import rotate_audit
+
+    path = _seed_audit(tmp_path, _dated(400, 1))
+    assert rotate_audit(tmp_path, max_bytes=1_000, keep_bytes=800, archives=0) is True
+    assert not (path.parent / "archive").exists()
+
+
+def test_rotation_notice_speaks_in_days(tmp_path, monkeypatch) -> None:
+    """Bytes tell an operator nothing about what they just lost."""
+    import json as _json
+
+    from agentic_forge import diagnostics
+    from agentic_forge.observability import record_days, rotate_audit
+
+    monkeypatch.setenv("AGENTIC_FORGE_DIAGNOSTICS", "1")
+    _seed_audit(tmp_path, _dated(400, 1) + _dated(400, 20))
+    assert rotate_audit(tmp_path, max_bytes=1_000, keep_bytes=800) is True
+    log = diagnostics.state_root(tmp_path) / diagnostics.DIAGNOSTICS_FILE
+    event = _json.loads(log.read_text(encoding="utf-8").strip().splitlines()[-1])
+    assert "days of records" in event["message"] and "archived to" in event["message"]
+    assert record_days(b'{"ts": "2026-09-01T00:00:00"}\n{"ts": "2026-09-11T00:00:00"}\n') == 10.0
+    assert record_days(b"not json\n") is None

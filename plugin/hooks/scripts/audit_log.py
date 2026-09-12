@@ -28,9 +28,7 @@ def write_audit(payload: dict[str, Any], cwd: str) -> Path | None:
     if not settings.resolve(cwd).logs_enabled:
         return None
     record = guardrails.audit_record(payload, ts=datetime.now(timezone.utc).isoformat())
-    log_path = diagnostics.existing_state_file(
-        cwd, observability.AUDIT_FILE, observability.AUDIT_PATH
-    )
+    log_path = diagnostics.state_file(cwd, observability.AUDIT_FILE)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record) + "\n")

@@ -14,6 +14,7 @@ predictable, and unit-testable without a model.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 from dataclasses import dataclass
@@ -30,6 +31,9 @@ __all__ = [
     "merge_preflight",
     "strip_heredoc_bodies",
     "choose_gate",
+    "gate_bin_dirs",
+    "resolve_gate",
+    "gate_env",
     "gate_unrunnable",
     "GATE_UNRUNNABLE_EXIT_CODES",
     "tool_errored",
@@ -66,10 +70,17 @@ GATE_UNRUNNABLE_EXIT_CODES = frozenset({126, 127})
 @dataclass(frozen=True)
 class Decision:
     """A guardrail outcome. ``block`` -> the hook exits 2; a non-empty ``message`` with
-    ``block=False`` -> a non-blocking warning (the hook prints it and exits 0)."""
+    ``block=False`` -> a non-blocking warning (the hook prints it and exits 0).
+
+    ``rule`` and ``evidence`` make a logged block **self-contained** (ADR 0081): the record used to
+    carry only the command, truncated at 500 characters, and for 11 of 14 field records the matched
+    text was in the part that was cut — nothing left to diagnose. The rule id says which check
+    fired and the excerpt says on what, at a cost of a few dozen bytes."""
 
     block: bool
     message: str = ""
+    rule: str = ""
+    evidence: str = ""
 
 
 ALLOW = Decision(False)
@@ -86,6 +97,25 @@ _DANGER_TARGET = re.compile(
     r"|/(?:usr|etc|bin|sbin|lib|lib64|boot|var|opt|root|home)(?:/\S*)?"  # system dirs
     r")(?:\s|$)"
 )
+# macOS puts the PER-USER temp directory under /var: `mktemp -d` returns
+# /var/folders/<hash>/<hash>/T/tmp.XXXX (and the same path under /private, which /var links to).
+# Deleting one's own temp directory is the normal cleanup path, not an attack on a system
+# directory, and blocking it was a field false positive that fired twice in one session (ADR
+# 0081). Exempt a path INSIDE a session temp dir; the shared roots above it stay protected.
+_TEMP_EXEMPT = re.compile(r"(?:/private)?/var/folders/[^/\s]+/[^/\s]+(?:/\S*)?")
+
+
+def _is_danger_target(token: str) -> bool:
+    """True when ``token`` names /, home, or a system dir — the per-user temp tree aside."""
+    return bool(_TOK_DANGER_TARGET.fullmatch(token)) and not _TEMP_EXEMPT.fullmatch(token)
+
+
+def _has_danger_target(text: str) -> bool:
+    """True when ``text`` holds a dangerous target that is not a per-user temp path (legacy text
+    path — reached only for a segment ``shlex`` cannot tokenize)."""
+    return any(not _TEMP_EXEMPT.fullmatch(m.group().strip()) for m in _DANGER_TARGET.finditer(text))
+
+
 _RM = re.compile(r"\brm\b")
 _RM_RECURSIVE = re.compile(r"(?<![\w-])-\w*[rR]\w*\b|--recursive\b")
 _RM_FORCE = re.compile(r"(?<![\w-])-\w*f\w*\b|--force\b")
@@ -100,9 +130,13 @@ _PERMISSIVE_MODE = re.compile(r"(?<!\d)[0-7]?777\b|(?<![\w+=])[ugoa]*\+[rwxX]*[w
 # Raw-text blockers: shapes whose syntax is distinctive enough that quoting them as data is rare
 # (the fork bomb glyphs; a shell redirect into a raw disk device). Everything else is checked on
 # TOKENS in command position (ADR 0054) so quoted mentions never fire.
-_BLOCKERS: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r":\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:"), "fork bomb"),
-    (re.compile(r">\|?\s*/dev/(sd[a-z]|nvme\d|disk\d|mapper/)"), "write to a raw disk device"),
+_BLOCKERS: list[tuple[re.Pattern[str], str, str]] = [
+    (re.compile(r":\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:"), "fork bomb", "fork-bomb"),
+    (
+        re.compile(r">\|?\s*/dev/(sd[a-z]|nvme\d|disk\d|mapper/)"),
+        "write to a raw disk device",
+        "device-write",
+    ),
 ]
 # mkfs/dd device writes for the LEGACY (unparseable-segment) path only; the primary check is
 # token-level in _token_decision (command word mkfs*/dd + a /dev/ argument).
@@ -134,7 +168,7 @@ def _seg_dangerous_rm(segment: str) -> bool:
     return bool(
         _RM_RECURSIVE.search(segment)
         and _RM_FORCE.search(segment)
-        and _DANGER_TARGET.search(unquoted)
+        and _has_danger_target(unquoted)
     )
 
 
@@ -145,7 +179,7 @@ def _seg_dangerous_chmod(segment: str) -> bool:
     return bool(
         _CHMOD_RECURSIVE.search(segment)
         and _PERMISSIVE_MODE.search(segment)
-        and _DANGER_TARGET.search(unquoted)
+        and _has_danger_target(unquoted)
     )
 
 
@@ -177,16 +211,17 @@ def _legacy_segment_decision(segment: str) -> Decision:
     """The pre-ADR-0054 text-match checks, kept ONLY for a segment `shlex` cannot tokenize
     (unbalanced quotes etc.) — unparseable input degrades to the old, block-leaning behaviour
     rather than silently passing."""
+    excerpt = _excerpt(segment)
     if _seg_dangerous_rm(segment):
-        return Decision(True, _MSG_RM)
+        return Decision(True, _MSG_RM, "rm-system-dir", excerpt)
     if _seg_dangerous_chmod(segment):
-        return Decision(True, _MSG_CHMOD)
+        return Decision(True, _MSG_CHMOD, "chmod-system-dir", excerpt)
     if _seg_dangerous_find(segment):
-        return Decision(True, _MSG_FIND)
+        return Decision(True, _MSG_FIND, "find-delete-system-dir", excerpt)
     if _LEGACY_DEVICE.search(segment):
-        return Decision(True, _MSG_DEVICE)
+        return Decision(True, _MSG_DEVICE, "device-write", excerpt)
     if _seg_dangerous_push(segment):
-        return Decision(True, _MSG_PUSH)
+        return Decision(True, _MSG_PUSH, "force-push-protected", excerpt)
     return ALLOW
 
 
@@ -205,6 +240,14 @@ _MSG_CHMOD = "blocked: recursive permissive chmod of /, home, or a system dir"
 _MSG_FIND = "blocked: find -delete of /, home, or a system dir"
 _MSG_DEVICE = "blocked: overwrite a filesystem/disk device"
 _MSG_PUSH = "blocked: force-push to a protected branch (main/master/release)"
+
+_EVIDENCE_LEN = 160  # enough to identify what matched; the full command is logged separately
+
+
+def _excerpt(text: str) -> str:
+    """A one-line, length-capped excerpt of what a rule matched (goes into the block record)."""
+    flat = " ".join(str(text).split())
+    return flat if len(flat) <= _EVIDENCE_LEN else flat[: _EVIDENCE_LEN - 1] + "…"
 
 _ENV_ASSIGN = re.compile(r"^\w+=")
 # Wrappers whose presence keeps us looking rightward for the real command word.
@@ -315,7 +358,7 @@ def _dash_c_payload(rest: list[str]) -> str | None:
     return None
 
 
-def _token_decision(tokens: list[str], depth: int) -> Decision:
+def _token_decision(tokens: list[str], depth: int, segment: str = "") -> Decision:
     """Apply the command-position deny rules to one tokenized segment."""
     ci = _command_index(tokens)
     if ci is None:
@@ -324,31 +367,32 @@ def _token_decision(tokens: list[str], depth: int) -> Decision:
     rest = tokens[ci + 1 :]
     flags = [t for t in rest if t.startswith("-")]
     args = [t for t in rest if not t.startswith("-")]
+    excerpt = _excerpt(segment or " ".join(tokens))
 
     if base == "rm":
         recursive = any(_TOK_RECURSIVE_RM.fullmatch(t) for t in flags)
         force = any(_TOK_FORCE_RM.fullmatch(t) for t in flags)
-        if recursive and force and any(_TOK_DANGER_TARGET.fullmatch(t) for t in args):
-            return Decision(True, _MSG_RM)
+        if recursive and force and any(_is_danger_target(t) for t in args):
+            return Decision(True, _MSG_RM, "rm-system-dir", excerpt)
     elif base == "chmod":
         recursive = any(_TOK_RECURSIVE_CHMOD.fullmatch(t) for t in flags)
         permissive = any(_PERMISSIVE_MODE.search(t) for t in args)
-        if recursive and permissive and any(_TOK_DANGER_TARGET.fullmatch(t) for t in args):
-            return Decision(True, _MSG_CHMOD)
+        if recursive and permissive and any(_is_danger_target(t) for t in args):
+            return Decision(True, _MSG_CHMOD, "chmod-system-dir", excerpt)
     elif base == "find":
         # find's start paths precede its predicates; default (no path) is `.` — never dangerous.
         if any(t == "-delete" for t in flags):
             first_path = args[0] if args else "."
             if _TOK_FIND_TARGET.fullmatch(first_path):
-                return Decision(True, _MSG_FIND)
+                return Decision(True, _MSG_FIND, "find-delete-system-dir", excerpt)
     elif base.startswith("mkfs"):
         if any(t.startswith("/dev/") for t in rest):
-            return Decision(True, _MSG_DEVICE)
+            return Decision(True, _MSG_DEVICE, "device-write", excerpt)
     elif base == "dd":
         if any(t.startswith("of=/dev/") for t in rest):
-            return Decision(True, _MSG_DEVICE)
+            return Decision(True, _MSG_DEVICE, "device-write", excerpt)
     elif base == "git":
-        return _git_push_decision(rest)
+        return _git_push_decision(rest, excerpt)
     elif base in _NET_SH_FAMILY and depth < _MAX_DEPTH:
         payload = _dash_c_payload(rest)
         if payload:
@@ -356,7 +400,7 @@ def _token_decision(tokens: list[str], depth: int) -> Decision:
     return ALLOW
 
 
-def _git_push_decision(rest: list[str]) -> Decision:
+def _git_push_decision(rest: list[str], excerpt: str = "") -> Decision:
     """Force-push-to-protected detection on tokens: global flags (`-c k=v`, `-C dir`, `--…`) are
     skipped to find the subcommand; only a `push` subcommand's own tokens are inspected, so a
     commit MESSAGE mentioning force/main can never fire. A bare `git push --force` (no explicit
@@ -375,24 +419,28 @@ def _git_push_decision(rest: list[str]) -> Decision:
         return ALLOW
     push_args = rest[j + 1 :]
     if any(_TOK_PLUS_PROTECTED.fullmatch(t) for t in push_args):
-        return Decision(True, _MSG_PUSH)
+        return Decision(True, _MSG_PUSH, "force-push-protected", excerpt)
     force = any(
         t in ("--force", "--force-with-lease") or _TOK_SHORT_F.fullmatch(t) for t in push_args
     )
     dest = any(_TOK_PROTECTED_DEST.fullmatch(t) for t in push_args if not t.startswith("-"))
-    return Decision(True, _MSG_PUSH) if force and dest else ALLOW
+    if force and dest:
+        return Decision(True, _MSG_PUSH, "force-push-protected", excerpt)
+    return ALLOW
 
 
 def _classify(command: str, depth: int) -> Decision:
     """One classification pass (recursion-capped): raw blockers, net-pipe, then per-segment
     command-position rules with the legacy text fallback for unparseable segments."""
-    if _dangerous_net_pipe(command):
-        return Decision(True, "blocked: pipe a network download into a shell")
-    if _remote_env_dump(command):
-        return Decision(True, _MSG_ENV_DUMP)
-    for pattern, reason in _BLOCKERS:
-        if pattern.search(command):
-            return Decision(True, f"blocked: {reason}")
+    if pipe := _dangerous_net_pipe_stage(command):
+        return Decision(
+            True, "blocked: pipe a network download into a shell", "net-pipe", _excerpt(pipe)
+        )
+    if dump := _remote_env_dump_segment(command):
+        return Decision(True, _MSG_ENV_DUMP, "remote-env-dump", _excerpt(dump))
+    for pattern, reason, rule in _BLOCKERS:
+        if match := pattern.search(command):
+            return Decision(True, f"blocked: {reason}", rule, _excerpt(match.group()))
     segments, balanced = _split_segments(command)
     if not balanced:
         # keep the quote-aware view AND the naive view — an open quote must not hide a hazard.
@@ -400,7 +448,9 @@ def _classify(command: str, depth: int) -> Decision:
     for segment in segments:
         tokens = _shell_tokens(segment)
         decision = (
-            _legacy_segment_decision(segment) if tokens is None else _token_decision(tokens, depth)
+            _legacy_segment_decision(segment)
+            if tokens is None
+            else _token_decision(tokens, depth, segment)
         )
         if decision.block:
             return decision
@@ -447,10 +497,13 @@ def _interp_reads_stdin_as_program(name: str, rest: str) -> bool:
     return True
 
 
-def _dangerous_net_pipe(command: str) -> bool:
-    """True for a network download in command position piped into a bare interpreter from a
-    non-loopback host (ADR 0051). Conservative: loopback targets, interpreters given an explicit
-    program, and `curl`/`wget` appearing only as literal text are all allowed."""
+def _dangerous_net_pipe_stage(command: str) -> str:
+    """The download→interpreter pipe that makes ``command`` an accidental-RCE shape, or "".
+
+    A network download in command position piped into a bare interpreter from a non-loopback host
+    (ADR 0051). Conservative: loopback targets, interpreters given an explicit program, and
+    `curl`/`wget` appearing only as literal text are all allowed. Returns the offending text so the
+    block record can say what matched (ADR 0081)."""
     for group in _NET_GROUP_SEP.split(command):
         if _NET_LOOPBACK.search(group):
             continue
@@ -458,11 +511,16 @@ def _dangerous_net_pipe(command: str) -> bool:
         dl_idx = next((i for i, s in enumerate(stages) if _NET_DL.match(s)), None)
         if dl_idx is None:
             continue
-        for stage in stages[dl_idx + 1 :]:
+        for offset, stage in enumerate(stages[dl_idx + 1 :], start=dl_idx + 1):
             m = _NET_INTERP.match(stage)
             if m and _interp_reads_stdin_as_program(m.group(1), m.group(2)):
-                return True
-    return False
+                return "|".join(stages[dl_idx : offset + 1])
+    return ""
+
+
+def _dangerous_net_pipe(command: str) -> bool:
+    """Boolean form of :func:`_dangerous_net_pipe_stage`."""
+    return bool(_dangerous_net_pipe_stage(command))
 
 
 # --- security: environment dumps on a REMOTE host (secret disclosure, ADR 0075) ---------------
@@ -496,15 +554,87 @@ _MSG_ENV_DUMP = (
 )
 
 
-def _remote_env_dump(command: str) -> bool:
-    """True for a bare environment dump executed through a remote-exec wrapper, unredacted.
+# Remote-exec COMMANDS, and the subcommand each needs before it reaches a remote host. `ssh` is
+# remote by itself; the rest are ordinary local CLIs until the subcommand appears (`kubectl get`
+# is not a remote shell). Checked on the segment's command word, never on raw text — see below.
+_REMOTE_SUBCOMMAND: dict[str, str] = {
+    "kubectl": "exec",
+    "oc": "exec",
+    "docker": "exec",
+    "podman": "exec",
+    "nerdctl": "exec",
+    "docker-compose": "exec",
+    "podman-compose": "exec",
+    "fly": "ssh",
+    "heroku": "run",
+}
+_DUMP_WORDS = frozenset({"printenv", "env", "set"})
+_COMPOUND = re.compile(r"[\s;|&\n]")  # a token holding a whole remote command string
 
-    Requires the dump to appear **after** the remote marker, so a local command that merely
-    mentions `ssh` (``grep ssh printenv.txt``) does not match."""
-    remote = _REMOTE_EXEC.search(command)
-    if not remote or _ENV_REDACTION.search(command):
+
+def _is_remote_exec(base: str, rest: list[str]) -> bool:
+    """True when this segment's command word runs its arguments on a REMOTE host."""
+    if base == "ssh":
+        return True
+    needed = _REMOTE_SUBCOMMAND.get(base)
+    return bool(needed and needed in rest)
+
+
+def _bare_dump(rest: list[str]) -> bool:
+    """True when ``rest`` ends in a bare dump word — nothing narrowing it to one variable.
+
+    A dump is bare only as the LAST word of its command: `printenv PGHOST` is an exact lookup and
+    `env VAR=1 ./run` is a wrapper, and both keep a following token. A remote command passed as one
+    quoted string (``ssh host 'printenv | grep KEY'``) is re-split and each of its commands checked
+    the same way."""
+    if rest and rest[-1] in _DUMP_WORDS:
+        return True
+    for token in rest:
+        if not _COMPOUND.search(token):
+            continue
+        for segment in _split_segments(token)[0]:
+            inner = _shell_tokens(segment)
+            if inner and inner[-1] in _DUMP_WORDS:
+                return True
+    return False
+
+
+def _segment_env_dump(segment: str) -> bool:
+    """True for a bare environment dump run by THIS segment's remote-exec command word."""
+    tokens = _shell_tokens(segment)
+    if tokens is None:
+        # Unparseable (open quote, truncated input): fall back to the pre-0081 text match, scoped
+        # to this segment — block-leaning on garbage, but never across a `;` any more.
+        remote = _REMOTE_EXEC.search(segment)
+        return bool(remote and _ENV_DUMP.search(segment, remote.end()))
+    ci = _command_index(tokens)
+    if ci is None:
         return False
-    return bool(_ENV_DUMP.search(command, remote.end()))
+    return _is_remote_exec(tokens[ci].rsplit("/", 1)[-1], tokens[ci + 1 :]) and _bare_dump(
+        tokens[ci + 1 :]
+    )
+
+
+def _remote_env_dump_segment(command: str) -> str:
+    """The segment that dumps a remote environment unredacted, or "" if there is none.
+
+    Command-position, per segment (ADR 0081). The first cut matched both halves as raw text
+    anywhere in the command string, which made two harmless words enough to block: `echo ssh;
+    echo set` — `ssh` from a `for … in` word list or a quoted string, `set` as an *argument* of
+    `echo`. Two field cases died on exactly that, one of them a Python heredoc whose STRING
+    LITERAL mentioned `ssh`. Now the remote wrapper must be a segment's command word and the dump
+    must be that same command's last word, so text about a command can never be read as one."""
+    if _ENV_REDACTION.search(command):  # the documented remedy, anywhere downstream
+        return ""
+    segments, balanced = _split_segments(command)
+    if not balanced:
+        segments = list(dict.fromkeys(segments + _segments(command)))
+    return next((segment for segment in segments if _segment_env_dump(segment)), "")
+
+
+def _remote_env_dump(command: str) -> bool:
+    """Boolean form of :func:`_remote_env_dump_segment`."""
+    return bool(_remote_env_dump_segment(command))
 
 
 # --- heredoc bodies are DATA, not command text (ADR 0079) --------------------
@@ -654,6 +784,62 @@ def choose_gate(cwd: Path | str) -> list[str] | None:
 
     lint = stacks.primary(cwd).toolchain.lint
     return lint.split() if lint else None
+
+
+# Where a project keeps its OWN tools. The gate used to exec the tool name exactly as the stack
+# registry writes it (`ruff check .`), which is only correct when the tool is installed globally —
+# and a field host had `ruff` in a service virtualenv and `eslint` in `node_modules/.bin`, never on
+# PATH. Fifty of 69 recorded fail-opens were that one FileNotFoundError: the gate did not run for
+# two months and nothing said so. Resolve the tool the way the project itself does (ADR 0081).
+_LOCAL_BIN_DIRS = ("node_modules/.bin", ".venv/bin", "venv/bin", ".venv/Scripts", "venv/Scripts")
+
+
+def gate_bin_dirs(cwd: Path | str) -> list[Path]:
+    """Existing project-local tool directories for ``cwd`` and its main repo root, in that order.
+
+    Both levels matter in a monorepo: the commit may happen in a service directory whose venv holds
+    the linter, or at the root whose `node_modules/.bin` holds it for every workspace."""
+    from agentic_forge import diagnostics
+
+    roots = [Path(cwd).resolve()]
+    try:
+        root = diagnostics.main_repo_root(cwd).resolve()
+    except Exception:  # noqa: BLE001 — a gate must resolve even outside a checkout
+        root = roots[0]
+    if root not in roots:
+        roots.append(root)
+    return [d for r in roots for name in _LOCAL_BIN_DIRS if (d := r / name).is_dir()]
+
+
+def resolve_gate(argv: list[str], cwd: Path | str) -> list[str]:
+    """``argv`` with its executable resolved project-first: a project-local bin, then ``PATH``.
+
+    Project-first is the order npm and a virtualenv already use — the repo's pinned linter beats
+    whatever happens to be installed globally. An unresolvable tool is returned unchanged: the
+    hook's fail-open path then reports it by name instead of guessing."""
+    if not argv:
+        return argv
+    tool = argv[0]
+    if os.sep in tool:  # already a path
+        return argv
+    for directory in gate_bin_dirs(cwd):
+        candidate = directory / tool
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return [str(candidate), *argv[1:]]
+    return argv  # not project-local: PATH resolution happens at exec time
+
+
+def gate_env(cwd: Path | str, env: dict[str, str] | None = None) -> dict[str, str]:
+    """The environment for a gate subprocess, with project-local bin dirs prepended to ``PATH``.
+
+    Resolving argv[0] is not enough: `npm run lint` runs a package script that invokes `eslint`
+    itself, and the field case was exactly that — `node_modules/.bin/eslint` existed one directory
+    away from the worktree the gate ran in."""
+    base = dict(os.environ if env is None else env)
+    dirs = [str(d) for d in gate_bin_dirs(cwd)]
+    if dirs:
+        base["PATH"] = os.pathsep.join([*dirs, base.get("PATH", "")]).rstrip(os.pathsep)
+    return base
 
 
 # --- logging: redacted audit record ------------------------------------------

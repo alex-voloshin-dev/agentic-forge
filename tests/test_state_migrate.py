@@ -102,3 +102,37 @@ def test_the_notice_names_the_resolved_root(tmp_path: Path) -> None:
     _legacy(tmp_path, "audit.jsonl", [{"n": 1}])
     notice = diagnostics.legacy_state_notice(tmp_path)
     assert str(diagnostics.state_root(tmp_path)) in notice and "state_migrate.py" in notice
+
+
+# --- the legacy directory must never receive a WRITE again (ADR 0081) ---------
+
+
+def test_audit_hook_writes_to_the_state_root_even_when_a_legacy_log_exists(
+    tmp_path: Path, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    """A field bundle found 18 765 records appended to `<repo>/.agentic-forge/audit.jsonl` weeks
+    after that repo was migrated: the write path used the READER helper, so an existing legacy log
+    captured every later append and the migration could never finish."""
+    sys.path.insert(0, str(_REPO / "plugin" / "hooks" / "scripts"))
+    import audit_log  # noqa: PLC0415
+
+    legacy = _legacy(tmp_path, "audit.jsonl", [{"tool": "Bash", "n": 0}])
+    before = legacy.read_text(encoding="utf-8")
+    written = audit_log.write_audit(
+        {"tool_name": "Bash", "tool_input": {"command": "ls"}}, str(tmp_path)
+    )
+    assert written == diagnostics.state_file(tmp_path, "audit.jsonl")
+    assert legacy.read_text(encoding="utf-8") == before  # the repo copy is frozen, not fed
+
+
+def test_scheduler_state_saves_to_the_state_root_even_when_a_legacy_file_exists(
+    tmp_path: Path,
+) -> None:
+    from agentic_forge import schedule  # noqa: PLC0415
+
+    legacy = _legacy(tmp_path, "schedule-state.json", [])
+    legacy.write_text(json.dumps({"digest": {"last_run": 1.0, "runs": 3}}), encoding="utf-8")
+    loaded = schedule.load_state(tmp_path)  # still READ from the legacy file
+    assert "digest" in loaded
+    saved = schedule.save_state(tmp_path, loaded)
+    assert saved == diagnostics.state_file(tmp_path, schedule.STATE_FILE)

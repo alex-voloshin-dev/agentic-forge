@@ -61,6 +61,8 @@ select = ["E", "F", "I", "UP", "B"]
 "plugin/lib/agentic_forge/diag_bundle.py" = ["UP017"]
 "dev/diagnostics_bundle.py" = ["UP017"]
 "plugin/hooks/scripts/audit_log.py" = ["UP017"]  # hook-reachable path; keep `timezone.utc` (ADR 0050)
+# Rotation runs from the session-start hook under the same bare `python3` (ADR 0050/0081).
+"plugin/lib/agentic_forge/observability.py" = ["UP017"]
 # The shipped skill script runs on the plugin lib under the same bare `python3` (observed 3.9).
 "plugin/skills/diagnostics-bundle/scripts/build_bundle.py" = ["UP017"]
 

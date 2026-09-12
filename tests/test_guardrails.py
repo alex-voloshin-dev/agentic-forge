@@ -134,10 +134,28 @@ def test_classify_blocks_dangerous(cmd: str) -> None:
         "echo '$(ls)' fine",  # single-quoted substitution-looking literal
         "bash -c 'ls -la'",  # sh -c payload recursion: safe payload stays safe
         "echo can't stop && ls /usr",  # open quote: union fallback must not over-block
+        # --- ADR 0081: the macOS per-user temp tree lives under /var; cleaning up one's own
+        # `mktemp -d` is not an attack on a system directory (a field false positive, twice).
+        "rm -rf /var/folders/pz/c12y0fr14pq39kk3w_wgtvgr0000gn/T/tmp.g2zjN8DH3W",
+        "rm -rf /private/var/folders/ab/cd/T/tmp.XyZ && echo cleaned",
+        "chmod -R 777 /var/folders/ab/cd/T/build-out",
     ],
 )
 def test_classify_allows_safe(cmd: str) -> None:
     assert classify_command(cmd) == ALLOW, cmd
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "rm -rf /var/folders",  # the shared root itself is not one session's temp dir
+        "rm -rf /var/folders/pz",
+        "rm -rf /var",
+        "rm -rf /var/log",
+    ],
+)
+def test_temp_exemption_stops_at_the_shared_roots(cmd: str) -> None:
+    assert classify_command(cmd).block, cmd
 
 
 # --- test-gate ---------------------------------------------------------------
@@ -444,10 +462,38 @@ def test_remote_env_dump_blocks(command: str) -> None:
         "ssh host 'set -e; ./deploy.sh'",
         "grep ssh printenv.txt",
         "kubectl get pods",
+        # --- the 2026-09-11 field bundle: two harmless words in two different segments were
+        # enough, because both halves matched as raw text over the WHOLE command (ADR 0081).
+        "echo ssh; echo set",
+        "ssh host; echo set",
+        # the logged case: `ssh` is an item in a `for … in` WORD LIST, `set` an argument of echo
+        'cd ~/repo; for t in az ssh scp sshpass psql; do printf "%s: %s\\n" "$t" '
+        '"$(command -v $t || echo MISSING)"; done; echo "---"; for v in DB_PWD DB_HOST; do '
+        'printf "%s: %s\\n" "$v" "$([ -n "${!v:-}" ] && echo set || echo unset)"; done',
+        # an interpreter heredoc whose PYTHON STRING mentions the shape (the record that blocked
+        # the field analysis itself). The body is kept by ADR 0079 — it must still not match.
+        "python3 <<'PY'\ntests = ['for t in az ssh scp; do echo \"$t\"; done']\n"
+        'print([t for t in tests if "set" in t])\nPY',
     ],
 )
 def test_remote_env_dump_allows(command: str) -> None:
     assert not guardrails.classify_command(command).block
+
+
+@pytest.mark.parametrize(
+    ("command", "blocks"),
+    [
+        ("ssh host 'printenv | grep KEY'", True),  # dump inside the remote command STRING
+        ("ssh host \"printenv | grep -ivE 'KEY|SECRET|PWD'\"", False),  # …redacted in the string
+        ("docker compose exec app printenv", True),  # the space-separated compose form
+        ("fly ssh console -C env", True),  # a remote console dump is still a dump
+        ("fly ssh console -C 'printenv PGHOST'", False),  # …an exact lookup in the same string
+        ("sudo ssh host env", True),  # a wrapper prefix does not hide the remote exec
+    ],
+)
+def test_remote_env_dump_command_position(command: str, blocks: bool) -> None:
+    """The dump must be the remote command's own last word — ADR 0081."""
+    assert guardrails.classify_command(command).block is blocks
 
 
 def test_module_exports() -> None:

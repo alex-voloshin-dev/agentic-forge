@@ -32,6 +32,8 @@ __all__ = [
     "STATE_DIRNAME",
     "repo_slug",
     "state_root",
+    "state_file",
+    "once_per_session",
     "existing_state_file",
     "KINDS",
     "DEFAULT_REVIEW_CAP",
@@ -131,13 +133,56 @@ def legacy_state_notice(cwd: Path | str) -> str:
     )
 
 
+def state_file(cwd: Path | str, filename: str) -> Path:
+    """The path a WRITER must use for a state file (ADR 0072/0081) — always under
+    :func:`state_root`, never the legacy in-repo location.
+
+    It exists because the rule "writes always go to the state root" was only a docstring, and four
+    write sites reached for the reader helper instead. That made the legacy directory
+    self-perpetuating: once a legacy audit log existed in the repo, every later append went back
+    into the repository, so the migration could never finish. A field bundle found 18 765 records
+    written there over 19 days, *after* that repo had been migrated."""
+    return state_root(cwd) / filename
+
+
+NOTICES_FILE = "notices.json"  # marker -> the session that last saw this notice
+
+
+def once_per_session(cwd: Path | str, marker: str, session_id: str | None) -> bool:
+    """True the FIRST time ``marker`` comes up in ``session_id`` — the gate for a notice that a
+    session should see once, not on every tool call (ADR 0081).
+
+    Keyed by the last session id per marker, so the file stays one small object however long the
+    plugin runs. Never raises: an unwritable state root means the notice is simply shown again,
+    which is the harmless direction."""
+    if not session_id:
+        return False
+    path = state_file(cwd, NOTICES_FILE)
+    seen: dict[str, Any] = {}
+    try:
+        if path.is_file():
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            seen = loaded if isinstance(loaded, dict) else {}
+    except (json.JSONDecodeError, OSError):
+        seen = {}
+    if seen.get(marker) == session_id:
+        return False
+    seen[marker] = session_id
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(seen), encoding="utf-8")
+    except OSError:
+        pass
+    return True
+
+
 def existing_state_file(cwd: Path | str, filename: str, legacy_rel: str) -> Path:
     """The path a READER should use for a state file (ADR 0072).
 
-    Writes always go to :func:`state_root`, but an upgrading user already has data at the old
+    Writes always go to :func:`state_file`, but an upgrading user already has data at the old
     in-repo location — so a reader prefers the new path when it exists and otherwise falls back to
     the legacy one. Without this, moving the state root would silently blank every digest and job
-    history on upgrade."""
+    history on upgrade. **Readers only** — writing through it resurrects the legacy directory."""
     new = state_root(cwd) / filename
     if new.exists():
         return new

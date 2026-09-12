@@ -49,6 +49,31 @@ def test_security_bad_stdin_fails_open(monkeypatch) -> None:
     assert security.main() == 0  # never blocks on its own error
 
 
+def test_security_block_record_names_the_rule_and_what_matched(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    """A logged block must be diagnosable on its own: the command is capped at 500 chars and in the
+    field the matched text was usually past the cut (ADR 0081)."""
+    monkeypatch.setenv("AGENTIC_FORGE_DIAGNOSTICS", "1")
+    padding = "echo " + "x" * 700  # push the real command past the record's 500-char cap
+    _stdin(
+        monkeypatch,
+        {
+            "tool_name": "Bash",
+            "tool_input": {"command": f"{padding}; rm -rf /usr/lib"},
+            "cwd": str(tmp_path),
+            "session_id": "s-evidence",
+        },
+    )
+    assert security.main() == 2
+    capsys.readouterr()
+    log = diagnostics.state_root(tmp_path) / diagnostics.DIAGNOSTICS_FILE
+    event = json.loads(log.read_text(encoding="utf-8").strip().splitlines()[-1])
+    assert event["context"]["rule"] == "rm-system-dir"
+    assert "rm -rf /usr/lib" in event["context"]["evidence"]
+    assert "rm -rf /usr/lib" not in event["context"]["command"]  # …which the truncation lost
+
+
 # --- commit_gate -------------------------------------------------------------
 
 
@@ -303,3 +328,57 @@ def test_audit_log_writes_when_the_gate_is_on_by_default(tmp_path: Path) -> None
     payload = {"tool_name": "Bash", "tool_input": {"command": "ls"}, "cwd": str(tmp_path)}
     path = audit_log.write_audit(payload, str(tmp_path))
     assert path is not None and path.is_file()  # default is ON: the trail must not vanish silently
+
+
+# --- the fail-open must reach the OPERATOR, not only the log (ADR 0081) ------
+
+
+def test_commit_gate_announces_the_fail_open_once_per_session(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    (tmp_path / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    monkeypatch.delenv("AGENTIC_FORGE_SKIP_TEST_GATE", raising=False)
+
+    def boom(*a, **k):
+        raise FileNotFoundError("[Errno 2] No such file or directory: 'ruff'")
+
+    monkeypatch.setattr(commit_gate.subprocess, "run", boom)
+    payload = {
+        "tool_name": "Bash",
+        "tool_input": {"command": "git commit -m x"},
+        "cwd": str(tmp_path),
+        "session_id": "s-1",
+    }
+    assert commit_gate.gate_decision(payload) == guardrails.ALLOW
+    first = json.loads(capsys.readouterr().out)
+    assert "NOT gated" in first["systemMessage"] and "ruff" in first["systemMessage"]
+
+    commit_gate.gate_decision(payload)  # same session: silent
+    assert capsys.readouterr().out == ""
+
+    payload["session_id"] = "s-2"  # a new session hears it again
+    commit_gate.gate_decision(payload)
+    assert "systemMessage" in json.loads(capsys.readouterr().out)
+
+
+def test_commit_gate_runs_the_projects_own_linter(monkeypatch, tmp_path: Path) -> None:
+    """The field host had `ruff` only inside a virtualenv, so the gate never ran for two months."""
+    (tmp_path / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    monkeypatch.delenv("AGENTIC_FORGE_SKIP_TEST_GATE", raising=False)
+    local = tmp_path / ".venv" / "bin"
+    local.mkdir(parents=True)
+    (local / "ruff").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    (local / "ruff").chmod(0o755)
+    seen: dict[str, object] = {}
+
+    def run(cmd, **kwargs):
+        seen["cmd"] = cmd
+        seen["path"] = kwargs["env"]["PATH"]
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(commit_gate.subprocess, "run", run)
+    commit_gate.gate_decision(
+        {"tool_name": "Bash", "tool_input": {"command": "git commit"}, "cwd": str(tmp_path)}
+    )
+    assert seen["cmd"] == [str(local / "ruff"), "check", "."]
+    assert str(local) in str(seen["path"])  # a package script's own tools resolve too

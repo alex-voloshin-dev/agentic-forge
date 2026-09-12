@@ -19,6 +19,29 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
 
 from agentic_forge import diagnostics, guardrails, settings  # noqa: E402
 
+# A fail-open is the RIGHT default — a broken toolchain must not block a commit (ADR 0058/0059) —
+# but until 2026.9.1 it was announced only to the diagnostics log, which nobody reads. A field
+# bundle: 69 fail-opens over two months, 50 of them one missing `ruff`, and the operator never knew
+# the gate had stopped running. The notice below says it once per session (ADR 0081).
+_FAIL_OPEN_MARKER = "commit-gate:fail-open"
+
+
+def fail_open_notice(gate: list[str], detail: str) -> str:
+    """The one line an operator needs when the gate could not run: what did not run, and what to
+    do about it."""
+    return (
+        f"agentic-forge test-gate: `{' '.join(gate)}` could not run — this commit was NOT gated "
+        f"({detail}). Install the tool (or keep it in the project's .venv/node_modules), or set "
+        f"`test_gate.skip: true` in .agentic-forge/config.json to stop trying."
+    )
+
+
+def _announce(cwd: str, gate: list[str], detail: str, session_id: str | None) -> None:
+    """Print the fail-open notice to the operator, once per session. Hook stdout is JSON, so the
+    line goes in `systemMessage` — stderr from a hook that exits 0 reaches nobody."""
+    if diagnostics.once_per_session(cwd, _FAIL_OPEN_MARKER, session_id):
+        print(json.dumps({"systemMessage": fail_open_notice(gate, detail)}))
+
 
 def gate_decision(payload: dict[str, Any]) -> guardrails.Decision:
     if payload.get("tool_name") != "Bash":
@@ -33,8 +56,18 @@ def gate_decision(payload: dict[str, Any]) -> guardrails.Decision:
     gate = guardrails.choose_gate(cwd)
     if not gate:
         return guardrails.ALLOW
+    # Resolve the tool the way the project does (project-local bins first) and hand the gate a PATH
+    # that includes them, so a package script's own linter resolves too (ADR 0081).
+    gate = guardrails.resolve_gate(gate, cwd)
     try:
-        result = subprocess.run(gate, cwd=cwd, capture_output=True, text=True, timeout=110)
+        result = subprocess.run(
+            gate,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=110,
+            env=guardrails.gate_env(cwd),
+        )
     except Exception as exc:
         # Infra error (tool missing, timeout) -> don't block, but RECORD the fail-open: a gate
         # that silently never runs is indistinguishable from a healthy one in the diagnostics
@@ -45,6 +78,7 @@ def gate_decision(payload: dict[str, Any]) -> guardrails.Decision:
             severity="minor", context={"gate": " ".join(gate)},
             session_id=payload.get("session_id"),
         )
+        _announce(cwd, gate, f"{type(exc).__name__}: {exc}", payload.get("session_id"))
         return guardrails.ALLOW
     if result.returncode != 0:
         # Join with a newline so a signature can't be spuriously formed or destroyed across the
@@ -65,6 +99,8 @@ def gate_decision(payload: dict[str, Any]) -> guardrails.Decision:
                 severity="minor", context={"gate": " ".join(gate)},
                 session_id=payload.get("session_id"),
             )
+            _announce(cwd, gate, tail.splitlines()[-1] if tail else "no output",
+                      payload.get("session_id"))
             return guardrails.ALLOW
         return guardrails.Decision(True, f"blocked: gate failed (`{' '.join(gate)}`)\n{tail}")
     return guardrails.ALLOW

@@ -143,11 +143,12 @@ def _pr_watch_queue(repo: Path) -> str:
     resolved = settings.resolve(repo)
     if not resolved.pr_watcher_enabled:
         return "pr-watch-queue: disabled (set pr_watcher.enabled)"
-    path = diagnostics.existing_state_file(repo, pr_watch.QUEUE_FILE, pr_watch.QUEUE_PATH)
-    if not path.is_file():
+    source = diagnostics.existing_state_file(repo, pr_watch.QUEUE_FILE, pr_watch.QUEUE_PATH)
+    path = diagnostics.state_file(repo, pr_watch.QUEUE_FILE)  # the tick's result lands here
+    if not source.is_file():
         return "pr-watch-queue: empty"
     try:
-        queue = pr_watch.parse_queue(json.loads(path.read_text(encoding="utf-8")))
+        queue = pr_watch.parse_queue(json.loads(source.read_text(encoding="utf-8")))
     except (json.JSONDecodeError, OSError) as exc:
         return f"pr-watch-queue: unreadable ({exc})"
     if not queue:
@@ -170,6 +171,7 @@ def _pr_watch_queue(repo: Path) -> str:
             )
         else:
             kept.append(nxt)
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(pr_watch.queue_dump(kept), indent=2) + "\n", encoding="utf-8")
     return f"pr-watch-queue: {len(queue)} watched, {dropped} dropped, {len(kept)} remaining"
 

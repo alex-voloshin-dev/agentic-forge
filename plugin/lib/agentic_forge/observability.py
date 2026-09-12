@@ -9,10 +9,12 @@ does the file I/O. See docs/architecture/scheduling-observability.md.
 
 from __future__ import annotations
 
+import gzip
 import json
 import os
 from collections import Counter
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -21,10 +23,12 @@ __all__ = [
     "AUDIT_FILE",
     "MAX_AUDIT_BYTES",
     "KEEP_AUDIT_BYTES",
+    "KEEP_AUDIT_ARCHIVES",
     "Digest",
     "parse_lines",
     "digest",
     "render",
+    "record_days",
     "rotate_audit",
 ]
 
@@ -35,6 +39,10 @@ AUDIT_FILE = "audit.jsonl"  # resolved under diagnostics.state_root() — ADR 00
 # comfortably covers the diagnostics bundle's default 7-day window.
 MAX_AUDIT_BYTES = 10 * 1024 * 1024
 KEEP_AUDIT_BYTES = 5 * 1024 * 1024
+# How many gzipped archives of rotated-out records to keep beside the live log. Six covers roughly
+# half a year on the heaviest workload measured in the field (~950 tool calls/day, rotating every
+# 11-15 days) at a tenth of the bytes; 0 restores the old discard-on-rotate behaviour.
+KEEP_AUDIT_ARCHIVES = 6
 
 
 @dataclass(frozen=True)
@@ -106,8 +114,50 @@ def render(d: Digest) -> str:
     return "\n".join(lines)
 
 
+def record_days(chunk: bytes) -> float | None:
+    """The span in days between the first and last timestamped record in ``chunk``, or None.
+
+    Bytes tell an operator nothing about what a rotation just cost them; days do. Pure over the
+    bytes, tolerant of an unparseable or timestamp-less edge record (ADR 0081)."""
+    lines = [line for line in chunk.splitlines() if line.strip()]
+    stamps = []
+    for line in (lines[0], lines[-1]) if lines else ():
+        try:
+            ts = json.loads(line).get("ts")
+            stamps.append(datetime.fromisoformat(str(ts)))
+        except (json.JSONDecodeError, TypeError, ValueError, AttributeError):
+            continue
+    if len(stamps) < 2:
+        return None
+    return abs((stamps[1] - stamps[0]).total_seconds()) / 86400.0
+
+
+def _archive(path: Path, chunk: bytes, keep: int) -> Path | None:
+    """Gzip ``chunk`` (the records rotation is about to drop) into ``<log dir>/archive/``, keeping
+    at most ``keep`` archives. Returns the archive path, or None when archiving is off or fails.
+
+    Discarding is the wrong default for the one artifact a field report is reconstructed from: on a
+    busy repo the bound is reached every 11-15 days, so "60 days of history" was never available to
+    ask for. An archive is ~10x smaller than the log, so the same disk holds far more of it."""
+    if keep <= 0:
+        return None
+    directory = path.parent / "archive"
+    directory.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    target = directory / f"{path.stem}-{stamp}.jsonl.gz"
+    with gzip.open(target, "wb") as handle:
+        handle.write(chunk)
+    for stale in sorted(directory.glob(f"{path.stem}-*.jsonl.gz"))[:-keep]:
+        stale.unlink(missing_ok=True)
+    return target
+
+
 def rotate_audit(
-    repo: Path | str, *, max_bytes: int = MAX_AUDIT_BYTES, keep_bytes: int = KEEP_AUDIT_BYTES
+    repo: Path | str,
+    *,
+    max_bytes: int = MAX_AUDIT_BYTES,
+    keep_bytes: int = KEEP_AUDIT_BYTES,
+    archives: int = KEEP_AUDIT_ARCHIVES,
 ) -> bool:
     """Trim the audit log to its most recent ``keep_bytes`` once it exceeds ``max_bytes``
     (unbounded growth guard — the log previously grew forever). Keeps whole records: the kept
@@ -115,10 +165,12 @@ def rotate_audit(
     one). The rewrite is atomic (`os.replace`), so a crash mid-rotation can't destroy the log.
     Returns True when a trim happened; never raises (called from the session-start hook, which
     must not break a session). The bounds are the caller's (``logs.max_bytes`` /
-    ``logs.keep_bytes``), and a trim is **recorded** rather than silent — see ADR 0080."""
+    ``logs.keep_bytes`` / ``logs.archives``), and a trim is **recorded** rather than silent — see
+    ADR 0080/0081. The discarded records are gzipped into a dated sibling first, so a rotation
+    costs disk rather than history."""
     from . import diagnostics
 
-    path = diagnostics.existing_state_file(repo, AUDIT_FILE, AUDIT_PATH)
+    path = diagnostics.state_file(repo, AUDIT_FILE)  # trim what the writer appends to
     try:
         if not path.is_file() or path.stat().st_size <= max_bytes:
             return False
@@ -130,18 +182,27 @@ def rotate_audit(
             newline = tail.find(b"\n")
             if newline != -1:
                 tail = tail[newline + 1 :]
+        dropped = data[: len(data) - len(tail)]
+        try:
+            archived = _archive(path, dropped, archives)
+        except OSError:
+            archived = None  # a full or read-only disk must not cost us the trim itself
         tmp = path.with_suffix(".jsonl.rotating")
         tmp.write_bytes(tail)
         os.replace(tmp, path)
-        # Rotation DISCARDS the oldest records. Announce it: a user who migrated specifically to
-        # preserve that history must not learn about the loss by noticing it missing (ADR 0080).
+        # Rotation MOVES the oldest records out of the live log. Announce it in the terms an
+        # operator reasons in — days, and where the records went (ADR 0080/0081).
+        days = record_days(dropped)
+        span = f"~{days:.0f} days of records" if days is not None else f"{len(dropped)} bytes"
+        landed = f"archived to {archived}" if archived else "DISCARDED (logs.archives is 0)"
+        kept_days = record_days(tail)
+        retention = f"; the live log now holds ~{kept_days:.0f} days" if kept_days else ""
         diagnostics.emit(
             repo, kind="anomaly", component="audit-rotation",
             message=(
-                f"audit log rotated: {len(data) - len(tail)} bytes of the oldest records were "
-                f"discarded (bound {max_bytes}, kept {len(tail)}). The audit log is a bounded "
-                f"rolling window — raise logs.max_bytes/logs.keep_bytes, or collect a diagnostics "
-                f"bundle, if this history must last."
+                f"audit log rotated: {span} ({len(dropped)} bytes) left the live log — {landed}"
+                f"{retention}. The live log is a bounded rolling window (bound {max_bytes}, kept "
+                f"{len(tail)}) — raise logs.max_bytes/logs.keep_bytes if it must hold more."
             ),
             severity="minor", force=True,
         )

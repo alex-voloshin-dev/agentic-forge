@@ -41,7 +41,14 @@ DEFAULTS: dict[str, Any] = {
     # per ten days on one active repo (field measurement) the default reaches rotation inside a
     # fortnight, and the trim discards the oldest records. Raise these if the history must last;
     # collect a diagnostics bundle if it must be kept (ADR 0080).
-    "logs": {"enabled": True, "max_bytes": 10 * 1024 * 1024, "keep_bytes": 5 * 1024 * 1024},
+    "logs": {
+        "enabled": True,
+        "max_bytes": 10 * 1024 * 1024,
+        "keep_bytes": 5 * 1024 * 1024,
+        # Gzipped archives of rotated-out records kept beside the live log (ADR 0081).
+        # 0 restores the pre-2026.9.1 behaviour: the oldest records are simply discarded.
+        "archives": 6,
+    },
     "subagent_budget": {"soft": 25, "hard": 50},  # Task-spawn caps (budget hook)
     "test_gate": {"skip": False},  # skip the pre-commit test gate (commit_gate hook)
     "review": {"passes": 3},  # the bounded review-loop budget N (review-loop.md)
@@ -77,6 +84,7 @@ class Settings:
     logs_enabled: bool
     logs_max_bytes: int
     logs_keep_bytes: int
+    logs_archives: int
     state_in_repo: bool
     subagent_soft: int
     subagent_hard: int
@@ -173,6 +181,7 @@ def _settings_from(data: dict[str, Any]) -> Settings:
         logs_enabled=_coerce_bool(data["logs"]["enabled"]),
         logs_max_bytes=_coerce_int(data["logs"]["max_bytes"]) or DEFAULTS["logs"]["max_bytes"],
         logs_keep_bytes=_coerce_int(data["logs"]["keep_bytes"]) or DEFAULTS["logs"]["keep_bytes"],
+        logs_archives=_int(data["logs"].get("archives"), DEFAULTS["logs"]["archives"]),
         state_in_repo=_coerce_bool((data.get("state") or {}).get("in_repo")),
         subagent_soft=_int(data["subagent_budget"]["soft"], DEFAULTS["subagent_budget"]["soft"]),
         subagent_hard=_int(data["subagent_budget"]["hard"], DEFAULTS["subagent_budget"]["hard"]),
