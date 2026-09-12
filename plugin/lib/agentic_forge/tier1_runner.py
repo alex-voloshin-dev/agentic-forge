@@ -50,6 +50,7 @@ __all__ = [
     "check_wiring",
     "all_passed",
     "INVALID",
+    "OTHER",
     "MAX_ANSWER_TOKENS",
     "PromptRate",
 ]
@@ -58,6 +59,15 @@ __all__ = [
 # "no skill fits"), because scoring a non-answer as a decision is silent data corruption — see
 # :func:`parse_selection` and ADR 0064.
 INVALID = "invalid"
+
+# A stated choice of a skill that is NOT in this plugin's listing (ADR 0086). The router runs
+# inside a real Claude Code, whose built-in skills — `run`, `code-review`, `simplify`, … — it also
+# knows about; "Run the app and screenshot it" is correctly routed to `run`, which is nobody's
+# should-trigger target here. It is a decision ("not the skill under test"), never a hit: it counts
+# as a miss on recall and a correct non-selection on specificity. That asymmetry is what keeps the
+# gate honest — a router answering nonsense scores OTHER everywhere and fails every recall check.
+OTHER = "other"
+_SKILL_NAME_SHAPE = re.compile(r"^[a-z][a-z0-9-]{1,39}$")
 
 # Longest reply still treated as the terse answer the format demands. A conforming reply is one
 # name (or `none`), sometimes wrapped in backticks or a short sentence; anything longer is prose —
@@ -215,7 +225,8 @@ def build_router_system(cards: list[SkillCard]) -> str:
 
 
 def parse_selection(reply: str, names: list[str]) -> str:
-    """Normalize a router reply to a skill name in ``names``, ``"none"``, or :data:`INVALID`.
+    """Normalize a router reply to a skill name in ``names``, ``"none"``, :data:`OTHER` (a
+    skill-shaped terminal answer that is not one of ours — ADR 0086), or :data:`INVALID`.
 
     Scans left to right and returns the first token that is a known skill name or the word
     ``none`` — so "research", "`research`", and "the research skill" all map to ``research``.
@@ -289,18 +300,24 @@ def trailing_answer(text: str, names: list[str]) -> str | None:
 
     This is not mining. The name must be the LAST token AND be preceded by a sentence boundary, so
     "…that isn't deep-review" — the name inside the sentence that rejects it — still yields nothing.
+
+    A terminal token that is skill-SHAPED but not in ``names`` returns :data:`OTHER` (ADR 0086):
+    the router chose something — a Claude Code built-in it can see and we did not render — and
+    what it chose was not the skill under test. Returns ``None`` when the reply states nothing.
     """
     tokens = text.split()
     if not tokens:
         return None
-    key = tokens[-1].strip("`*\"'.,;:()[]{}").lower().replace("_", "-")
+    key = tokens[-1].strip("`*\"'.,;:!?()[]{}").lower().replace("_", "-")
     known = {n.lower(): n for n in names}
-    if key not in known and key != "none":
+    if key not in known and key != "none" and not _SKILL_NAME_SHAPE.match(key):
         return None
     head = text[: text.rfind(tokens[-1])].rstrip()
     if head and not head.endswith(_ANSWER_BOUNDARY):
         return None
-    return known.get(key, "none")
+    if key == "none":
+        return "none"
+    return known.get(key, OTHER)  # a skill-shaped name that is not ours: chosen, not the target
 
 
 def classify_reply(reply: str, names: list[str]) -> Reply:

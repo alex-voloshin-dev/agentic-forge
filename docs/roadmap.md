@@ -528,6 +528,13 @@ bugs (neutral `config.example.json` + configuration.md python/models clarificati
   the problem and none was touched. A skill that routes perfectly when the router is asked, and
   never fires in 27 days of field work, was not asked: the eval still missing is a Tier-1 condition
   that carries a competing project instruction in context.
+  **Second hypothesis (ADR 0086):** the eval renders only agentic-forge's listing, but a live
+  session also carries Claude Code's built-in skills (`run`, `code-review`, `simplify`, `init`,
+  `security-review`) — two of which collide with ours by exact name. The router demonstrably
+  picks them (it routed a should-not-trigger prompt to `run` in CI). So the missing Tier-1
+  condition is really two: (a) a competing project instruction in context, (b) the built-in
+  listing rendered beside ours. (b) is cheaper and should run first; neither justifies a
+  description edit until it has.
 - **Vault write-rate is low in daily work** (9 `docs/knowledge/` writes against 136 sessions) while
   the session-start injection runs everywhere. One week of one repo is too thin to justify
   auto-capture mechanics; keep watching across bundles before designing anything.
