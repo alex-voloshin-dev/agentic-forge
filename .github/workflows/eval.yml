@@ -116,7 +116,9 @@ jobs:
   # with the calendar.
   quality:
     name: Tier-2 + Tier-3 (quality + E2E)
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.tiers != 'trigger-only' || github.event.label.name == 'eval'
+    # A POSITIVE list. The first cut excluded `trigger-only` and so let `builtins-condition` launch
+    # the whole ~360-session suite (ADR 0086's first run had to be cancelled mid-flight).
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.tiers == 'all' || github.event.label.name == 'eval'
     runs-on: ubuntu-latest
     timeout-minutes: 350
     env:
