@@ -135,9 +135,19 @@ guessed at — a standing project instruction that is already in context, agains
 first be chosen — and the eval that would reproduce it is a Tier-1 condition carrying a competing
 instruction, not a better description. That stays on the roadmap.
 
-Still unmeasured from this bundle: `deep-review`'s Tier-2 (0.771 / 0.750 against 0.800, recorded
-twice on 2026-07-26). It is the most expensive eval in the pyramid — a full coding session per case
-per run — so it is left for a deliberate run rather than folded into this batch.
+`deep-review`'s Tier-2 was the last threshold this bundle left in doubt (0.771 / 0.750 against
+0.800, recorded twice on 2026-07-26). It is the most expensive eval in the pyramid — a full
+coding session per case per run — so it was run deliberately rather than folded into the batch
+above. Same day, `--runner claude --model claude-opus-4-8`, four cases × five runs:
+
+```
+deep-review: PASS (mean=0.963, stddev=0.034, lower_bound=0.928, n=5)
+```
+
+That closes the bundle: **every threshold failure it carried was a July snapshot of a problem
+already fixed.** Not one of the five needed a change here. What needed fixing was the reporting —
+a channel that records only failures, and a weekly guard that could not run. Between them, two
+months of fixed problems looked open, and a guard that checked nothing looked green.
 
 ## Alternatives considered
 
