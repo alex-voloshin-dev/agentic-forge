@@ -103,6 +103,28 @@ of the two exact name collisions (`code-review`, `security-review`). Failures ar
 `tier1-builtins:<skill>`, apart from the gate, and `eval.yml`'s `tiers` input gains
 `builtins-condition` to run it in CI. This is the measurement, not a change to the gate.
 
+### Measured — under the built-in listing, five of seventeen pass (ADR 0087)
+
+ADR 0086's condition, run: the same Tier-1 prompts against the listing a live session actually
+shows — Claude Code's 17 built-ins beside ours, ours namespaced. **5/17 pass** against 17/17
+without. `security-review` recall **0.000**, `code-review` 0.200, with no discarded calls: the
+built-in wins the bare name every time. `incident-response` 0.200, `marketing` 0.378,
+`qa-test-strategy` 0.600 lost cleanly to *something* — and the log could not say what, because a
+wrong-but-valid choice was a decision and decisions were not sampled. Specificity 1.000 throughout.
+
+- Every should-trigger loss is now attributed: `Reply.choice` keeps the name the router gave, the
+  report tallies `lost_to`, and a failing skill prints `lost should-trigger calls to: design x12`.
+  Losses on should-NOT-trigger prompts are not counted — there, a non-target is the right answer.
+- The router's tool-call spelling under the namespaced listing — `Skill(agentic-forge:plan)`,
+  `/code-review` — is read as the name it wraps; it was `unknown-name` and cost seven skills calls.
+- The first dispatch of the condition launched the whole ~360-session Tier-2/3 suite through an
+  exclusion-list `if` (`tiers != 'trigger-only'`) and was cancelled after ~45 minutes; the quality
+  job now runs on a positive list (`tiers == 'all'`).
+
+This is the first direct evidence for ADR 0086's hypothesis: the built-in listing competes hard,
+to the point of total loss on exact-name collisions. No description or name is changed here — the
+attributed re-run decides that.
+
 ### Measured — `deep-review` Tier-2, the last threshold the field bundle left open
 
 0.771 / 0.750 against a 0.800 bar in July; **PASS at mean 0.963, lower bound 0.928 (n=5)** today.

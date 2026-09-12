@@ -157,6 +157,7 @@ class Tier1Report:
     unmeasured: list[str] = field(default_factory=list)  # prompts where EVERY call was invalid
     invalid_reasons: dict[str, int] = field(default_factory=dict)  # reason -> count (ADR 0084)
     invalid_excerpts: list[str] = field(default_factory=list)  # what those calls said instead
+    lost_to: dict[str, int] = field(default_factory=dict)  # should-trigger losses by winner (0087)
 
     def summary_line(self) -> str:
         status = "PASS" if self.passed else "FAIL"
@@ -179,9 +180,17 @@ class Tier1Report:
         return f"[{self.skill}] {status}  recall={rc} specificity={sp}{noise}{suffix}"
 
     def evidence_lines(self) -> list[str]:
-        """Sample replies that produced no decision — printed under a failing skill so the next
-        person does not have to re-run the eval to see what the router actually said."""
-        return [f"    no-decision sample: {e}" for e in self.invalid_excerpts]
+        """Sample replies that produced no decision, and who won the should-trigger prompts this
+        skill lost — printed under a failing skill so the next person does not have to re-run the
+        eval to see what the router actually said (ADR 0084/0087)."""
+        lines = [f"    no-decision sample: {e}" for e in self.invalid_excerpts]
+        if self.lost_to:
+            won = ", ".join(
+                f"{name} x{n}"
+                for name, n in sorted(self.lost_to.items(), key=lambda kv: (-kv[1], kv[0]))
+            )
+            lines.append(f"    lost should-trigger calls to: {won}")
+        return lines
 
 
 # --- live listing ------------------------------------------------------------
@@ -261,6 +270,7 @@ class Reply:
     decision: str
     reason: str = ""
     excerpt: str = ""
+    choice: str = ""  # the name the router actually gave (attributes an OTHER / a wrong skill)
 
 
 # Why a reply carried no routing decision. These are the levers: `prose-*` means the router
@@ -306,10 +316,24 @@ def trailing_answer(text: str, names: list[str]) -> str | None:
     the router chose something — a Claude Code built-in it can see and we did not render — and
     what it chose was not the skill under test. Returns ``None`` when the reply states nothing.
     """
+    choice = _terminal_choice(text, names)
+    return choice[0] if choice else None
+
+
+_TOOL_CALL = re.compile(r"^skill\((.+?)\)?$")  # `Skill(agentic-forge:plan)` — the invocation form
+
+
+def _terminal_choice(text: str, names: list[str]) -> tuple[str, str] | None:
+    """``(decision, chosen name)`` for a terminal standalone answer, or None. The chosen name is
+    kept even when the decision is :data:`OTHER`, so a should-trigger loss can say WHO won
+    (ADR 0087) — and the router's tool-call spelling ``Skill(x)`` / ``/x`` is read as ``x``, which
+    is what it said under the namespaced listing."""
     tokens = text.split()
     if not tokens:
         return None
-    key = tokens[-1].strip("`*\"'.,;:!?()[]{}").lower().replace("_", "-")
+    key = tokens[-1].strip("`*\"'.,;:!?()[]{}/").lower().replace("_", "-")
+    if m := _TOOL_CALL.match(key):
+        key = m.group(1).strip("`'\" /")
     known = {n.lower(): n for n in names}
     if key not in known and key != "none" and not _SKILL_NAME_SHAPE.match(key):
         return None
@@ -317,8 +341,10 @@ def trailing_answer(text: str, names: list[str]) -> str | None:
     if head and not head.endswith(_ANSWER_BOUNDARY):
         return None
     if key == "none":
-        return "none"
-    return known.get(key, OTHER)  # a skill-shaped name that is not ours: chosen, not the target
+        return ("none", "none")
+    if key in known:
+        return (known[key], known[key])
+    return (OTHER, key)  # a skill-shaped name that is not ours: chosen, not the target
 
 
 def classify_reply(reply: str, names: list[str]) -> Reply:
@@ -328,8 +354,8 @@ def classify_reply(reply: str, names: list[str]) -> Reply:
         return Reply(INVALID, "empty", "")
     # Answer-last wins over every prose guard below (ADR 0085): a terminal, standalone name is a
     # stated decision however much reasoning precedes it.
-    if (final := trailing_answer(text, names)) is not None:
-        return Reply(final)
+    if (terminal := _terminal_choice(text, names)) is not None:
+        return Reply(terminal[0], choice=terminal[1])
     if len(text) > MAX_ANSWER_CHARS:
         return Reply(INVALID, "prose-length", _excerpt(text))  # prose by sheer length
     if sum(1 for ch in text if ch.isalpha() and not ch.isascii()) > MAX_NON_LATIN_LETTERS:
@@ -340,7 +366,7 @@ def classify_reply(reply: str, names: list[str]) -> Reply:
     if len(tokens) > MAX_ANSWER_TOKENS:
         return Reply(INVALID, "prose-tokens", _excerpt(text))
     if _DECLINE.match(lowered):
-        return Reply("none")  # an explicit decline IS a decision, however it is phrased
+        return Reply("none", choice="none")  # an explicit decline IS a decision, however phrased
     if any(t in _NEGATION or t in _ACTING for t in tokens):
         # the reply argues about the routing, or performs it — neither states one
         return Reply(INVALID, "negation-or-acting", _excerpt(text))
@@ -348,9 +374,10 @@ def classify_reply(reply: str, names: list[str]) -> Reply:
     # `_` is normalised to `-` so `code_review` still names `code-review` rather than fragmenting.
     named = {known[t.replace("_", "-")] for t in tokens if t.replace("_", "-") in known}
     if len(named) == 1:
-        return Reply(named.pop())
+        one = named.pop()
+        return Reply(one, choice=one)
     if "none" in tokens and not named:
-        return Reply("none")
+        return Reply("none", choice="none")
     reason = "ambiguous" if named else "unknown-name"
     return Reply(INVALID, reason, _excerpt(text))
 
@@ -367,6 +394,7 @@ class PromptRate:
     runs: int
     reasons: tuple[str, ...] = ()  # why each invalid call produced nothing (ADR 0084)
     excerpts: tuple[str, ...] = ()  # what those calls said instead, capped
+    choices: tuple[str, ...] = ()  # valid decisions that were NOT the target — who won (ADR 0087)
 
 
 def selection_rate(
@@ -393,6 +421,7 @@ def selection_rate(
     hits = 0
     reasons: list[str] = []
     excerpts: list[str] = []
+    choices: list[str] = []
     for _ in range(runs):
         reply = classify_reply(run_fn(system, prompt, workdir), names)
         if reply.decision == INVALID:
@@ -401,9 +430,11 @@ def selection_rate(
                 excerpts.append(reply.excerpt)
         elif reply.decision == target:
             hits += 1
+        else:
+            choices.append(reply.choice or reply.decision)
     invalid = len(reasons)
     valid = runs - invalid
-    detail = {"reasons": tuple(reasons), "excerpts": tuple(excerpts)}
+    detail = {"reasons": tuple(reasons), "excerpts": tuple(excerpts), "choices": tuple(choices)}
     # A rate from ONE surviving call carried the same weight in the mean as one from five, so a
     # single stray answer could set a prompt to a flat 0.0 or 1.0 (ADR 0067). Below half the
     # samples there is not enough evidence to average — treat the prompt as unmeasured, which is
@@ -485,6 +516,10 @@ def eval_skill(
         for why in rate.reasons:
             tally[why] = tally.get(why, 0) + 1
     excerpts = [e for rate in [*st, *sn] for e in rate.excerpts][:3]
+    lost: dict[str, int] = {}
+    for rate in st:  # only should-trigger: a non-target on should-NOT-trigger is the right answer
+        for winner in rate.choices:
+            lost[winner] = lost.get(winner, 0) + 1
     if unmeasured:
         reasons.append(
             f"{len(unmeasured)} prompt(s) unmeasured — every router call returned no decision"
@@ -502,6 +537,7 @@ def eval_skill(
         unmeasured=unmeasured,
         invalid_reasons=tally,
         invalid_excerpts=excerpts,
+        lost_to=lost,
     )
 
 

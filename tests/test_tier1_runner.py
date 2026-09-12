@@ -435,7 +435,7 @@ def test_classify_reply_excerpt_is_capped_and_single_line() -> None:
 
 
 def test_a_decision_carries_no_reason() -> None:
-    assert classify_reply("research", sorted(ON_LISTING)) == Reply("research")
+    assert classify_reply("research", sorted(ON_LISTING)) == Reply("research", choice="research")
     assert classify_reply("none", sorted(ON_LISTING)).reason == ""
 
 
@@ -572,7 +572,8 @@ def test_non_latin_prose_with_a_terminal_answer_is_a_decision() -> None:
 )
 def test_a_built_in_skill_name_is_a_choice_not_a_non_answer(reply: str) -> None:
     out = classify_reply(reply, sorted(ON_LISTING))
-    assert out == Reply(OTHER)  # a decision, so no reason and no excerpt
+    assert out.decision == OTHER and out.reason == "" and out.excerpt == ""
+    assert out.choice in {"run", "simplify"}  # and it says WHO was chosen
 
 
 def test_other_is_a_miss_on_recall_and_a_correct_non_selection_on_specificity() -> None:
@@ -653,3 +654,57 @@ def test_condition_passes_when_the_router_uses_our_namespaced_name(tmp_path: Pat
 
 def test_namespaced_unknown_name_is_still_a_choice() -> None:
     assert trailing_answer("Best fit. cloudflare:wrangler", sorted(ON_LISTING)) == OTHER
+
+
+# --- who won: attribute a should-trigger loss (ADR 0087) ----------------------
+
+
+@pytest.mark.parametrize(
+    ("reply", "decision", "choice"),
+    [
+        ("Skill(agentic-forge:plan)", OTHER, "agentic-forge:plan"),  # the tool-call spelling
+        ("The user wants a plan. Skill(plan)", "plan", "plan"),
+        ("I've invoked the /code-review skill. /code-review", "code-review", "code-review"),
+        ("Best fit here. design", OTHER, "design"),
+        ("It fits nothing. none", "none", "none"),
+    ],
+)
+def test_choice_names_who_was_chosen(reply: str, decision: str, choice: str) -> None:
+    out = classify_reply(reply, sorted(ON_LISTING))
+    assert (out.decision, out.choice) == (decision, choice)
+
+
+def test_namespaced_tool_call_resolves_to_our_skill_under_the_condition() -> None:
+    names = [f"agentic-forge:{n}" for n in sorted(ON_LISTING)]
+    out = classify_reply("Skill(agentic-forge:plan)", names)
+    assert (out.decision, out.choice) == ("agentic-forge:plan", "agentic-forge:plan")
+
+
+def test_report_says_who_won_the_lost_should_trigger_prompts(tmp_path: Path) -> None:
+    """Under the built-in listing `marketing` fell to 0.378 with zero discards — a number with no
+    cause, because OTHER was a decision and decisions were not sampled."""
+    replies = {"marketing": iter(["design", "design", "agentic-forge:marketing", "none"])}
+
+    def router(system: str, prompt: str, workdir: Path) -> str:
+        return next(replies["marketing"], "design")
+
+    (report,) = run_tier1(
+        PLUGIN, router, skills=["marketing"], runs=1, workdir=tmp_path,
+        extra_cards=load_extra_listing(BUILTINS), namespace="agentic-forge",
+    )
+    assert not report.passed
+    assert report.lost_to.get("design", 0) >= 2 and report.lost_to.get("none", 0) >= 1
+    assert "agentic-forge:marketing" not in report.lost_to  # a hit is not a loss
+    lines = report.evidence_lines()
+    assert any(line.startswith("    lost should-trigger calls to: design x") for line in lines)
+
+
+def test_losses_on_should_not_trigger_prompts_are_not_counted() -> None:
+    def always_run(system: str, prompt: str, workdir: Path) -> str:
+        return "run"
+
+    (report,) = run_tier1(PLUGIN, always_run, skills=["research"], runs=1)
+    assert set(report.lost_to) == {"run"}  # only the should-trigger prompts contribute
+    assert sum(report.lost_to.values()) == len(
+        next(t for t in load_triggers(PLUGIN) if t.name == "research").should_trigger
+    )

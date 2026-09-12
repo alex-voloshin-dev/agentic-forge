@@ -278,6 +278,7 @@ class _FakeReport:
         # tier1 reports also expose the no-decision breakdown and its samples (ADR 0084).
         self.invalid_reasons: dict[str, int] = {}
         self.invalid_excerpts: list[str] = []
+        self.lost_to: dict[str, int] = {}
         self.evidence_lines = list  # callable returning [] — no samples on a fake report
         self.gate = types.SimpleNamespace(reasons=["fake reason"])
         # version-over-version A/B (ADR 0047): empty thresholds -> version_check is a no-op here.
