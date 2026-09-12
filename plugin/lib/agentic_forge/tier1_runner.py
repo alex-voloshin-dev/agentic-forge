@@ -47,6 +47,7 @@ __all__ = [
     "load_triggers",
     "eval_skill",
     "run_tier1",
+    "load_extra_listing",
     "check_wiring",
     "all_passed",
     "INVALID",
@@ -67,7 +68,7 @@ INVALID = "invalid"
 # as a miss on recall and a correct non-selection on specificity. That asymmetry is what keeps the
 # gate honest — a router answering nonsense scores OTHER everywhere and fails every recall check.
 OTHER = "other"
-_SKILL_NAME_SHAPE = re.compile(r"^[a-z][a-z0-9-]{1,39}$")
+_SKILL_NAME_SHAPE = re.compile(r"^(?:[a-z][a-z0-9-]*:)?[a-z][a-z0-9-]{1,39}$")
 
 # Longest reply still treated as the terse answer the format demands. A conforming reply is one
 # name (or `none`), sometimes wrapped in backticks or a short sentence; anything longer is prose —
@@ -448,6 +449,8 @@ def eval_skill(
     system: str,
     runs: int,
     workdir: Path,
+    *,
+    target: str | None = None,
 ) -> Tier1Report:
     """Measure recall/specificity for one skill against the live listing and gate it.
 
@@ -455,12 +458,14 @@ def eval_skill(
     means (a fabricated 0.0 would read as a routing failure) and instead **fail the gate** with an
     explicit reason. Not measuring something is not the same as it passing, and it is not the same
     as it failing either — so the report says exactly that (ADR 0064)."""
+    # the name as the LISTING shows it — namespaced under ADR 0086's built-in condition
+    want = target or trig.name
     st = [
-        selection_rate(run_fn, system, p, names, runs, workdir, target=trig.name)
+        selection_rate(run_fn, system, p, names, runs, workdir, target=want)
         for p in trig.should_trigger
     ]
     sn = [
-        selection_rate(run_fn, system, p, names, runs, workdir, target=trig.name)
+        selection_rate(run_fn, system, p, names, runs, workdir, target=want)
         for p in trig.should_not_trigger
     ]
     st_rates = [r.rate for r in st if r.rate is not None]
@@ -500,6 +505,18 @@ def eval_skill(
     )
 
 
+def load_extra_listing(path: Path) -> list[SkillCard]:
+    """Skill cards from a JSON fixture ``{"skills": [{"name", "description"}, …]}`` — the
+    competing listing for ADR 0086's condition (Claude Code's built-ins, captured verbatim)."""
+    import json
+
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    return [
+        SkillCard(str(s["name"]), str(s.get("description", "")).strip())
+        for s in data.get("skills", [])
+    ]
+
+
 def run_tier1(
     plugin_dir: Path,
     run_fn: Runner,
@@ -507,24 +524,37 @@ def run_tier1(
     skills: list[str] | None = None,
     runs: int = DEFAULT_RUNS,
     workdir: Path | None = None,
+    extra_cards: list[SkillCard] | None = None,
+    namespace: str | None = None,
 ) -> list[Tier1Report]:
     """Run Tier-1 for the on-listing skills (optionally a subset) against the live listing.
 
     Refuses to run a mis-wired plugin (empty listing, blank description, off-listing tier1
     skill, missing trigger prompts, or an incomplete threshold) so the library guarantee does
     not depend on the caller having run ``check_wiring`` / the dry CLI first.
+
+    ``extra_cards`` renders a COMPETING listing beside ours and ``namespace`` prefixes our names
+    the way a live Claude Code session does (``agentic-forge:code-review`` beside the built-in
+    ``code-review``) — ADR 0086's condition. Under it a bare ``code-review`` reply is scored as the
+    built-in (:data:`OTHER`, a miss for us), which is the strict reading of a name collision.
     """
     if runs <= 0:
         raise ValueError(f"runs must be >= 1, got {runs}")
     problems = check_wiring(plugin_dir)
     if problems:
         raise ValueError("Tier-1 wiring problems: " + "; ".join(problems))
-    cards = load_listing(plugin_dir)
-    names = [c.name for c in cards]
-    system = build_router_system(cards)
+    ours = load_listing(plugin_dir)
+    if namespace:
+        ours = [SkillCard(f"{namespace}:{c.name}", c.description) for c in ours]
+    names = [c.name for c in ours]
+    system = build_router_system([*ours, *(extra_cards or [])])
     work = workdir or plugin_dir
     triggers = [t for t in load_triggers(plugin_dir) if skills is None or t.name in skills]
-    return [eval_skill(t, names, run_fn, system, runs, work) for t in triggers]
+    prefix = f"{namespace}:" if namespace else ""
+    return [
+        eval_skill(t, names, run_fn, system, runs, work, target=f"{prefix}{t.name}")
+        for t in triggers
+    ]
 
 
 def check_wiring(plugin_dir: Path) -> list[str]:

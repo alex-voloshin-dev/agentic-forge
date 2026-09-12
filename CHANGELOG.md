@@ -93,6 +93,16 @@ renders only our listing, while a live session has the built-ins competing besid
 exact name collisions on `code-review` and `security-review`. Recorded in the roadmap as a second,
 cheaper hypothesis for ADR 0081's field finding; not changed here.
 
+### Added — the built-in listing condition for Tier-1 (ADR 0086's measurement)
+
+`dev/run_tier1_evals.py --with-builtins` renders Claude Code's built-in skills (a verbatim
+fixture, `plugin/eval/fixtures/claude-code-builtin-skills.json`, captured from 2.1.269) beside
+ours, with ours namespaced `agentic-forge:<name>` the way a live session shows them. A bare
+`code-review` reply is scored as the built-in — `OTHER`, a miss for us — which is the strict reading
+of the two exact name collisions (`code-review`, `security-review`). Failures are recorded under
+`tier1-builtins:<skill>`, apart from the gate, and `eval.yml`'s `tiers` input gains
+`builtins-condition` to run it in CI. This is the measurement, not a change to the gate.
+
 ### Measured — `deep-review` Tier-2, the last threshold the field bundle left open
 
 0.771 / 0.750 against a 0.800 bar in July; **PASS at mean 0.963, lower bound 0.928 (n=5)** today.
