@@ -7,6 +7,87 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Fixed — a guardrail that read text as text, and two words were enough (ADR 0081)
+
+The 2026-09 field bundle: 60 days, 92 diagnostic records, one workstation on `2026.7.11`. Every
+finding below was reproduced against that version's own `guardrails`, controls asserted first.
+
+`echo ssh; echo set` **blocked**. The remote-environment-dump rule (ADR 0075) was added after
+ADR 0054 and never adopted its command-word discipline: it matched two raw-text regexes anywhere in
+the command string. `ssh` matched as an item of a `for … in` word list, as an argument of `echo`,
+and as text inside a Python string literal; `set` matched as *`echo`'s argument*, because the
+pattern only needed a separator to follow. Both field cases have that shape — and the second was
+the operator's own analysis of the first, which they could only run by writing the script to a
+file, routing around the guardrail the rule exists to enforce.
+
+- The rule now works **per segment, on command position**: the remote wrapper must be the segment's
+  command word (`ssh`, or `kubectl`/`oc`/`docker`/`podman`/`nerdctl`/`fly`/`heroku` with its
+  subcommand) and the dump must be that command's own **last** word. A following token means an
+  exact lookup (`printenv PGHOST`) or a wrapper (`env VAR=1 ./run`). A remote command passed as one
+  quoted string is re-split and checked the same way, so `ssh host 'printenv | grep KEY'` still
+  blocks — as do two shapes the raw-text version missed, `docker compose exec app printenv` and a
+  dump inside that quoted string.
+- This is **not** a heredoc bug. ADR 0079 is right to keep an interpreter heredoc's body — it is a
+  program — and the same text blocked with no heredoc at all.
+
+`rm -rf` on the machine's own temp directory blocked, twice in one session: `mktemp -d` returns
+`/var/folders/<hash>/<hash>/T/tmp.XXXX` and `/var` is a system directory. That per-user temp tree
+(under `/private` too) is now exempt for `rm`/`chmod`; `/var`, `/var/folders` and `/var/folders/<x>`
+stay protected.
+
+### Fixed — the legacy state directory was feeding itself (ADR 0081)
+
+ADR 0072's rule "writes go to the state root, reads may fall back to the legacy in-repo path" lived
+only in a docstring, and four write sites called the **reader's** helper. Once a legacy file
+existed, every later write went back into the repository: the bundle carries **18 765 audit records
+and 6 diagnostics** written into `<repo>/.agentic-forge/` over 19 days — *after* that repo had been
+migrated and verified clean. None of those 6 diagnostics exist in the user-level log.
+
+- New `diagnostics.state_file()` is the writer's path; `existing_state_file()` is documented and
+  used as readers-only. The audit hook, the rotation, the PR-watch queue (hook and scheduler) and
+  the scheduler's job state now read with the fallback and **write** to the state root, so the next
+  write drains the legacy file instead of feeding it.
+- ADR 0080's legacy-state notice did fire — into **stderr from a SessionStart hook that exits 0**,
+  which reaches nobody; the orphan was still there two months later. It now goes into SessionStart
+  `additionalContext` *and* `systemMessage`.
+
+### Fixed — the commit gate had not run for two months, and only a file knew (ADR 0081)
+
+50 of 69 recorded fail-opens are one `FileNotFoundError: 'ruff'`. The host's `ruff` lives in a
+service virtualenv and its `eslint` in `node_modules/.bin`; the gate executed the bare tool name,
+which is how nothing in that project runs it. Failing open on infrastructure breakage is correct
+(ADR 0058/0059) and unchanged — being silent about it was not.
+
+- `guardrails.resolve_gate()` resolves the tool **project-first** — `node_modules/.bin`, `.venv/bin`
+  and `venv/bin`, at `cwd` and at the repo root — before `PATH`; `gate_env()` puts those directories
+  on the gate subprocess's `PATH` so a package script's own linter (`npm run lint` → `eslint`)
+  resolves too.
+- The first fail-open of a session now says one line to the operator through `systemMessage`,
+  naming the gate that did not run, why, and what to do. Once per session
+  (`diagnostics.once_per_session`), not once per commit.
+- For the record, the bundle's reading that the blocking half is still open does not hold: all ten
+  `npm run lint` blocks predate the reporter's upgrade to 2026.7.10, and the single one after it is
+  a genuine eslint failure.
+
+### Changed — a logged block explains itself; a rotation costs disk, not history (ADR 0081)
+
+- `Decision` carries `rule` and `evidence`, and the security hook records both. The command in a
+  block record is capped at 500 characters and for 11 of 14 field records the matched text was past
+  the cut — replaying them returns "no block" with nothing left to minimise. A rule id and a
+  160-character excerpt cost a few dozen bytes and make the record self-contained.
+- Rotation **archives** the records it drops: gzipped to `<state root>/archive/audit-<ts>.jsonl.gz`,
+  six kept by default (new `logs.archives`; `0` restores discarding). The notice now states the span
+  in **days** and where the records went — 10 MiB/5 MiB is 11–15 days on a workload of ~950 tool
+  calls a day, so the bundle's requested 60-day window never existed to be asked for.
+
+### Observed, not acted on — the spine skills did not trigger in the field
+
+27 days of one repo: **183 `Agent` calls against 3 `Skill` calls**. The subagent roles carried a
+six-week feature in a per-PR implement → review → security loop; `develop`, the skill whose job is
+that loop, fired once. Recorded in ADR 0081 and the roadmap with the measurement it needs — the
+audit log says what ran, never what was considered, and the router listing has no budget to spend
+on a guess.
+
 ## [2026.7.11] - 2026-07-26
 
 ### Fixed — a heredoc body is data, not a command (ADR 0079)

@@ -43,11 +43,12 @@ def enqueue(cwd: str, payload: dict[str, Any]) -> bool:
     if ref is None:
         return False
     owner, name, number = ref
-    path = diagnostics.existing_state_file(root, pr_watch.QUEUE_FILE, pr_watch.QUEUE_PATH)
+    source = diagnostics.existing_state_file(root, pr_watch.QUEUE_FILE, pr_watch.QUEUE_PATH)
+    path = diagnostics.state_file(root, pr_watch.QUEUE_FILE)  # writes never go back in-repo
     existing: Any = []
-    if path.is_file():
+    if source.is_file():
         try:
-            existing = json.loads(path.read_text(encoding="utf-8"))
+            existing = json.loads(source.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             existing = []  # a corrupt queue is replaced, never allowed to block the hook
     queue = pr_watch.queue_add(

@@ -511,6 +511,15 @@ bugs (neutral `config.example.json` + configuration.md python/models clarificati
 
 ### Observed, deliberately not acted on
 
+- **The spine skills did not trigger in the field** (2026-09 bundle, ADR 0081). 27 days of one
+  repo: **183 `Agent` calls against 3 `Skill` calls** — the roles carried a six-week feature in a
+  per-PR implement → review → security loop, while `develop`, the skill for exactly that loop,
+  fired once. Likely cause: the work arrives as tasks from a plan in the target repo whose own
+  `AGENTS.md` prescribes the loop, and a standing project instruction is already in context while
+  a skill must be chosen. **Do not re-tune descriptions on that guess** — the listing budget is
+  already at its ceiling and the audit log records what ran, never what was considered. Measure
+  first: (a) a Tier-1 condition that runs the should-trigger set *with* a competing project
+  instruction in context, (b) one more bundle from a repo without a prescriptive `AGENTS.md`.
 - **Vault write-rate is low in daily work** (9 `docs/knowledge/` writes against 136 sessions) while
   the session-start injection runs everywhere. One week of one repo is too thin to justify
   auto-capture mechanics; keep watching across bundles before designing anything.

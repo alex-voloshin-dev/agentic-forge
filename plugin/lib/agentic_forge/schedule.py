@@ -58,12 +58,19 @@ STATE_FILE = "schedule-state.json"  # resolved under diagnostics.state_root() â€
 
 
 def _state_path(repo: Path | str) -> Path:
-    """Per-job state under the state root (user-level by default, ADR 0072).
-
-    Reads fall back to the legacy in-repo path so an upgrade does not lose the run history."""
+    """Per-job state as a READER sees it: the state root, falling back to the legacy in-repo path
+    so an upgrade does not lose the run history (ADR 0072)."""
     from . import diagnostics
 
     return diagnostics.existing_state_file(repo, STATE_FILE, STATE_PATH)  # per-job state
+
+
+def _state_write_path(repo: Path | str) -> Path:
+    """Where per-job state is WRITTEN â€” always the state root, so the next save drains a legacy
+    file instead of feeding it (ADR 0081)."""
+    from . import diagnostics
+
+    return diagnostics.state_file(repo, STATE_FILE)
 
 
 @dataclass(frozen=True)
@@ -215,8 +222,8 @@ def load_state(repo: Path | str) -> dict[str, JobState]:
 
 
 def save_state(repo: Path | str, state: dict[str, JobState]) -> Path:
-    """Persist per-job state under the project dir; return the state file path."""
-    path = _state_path(repo)
+    """Persist per-job state under the state root; return the state file path."""
+    path = _state_write_path(repo)
     path.parent.mkdir(parents=True, exist_ok=True)
     data = {
         name: {

@@ -36,6 +36,7 @@
   "logs": {
     "enabled": true,
     "max_bytes": 10485760,
-    "keep_bytes": 5242880
+    "keep_bytes": 5242880,
+    "archives": 6
   }
 }

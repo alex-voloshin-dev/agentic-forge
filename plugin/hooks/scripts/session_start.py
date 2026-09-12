@@ -38,24 +38,27 @@ def main() -> int:
             diagnostics.main_repo_root(cwd),
             max_bytes=limits.logs_max_bytes,
             keep_bytes=limits.logs_keep_bytes,
+            archives=limits.logs_archives,
         )
         # Surface a half-done state migration ONCE per session: it is otherwise silent in
         # both directions — orphaned history and a resurrected in-repo directory (ADR 0080).
+        # It used to go to stderr, which a SessionStart hook exiting 0 does not show anyone: the
+        # field bundle that reported the orphan was collected two months after this notice
+        # "fired". It now goes where a session can actually read it (ADR 0081).
         notice = diagnostics.legacy_state_notice(cwd)
-        if notice:
-            print(notice, file=sys.stderr)
         context = build_context(cwd)
+        if notice:
+            context = f"{notice}\n\n{context}" if context.strip() else notice
         if context.strip():
-            print(
-                json.dumps(
-                    {
-                        "hookSpecificOutput": {
-                            "hookEventName": "SessionStart",
-                            "additionalContext": context,
-                        }
-                    }
-                )
-            )
+            output: dict[str, object] = {
+                "hookSpecificOutput": {
+                    "hookEventName": "SessionStart",
+                    "additionalContext": context,
+                }
+            }
+            if notice:
+                output["systemMessage"] = notice  # shown to the operator, not just to the model
+            print(json.dumps(output))
     except Exception as exc:
         # A knowledge injection must never block session start — fail open (exit 0), but record the
         # crash so a vault/injection bug isn't silent (parity with the other hooks, ADR 0039).

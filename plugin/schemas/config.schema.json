@@ -152,7 +152,12 @@
         "keep_bytes": {
           "type": "integer",
           "minimum": 1,
-          "description": "Bytes of the most recent records to keep when rotating. Default 5 MiB \u2014 the rest is DISCARDED."
+          "description": "Bytes of the most recent records to keep in the live log when rotating. Default 5 MiB; the rest is gzipped into an archive beside it (see archives)."
+        },
+        "archives": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many gzipped archives of rotated-out records to keep beside the live log. Default 6; 0 discards them instead."
         }
       }
     }
