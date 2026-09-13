@@ -111,7 +111,10 @@ Three readings, in order of weight:
    the hook fires on all 84 eval prompts, because they are its own training data. On real prompts it
    fires at roughly its leave-one-out recall, 0.50. The eval inherited the classifier's data, and a
    held-out prompt set is the debt that leaves.
-3. **Zero effect where it was aimed** — and this is the finding. The four skills with an obvious
+3. **Zero effect where it was aimed** — and this is the finding. *(Retracted 2026-09-13, ADR
+   0090: on that stand the four skills had nothing to run on — an empty directory — so the null
+   result is uninterpretable, not negative. The reading below did not survive the diagnostic
+   that was scheduled precisely to test it.)* The four skills with an obvious
    by-hand path received the *exact skill name* in the prompt's own context and did the work by
    hand anyway. For them the bottleneck is not routing information; the model knows and declines.
    The description-as-price-list hypothesis (ADR 0088's step 4) is now the one worth testing.

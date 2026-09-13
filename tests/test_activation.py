@@ -180,3 +180,47 @@ def test_ask_why_failure_does_not_lose_the_measurement(tmp_path: Path) -> None:
 )
 def test_bucket_why(answer: str, bucket: str) -> None:
     assert activation.bucket_why(answer) == bucket
+
+
+# --- a real workspace per prompt (ADR 0090) --------------------------------------
+
+
+def test_prepare_workspace_gives_a_prompt_something_to_work_on(tmp_path: Path) -> None:
+    """The first runs used one empty temp dir for all 84 prompts; 36/36 stated reasons were
+    "there was nothing to review / implement / audit". Now each prompt gets a repo with a
+    history, a feature branch, a diff, and the plan."""
+    import subprocess
+
+    repo = activation.prepare_workspace(PLUGIN, tmp_path)
+    assert (repo / "taskstore.py").is_file() and (repo / "docs/sdlc/task-priorities/plan.md").is_file()
+    git = lambda *a: subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True).stdout  # noqa: E731
+    assert git("branch", "--show-current").strip() == "feature/task-priorities"
+    assert git("log", "--oneline", "main..HEAD").strip()  # a committed change on the branch
+    assert git("diff", "--stat").strip()  # …and an unstaged edit
+    assert "priority_of" in (repo / "taskstore.py").read_text(encoding="utf-8")
+    assert not (repo / "__pycache__").exists()
+
+
+def test_prepare_workspace_is_fresh_per_call(tmp_path: Path) -> None:
+    a = activation.prepare_workspace(PLUGIN, tmp_path / "one")
+    (a / "leftover.txt").write_text("from prompt one", encoding="utf-8")
+    b = activation.prepare_workspace(PLUGIN, tmp_path / "two")
+    assert not (b / "leftover.txt").exists()  # no cross-prompt contamination
+
+
+def test_run_activation_uses_the_workspace_factory(tmp_path: Path) -> None:
+    trig = next(t for t in load_triggers(PLUGIN) if t.name == "plan")
+    seen: list[Path] = []
+
+    def run(system: str, prompt: str, workdir: Path) -> str:
+        seen.append(workdir)
+        return _stream(_bash("ls"))
+
+    made = [0]
+
+    def factory() -> Path:
+        made[0] += 1
+        return tmp_path / f"w{made[0]}"
+
+    activation.activation_rate(trig, run, tmp_path, target="plan", min_activation=None, workspace_factory=factory)
+    assert made[0] == len(trig.should_trigger) and len(set(seen)) == len(seen)  # one fresh dir each

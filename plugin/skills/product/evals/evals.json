@@ -49,7 +49,7 @@
       "Write a PRD for the task-priorities feature",
       "Define the goals and acceptance criteria for the new feature",
       "Now turn the brief into a PRD with goals and acceptance criteria.",
-      "Specify the requirements and user stories for X",
+      "Specify the requirements and user stories for the task-priorities feature",
       "Produce the product requirements for the feature"
     ],
     "should_not_trigger": [

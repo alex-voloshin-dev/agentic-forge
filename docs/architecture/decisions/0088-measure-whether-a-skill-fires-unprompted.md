@@ -104,6 +104,13 @@ minutes earlier, 0.571 here). The mean and the coarse bands are the signal; a on
 between two adjacent skills is not. A calibrated threshold, if one is ever set, needs multiple runs
 per prompt like the other tiers.
 
+> **Amended 2026-09-13 (ADR 0090).** The shape above is contaminated. Every prompt ran in one
+> EMPTY, shared temp directory; the zeros are the *artifact-dependent* skills — "review my PR",
+> "build from the plan" — whose sessions looked, found nothing, and asked for the input. That is
+> a different property from "how easily the model can do the task itself". The note's lift below
+> is paired on the same stand and stands as a relative effect; the absolute levels do not. A fresh
+> fixture repo per prompt is now the stand, and the next baseline is the first honest one.
+
 ## The intervention, and its lift
 
 Step (2) of the sequence, run the same day against the same 84 prompts, same model, one variable

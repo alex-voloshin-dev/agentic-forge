@@ -48,7 +48,7 @@
     "should_trigger": [
       "Break the technical design into a dependency-ordered task plan",
       "Create an implementation plan with checkpoints for the feature",
-      "Plan and sequence the work for X",
+      "Plan and sequence the work for the task-priorities feature",
       "Turn the tech design into a work plan",
       "What is the build order? Make a work plan."
     ],
