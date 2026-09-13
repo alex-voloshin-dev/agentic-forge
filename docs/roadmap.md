@@ -549,7 +549,8 @@ bugs (neutral `config.example.json` + configuration.md python/models clarificati
   the note off the same stand reads 0.571; with it on, 0.929 — z = 5.87, thirty prompts from two
   sentences, and the note-off misses say *"momentum"*, *"never paused"*, not cost. The note is the
   fix. **(c) is done** (content-bearing prompts, a blog post and a page in the fixture, max-turns
-  4). **What remains is (a) alone:** the next field bundle on ≥ 2026.9.3 — `Skill` vs `Agent`
+  4), re-baselined at **79/84 = 0.940**, and the gate is live at pooled ≥ 0.80 (ADR 0093).
+  **What remains is (a) alone:** the next field bundle on ≥ 2026.9.3 — `Skill` vs `Agent`
   counts against 183-to-3. Nothing is built ahead of it; if the field does not move, ADR 0081's
   competing-instruction hypothesis is next, and it is measured before anything is changed.
 - **Vault write-rate is low in daily work** (9 `docs/knowledge/` writes against 136 sessions) while

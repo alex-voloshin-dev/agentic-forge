@@ -274,8 +274,14 @@ namespaced); locally: `python dev/run_tier1_evals.py --runner claude --with-buil
 are recorded under `tier1-builtins:` and are not the gate. `activation` runs **Tier-1b** (ADR 0088):
 each on-listing skill's should_trigger prompts through a real `claude -p --plugin-dir` session in a
 fresh fixture repo, scanning for a `Skill` call — the property the field reports are about. Locally:
-`python dev/run_activation_evals.py --runner claude [--ask-why] [--env K=V]`. A measurement until
-`--min-activation` is set from the polished-stand baseline (ADR 0092).
+`python dev/run_activation_evals.py --runner claude [--ask-why] [--env K=V]`. Gated in CI at
+`--min-activation 0.80` on the rate **pooled over the run's 84 prompts** — not per skill: at 4-9
+prompts a skill, a per-skill floor either flakes on a healthy plugin or misses a real drop (ADR
+0093). Baseline on the polished stand: 79/84 = 0.940. The per-skill lines and the `--ask-why`
+answers are the lens. A session that never got a turn (a usage limit, a crash) is *undetermined*:
+out of the rate, listed with its error, and more than 10% of them fails a gated run as a run; a
+timed-out session keeps its partial transcript and shows as `T` in the progress line; a miss with
+no session id is recorded as such rather than dropped.
 
 Setup:
 

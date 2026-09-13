@@ -106,9 +106,12 @@ jobs:
       # Tier-1b, on demand (ADR 0088/0092): does a live session with the plugin loaded invoke the
       # skill unprompted? Each prompt runs in a fresh fixture repo. A measurement — no gate until
       # a threshold is calibrated against the polished-stand baseline (ADR 0092).
-      - name: Skill Tier-1b activation (measurement, on demand)
+      # Gated on the rate POOLED over the run's 84 prompts, not per skill: at 4-9 prompts a skill a
+      # per-skill floor flakes or misses (ADR 0093). 0.80 sits five sigma under the 0.940 baseline,
+      # fails the note-off regime (0.571) with certainty and a drop to 0.75 seven runs in eight.
+      - name: Skill Tier-1b activation (pooled gate, on demand)
         if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' && github.event.inputs.tiers == 'activation' }}
-        run: python dev/run_activation_evals.py --runner claude --model "$EVAL_MODEL"
+        run: python dev/run_activation_evals.py --runner claude --model "$EVAL_MODEL" --min-activation 0.80
       - name: Say what this measured
         if: ${{ always() }}
         run: |
