@@ -228,7 +228,11 @@ grader can verify on-disk artifacts (level-2) without ever modifying them; the w
 on your subscription. **Write roles** (anything with `Write`/`Edit` — `software-engineer`,
 `architect`, `qa-engineer`) are **always run in a per-case sandbox**: `run_role` forces
 isolation for them regardless of `--isolate`, materializing fixtures into a fresh temp workdir
-by basename (no repo-relative paths), so a write role can never reach or mutate the real repo.
+by basename — or, for a `files` entry with a `tree/` segment, at its path below `tree/`
+(`fixtures/rust-patterns/tree/src/lib.rs` → `src/lib.rs`), which is how a case seeds a manifest,
+a source file and an existing test so "no existing test is weakened" has a test to weaken
+(ADR 0094); a `files` entry may also name a real plugin file such as `schemas/evals.schema.json`.
+A write role can never reach or mutate the real repo.
 `--isolate` opts read roles into the same sandboxing. Grading is robust to prose/fenced
 grader replies and retries once on an unparseable response.
 

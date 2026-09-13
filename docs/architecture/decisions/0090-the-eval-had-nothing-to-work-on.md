@@ -61,6 +61,7 @@ where the code was. The eval scored that as a miss.
 
 1. **Every Tier-1b prompt runs in a fresh, realistic workspace.** `activation.prepare_workspace`
    copies the Tier-3 spine fixture (a small Python repo), seeds the SDLC artifacts a spine phase
+   *(since ADR 0094 also a minimal `docs/knowledge/` vault, so the `knowledge` prompts have notes to check)*
    expects (`docs/sdlc/task-priorities/{research-brief,prd,tech-design,plan}.md`), `git init`s a
    `main` with a baseline commit, then checks out a feature branch with one committed change and
    leaves one unstaged edit — so `git diff`, `git diff main..HEAD`, "this branch", "the plan" and

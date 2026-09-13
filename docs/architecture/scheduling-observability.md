@@ -94,7 +94,7 @@ artifacts and emits an anomaly for any whose `verdict` is still `changes` at `it
   (audit + diagnostics digests), `environment.txt`, and the plugin/config metadata slices — a
   consistent artifact a maintainer can analyze or a user can share. Windows to the last N days
   (`--days`, default 7; `0` = full history) and defaults the output to `~/Downloads` with a
-  consistent `<prefix>-<ts>.zip` name (`--repo` / `--out` / `--home`). The audit trail carries a
+  consistent `<prefix>-<ts>.zip` name (`--repo` / `--out` / `--home`, the last also via `AGENTIC_FORGE_HOME` — how the Tier-2 stand keeps a run out of the operator's real home, ADR 0094). The audit trail carries a
   per-record `ts` (the logging hook stamps it) so the window filters it too; blank/undated records
   are retained, never silently dropped. The plugin manifest ships from the plugin root the lib
   runs inside (so `environment.txt` always states the plugin version — the first triage fact), the
