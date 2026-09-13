@@ -3,9 +3,9 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "With php-patterns loaded, implement a small behaviour change in a PHP class in a target repo (e.g. add a typed method that validates input and can fail).",
+      "prompt": "With php-patterns loaded, add `Ports::parsePortRange(string $text): array` to src/Ports.php: it parses 'lo-hi' (e.g. '8000-8080') into `[lo, hi]` using `parsePort` for each end, and throws when either end is invalid or lo > hi. The class, its tests and composer.json are in your working directory.",
       "expected_output": "A scoped change with declare(strict_types=1), full type declarations, strict comparisons, PSR-12 style, plus PHPUnit tests covering the behaviour with a boundary and an exception case; PHPStan/Psalm and the formatter clean using the repo's own composer scripts.",
-      "files": [],
+      "files": ["eval/fixtures/php-patterns/tree/composer.json", "eval/fixtures/php-patterns/tree/src/Ports.php", "eval/fixtures/php-patterns/tree/tests/PortsTest.php"],
       "assertions": [
         "declare(strict_types=1) is present and params/returns/properties are type-declared",
         "Strict comparison (===) is used, not loose ==",

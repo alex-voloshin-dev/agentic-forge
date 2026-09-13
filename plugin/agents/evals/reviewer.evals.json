@@ -3,7 +3,7 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "Review this diff that adds a `get_user(users, idx)` helper which returns `users[idx]` with no bounds check, called with a user-supplied index. Decide whether to approve.",
+      "prompt": "Review this diff and decide whether to approve.",
       "expected_output": "A verdict of 'changes' with a finding that flags the missing bounds/validation check, its location, a severity, and a suggested fix. No files are modified.",
       "files": ["eval/fixtures/reviewer/case1.diff"],
       "assertions": [
@@ -17,7 +17,7 @@
     },
     {
       "id": 2,
-      "prompt": "Review a small, correct diff that renames a local variable and updates every reference consistently. Decide whether to approve.",
+      "prompt": "Review this diff before merge and decide whether to approve.",
       "expected_output": "A verdict of 'approve' with no blocking findings (at most nits).",
       "files": ["eval/fixtures/reviewer/case2.diff"],
       "assertions": [
@@ -29,7 +29,7 @@
     },
     {
       "id": 3,
-      "prompt": "Review the design artifact tech-design.md, which proposes a read-through cache but never mentions invalidation. Critique it.",
+      "prompt": "Review the design artifact tech-design.md and critique it; decide whether it can proceed as written.",
       "expected_output": "Structured findings (severity, location, suggested fix) flagging the missing cache-invalidation strategy, and a verdict reflecting that changes are needed.",
       "files": ["eval/fixtures/reviewer/case3-tech-design.md"],
       "assertions": [

@@ -1,9 +1,4 @@
-"""Date parsing under test (case 2). The engineer must fix parse_date.
-
-parse_date currently accepts only the "DD/MM/YYYY" format and raises on ISO-8601
-("YYYY-MM-DD") input, which makes test_parse_date fail. Fix the implementation so both the
-existing slash format and ISO-8601 are accepted, without weakening the test.
-"""
+"""Date parsing helpers (software-engineer eval fixture, case 2)."""
 
 from __future__ import annotations
 

@@ -3,9 +3,9 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "With python-patterns loaded, implement a small behaviour change in a Python module in a target repo (e.g. add a parameter with validation).",
+      "prompt": "With python-patterns loaded, add `parse_port_range(text)` to ports.py: it parses 'lo-hi' (e.g. '8000-8080') into a `(lo, hi)` tuple of ports using `parse_port` for each end, and fails when either end is invalid or lo > hi. ports.py, test_ports.py and pyproject.toml are in your working directory.",
       "expected_output": "A scoped, fully type-hinted change that mirrors the repo's conventions, adds pytest tests covering the behaviour plus a boundary and an error case, and leaves ruff/mypy/pytest green using the repo's own commands where declared.",
-      "files": [],
+      "files": ["eval/fixtures/python-patterns/tree/pyproject.toml", "eval/fixtures/python-patterns/tree/ports.py", "eval/fixtures/python-patterns/tree/test_ports.py"],
       "assertions": [
         "Public functions are type-annotated and the change is type-consistent on inspection (no new # type: ignore)",
         "pytest tests are added covering the happy path plus a boundary and an error case",

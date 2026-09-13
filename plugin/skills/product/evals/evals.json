@@ -53,7 +53,7 @@
       "Produce the product requirements for the feature"
     ],
     "should_not_trigger": [
-      "Research the options and prior art for X before we spec it",
+      "Research how other task apps handle priorities before we spec it",
       "Design the technical architecture for the feature",
       "Break the design into a dependency-ordered task plan",
       "Implement the feature in a worktree",

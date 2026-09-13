@@ -1,4 +1,4 @@
-"""Failing test for case 2 (must pass after the engineer's fix; do not weaken it)."""
+"""Tests for the date parsing helpers (case 2)."""
 
 from __future__ import annotations
 
@@ -12,5 +12,4 @@ def test_parse_date_slash() -> None:
 
 
 def test_parse_date_iso() -> None:
-    # Currently fails: parse_date rejects ISO-8601 input.
     assert parse_date("2026-12-31") == datetime.date(2026, 12, 31)

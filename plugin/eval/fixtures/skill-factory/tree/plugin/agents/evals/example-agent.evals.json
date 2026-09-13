@@ -1,0 +1,19 @@
+{
+  "skill_name": "example-agent",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Read the file and report what it contains.",
+      "files": [],
+      "assertions": ["The report names the file and summarizes its content without editing it"]
+    }
+  ],
+  "component": {
+    "id": "example-agent",
+    "type": "agent",
+    "purpose": "Example read-only subagent in the plugin skeleton."
+  },
+  "thresholds": {
+    "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }
+  }
+}

@@ -1,0 +1,2 @@
+{"ts": "2024-02-02T10:00:00+00:00", "kind": "block", "severity": "major", "component": "security-hook", "signature": "security-hook:block:curl-pipe-sh", "message": "blocked: pipe a network download into a shell"}
+{"kind": "anomaly", "severity": "minor", "component": "review-loop", "signature": "review-loop:undated", "message": "legacy record without a timestamp"}

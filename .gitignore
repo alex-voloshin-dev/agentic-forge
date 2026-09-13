@@ -29,6 +29,11 @@ coverage.xml
 !.agentic-forge/config.json
 **/.agentic-forge/*
 !**/.agentic-forge/config.json
+# The diagnostics-bundle eval stand seeds a repo-side state dir ON PURPOSE (audit + diagnostics
+# logs the Tier-2 run windows over); those fixture files are source, so re-include them.
+!plugin/eval/fixtures/**/.agentic-forge/*
+# Tier-2 roles run pytest in place on fixture COPIES; a stray in-tree run must never be tracked.
+plugin/eval/fixtures/**/__pycache__/
 eval-report.html
 
 # OS / editor

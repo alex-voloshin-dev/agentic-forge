@@ -94,6 +94,14 @@ FIXTURE_DOCS = {  # src (relative to the plugin) -> dest (relative to the worksp
     # `ux-design` prompts have a target the way the code prompts do.
     "eval/fixtures/activation/blog-post.md": "docs/blog/why-task-priorities.md",
     "eval/fixtures/activation/task-list.html": "web/task-list.html",
+    # Audit C6b: a seeded vault (root MOC + two decisions, validate_vault-clean), so the
+    # `knowledge` recall prompts ("have we decided on an auth approach? check our notes") have
+    # notes to check instead of an absent docs/knowledge/.
+    "eval/fixtures/activation/knowledge/MOC.md": "docs/knowledge/MOC.md",
+    "eval/fixtures/activation/knowledge/task-priority-ordering.md": (
+        "docs/knowledge/task-priority-ordering.md"
+    ),
+    "eval/fixtures/activation/knowledge/auth-approach.md": "docs/knowledge/auth-approach.md",
 }
 _FEATURE_BRANCH = "feature/task-priorities"
 

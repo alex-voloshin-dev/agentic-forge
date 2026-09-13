@@ -592,4 +592,34 @@ def test_check_wiring_duplicate_basenames(tmp_path: Path) -> None:
         "thresholds": {"tier2_quality": {"min_pass_rate": 0.8, "runs": 5}},
     }
     (agents / "evals" / "x.evals.json").write_text(json.dumps(contract), encoding="utf-8")
-    assert any("duplicate fixture basenames" in p for p in check_wiring("x", tmp_path))
+    assert any("duplicate fixture destinations" in p for p in check_wiring("x", tmp_path))
+
+
+# --- fixture layout below a `tree/` segment (audit C6d) --------------------------------------
+
+
+def test_fixture_dest_is_basename_or_path_below_tree() -> None:
+    from agentic_forge.evals import fixture_dest
+
+    assert fixture_dest("eval/fixtures/reviewer/case1.diff") == "case1.diff"
+    assert fixture_dest("eval/fixtures/rust-patterns/tree/src/lib.rs") == "src/lib.rs"
+    assert fixture_dest("eval/fixtures/x/tree/plugin/agents/a.md") == "plugin/agents/a.md"
+    # the marker is a DIRECTORY segment: a file literally named `tree` lands by basename
+    assert fixture_dest("eval/fixtures/x/tree") == "tree"
+    # only the first marker counts; a deeper `tree/` is part of the seeded layout
+    assert fixture_dest("eval/fixtures/x/tree/src/tree/y.rs") == "src/tree/y.rs"
+
+
+def test_materialize_fixtures_keeps_the_layout_below_tree(tmp_path: Path) -> None:
+    src = tmp_path / "eval" / "fixtures" / "p" / "tree" / "src"
+    src.mkdir(parents=True)
+    (src / "lib.rs").write_text("pub fn f() {}", encoding="utf-8")
+    (src.parent / "Cargo.toml").write_text("[package]", encoding="utf-8")
+    wd = tmp_path / "wd"
+    wd.mkdir()
+    rels = ["eval/fixtures/p/tree/Cargo.toml", "eval/fixtures/p/tree/src/lib.rs"]
+    materialize_fixtures(tmp_path, rels, wd)
+    assert (wd / "Cargo.toml").is_file() and (wd / "src" / "lib.rs").is_file()
+    assert not (wd / "eval").exists() and not (wd / "tree").exists()  # no repo path leaks
+    labels = load_fixtures(tmp_path, rels)
+    assert "--- FILE: src/lib.rs ---" in labels and "eval/fixtures" not in labels

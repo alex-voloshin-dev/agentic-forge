@@ -56,7 +56,7 @@
       "Design the technical architecture for the feature",
       "Write a PRD with goals and acceptance criteria",
       "Implement the feature in a worktree",
-      "Research the options and prior art for X",
+      "Investigate the options and prior art for adding full-text search",
       "Review my diff for bugs and security"
     ]
   }

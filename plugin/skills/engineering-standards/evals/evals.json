@@ -18,9 +18,9 @@
     },
     {
       "id": 2,
-      "prompt": "With the standards loaded, add a database query that takes a user-supplied value.",
+      "prompt": "With the standards loaded, add `find_by_name(conn, name)` to users_repo.py — a query that looks a user up by a user-supplied name — with tests. users_repo.py and test_users_repo.py are in your working directory.",
       "expected_output": "A parameterised query with input validated at the boundary; no secrets logged; safe defaults.",
-      "files": [],
+      "files": ["eval/fixtures/engineering-standards/users_repo.py", "eval/fixtures/engineering-standards/test_users_repo.py"],
       "assertions": [
         "The query is parameterised (no string-built SQL)",
         "User input is validated at the trust boundary",

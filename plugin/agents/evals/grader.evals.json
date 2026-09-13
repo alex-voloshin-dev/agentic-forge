@@ -17,7 +17,7 @@
     },
     {
       "id": 2,
-      "prompt": "Grade the work under test against its two assertions, which the output clearly satisfies.",
+      "prompt": "Grade the work under test against its two assertions and emit grading.json.",
       "expected_output": "grading.json with both assertions passed:true, each with evidence, and summary.pass_rate of 1.0.",
       "files": ["eval/fixtures/grader/case2.md"],
       "assertions": [
@@ -28,7 +28,7 @@
     },
     {
       "id": 3,
-      "prompt": "Grade the work under test against its assertion, which it only partially satisfies (only one of two required inputs is validated).",
+      "prompt": "Grade the work under test against its assertion and emit grading.json.",
       "expected_output": "An explicit pass/fail decision with evidence quoting the output, made impartially without rewriting the output.",
       "files": ["eval/fixtures/grader/case3.md"],
       "assertions": [
