@@ -52,7 +52,7 @@
       "What do we know about how we handle task priorities?",
       "Have we already decided on an auth approach? Check our notes.",
       "Remember in our project notes that we chose Postgres over SQLite for concurrent writes.",
-      "Capture this rationale in the knowledge base so we don't relitigate it.",
+      "Capture this rationale in the knowledge base so we don't relitigate it: we keep task storage in memory rather than SQLite because the CLI is single-user and must start in under 50 ms.",
       "Recall any prior art we noted on rate limiting before I design it."
     ],
     "should_not_trigger": [

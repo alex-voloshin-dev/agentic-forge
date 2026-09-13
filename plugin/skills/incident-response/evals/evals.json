@@ -39,7 +39,7 @@
       "We have an outage — start the incident response",
       "Sev1: the service is down, coordinate the response",
       "Triage this incident and draft a postmortem",
-      "Classify the severity of this production issue"
+      "Classify the severity of this production incident \u2014 is it a sev1? Since the 14:05 deploy the checkout API returns 500s for roughly a third of requests and the on-call channel is filling up"
     ],
     "should_not_trigger": [
       "Is the production deploy healthy right now?",

@@ -78,6 +78,7 @@ fixture without a UI. The remaining gap to 1.000 is almost entirely the eval's, 
   plan" and "invoke the skill" understates activation for investigate-first skills; 4 or 5 is a
   fairer cap, and a change to it re-baselines.
 - **The note's contribution on the honest stand** — one run with `SKILL_ROUTING_NOTE` removed —
+  *(done: 0.571 without it, ADR 0092)*
   is the single most informative run still available: it says whether the intervention shipped in
   2026.9.3 does anything real, or whether a real target alone accounts for 0.929.
 

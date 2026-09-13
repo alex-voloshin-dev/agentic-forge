@@ -79,6 +79,10 @@ FIXTURE_DOCS = {  # src (relative to the plugin) -> dest (relative to the worksp
     "eval/fixtures/spine/prd.md": "docs/sdlc/task-priorities/prd.md",
     "eval/fixtures/spine/tech-design.md": "docs/sdlc/task-priorities/tech-design.md",
     "eval/fixtures/spine/plan.md": "docs/sdlc/task-priorities/plan.md",
+    # ADR 0091 stand polish: a page to audit and a UI to design, so `marketing` and
+    # `ux-design` prompts have a target the way the code prompts do.
+    "eval/fixtures/activation/blog-post.md": "docs/blog/why-task-priorities.md",
+    "eval/fixtures/activation/task-list.html": "web/task-list.html",
 }
 _FEATURE_BRANCH = "feature/task-priorities"
 
