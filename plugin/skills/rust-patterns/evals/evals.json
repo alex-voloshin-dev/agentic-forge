@@ -3,9 +3,9 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "With rust-patterns loaded, implement a small behaviour change in a Rust crate in a target repo (e.g. add a function that parses input and can fail).",
+      "prompt": "With rust-patterns loaded, add `parse_port_range(text: &str) -> Result<(u16, u16), PortError>` to src/lib.rs: it parses 'lo-hi' (e.g. '8000-8080') using `parse_port` for each end, and fails when either end is invalid or lo > hi (extend `PortError` as needed). The crate, its tests and Cargo.toml are in your working directory.",
       "expected_output": "A scoped change that returns Result with the ? operator and a real error type (thiserror/anyhow), borrows rather than cloning, adds tests covering the behaviour plus a boundary and an Err case, and is clippy-clean and rustfmt-formatted (idiomatic, no needless clone, no unwrap()/expect() on the happy path).",
-      "files": [],
+      "files": ["eval/fixtures/rust-patterns/tree/Cargo.toml", "eval/fixtures/rust-patterns/tree/src/lib.rs", "eval/fixtures/rust-patterns/tree/tests/parse.rs"],
       "assertions": [
         "Failure is returned as Result<_, E> using `?` and a real error type, not unwrap()/expect() or panic",
         "Parameters borrow (&str/&[T]) rather than taking owned String/Vec or cloning to satisfy the borrow checker",

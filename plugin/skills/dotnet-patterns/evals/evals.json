@@ -3,9 +3,9 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "With dotnet-patterns loaded, implement a small behaviour change in a C# project in a target repo (e.g. add a method that validates input and can fail).",
+      "prompt": "With dotnet-patterns loaded, add `PortParser.ParseRange(string text)` — returning the two ends as a tuple or a small record — to Ports.cs: it parses 'lo-hi' (e.g. '8000-8080') using `Parse` for each end, and throws when either end is invalid or lo > hi. Ports.csproj, Ports.cs and PortsTests.cs are in your working directory.",
       "expected_output": "A scoped change that honours nullable reference types (no ! suppression), disposes IDisposable via using, adds xUnit/NUnit tests covering the behaviour plus a boundary and an exception case, compiles cleanly, and applies standard C# formatting.",
-      "files": [],
+      "files": ["eval/fixtures/dotnet-patterns/tree/Ports.csproj", "eval/fixtures/dotnet-patterns/tree/Ports.cs", "eval/fixtures/dotnet-patterns/tree/PortsTests.cs"],
       "assertions": [
         "Nullable reference types are honoured (no `!` null-forgiving suppression to silence warnings)",
         "IDisposable resources are disposed (using declaration/statement)",

@@ -36,9 +36,9 @@
   },
   "triggers": {
     "should_trigger": [
-      "We have an outage — start the incident response",
-      "Sev1: the service is down, coordinate the response",
-      "Triage this incident and draft a postmortem",
+      "We have an outage — since 09:40 UTC every request to the task API returns 502 for all users; start the incident response",
+      "Sev1: the service is down — the task-list page has failed to load for everyone since the 11:15 deploy; coordinate the response",
+      "Triage this incident and draft a postmortem: between 02:10 and 02:55 UTC the nightly cleanup deleted completed tasks for about 5% of users before we rolled it back",
       "Classify the severity of this production incident \u2014 is it a sev1? Since the 14:05 deploy the checkout API returns 500s for roughly a third of requests and the on-call channel is filling up"
     ],
     "should_not_trigger": [

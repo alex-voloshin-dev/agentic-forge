@@ -3,9 +3,9 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "With go-patterns loaded, implement a small behaviour change in a Go package in a target repo (e.g. add a function that validates input and can fail).",
+      "prompt": "With go-patterns loaded, add `ParsePortRange(text string) (lo, hi int, err error)` to ports.go: it parses 'lo-hi' (e.g. '8000-8080') using `ParsePort` for each end, and returns an error when either end is invalid or lo > hi. The package, its tests and go.mod are in your working directory.",
       "expected_output": "A scoped change that returns errors as values (wrapped with %w), adds table-driven tests covering the behaviour plus a boundary and an error case, and leaves go build / go vet / gofmt clean using the repo's own commands.",
-      "files": [],
+      "files": ["eval/fixtures/go-patterns/tree/go.mod", "eval/fixtures/go-patterns/tree/ports.go", "eval/fixtures/go-patterns/tree/ports_test.go"],
       "assertions": [
         "Failure is returned as an error value (wrapped with %w), not via panic, and no error is discarded",
         "Table-driven tests with t.Run subtests cover the happy path plus a boundary and an error case",

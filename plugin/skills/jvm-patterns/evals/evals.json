@@ -3,9 +3,9 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "With jvm-patterns loaded, implement a small behaviour change in a Java or Kotlin module in a target repo (e.g. add a method that validates input and can fail).",
+      "prompt": "With jvm-patterns loaded, add `Ports.parsePortRange(String text)` — returning the two ends as a small record — to src/main/java/example/Ports.java: it parses 'lo-hi' (e.g. '8000-8080') using `parsePort` for each end, and throws when either end is invalid or lo > hi. The module, its tests and build.gradle are in your working directory.",
       "expected_output": "A scoped change that avoids null (Optional / Kotlin null-safety, no !!), closes resources with try-with-resources/use, adds JUnit tests covering the behaviour plus a boundary and an exception case, compiles cleanly (correct imports/types), and follows the configured formatter/linter conventions.",
-      "files": [],
+      "files": ["eval/fixtures/jvm-patterns/tree/build.gradle", "eval/fixtures/jvm-patterns/tree/src/main/java/example/Ports.java", "eval/fixtures/jvm-patterns/tree/src/test/java/example/PortsTest.java"],
       "assertions": [
         "Null is handled via Optional or Kotlin null-safety (no Kotlin !! and no obvious NPE risk)",
         "Resources are closed with try-with-resources (Java) or use (Kotlin)",

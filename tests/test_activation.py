@@ -303,3 +303,15 @@ def test_run_activation_uses_the_workspace_factory(tmp_path: Path) -> None:
         trig, run, tmp_path, target="plan", workspace_factory=factory
     )
     assert made[0] == len(trig.should_trigger) and len(set(seen)) == len(seen)  # one fresh dir each
+
+
+def test_prepare_workspace_seeds_a_valid_knowledge_vault(tmp_path: Path) -> None:
+    """`knowledge` recall prompts ("have we decided on an auth approach? check our notes") need
+    notes to check: a root MOC and two decisions, and the vault validates clean (audit C6b)."""
+    from agentic_forge.vault import load_vault, validate_vault
+
+    repo = activation.prepare_workspace(PLUGIN, tmp_path)
+    assert validate_vault(repo) == []
+    notes = load_vault(repo).notes
+    assert {"moc", "task-priority-ordering", "auth-approach"} <= set(notes)
+    assert "auth" in notes["auth-approach"].tags

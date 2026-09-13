@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from . import benchmark, gate
-from .evals import eval_case_problems, load_evals
+from .evals import eval_case_problems, fixture_dest, load_evals
 from .frontmatter import parse as parse_frontmatter
 
 __all__ = [
@@ -206,27 +206,30 @@ def is_write_role(plugin_dir: Path, role: str) -> bool:
 def load_fixtures(plugin_dir: Path, files: list[str]) -> str:
     """Concatenate the case's context files into a labeled block.
 
-    Files are labeled by **basename**, not their repo-relative path, so a prompt never hands a
-    role a path it could resolve back to the real repository (see materialize_fixtures).
+    Files are labeled by their **sandbox destination** (:func:`fixture_dest` — the basename, or
+    the path below a ``tree/`` segment), never their repo-relative path, so a prompt never hands
+    a role a path it could resolve back to the real repository (see materialize_fixtures).
     """
     blocks = []
     for rel in files:
         path = plugin_dir / rel
-        blocks.append(f"--- FILE: {Path(rel).name} ---\n{path.read_text(encoding='utf-8')}")
+        blocks.append(f"--- FILE: {fixture_dest(rel)} ---\n{path.read_text(encoding='utf-8')}")
     return "\n\n".join(blocks)
 
 
 def materialize_fixtures(plugin_dir: Path, files: list[str], workdir: Path) -> None:
-    """Copy a case's fixture files into the sandbox workdir (by basename).
+    """Copy a case's fixture files into the sandbox workdir — by basename, or with their layout
+    below a ``tree/`` segment (:func:`fixture_dest`), so a case can seed ``src/lib.rs`` or a
+    ``plugin/agents/`` skeleton rather than a flat pile.
 
     An isolated role then works on these copies in its own working directory and can never
     reach — or mutate — the real fixture files in the repo. This is the isolation guarantee for
     write roles (software-engineer, architect, qa-engineer).
     """
     for rel in files:
-        (workdir / Path(rel).name).write_text(
-            (plugin_dir / rel).read_text(encoding="utf-8"), encoding="utf-8"
-        )
+        target = workdir / fixture_dest(rel)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text((plugin_dir / rel).read_text(encoding="utf-8"), encoding="utf-8")
 
 
 def build_role_prompt(

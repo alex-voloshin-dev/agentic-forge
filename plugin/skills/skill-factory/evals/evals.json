@@ -3,21 +3,22 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "Create a new skill called changelog-writer that turns merged PRs since the last tag into a release changelog.",
+      "prompt": "Create a new skill called changelog-writer that turns merged PRs since the last tag into a release changelog. The plugin skeleton is in your working directory (plugin/skills/ holds an example skill with its evals contract; the evals contract schema is evals.schema.json at the root).",
       "expected_output": "A standard-compliant skill directory with SKILL.md (valid frontmatter, sharp description), and an evals/evals.json authored before the body, with thresholds and trigger sets. Tier 0 passes.",
-      "files": [],
+      "files": ["eval/fixtures/skill-factory/tree/plugin/.claude-plugin/plugin.json", "eval/fixtures/skill-factory/tree/plugin/skills/example-skill/SKILL.md", "eval/fixtures/skill-factory/tree/plugin/skills/example-skill/evals/evals.json", "schemas/evals.schema.json"],
       "assertions": [
         "A SKILL.md is created with required name and description frontmatter",
         "The skill directory name matches the frontmatter name",
-        "An evals/evals.json exists and validates against the project schema",
+        "An evals/evals.json exists beside the SKILL.md and validates against evals.schema.json in the working directory (skill_name, evals, component, thresholds present and well-typed)",
         "evals.json contains both thresholds and triggers sections",
         "The new skill is standard-compliant on inspection: valid name/description frontmatter, body within the 500-line limit, and references that resolve"
       ]
     },
     {
       "id": 2,
-      "prompt": "We need a subagent that grades eval outputs against assertions. Scaffold it the agentic-forge way.",
+      "prompt": "We need a subagent that grades eval outputs against assertions. Scaffold it the agentic-forge way in the plugin skeleton in your working directory (plugin/agents/ holds an example agent and its contract under plugin/agents/evals/; the evals contract schema is evals.schema.json at the root).",
       "expected_output": "A subagent file under plugin/agents/ with a narrowed toolset and an explicit return contract, plus an agent-type evals.json with tier2 thresholds. The build follows contract -> evals -> implementation order.",
+      "files": ["eval/fixtures/skill-factory/tree/plugin/.claude-plugin/plugin.json", "eval/fixtures/skill-factory/tree/plugin/agents/example-agent.md", "eval/fixtures/skill-factory/tree/plugin/agents/evals/example-agent.evals.json", "schemas/evals.schema.json"],
       "assertions": [
         "An agent markdown file is created under plugin/agents/",
         "The agent frontmatter declares a narrowed tools list",
@@ -27,8 +28,9 @@
     },
     {
       "id": 3,
-      "prompt": "Add a Python helper that parses a SKILL.md and returns its frontmatter, and make it testable.",
+      "prompt": "Add a Python helper that parses a SKILL.md and returns its frontmatter, and make it testable. The plugin skeleton is in your working directory (plugin/lib/agentic_forge/ for shared modules, tests/ for pytest).",
       "expected_output": "A Python module placed in plugin/lib/agentic_forge/ (shared) or a skill scripts/ dir, with pytest coverage, an exit-code-friendly design where applicable, passing ruff and mypy.",
+      "files": ["eval/fixtures/skill-factory/tree/plugin/.claude-plugin/plugin.json", "eval/fixtures/skill-factory/tree/plugin/lib/agentic_forge/__init__.py", "eval/fixtures/skill-factory/tree/tests/test_example.py"],
       "assertions": [
         "A Python module is created in plugin/lib/agentic_forge/ or a skill scripts/ directory",
         "Corresponding pytest tests are added under tests/",

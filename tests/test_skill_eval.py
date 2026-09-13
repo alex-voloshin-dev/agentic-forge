@@ -327,7 +327,7 @@ def test_check_wiring_no_cases_and_fixture_problems(tmp_path: Path) -> None:
         '"thresholds":{"tier2_quality":{"min_pass_rate":0.8,"runs":5}}}',
     )
     probs = check_wiring("fix", tmp_path)
-    assert any("duplicate fixture basenames" in p for p in probs)
+    assert any("duplicate fixture destinations" in p for p in probs)
     assert any("missing fixture" in p for p in probs)
 
 

@@ -1,0 +1,20 @@
+{
+  "enabledPlugins": {
+    "agentic-forge@agentic-forge": true
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session_start.py" }
+        ]
+      }
+    ]
+  },
+  "oauthAccount": {
+    "accessToken": "fixture-token-must-not-ship"
+  },
+  "env": {
+    "ANTHROPIC_API_KEY": "fixture-key-must-not-ship"
+  }
+}

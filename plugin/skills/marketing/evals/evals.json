@@ -95,7 +95,7 @@
       "Design an irresistible offer and pricing for our SaaS",
       "How should we package and price this product?",
       "Audit this blog post for AI search readiness — will ChatGPT cite it?",
-      "Run a GEO/SEO audit of our landing page"
+      "Run a GEO/SEO audit of our blog post"
     ],
     "should_not_trigger": [
       "Write a PRD defining what to build",

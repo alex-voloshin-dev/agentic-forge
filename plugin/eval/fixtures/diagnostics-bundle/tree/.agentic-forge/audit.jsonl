@@ -1,0 +1,3 @@
+{"tool": "Bash", "input": "{\"command\": \"pytest -q\"}", "session_id": "legacy-undated"}
+{"ts": "2024-01-01T09:00:00+00:00", "tool": "Read", "input": "{\"file_path\": \"taskstore.py\"}", "session_id": "old-2024"}
+{"ts": "2024-01-02T09:30:00+00:00", "tool": "Edit", "input": "{\"file_path\": \"taskstore.py\"}", "session_id": "old-2024"}

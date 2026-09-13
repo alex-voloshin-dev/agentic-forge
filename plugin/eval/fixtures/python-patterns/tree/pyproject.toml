@@ -1,0 +1,8 @@
+[project]
+name = "ports"
+version = "0.1.0"
+description = "Port parsing helpers (python-patterns Tier-2 eval fixture target)."
+requires-python = ">=3.10"
+
+[tool.ruff]
+line-length = 100

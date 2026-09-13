@@ -16,6 +16,7 @@ slice keeps only enablement + hooks, never tokens.
 from __future__ import annotations
 
 import json
+import os
 import platform
 import re
 import shutil
@@ -31,6 +32,8 @@ from . import diagnostics, guardrails, observability, settings
 __all__ = [
     "BUNDLE_PREFIX",
     "DEFAULT_WINDOW_DAYS",
+    "HOME_ENV",
+    "resolve_home",
     "AuditQuality",
     "audit_quality",
     "SessionCoverage",
@@ -49,6 +52,11 @@ __all__ = [
 
 BUNDLE_PREFIX = "agentic-forge-diagnostics"
 DEFAULT_WINDOW_DAYS = 7
+# Overrides the home directory the bundle reads user config + ``~/.claude`` metadata from and
+# writes ``Downloads/`` under. An eval sandbox or a hermetic test hands the bundler a fake home
+# through it: a Tier-2 run once packed the operator's real ``~/.claude`` settings into graded
+# output and dropped its zip in their real ``~/Downloads`` (audit C6c).
+HOME_ENV = "AGENTIC_FORGE_HOME"
 # ~/.claude files whose agentic-forge slice is safe to ship (enablement + hooks; NEVER tokens).
 _SETTINGS_KEEP = ("enabledPlugins", "extraKnownMarketplaces", "hooks")
 # The plugin root this lib ships inside (<plugin>/lib/agentic_forge/ -> <plugin>) — the ONLY
@@ -219,6 +227,16 @@ def window_text(*, days: int | None, now: str) -> str:
         return f"last {days} day(s)"
     start = (ref - timedelta(days=days)).date().isoformat()
     return f"last {days} day(s): {start} .. {ref.date().isoformat()}"
+
+
+def resolve_home(explicit: Path | str | None = None) -> Path:
+    """The home directory the bundle works against: ``explicit`` when given, else
+    ``$AGENTIC_FORGE_HOME`` (:data:`HOME_ENV`), else :func:`Path.home`. An empty env value counts
+    as unset, so ``export AGENTIC_FORGE_HOME=`` cannot point the bundle at the current dir."""
+    if explicit is not None:
+        return Path(explicit)
+    env = os.environ.get(HOME_ENV)
+    return Path(env) if env else Path.home()
 
 
 def default_output_path(home: Path | str, *, now: str) -> Path:
@@ -516,15 +534,15 @@ def build_bundle(
 ) -> Path:
     """Package ``repo``'s diagnostics into a zip and return its path. Reads the two logs from the
     repo's state root (ADR 0072), keeps only records within the last ``days`` (default 7; ``None``
-    = all), reads the user config + ``~/.claude`` metadata from ``home`` (default
-    ``Path.home()``), snapshots the environment, then writes the redacted manifest under a
-    ``<prefix>-<ts>/`` root.
+    = all), reads the user config + ``~/.claude`` metadata from ``home`` (default: see
+    :func:`resolve_home` — ``$AGENTIC_FORGE_HOME``, else ``Path.home()``), snapshots the
+    environment, then writes the redacted manifest under a ``<prefix>-<ts>/`` root.
     ``out_path`` defaults to the strict ``<home>/Downloads/<prefix>-<ts>.zip`` (ADR 0053).
     Best-effort: missing metadata is omitted, never fatal."""
     # Normalise to the main working-tree root: hooks WRITE the logs there (worktree-aware), so a
     # bundle built from inside a worktree must read — and be labelled with — the same root.
     repo = diagnostics.main_repo_root(repo)
-    home = Path(home) if home is not None else Path.home()
+    home = resolve_home(home)
     collected_at = now or datetime.now(timezone.utc).isoformat()
     root = f"{BUNDLE_PREFIX}-{_timestamp(collected_at)}"
     out = Path(out_path) if out_path is not None else default_output_path(home, now=collected_at)

@@ -13,7 +13,14 @@ from typing import Any
 
 import jsonschema
 
-__all__ = ["EvalsError", "eval_case_problems", "load_evals", "validate_evals"]
+__all__ = [
+    "EvalsError",
+    "FIXTURE_TREE_MARKER",
+    "eval_case_problems",
+    "fixture_dest",
+    "load_evals",
+    "validate_evals",
+]
 
 # plugin/lib/agentic_forge/evals.py -> plugin/schemas/evals.schema.json
 _SCHEMA_PATH = Path(__file__).resolve().parents[2] / "schemas" / "evals.schema.json"
@@ -49,10 +56,29 @@ def validate_evals(data: dict[str, Any], *, schema: dict[str, Any] | None = None
     return errors
 
 
+# A fixture path may carry a ``tree/`` directory segment: everything below it is the file's path
+# INSIDE the sandbox (``eval/fixtures/rust-patterns/tree/src/lib.rs`` lands at ``src/lib.rs``),
+# so a case can seed a real layout — a crate, a Maven tree, a plugin skeleton — instead of a
+# pile of basenames. Without one a fixture lands by basename, as it always has.
+FIXTURE_TREE_MARKER = "tree"
+
+
+def fixture_dest(rel: str) -> str:
+    """Where a case's fixture file lands in the sandbox — and how the prompt labels it: its path
+    below the first ``tree/`` segment when the entry has one, else its basename. Never the
+    repo-relative path: a prompt must not hand a role a path it could resolve back to the real
+    repository (see ``agent_eval.materialize_fixtures``)."""
+    parts = Path(rel).parts
+    if FIXTURE_TREE_MARKER in parts[:-1]:  # a directory segment, not a file named "tree"
+        below = parts[parts.index(FIXTURE_TREE_MARKER) + 1 :]
+        return Path(*below).as_posix()
+    return Path(rel).name
+
+
 def eval_case_problems(label: str, cases: list[dict[str, Any]], plugin_dir: Path) -> list[str]:
     """Per-case wiring problems shared by the skill + agent Tier-2 readiness checks: no eval cases,
-    a case with no assertions, duplicate fixture basenames (``materialize_fixtures`` flattens to
-    basename, so a collision silently overwrites), and a missing fixture file."""
+    a case with no assertions, two fixtures landing on the same sandbox path (see
+    :func:`fixture_dest` — a collision silently overwrites), and a missing fixture file."""
     problems: list[str] = []
     if not cases:
         problems.append(f"{label}: contract has no eval cases")
@@ -61,9 +87,9 @@ def eval_case_problems(label: str, cases: list[dict[str, Any]], plugin_dir: Path
         if not (case.get("assertions") or []):
             problems.append(f"{label} case {cid}: no assertions")
         files = case.get("files") or []
-        basenames = [Path(rel).name for rel in files]
-        if len(set(basenames)) != len(basenames):
-            problems.append(f"{label} case {cid}: duplicate fixture basenames {basenames}")
+        dests = [fixture_dest(rel) for rel in files]
+        if len(set(dests)) != len(dests):
+            problems.append(f"{label} case {cid}: duplicate fixture destinations {dests}")
         for rel in files:
             if not (plugin_dir / rel).is_file():
                 problems.append(f"{label} case {cid}: missing fixture {rel}")

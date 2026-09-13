@@ -3,9 +3,9 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "With typescript-patterns loaded, implement a small behaviour change in a TypeScript module in a target repo (e.g. add a typed parameter with validation).",
+      "prompt": "With typescript-patterns loaded, add `parsePortRange(text)` to src/ports.ts: it parses 'lo-hi' (e.g. '8000-8080') into a typed `{ lo, hi }` pair using `parsePort` for each end, and fails when either end is invalid or lo > hi. The module, its tests, tsconfig.json and the package manifest are in your working directory.",
       "expected_output": "A scoped, strictly-typed change that mirrors the repo's conventions, adds tests (the repo's runner) covering the behaviour plus a boundary and an error case, and leaves tsc --noEmit and eslint green using the repo's own scripts and package manager.",
-      "files": [],
+      "files": ["eval/fixtures/typescript-patterns/tree/package.json", "eval/fixtures/typescript-patterns/tree/pnpm-lock.yaml", "eval/fixtures/typescript-patterns/tree/tsconfig.json", "eval/fixtures/typescript-patterns/tree/src/ports.ts", "eval/fixtures/typescript-patterns/tree/src/ports.test.ts"],
       "assertions": [
         "The change is strictly typed: no `any` introduced and no unsound `as`/non-null `!` cast",
         "Type-checks under strict on inspection (no type errors) with no new @ts-ignore/@ts-expect-error",

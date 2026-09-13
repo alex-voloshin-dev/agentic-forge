@@ -16,7 +16,7 @@
     },
     {
       "id": 2,
-      "prompt": "Code-review this small, correct rename diff before merge.",
+      "prompt": "Code-review this diff before merge.",
       "expected_output": "An 'approve' verdict with no blocking findings (at most nits).",
       "files": ["eval/fixtures/reviewer/case2.diff"],
       "assertions": [

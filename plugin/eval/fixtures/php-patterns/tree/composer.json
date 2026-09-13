@@ -1,0 +1,21 @@
+{
+  "name": "example/ports",
+  "description": "Port parsing helpers (php-patterns Tier-2 eval fixture target).",
+  "type": "library",
+  "require": {
+    "php": ">=8.2"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^11.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "Example\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Example\\Tests\\": "tests/"
+    }
+  }
+}

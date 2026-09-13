@@ -14,9 +14,9 @@
     },
     {
       "id": 2,
-      "prompt": "Security-review this small, input-validated, parameterized data-access change before merge.",
+      "prompt": "Security-review this data-access change before merge.",
       "expected_output": "An 'approve' verdict with no blocking findings (at most nits) — no vulnerabilities invented on safe code.",
-      "files": ["eval/fixtures/reviewer/case2.diff"],
+      "files": ["eval/fixtures/security-engineer/case3-clean.py"],
       "assertions": [
         "The verdict is 'approve' for the safe change",
         "No blocker- or major-severity vulnerability is invented on the secure code",
@@ -36,7 +36,7 @@
     "should_trigger": [
       "Do a security review of this service",
       "Audit this module for vulnerabilities",
-      "Threat-model the authentication flow",
+      "Threat-model the add-task flow of the task-list page",
       "Is this code secure? Review it for security issues"
     ],
     "should_not_trigger": [

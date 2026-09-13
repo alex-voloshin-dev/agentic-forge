@@ -7,6 +7,8 @@ import json
 import zipfile
 from pathlib import Path
 
+import pytest
+
 from agentic_forge import diag_bundle
 
 _REPO = Path(__file__).resolve().parents[1]
@@ -527,3 +529,81 @@ def test_settings_slice_drops_non_dict_plugin_shapes() -> None:
     parsed = json.loads(diag_bundle.settings_slice(raw))
     assert parsed.get("enabledPlugins") == {}  # unknown shape never ships other plugins
     assert "extraKnownMarketplaces" not in parsed
+
+
+# --- resolve_home / AGENTIC_FORGE_HOME (audit C6c) --------------------------------------------
+
+
+def test_resolve_home_prefers_explicit_then_env_then_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv(diag_bundle.HOME_ENV, raising=False)
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path / "real"))
+    assert diag_bundle.resolve_home() == tmp_path / "real"
+    monkeypatch.setenv(diag_bundle.HOME_ENV, str(tmp_path / "env"))
+    assert diag_bundle.resolve_home() == tmp_path / "env"
+    assert diag_bundle.resolve_home(tmp_path / "explicit") == tmp_path / "explicit"
+    monkeypatch.setenv(diag_bundle.HOME_ENV, "")  # empty = unset, never the current dir
+    assert diag_bundle.resolve_home() == tmp_path / "real"
+
+
+def test_build_bundle_default_home_honours_the_env_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _seed_repo(repo)
+    monkeypatch.setenv(diag_bundle.HOME_ENV, str(tmp_path / "env-home"))
+    out = diag_bundle.build_bundle(repo, now=_NOW)  # no home given -> the env, not Path.home()
+    downloads = tmp_path / "env-home" / "Downloads"
+    assert out == downloads / "agentic-forge-diagnostics-20260710-000000.zip"
+    assert out.is_file()
+
+
+def test_skill_script_honours_env_home_and_prints_an_absolute_path(  # type: ignore[no-untyped-def]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    repo = tmp_path / "repo"
+    _seed_repo(repo)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(diag_bundle.HOME_ENV, "env-home")  # relative: resolved against the cwd
+    module = _load_skill_script()
+    assert module.main(["build_bundle", "--repo", str(repo), "--days", "0"]) == 0
+    written = list((tmp_path / "env-home" / "Downloads").glob("agentic-forge-diagnostics-*.zip"))
+    assert len(written) == 1
+    assert str(written[0].resolve()) in capsys.readouterr().out  # absolute, from a relative home
+    # an explicit --home wins over the env
+    rc = module.main(["build_bundle", "--repo", str(repo), "--home", "flag-home", "--days", "0"])
+    assert rc == 0
+    assert list((tmp_path / "flag-home" / "Downloads").glob("agentic-forge-diagnostics-*.zip"))
+
+
+def test_diagnostics_bundle_eval_stand_is_hermetic(tmp_path: Path) -> None:
+    """The Tier-2 cases seed a repo-side state dir (`state.in_repo`) and a fake home, so a run
+    touches nothing real: the zip lands under fake-home/Downloads, the 2024 records fall outside
+    the window, the undated ones stay, and the seeded settings token never ships (audit C6c)."""
+    from agentic_forge.agent_eval import materialize_fixtures
+    from agentic_forge.evals import load_evals
+
+    contract = load_evals(
+        _REPO / "plugin" / "skills" / "diagnostics-bundle" / "evals" / "evals.json"
+    )
+    sandbox = tmp_path / "sandbox"
+    sandbox.mkdir()
+    materialize_fixtures(_REPO / "plugin", contract["evals"][0]["files"], sandbox)
+    home = sandbox / "fake-home"
+    assert (sandbox / ".agentic-forge" / "audit.jsonl").is_file()
+    assert (home / ".claude" / "settings.json").is_file()
+
+    out = diag_bundle.build_bundle(sandbox, home=home, days=30, now="2026-09-13T12:00:00+00:00")
+    assert out.parent == home / "Downloads"
+    with zipfile.ZipFile(out) as zf:
+        root = "agentic-forge-diagnostics-20260913-120000"
+        audit = zf.read(f"{root}/repo-logs/audit.jsonl").decode()
+        diag = zf.read(f"{root}/repo-logs/diagnostics.jsonl").decode()
+        assert "legacy-undated" in audit and "old-2024" not in audit
+        assert "review-loop:undated" in diag and "2024-02-02" not in diag
+        everything = b"".join(zf.read(n) for n in zf.namelist())
+        assert b"fixture-token-must-not-ship" not in everything
+        assert b"fixture-key-must-not-ship" not in everything
+        assert b"enabledPlugins" in everything  # the enablement slice did ship

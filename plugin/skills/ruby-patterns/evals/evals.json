@@ -3,9 +3,9 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "With ruby-patterns loaded, implement a small behaviour change in a Ruby module in a target repo (e.g. add a method that validates input and can fail).",
+      "prompt": "With ruby-patterns loaded, add `Ports.parse_port_range(text)` to lib/ports.rb: it parses 'lo-hi' (e.g. '8000-8080') into a `[lo, hi]` pair using `parse_port` for each end, and raises when either end is invalid or lo > hi. The module, its spec and Gemfile are in your working directory.",
       "expected_output": "A scoped, idiomatic change (Enumerable, guard clauses, safe navigation) that raises a specific error class, sets frozen_string_literal, adds RSpec/Minitest tests covering the behaviour plus a boundary and an error case, and leaves RuboCop clean using the repo's own commands.",
-      "files": [],
+      "files": ["eval/fixtures/ruby-patterns/tree/Gemfile", "eval/fixtures/ruby-patterns/tree/lib/ports.rb", "eval/fixtures/ruby-patterns/tree/spec/ports_spec.rb"],
       "assertions": [
         "Failure raises a specific StandardError subclass (no bare rescue, no swallowed error)",
         "Idiomatic Ruby: Enumerable/guard clauses and safe navigation (&.) where nil is possible",
