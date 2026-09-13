@@ -61,6 +61,19 @@ session — except where blocking is the whole point (security, test-gate).
   fast-forward`). It **never blocks**: the merge itself happens on the server and is durable, the
   base branch is only approximated from `origin/HEAD`, and refusing a merge would wedge the
   auto-merge watcher (ADR 0076). The main checkout holding the base is normal and stays silent.
+- **pre-router** (`UserPromptSubmit`, `pre_router.py`) — names the skill a prompt clearly
+  matches, in the prompt's own `additionalContext`, so the model reads the suggestion at the
+  moment it decides whether to invoke a skill or do the work by hand (ADR 0089). Deterministic:
+  a lexical classifier over each skill's description and its `evals.json` trigger prompts, no
+  model call, a few milliseconds. Abstains unless one skill wins clearly (coverage ≥ 0.40, lead
+  ≥ 0.15 over the runner-up, not vetoed by the skill's own anti-triggers); leave-one-out on the
+  plugin's own data: recall 0.500, precision 0.955, wrong-skill 0. It **suggests, never
+  invokes** — the line ends "if the request is really something else, ignore this" — because a
+  hook that overrides the prompt is the ADR 0073 failure. **Off by default** (`pre_router.enabled`,
+  `AGENTIC_FORGE_PRE_ROUTER=1` to opt in): measured against the 0.560 bar it reached 0.655 — inside
+  single-run noise (z = 1.27), an upper bound because the eval prompts are the classifier's own
+  training set, and **zero effect on the four skills it was built for**, which received the exact
+  skill name in context and still did the work by hand. Fails open and records the crash.
 - **budgets** (`PreToolUse` / Task, `budget.py`) — a per-session subagent counter; **warns** over
   the soft cap and **blocks** over the hard cap (`AGENTIC_FORGE_SUBAGENT_SOFT` / `_HARD`).
 - **logging** (`PostToolUse`, `audit_log.py`, gated by `logs.enabled` / `AGENTIC_FORGE_LOGS` — **on by default**, ADR 0078) — appends a secret-redacted JSONL audit line to

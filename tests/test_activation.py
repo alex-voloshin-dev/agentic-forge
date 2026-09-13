@@ -4,6 +4,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 _REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO / "plugin" / "lib"))
 sys.path.insert(0, str(_REPO / "dev"))
@@ -112,3 +114,69 @@ def test_summary_line_shows_measure_when_ungated(tmp_path: Path) -> None:
     report = activation.activation_rate(trig, run, tmp_path, target="plan", min_activation=None)
     line = report.summary_line()
     assert "----" in line and "activation=0.000" in line
+
+
+# --- ask why (ADR 0088, step 4) --------------------------------------------------------
+
+
+def _init(sid: str) -> str:
+    return json.dumps({"type": "system", "subtype": "init", "session_id": sid})
+
+
+def test_session_id_of_reads_the_init_object() -> None:
+    stream = _init("abc-123") + "\n" + _stream(_bash("ls"))
+    assert activation.session_id_of(stream) == "abc-123"
+    assert activation.session_id_of(_stream(_bash("ls"))) is None
+
+
+def test_ask_why_is_called_only_for_misses_and_kept_beside_the_prompt(tmp_path: Path) -> None:
+    trig = next(t for t in load_triggers(PLUGIN) if t.name == "research")
+    hit = trig.should_trigger[0]
+
+    def run(system: str, prompt: str, workdir: Path) -> str:
+        body = _skill_call("research") if prompt == hit else _bash("ls")
+        return _init("sid-" + str(abs(hash(prompt)) % 1000)) + "\n" + _stream(body)
+
+    asked: list[tuple[str, str]] = []
+
+    def ask(sid: str, question: str) -> str:
+        asked.append((sid, question))
+        return "It looked simple enough to do directly."
+
+    report = activation.activation_rate(
+        trig, run, tmp_path, target="research", min_activation=None, ask_why=ask
+    )
+    assert report.activated == 1
+    assert len(report.why) == len(trig.should_trigger) - 1 == len(asked)
+    assert all("agentic-forge:research" in q for _, q in asked)  # the skill it had available
+    assert all(p != hit for p, _ in report.why)  # never asked about the hit
+    assert activation.bucket_why(report.why[0][1]) == "task-is-simple"
+
+
+def test_ask_why_failure_does_not_lose_the_measurement(tmp_path: Path) -> None:
+    trig = next(t for t in load_triggers(PLUGIN) if t.name == "plan")
+
+    def run(system: str, prompt: str, workdir: Path) -> str:
+        return _init("s1") + "\n" + _stream(_bash("ls"))
+
+    def boom(sid: str, question: str) -> str:
+        raise RuntimeError("resume failed")
+
+    report = activation.activation_rate(
+        trig, run, tmp_path, target="plan", min_activation=None, ask_why=boom
+    )
+    assert report.rate == 0.0 and all("follow-up failed" in a for _, a in report.why)
+
+
+@pytest.mark.parametrize(
+    ("answer", "bucket"),
+    [
+        ("Invoking it felt like overhead for a small change.", "cost/overhead"),
+        ("The request was straightforward so I did it directly.", "task-is-simple"),
+        ("I did not notice the skill was available.", "not-noticed"),
+        ("The skill did not apply to this kind of request.", "not-applicable"),
+        ("Because.", "other"),
+    ],
+)
+def test_bucket_why(answer: str, bucket: str) -> None:
+    assert activation.bucket_why(answer) == bucket

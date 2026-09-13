@@ -539,9 +539,10 @@ bugs (neutral `config.example.json` + configuration.md python/models clarificati
   skill (hypothesis (c), reproduced 2/2 headless). **Tier-1b** (ADR 0088, `activation.py`)
   now measures exactly that. Next, in order, each measured before the next: (1) take the
   activation baseline; (2) one line in the SessionStart `additionalContext` telling the model
-  to invoke a matching skill rather than do the work; (3) a `UserPromptSubmit` pre-router hook
-  naming the matching skill in-context; (4) description edits under the listing budget. No
-  description or skill name is touched before the baseline says which step is needed.
+  to invoke a matching skill rather than do the work — **done, 0.333 → 0.560** (2026.9.3); (3) a
+  `UserPromptSubmit` pre-router hook naming the matching skill in-context — **built (ADR 0089)**,
+  measured against the 0.560 bar; (4) description edits under the listing budget. No
+  description or skill name is touched before the measurement says which step is needed.
 - **Vault write-rate is low in daily work** (9 `docs/knowledge/` writes against 136 sessions) while
   the session-start injection runs everywhere. One week of one repo is too thin to justify
   auto-capture mechanics; keep watching across bundles before designing anything.
