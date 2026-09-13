@@ -14,8 +14,13 @@ naming that skill. The metric is the activation rate — the fraction of prompts
 reached for the skill. Pure parsing (``skill_invoked`` / ``activation_rate`` / ``run_activation``);
 the subprocess seam lives in the CLI, like the other tiers.
 
-This is a MEASUREMENT first, not a gate: there is no defensible threshold until a baseline exists,
-so ``run_activation`` reports rates and only flags a shortfall when a ``min_activation`` is given.
+The verdict is POOLED (:func:`pooled`): activated over prompts across the whole run, one binomial.
+A skill has 4-9 prompts, and at that n a per-skill floor either flakes on a healthy plugin or misses
+a real drop — at a true 0.93, a per-skill floor of 0.6 fails some skill in one run of seven, and a
+skill really at 0.6 gets flagged about a third of the time. Pooled over 84 prompts the same true
+rate sits four sigma above a 0.80 floor, and the note-off regime (0.571, ADR 0092) fails with
+certainty. The per-skill lines stay as the lens; the gate is one number (ADR 0093).
+``run_activation`` reports; ``pooled`` gates when a floor is given and measures when none is.
 """
 
 from __future__ import annotations
@@ -33,6 +38,7 @@ from agentic_forge.tier1_runner import SkillTrigger, load_triggers
 
 __all__ = [
     "ActivationReport",
+    "NO_SESSION",
     "FIXTURE_REPO",
     "FIXTURE_DOCS",
     "prepare_workspace",
@@ -40,9 +46,14 @@ __all__ = [
     "WHY_BUCKETS",
     "skill_invoked",
     "session_id_of",
+    "session_ran",
+    "session_error",
+    "MAX_UNDETERMINED",
     "bucket_why",
     "activation_rate",
     "run_activation",
+    "Pooled",
+    "pooled",
 ]
 
 def skill_invoked(stream: str, target: str) -> bool:
@@ -135,6 +146,23 @@ def prepare_workspace(plugin_dir: Path, dest: Path) -> Path:
     return repo
 
 
+def session_ran(stream: str) -> bool:
+    """True if the session got at least one assistant turn. A transcript without one — a usage
+    limit, an auth error, a crash, a timeout before the first token — is neither a hit nor a miss:
+    the model never decided anything, and counting it as a miss once read a usage limit as
+    `research` at 0.200 (ADR 0093)."""
+    return any(obj.get("type") == "assistant" for obj in _objects(stream))
+
+
+def session_error(stream: str) -> str:
+    """What a session that never ran said, for the report: its ``result`` text, else a marker."""
+    for obj in _objects(stream):
+        if obj.get("type") == "result":
+            text = obj.get("result") or obj.get("error") or obj.get("subtype") or ""
+            return " ".join(str(text).split())[:120] or "<empty result>"
+    return "<no transcript>"
+
+
 def session_id_of(stream: str) -> str | None:
     """The session id a stream-json transcript was recorded under (from its `init` object), so a
     miss can be asked, in the same session, why it did the work by hand (ADR 0088, step 4)."""
@@ -218,23 +246,93 @@ def _tool_use_blocks(obj: dict[str, Any]) -> list[dict[str, Any]]:
 
 @dataclass
 class ActivationReport:
-    """One skill's Tier-1b result: how often a live session reached for it unprompted."""
+    """One skill's Tier-1b result: how often a live session reached for it unprompted. A lens,
+    not a verdict — the gate is :func:`pooled` (ADR 0093)."""
 
     skill: str
     activated: int
-    prompts: int
+    prompts: int  # asked; the rate's denominator is `determined` (prompts whose session ran)
     rate: float
-    passed: bool
-    gated: bool = False  # False when run as a pure measurement (no threshold) — ADR 0088
-    reasons: list[str] = field(default_factory=list)
     misses: list[str] = field(default_factory=list)  # prompts where the skill was NOT invoked
     why: list[tuple[str, str]] = field(default_factory=list)  # (prompt, stated reason) per miss
+    undetermined: list[tuple[str, str]] = field(default_factory=list)  # (prompt, error): never ran
+
+    @property
+    def determined(self) -> int:
+        return self.prompts - len(self.undetermined)
+
+    def summary_line(self) -> str:
+        dead = f"; {len(self.undetermined)} never ran" if self.undetermined else ""
+        frac = f"({self.activated}/{self.determined}{dead})"
+        return f"[{self.skill}] activation={self.rate:.3f} {frac}"
+
+
+# When gated, a run with more than this share of sessions that never ran FAILS on that alone: the
+# rate over the rest may be fine, but the run is not the measurement it claims to be. Below it, a
+# stray limit hit or crash is excluded from the rate rather than read as a miss (ADR 0093).
+MAX_UNDETERMINED = 0.10
+
+
+@dataclass
+class Pooled:
+    """The run's verdict: activated over prompts, across every skill measured (ADR 0093)."""
+
+    activated: int
+    prompts: int  # asked
+    undetermined: int  # never ran: excluded from the rate, capped by MAX_UNDETERMINED when gated
+    rate: float  # activated / determined
+    mean_of_rates: float  # each skill weighed once — printed beside the pooled rate, never gated
+    skills: int
+    passed: bool
+    gated: bool = False  # False when run as a pure measurement (no floor) — ADR 0088
+    reasons: list[str] = field(default_factory=list)
+
+    @property
+    def determined(self) -> int:
+        return self.prompts - self.undetermined
 
     def summary_line(self) -> str:
         status = "----" if not self.gated else ("PASS" if self.passed else "FAIL")
         suffix = "  (" + "; ".join(self.reasons) + ")" if self.reasons else ""
-        frac = f"({self.activated}/{self.prompts})"
-        return f"[{self.skill}] {status}  activation={self.rate:.3f} {frac}{suffix}"
+        dead = f", {self.undetermined} of {self.prompts} never ran" if self.undetermined else ""
+        return (
+            f"pooled {status}  activation={self.rate:.3f} ({self.activated}/{self.determined} over "
+            f"{self.skills} skill(s), mean of rates {self.mean_of_rates:.3f}{dead}){suffix}"
+        )
+
+
+def pooled(reports: list[ActivationReport], min_activation: float | None = None) -> Pooled:
+    """Pool ``reports`` into one rate and gate it when ``min_activation`` is given.
+
+    Pooled over prompts, not averaged over skills: it is the binomial the floor's flake and power
+    were computed on (ADR 0093). Sessions that never ran are left out of the rate; when gated, more
+    than :data:`MAX_UNDETERMINED` of them fails the run on that alone. Nothing measured pools to
+    0/0 = 0.0, so a gated run that measured nothing fails rather than passing on an empty list."""
+    activated = sum(r.activated for r in reports)
+    prompts = sum(r.prompts for r in reports)
+    dead = sum(len(r.undetermined) for r in reports)
+    determined = prompts - dead
+    rate = activated / determined if determined else 0.0
+    mean = sum(r.rate for r in reports) / len(reports) if reports else 0.0
+    reasons: list[str] = []
+    if min_activation is not None:
+        if rate < min_activation:
+            reasons.append(f"pooled activation {rate:.3f} < required {min_activation:.3f}")
+        if prompts and dead / prompts > MAX_UNDETERMINED:
+            reasons.append(
+                f"{dead} of {prompts} sessions never ran (> {MAX_UNDETERMINED:.0%}): "
+                "the run failed, not the plugin"
+            )
+    return Pooled(
+        activated=activated, prompts=prompts, undetermined=dead, rate=rate, mean_of_rates=mean,
+        skills=len(reports), passed=not reasons, gated=min_activation is not None, reasons=reasons,
+    )
+
+
+# The reason recorded for a miss that cannot be asked: no session id in its transcript, so it
+# never started or was cut off (a timeout) before its init line. A miss must never be silent —
+# two of these once passed as `research` misses with no explanation (ADR 0093).
+NO_SESSION = "<no session id in the transcript: the session did not start, or was cut off early>"
 
 
 def activation_rate(
@@ -243,7 +341,6 @@ def activation_rate(
     workdir: Path,
     *,
     target: str,
-    min_activation: float | None,
     ask_why: Callable[[str, str], str] | None = None,
     namespace: str = "agentic-forge",
     workspace_factory: Callable[[], Path] | None = None,
@@ -251,41 +348,40 @@ def activation_rate(
     """Fraction of ``trig``'s should_trigger prompts on which a live session invoked the skill.
 
     ``ask_why(session_id, question)`` — when given — is called for every miss whose transcript has
-    a session id, with :data:`WHY_PROMPT` filled in; the answer is kept beside the prompt."""
+    a session id, with :data:`WHY_PROMPT` filled in; the answer is kept beside the prompt. A miss
+    with no session id is kept too, with :data:`NO_SESSION` as its reason. A session that never
+    got a turn (:func:`session_ran`) is ``undetermined``: out of the rate, listed with its error."""
     activated = 0
     misses: list[str] = []
     why: list[tuple[str, str]] = []
+    undetermined: list[tuple[str, str]] = []
     for prompt in trig.should_trigger:
         cwd = workspace_factory() if workspace_factory else workdir
         stream = run_fn("", prompt, cwd)
         if skill_invoked(stream, target):
             activated += 1
             continue
+        if not session_ran(stream):
+            undetermined.append((prompt, session_error(stream)))
+            continue
         misses.append(prompt)
         if ask_why is None:
             continue
         sid = session_id_of(stream)
-        if sid:
-            question = WHY_PROMPT.format(namespace=namespace, skill=trig.name)
-            try:
-                why.append((prompt, ask_why(sid, question).strip()))
-            except Exception as exc:  # noqa: BLE001 — a lost follow-up must not lose the measurement
-                why.append((prompt, f"<follow-up failed: {type(exc).__name__}>"))
+        if not sid:
+            why.append((prompt, NO_SESSION))
+            continue
+        question = WHY_PROMPT.format(namespace=namespace, skill=trig.name)
+        try:
+            why.append((prompt, ask_why(sid, question).strip()))
+        except Exception as exc:  # noqa: BLE001 — a lost follow-up must not lose the measurement
+            why.append((prompt, f"<follow-up failed: {type(exc).__name__}>"))
     n = len(trig.should_trigger)
-    rate = activated / n if n else 0.0
-    reasons: list[str] = []
-    if min_activation is not None and rate < min_activation:
-        reasons.append(f"activation {rate:.3f} < required {min_activation:.3f}")
+    determined = n - len(undetermined)
     return ActivationReport(
-        skill=trig.name,
-        activated=activated,
-        prompts=n,
-        rate=rate,
-        passed=min_activation is None or rate >= min_activation,
-        gated=min_activation is not None,
-        reasons=reasons,
-        misses=misses,
-        why=why,
+        skill=trig.name, activated=activated, prompts=n,
+        rate=activated / determined if determined else 0.0,
+        misses=misses, why=why, undetermined=undetermined,
     )
 
 
@@ -295,21 +391,19 @@ def run_activation(
     *,
     skills: list[str] | None = None,
     workdir: Path | None = None,
-    min_activation: float | None = None,
     ask_why: Callable[[str, str], str] | None = None,
     workspace_factory: Callable[[], Path] | None = None,
 ) -> list[ActivationReport]:
     """Measure unprompted skill activation for the on-listing skills (optionally a subset).
 
     ``run_fn`` must run a REAL Claude Code session with the plugin loaded and return its transcript
-    (see the CLI). ``min_activation`` gates when given; omit it to measure without a verdict — the
-    intended first use, since no baseline exists yet (ADR 0088)."""
+    (see the CLI). One report per skill, a lens each; the verdict is :func:`pooled` over them
+    (ADR 0093) — or no verdict at all, the measurement the first runs were (ADR 0088)."""
     work = workdir or plugin_dir
     triggers = [t for t in load_triggers(plugin_dir) if skills is None or t.name in skills]
     return [
         activation_rate(
-            t, run_fn, work, target=t.name, min_activation=min_activation, ask_why=ask_why,
-            workspace_factory=workspace_factory,
+            t, run_fn, work, target=t.name, ask_why=ask_why, workspace_factory=workspace_factory,
         )
         for t in triggers
     ]

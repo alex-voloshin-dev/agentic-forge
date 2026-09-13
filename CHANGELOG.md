@@ -7,6 +7,28 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Changed — the activation gate is pooled and live at 0.80 (ADR 0093)
+
+Re-baselined on the polished stand: **79/84 = 0.940** (mean of rates 0.935, the "hard four"
+18/19, thirteen skills at 1.000). Of five misses, two are proportionality judgments (`release`:
+"just tell me the number"; `ux-design`: a headless library has no accessibility requirements), one
+is momentum (`deep-review`), and two `research` misses were 300-second timeouts the runner scored
+without a trace — re-run on the fixed instrument, `research` is 5/5, three of them past the timeout
+with the skill already invoked, so the corrected reading is 81/84 = 0.964 (79/84 stays the number
+of record; the floor holds under either). The gate: `--min-activation` now fails on the rate **pooled over the run**, not
+per skill — at 4-9 prompts a skill, a per-skill floor of 0.6 flakes one healthy run in seven and
+catches a halved skill a third of the time; pooled over 84, 0.80 sits five sigma under the
+baseline, fails the note-off regime (0.571) with certainty and a drop to 0.75 seven runs in eight.
+`activation.pooled()` is the verdict; `ActivationReport` lost `passed`/`gated`/`reasons` and is a
+lens. CI's `tiers: activation` runs `--min-activation 0.80`.
+
+Instrument, from the same run: a session that never got an assistant turn (a usage limit scored
+`research` at 0.200 on the re-run) is **undetermined** — out of the rate, listed with its error
+(`never ran [research] …`), and more than 10% of them (`MAX_UNDETERMINED`) fails a gated run as a
+run; a timed-out session keeps its partial transcript (the Skill call and the session id used to be
+dropped with it) and shows `T` in the progress line; a miss with no session id records
+`NO_SESSION` instead of vanishing from the why-list.
+
 ### Added — `tiers: activation`, Tier-1b on demand in CI (ADR 0088/0092)
 
 `eval.yml`'s `workflow_dispatch` gains `activation`: the Tier-1b runner against a fresh fixture

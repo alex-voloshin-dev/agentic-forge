@@ -87,4 +87,5 @@ fan-out disproportionate for a 24-line document.
   routing is a question the model has to be prompted to ask, once, and then it asks it. That is a
   cheaper fact than any of the ones this investigation set out to find.
 - The Tier-1b re-baseline on the polished stand (note on) is the last measurement in this series
-  and the number a future `--min-activation` gate is calibrated against.
+  and the number a future `--min-activation` gate is calibrated against *(done: 79/84 = 0.940; the
+  gate is pooled and set at 0.80 — ADR 0093)*.

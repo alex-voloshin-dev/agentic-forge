@@ -789,3 +789,39 @@ def test_run_activation_evals_dry_ok() -> None:
     import run_activation_evals
 
     assert run_activation_evals.main(["run", "--runner", "dry"]) == 0
+
+
+def test_run_activation_evals_gates_the_pooled_rate(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The verdict is one binomial over the run (ADR 0093): 3/5 + 5/5 pools to 0.800 and passes a
+    0.8 floor a per-skill gate would fail; 0/5 + 4/4 pools to 0.444, fails, and is recorded ONCE
+    under `tier1b-activation` (not per skill); without a floor the run measures and exits 0."""
+    import run_activation_evals
+    from agentic_forge import activation as activation_lib
+    from agentic_forge.activation import ActivationReport
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(run_activation_evals, "_cli_runner", lambda *a, **k: object())
+    recorded: list[str] = []
+    monkeypatch.setattr(
+        run_activation_evals._eval_cli, "record_failure",
+        lambda comp, *a, **k: recorded.append(comp),
+    )
+    fake = [ActivationReport("a", 3, 5, 0.6), ActivationReport("b", 5, 5, 1.0)]
+    monkeypatch.setattr(activation_lib, "run_activation", lambda *a, **k: fake)
+    argv = ["run", "--runner", "claude", "--min-activation", "0.8"]
+    assert run_activation_evals.main(argv) == 0
+    assert "pooled PASS  activation=0.800 (8/10 over 2 skill(s)" in capsys.readouterr().out
+    fake[:] = [ActivationReport("a", 0, 5, 0.0), ActivationReport("b", 4, 4, 1.0)]
+    assert run_activation_evals.main(argv) == 1 and recorded == ["tier1b-activation"]
+    assert "pooled FAIL  activation=0.444" in capsys.readouterr().out
+    fake[:] = [
+        ActivationReport("a", 4, 5, 1.0, undetermined=[("Investigate X", "limit hit")]),
+        ActivationReport("b", 9, 9, 1.0),
+    ]
+    assert run_activation_evals.main(argv) == 0  # 1 dead session of 14: excluded, not a miss
+    out = capsys.readouterr().out
+    assert "never ran [a] Investigate X: limit hit" in out and "1 of 14 never ran" in out
+    assert run_activation_evals.main(["run", "--runner", "claude"]) == 0  # measure only
+    assert "pooled ----" in capsys.readouterr().out

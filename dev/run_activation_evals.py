@@ -3,8 +3,9 @@
 
 Runs each on-listing skill's should_trigger prompts through a real ``claude -p`` session with the
 plugin loaded, and scans the transcript for a ``Skill`` tool call naming that skill. Reports the
-activation rate; a MEASUREMENT by default (no gate) — pass ``--min-activation`` to gate once a
-baseline justifies a threshold. Wiring dry-run needs no credentials.
+activation rate per skill and POOLED over the run; a MEASUREMENT by default — ``--min-activation``
+gates the pooled rate (per-skill n is 4-9, too small to gate; ADR 0093). Wiring dry-run needs no
+credentials.
 """
 
 from __future__ import annotations
@@ -52,7 +53,14 @@ def _cli_runner(
                 env={**os.environ, **env},
             )
         except subprocess.TimeoutExpired as exc:
-            return (exc.stdout or "") if isinstance(exc.stdout, str) else ""
+            # A session that ran out of `timeout` counts as a miss unless it had already invoked
+            # the skill — so its partial transcript is kept (bytes on POSIX whatever the text
+            # mode; it used to be dropped, so the Skill call and the session id went with it) and
+            # the progress line shows "T", not nothing: two silent timeouts once read as two
+            # `research` misses with no reason attached (ADR 0093).
+            print("T", end="", flush=True, file=sys.stderr)
+            out = exc.stdout
+            return out.decode("utf-8", "replace") if isinstance(out, bytes) else (out or "")
         print(".", end="", flush=True, file=sys.stderr)
         return done.stdout
 
@@ -112,8 +120,9 @@ def main(argv: list[str]) -> int:
     )
     parser.add_argument(
         "--min-activation", type=float, default=None,
-        help="Gate: fail a skill below this rate. Omit to MEASURE only (the default; no baseline "
-        "exists yet, ADR 0088).",
+        help="Gate: fail when the rate POOLED over every prompt in the run is below this — one "
+        "binomial, not seventeen (per-skill n is 4-9; the per-skill lines are a lens, ADR 0093). "
+        "Omit to MEASURE only (the default).",
     )
     args = parser.parse_args(argv[1:])
     plugin_dir: Path = args.plugin.resolve()
@@ -131,7 +140,8 @@ def main(argv: list[str]) -> int:
     env = dict(kv.split("=", 1) for kv in args.env if "=" in kv)
     run_fn = _cli_runner(plugin_dir, args.model, args.max_turns, args.timeout, env)
     ask = _why_runner(plugin_dir, args.model, args.timeout, env) if args.ask_why else None
-    gate = "measure only" if args.min_activation is None else f"gate >= {args.min_activation}"
+    floor = args.min_activation
+    gate = "measure only" if floor is None else f"pooled gate >= {floor}"
     stand = ", EMPTY workdir" if args.empty_workdir else ", fixture repo per prompt"
     cond = (f", env={env}" if env else "") + stand
     print(
@@ -148,7 +158,7 @@ def main(argv: list[str]) -> int:
 
             reports = activation.run_activation(
                 plugin_dir, run_fn, skills=args.skills,
-                workdir=Path(tmp), min_activation=args.min_activation, ask_why=ask,
+                workdir=Path(tmp), ask_why=ask,
                 workspace_factory=None if args.empty_workdir else fresh_workspace,
             )
     except Exception as exc:  # a crash (mis-wired plugin) — record, then fail
@@ -156,18 +166,18 @@ def main(argv: list[str]) -> int:
         _eval_cli.record_failure("tier1b-activation", f"{type(exc).__name__}: {exc}")
         return 1
 
-    rates = [r.rate for r in reports]
-    mean = sum(rates) / len(rates) if rates else 0.0
-    for report in sorted(reports, key=lambda r: r.rate):
+    verdict = activation.pooled(reports, args.min_activation)
+    for report in sorted(reports, key=lambda r: r.rate):  # weakest first: the lens
         print(report.summary_line(), flush=True)
-        if not report.passed:
-            _eval_cli.record_failure(
-                f"tier1b-activation:{report.skill}", "; ".join(report.reasons), kind="anomaly"
-            )
-    print(f"\nmean activation across {len(reports)} skill(s): {mean:.3f}", flush=True)
+    for report in reports:  # a session that never ran is out of the rate, never out of sight
+        for prompt, error in report.undetermined:
+            print(f"  never ran [{report.skill}] {prompt[:60]}: {error}", flush=True)
+    print(f"\n{verdict.summary_line()}", flush=True)
+    if not verdict.passed:
+        _eval_cli.record_failure("tier1b-activation", "; ".join(verdict.reasons), kind="anomaly")
     if args.ask_why:
         _print_why(reports)
-    return 0 if all(r.passed for r in reports) else 1
+    return 0 if verdict.passed else 1
 
 
 def _print_why(reports: list[activation.ActivationReport]) -> None:
