@@ -35,6 +35,11 @@ __all__ = [
     "Runner",
     "RunOutput",
     "RoleReport",
+    "SessionUndetermined",
+    "TurnCapHit",
+    "SessionTimedOut",
+    "GradingUnparseable",
+    "session_outcome",
     "is_write_role",
     "load_fixtures",
     "materialize_fixtures",
@@ -96,6 +101,100 @@ def _usage_tokens(output: str) -> int | None:
     usage = getattr(output, "usage", None)
     if isinstance(usage, dict):
         return int(usage.get("total_tokens", 0) or 0)
+    return None
+
+
+class SessionUndetermined(RuntimeError):
+    """The session produced no reply to grade — and would not on a retry.
+
+    An API error (``is_error`` in the CLI envelope), a usage-limit refusal, a session with no
+    assistant turn, a ``--max-turns`` cap (:class:`TurnCapHit`), a timeout
+    (:class:`SessionTimedOut`) or an API reply cut at ``max_tokens``. Neither a pass nor a fail:
+    the component never decided anything, so every tier records the case as *undetermined* — out
+    of the rate, counted, and capped by :data:`gate.MAX_UNDETERMINED` (ADR 0093's ``session_ran``
+    rule, applied to every runner). A ``RuntimeError``, so a caller that only knows the old
+    contract still catches it.
+
+    ``subtype`` is the CLI's own word for what happened (``error_max_turns``, ``error`` …) or a
+    synthesized one (``api_error_404``, ``no_turns``, ``timeout``, ``max_tokens``); ``text`` is what
+    the session said, flattened and capped; ``num_turns`` is the envelope's count when it has one.
+    """
+
+    marker = "!"  # printed on the progress line in place of the '.' heartbeat
+
+    def __init__(self, subtype: str, text: str = "", *, num_turns: int | None = None) -> None:
+        self.subtype = subtype
+        self.text = text
+        self.num_turns = num_turns
+        turns = f", num_turns={num_turns}" if num_turns is not None else ""
+        super().__init__(f"session undetermined ({subtype}{turns}): {text or '<no result text>'}")
+
+
+class TurnCapHit(SessionUndetermined):
+    """``--max-turns`` reached mid-task (``subtype: error_max_turns``, no ``result`` key). It is
+    deterministic — the same prompt at the same cap hits it again — and a re-run in the same
+    workdir would let a write role see its own partial files, so it is never retried."""
+
+    marker = "C"
+
+
+class SessionTimedOut(SessionUndetermined):
+    """``call_timeout`` elapsed on every attempt a timeout gets (one retry by default). ``text``
+    keeps the tail of the partial stdout — decoded from the bytes ``TimeoutExpired`` carries on
+    POSIX whatever the text mode, which used to be dropped to a 400-char repr."""
+
+    marker = "T"
+
+
+_TEXT_CAP = 200  # a result text, flattened, for a message or an event
+_TAIL = 1000  # of a failed call's stdout/stderr kept in the raised message
+
+
+def _flat(text: object, cap: int = _TEXT_CAP) -> str:
+    return " ".join(str(text).split())[:cap]
+
+
+def _decoded(value: object) -> str:
+    """A subprocess exception's captured output as text: bytes on POSIX for a killed process
+    whatever the text mode, str otherwise, "" when absent."""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", "replace")
+    return str(value) if value else ""
+
+
+def session_outcome(stdout: str) -> SessionUndetermined | None:
+    """Read a ``claude -p --output-format json`` envelope for a session that never produced a
+    gradable reply; ``None`` when it did — or when ``stdout`` is not an envelope at all, which is a
+    transport failure and the caller's business.
+
+    Measured on Claude Code 2.1.270 (the eval audit): an API error exits 1 with ``{"is_error":
+    true, "subtype": "success", "api_error_status": 404, "result": "…"}``; a ``--max-turns`` hit
+    exits 1 with ``{"is_error": true, "subtype": "error_max_turns", "terminal_reason":
+    "max_turns"}`` and NO ``result``; a usage-limit refusal arrives as the ``result`` text with no
+    assistant turn and an exit code that is not pinned down. So the envelope is read on the
+    failure AND the success path, and ``num_turns == 0`` — the ``json`` format's "no assistant
+    turn" (:func:`activation.session_ran` for a stream) — counts as never having run."""
+    try:
+        data = json.loads(stdout)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    subtype = str(data.get("subtype") or "")
+    turns = data.get("num_turns")
+    num_turns = turns if isinstance(turns, int) and not isinstance(turns, bool) else None
+    text = _flat(data.get("result") or data.get("error") or "")
+    if subtype == "error_max_turns" or data.get("terminal_reason") == "max_turns":
+        return TurnCapHit(subtype or "error_max_turns", text, num_turns=num_turns)
+    if data.get("is_error"):
+        if subtype in ("", "success"):  # the API-error shape: flagged, but subtype says success
+            status = data.get("api_error_status")
+            subtype = f"api_error_{status}" if status is not None else "error"
+        return SessionUndetermined(subtype, text, num_turns=num_turns)
+    if subtype and subtype != "success":
+        return SessionUndetermined(subtype, text, num_turns=num_turns)
+    if num_turns == 0:
+        return SessionUndetermined("no_turns", text, num_turns=0)
     return None
 
 
@@ -185,6 +284,11 @@ class RoleReport:
             self.role, passed=self.passed, benchmark=self.benchmark, reasons=self.gate.reasons
         )
 
+    def evidence_lines(self) -> list[str]:
+        """The sessions that produced no measurement, one line each (run, case, subtype,
+        ``num_turns``) — printed under the summary line by the CLI."""
+        return gate.tier2_evidence_lines(self.benchmark)
+
 
 def _read_body(md_path: Path) -> str:
     """Return a role file's system-prompt body (frontmatter stripped)."""
@@ -267,24 +371,42 @@ def json_objects(text: str) -> list[dict[str, Any]]:
     return objects
 
 
+class GradingUnparseable(ValueError):
+    """The grader's reply carried no ``{"assertion_results": [...]}`` object, even after the retry
+    with a stricter instruction. The case is *ungraded* — not scored 0 (a 0 says the work failed
+    every assertion; nobody checked it) but counted, printed on the summary line and capped with
+    the undetermined sessions (eval audit, C5)."""
+
+
 def parse_grading(text: str) -> dict[str, Any]:
-    """Extract the (first) JSON grading object from a possibly prose/fence-wrapped grader reply."""
-    objects = json_objects(text)
-    if objects:
-        return objects[0]
-    raise ValueError("no valid JSON object found in grader output")
+    """The grading object — the FIRST JSON object carrying an ``assertion_results`` list — from a
+    possibly prose/fence-wrapped grader reply.
+
+    Shape-aware on purpose: the first *parseable* object used to be taken whatever it was, so a
+    grader that wrote another object before its grading (an echo of the assertions, a plan) had
+    THAT scored — 0/N, silently. Raises :class:`GradingUnparseable` when no object has the shape.
+    """
+    for obj in json_objects(text):
+        if isinstance(obj.get("assertion_results"), list):
+            return obj
+    raise GradingUnparseable(
+        "no valid JSON grading object (an assertion_results list) in the grader output"
+    )
 
 
 def grade_output(
     assertions: list[str], output: str, grader_body: str, run_grader: Runner, workdir: Path
 ) -> dict[str, Any]:
-    """Grade one output against its assertions and return a normalized grading.json mapping."""
+    """Grade one output against its assertions and return a normalized grading.json mapping.
+
+    Raises :class:`GradingUnparseable` when neither the grader's reply nor its one retry (with a
+    stricter instruction — graders occasionally wrap the JSON in prose or emit another object
+    first) carries a grading object; the run loop records the case as ungraded."""
     prompt = build_grading_prompt(assertions, output)
     raw = run_grader(grader_body, prompt, workdir)
     try:
         data = parse_grading(raw)
-    except ValueError:
-        # One retry with a stronger instruction — graders occasionally wrap JSON in prose.
+    except GradingUnparseable:
         stricter = prompt + "\n\nReturn ONLY the JSON object — no prose, no code fences."
         raw = run_grader(grader_body, stricter, workdir)
         data = parse_grading(raw)
@@ -292,8 +414,10 @@ def grade_output(
     total = len(assertions)
     # Cap at the assertion count: a grader that returns extra/duplicate results must not push
     # passed > total (pass_rate > 1.0 would inflate the Tier-2 gate). Missing results are
-    # implicitly failures because total is the assertion count, not len(results).
-    passed = min(sum(1 for r in results if r.get("passed") is True), total)
+    # implicitly failures because total is the assertion count, not len(results). `passed` is read
+    # by `benchmark.passed_value`: True and the spellings a model reaches for ("true", "PASS",
+    # "passed"), never "false" — a "PASS" used to score as a fail (eval audit, C5).
+    passed = min(sum(1 for r in results if benchmark.passed_value(r.get("passed"))), total)
     data["assertion_results"] = results
     data["summary"] = {
         "total": total,
@@ -319,6 +443,34 @@ def check_wiring(role: str, plugin_dir: Path) -> list[str]:
     return problems
 
 
+def _new_sessions() -> dict[str, Any]:
+    return {"total": 0, "undetermined": 0, "ungraded": 0, "subtypes": {}, "events": []}
+
+
+def _record_unmeasured(
+    sessions: dict[str, Any], kind: str, run_no: int, case_no: int, exc: Exception
+) -> None:
+    """Tally a session that produced no measurement: ``kind`` is ``undetermined`` (the component
+    never answered — :class:`SessionUndetermined`) or ``ungraded`` (the grader never graded —
+    :class:`GradingUnparseable`). The event keeps run/case, the subtype, ``num_turns`` and what
+    was said, so the CLI can print WHY under the summary line (ADR 0084's rule)."""
+    sessions[kind] += 1
+    dead = exc if isinstance(exc, SessionUndetermined) else None
+    subtype = dead.subtype if dead is not None else "grading-unparseable"
+    if dead is not None:
+        sessions["subtypes"][subtype] = sessions["subtypes"].get(subtype, 0) + 1
+    event: dict[str, Any] = {
+        "run": run_no,
+        "case": case_no,
+        "kind": kind,
+        "subtype": subtype,
+        "text": _flat(dead.text if dead is not None else str(exc), 160),
+    }
+    if dead is not None and dead.num_turns is not None:
+        event["num_turns"] = dead.num_turns
+    sessions["events"].append(event)
+
+
 def _run_passes(
     system_body: str,
     cases: list[dict[str, Any]],
@@ -330,50 +482,75 @@ def _run_passes(
     runs: int,
     isolate: bool,
     workdir: Path | None,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Execute ``cases`` ``runs`` times under ``system_body``; return ``(gradings, timing)``.
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    """Execute ``cases`` ``runs`` times under ``system_body``; return ``(gradings, timing,
+    sessions)``.
 
     ``timing`` carries one entry per run: ``{"duration_ms": …}`` (wall-clock for that run's cases),
     plus ``"total_tokens"`` when the transport reports usage (a :class:`RunOutput` — see ADR 0038).
     Only the component (``run_fn``) tokens are summed, not the grader's, so the Tier-2 A-B delta
     reflects the skill's own token cost. A text-only transport reports no usage, so ``total_tokens``
     is simply absent and token-overhead stays unmeasured.
+
+    ``sessions`` is the tally of sessions that produced no measurement: a case whose session
+    raised :class:`SessionUndetermined` (never answered) or whose grading was
+    :class:`GradingUnparseable` (never graded) is left out of that run's pass-rate — neither a pass
+    nor a fail (ADR 0093) — counted under ``undetermined`` / ``ungraded`` with its ``subtypes``
+    and one ``events`` entry each. Before this, one dead session raised out of the loop and the
+    whole role was printed as ERROR with every finished session ungraded (eval audit, C8/C13).
     """
     default_work = workdir or plugin_dir
     gradings: list[dict[str, Any]] = []
     timing: list[dict[str, Any]] = []
-    for _ in range(runs):
+    sessions = _new_sessions()
+    for run_no in range(1, runs + 1):
         run_results: list[dict[str, Any]] = []
         run_total = 0
         run_passed = 0
         run_tokens = 0
         saw_usage = False
+        graded_cases = 0
         started = time.monotonic()
-        for case in cases:
+        for case_no, case in enumerate(cases, start=1):
+            sessions["total"] += 1
             work = Path(tempfile.mkdtemp(prefix="af-eval-")) if isolate else default_work
             try:
                 case_files = case.get("files") or []
                 fixture_text = load_fixtures(plugin_dir, case_files)
                 if isolate:
                     materialize_fixtures(plugin_dir, case_files, work)
-                output = run_fn(
-                    system_body, build_role_prompt(case, fixture_text, in_workdir=isolate), work
-                )
-                tokens = _usage_tokens(output)
-                if tokens is not None:
-                    saw_usage = True
-                    run_tokens += tokens
-                graded = grade_output(
-                    case.get("assertions") or [], output, grader_body, grader_fn, work
-                )
+                try:
+                    output = run_fn(
+                        system_body, build_role_prompt(case, fixture_text, in_workdir=isolate), work
+                    )
+                except SessionUndetermined as exc:
+                    _record_unmeasured(sessions, "undetermined", run_no, case_no, exc)
+                    continue
+                try:
+                    graded = grade_output(
+                        case.get("assertions") or [], output, grader_body, grader_fn, work
+                    )
+                except GradingUnparseable as exc:
+                    _record_unmeasured(sessions, "ungraded", run_no, case_no, exc)
+                    continue
             finally:
                 if isolate:
                     shutil.rmtree(work, ignore_errors=True)
+            tokens = _usage_tokens(output)
+            if tokens is not None:
+                saw_usage = True
+                run_tokens += tokens
+            graded_cases += 1
             run_results.extend(graded["assertion_results"])
             # Aggregate over EXPECTED assertion counts (grade_output's summary), not len(results)
             # — so a grader that omits or duplicates results can't skew the run's pass-rate.
             run_total += graded["summary"]["total"]
             run_passed += graded["summary"]["passed"]
+        if cases and not graded_cases:
+            # Every session of this run went unmeasured: there is no run to summarize. It leaves
+            # `n` (so the runs floor sees it) and the cap says why — a 0.0 here would be the
+            # fabricated failure ADR 0093 refused for Tier-1b.
+            continue
         entry: dict[str, Any] = {"duration_ms": (time.monotonic() - started) * 1000.0}
         if saw_usage:
             entry["total_tokens"] = run_tokens
@@ -388,7 +565,7 @@ def _run_passes(
                 },
             }
         )
-    return gradings, timing
+    return gradings, timing, sessions
 
 
 def run_eval_cases(
@@ -417,8 +594,13 @@ def run_eval_cases(
     ``isolate`` gives each case a fresh temp workdir (removed after) so a write component never
     sees another run's files or the real repo. Used by both the role runner (:func:`run_role`)
     and the skill runner (``skill_eval.run_skill``).
+
+    Sessions that produced no measurement (see :func:`_run_passes`) ride along in the benchmark
+    under ``run_summary.with_skill.sessions``; :func:`gate.tier2_quality` fails the run when more
+    than :data:`gate.MAX_UNDETERMINED` of them went unmeasured, and the summary line prints the
+    count either way.
     """
-    gradings, timing = _run_passes(
+    gradings, timing, sessions = _run_passes(
         system_body,
         cases,
         run_fn=run_fn,
@@ -430,7 +612,7 @@ def run_eval_cases(
         workdir=workdir,
     )
     if baseline_system_body is not None:
-        base_gradings, base_timing = _run_passes(
+        base_gradings, base_timing, base_sessions = _run_passes(
             baseline_system_body,
             cases,
             run_fn=run_fn,
@@ -446,9 +628,13 @@ def run_eval_cases(
             base_gradings,
             with_skill_timing=timing,
             without_skill_timing=base_timing,
+            with_skill_sessions=sessions,
+            without_skill_sessions=base_sessions,
         )
     else:
-        bench = benchmark.summarize(gradings, with_skill_timing=timing)
+        bench = benchmark.summarize(
+            gradings, with_skill_timing=timing, with_skill_sessions=sessions
+        )
     result = gate.tier2_quality(bench, thresholds)
     return bench, result, gradings
 
@@ -499,7 +685,12 @@ def run_role(
 
 
 def api_runner(model: str, *, max_tokens: int = 4096) -> Runner:
-    """Level-1 seam: one Anthropic Messages call per task (no tools; lightweight)."""
+    """Level-1 seam: one Anthropic Messages call per task (no tools; lightweight).
+
+    A reply the API cut at ``max_tokens`` (``stop_reason == "max_tokens"``) is raised as
+    :class:`SessionUndetermined` (``subtype: max_tokens``) rather than graded: grading a truncated
+    artifact grades the cap, not the role, and ``stop_reason`` used to go unread (eval audit, C13).
+    """
     import anthropic
 
     client = anthropic.Anthropic()
@@ -514,6 +705,10 @@ def api_runner(model: str, *, max_tokens: int = 4096) -> Runner:
         text = "".join(
             block.text for block in message.content if getattr(block, "type", None) == "text"
         )
+        if getattr(message, "stop_reason", None) == "max_tokens":
+            raise SessionUndetermined(
+                "max_tokens", f"reply cut at max_tokens={max_tokens}; tail: {_flat(text[-200:])}"
+            )
         usage = getattr(message, "usage", None)
         if usage is None:
             return RunOutput(text)
@@ -536,6 +731,7 @@ def claude_cli_runner(
     retries: int = 3,
     call_timeout: int = 900,
     replace_system: bool = False,
+    timeout_retries: int = 1,
 ) -> Runner:
     """Level-2 seam: run the role headlessly via `claude -p` (Claude Code auth).
 
@@ -544,9 +740,23 @@ def claude_cli_runner(
     precedence if set, billing per token). Tools run for real in ``workdir``, so
     software-engineer/architect get level-2 fidelity. ``allowed_tools`` semantics: ``None`` omits
     the flag (CLI default tools); ``""`` passes an empty allowlist that **disables** tools
-    (use for grading, which must not call tools); a list grants exactly those. Retries with
-    backoff on a failed/timed-out call so a long multi-call run survives transient errors;
-    prints a '.' heartbeat per call.
+    (use for grading, which must not call tools); a list grants exactly those. Prints a '.'
+    heartbeat per successful call.
+
+    What a failed call means decides whether it is retried (eval audit, C7/C8/C13/C14):
+
+    * The session **answered "no"** — the ``--output-format json`` envelope says ``is_error``, a
+      non-``success`` ``subtype`` (a ``--max-turns`` hit is ``error_max_turns``), or no assistant
+      turn (:func:`session_outcome`, read on the failure and the success path alike). That is a
+      refusal or deterministic, so it is raised at once as :class:`SessionUndetermined` — ``C`` on
+      the progress line for a cap hit, ``!`` otherwise — and never re-run: a cap hit re-run in the
+      same workdir would let a write role see its own partial files, and three more sessions of up
+      to ``call_timeout`` against a dead API measure nothing. The runners record it per case.
+    * A **timeout** prints ``T`` and is retried at most ``timeout_retries`` times (one: a session
+      that needed more than ``call_timeout`` twice will need it a third time), then raises
+      :class:`SessionTimedOut` carrying the decoded partial stdout.
+    * A **transport failure** (a non-zero exit with no envelope to read) keeps the backoff
+      retries (15/30/45 s) and raises a plain ``RuntimeError`` after ``retries`` + 1 attempts.
 
     ``replace_system`` picks which flag carries ``system`` (ADR 0064):
 
@@ -583,7 +793,10 @@ def claude_cli_runner(
         if max_turns is not None:
             cmd += ["--max-turns", str(max_turns)]
         last_exc: Exception | None = None
+        attempts = 0
+        timeouts = 0
         for attempt in range(retries + 1):
+            attempts = attempt + 1
             try:
                 completed = subprocess.run(
                     cmd,
@@ -593,17 +806,37 @@ def claude_cli_runner(
                     check=True,
                     timeout=call_timeout,
                 )
+            except subprocess.CalledProcessError as exc:
+                dead = session_outcome(_decoded(exc.stdout))
+                if dead is not None:  # the session said no — a refusal or deterministic: no re-run
+                    print(dead.marker, end="", flush=True, file=sys.stderr)
+                    raise dead from None
+                last_exc = exc
+            except subprocess.TimeoutExpired as exc:
+                print("T", end="", flush=True, file=sys.stderr)
+                last_exc = exc
+                timeouts += 1
+                if timeouts > timeout_retries:
+                    break
+            else:
+                dead = session_outcome(completed.stdout)
+                if dead is not None:  # exit 0, but the envelope says the session never ran
+                    print(dead.marker, end="", flush=True, file=sys.stderr)
+                    raise dead
                 print(".", end="", flush=True, file=sys.stderr)
                 return _parse_cli_json(completed.stdout)
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-                last_exc = exc
-                if attempt < retries:
-                    time.sleep(15 * (attempt + 1))
+            if attempt < retries:
+                time.sleep(15 * (attempt + 1))
         assert last_exc is not None
-        out = (getattr(last_exc, "output", "") or "")[-400:]
-        err = (getattr(last_exc, "stderr", "") or "")[-400:]
+        out = _decoded(getattr(last_exc, "stdout", None))[-_TAIL:]
+        err = _decoded(getattr(last_exc, "stderr", None))[-_TAIL:]
+        if isinstance(last_exc, subprocess.TimeoutExpired):
+            raise SessionTimedOut(
+                "timeout",
+                f"{attempts} attempt(s) of {call_timeout}s each; partial stdout: {out!r}",
+            )
         raise RuntimeError(
-            f"claude call failed after {retries + 1} attempts: {last_exc}: "
+            f"claude call failed after {attempts} attempts: {last_exc}: "
             f"stdout={out!r} stderr={err!r}"
         )
 

@@ -361,3 +361,64 @@ def test_check_develop_accepts_code_marker_with_trailing_comment(tmp_path: Path)
     )
     cps = spine_e2e.check_develop(repo, run_tests=False)
     assert cps[0].passed  # `.priority` on a real code line counts despite the trailing comment
+
+
+# --- a bounded fixture suite, a clean fixture copy, and an undetermined phase (audit C7/C8) -----
+
+
+def test_repo_tests_timeout_is_a_named_failed_checkpoint(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import subprocess
+
+    repo = prepare_scenario(PLUGIN, tmp_path, SPINE)
+    (repo / "taskstore.py").write_text(PRIORITY_TASKSTORE, encoding="utf-8")
+    seen: dict[str, object] = {}
+
+    def hang(cmd: list[str], **kw: object) -> object:
+        seen.update(kw)
+        raise subprocess.TimeoutExpired(cmd, kw["timeout"])  # type: ignore[arg-type]
+
+    monkeypatch.setattr(spine_e2e.subprocess, "run", hang)
+    cps = check_develop(repo)
+    assert cps[0].passed and not cps[1].passed
+    assert cps[1].name == "repo test suite passes" and cps[1].detail == "tests timed out after 600s"
+    assert seen["timeout"] == spine_e2e.TEST_TIMEOUT == 600.0  # the suite is bounded
+    assert repo_tests_pass(repo, timeout=1) is False
+
+
+def test_copy_fixture_drops_pycache(tmp_path: Path) -> None:
+    fixture = tmp_path / "plugin" / "fx"
+    (fixture / "__pycache__").mkdir(parents=True)
+    (fixture / "__pycache__" / "m.cpython-311.pyc").write_bytes(b"\x00")
+    (fixture / "m.py").write_text("x = 1\n", encoding="utf-8")
+    repo = tmp_path / "repo"
+    spine_e2e._copy_fixture(tmp_path / "plugin", repo, "fx")
+    assert (repo / "m.py").is_file() and not (repo / "__pycache__").exists()
+
+
+def test_an_undetermined_phase_fails_on_a_named_checkpoint_and_the_rest_still_run(
+    tmp_path: Path,
+) -> None:
+    """A turn-cap hit in `develop` raised out of `run_scenario`; the CLI had no try, so the phases
+    already done were never reported. Now the phase fails on `session undetermined (<subtype>)`
+    and code-review still runs — without retrying the capped session in the same repo."""
+    from agentic_forge.agent_eval import TurnCapHit
+
+    develop_calls = [0]
+
+    def capped_develop(system: str, user: str, repo: Path) -> str:
+        if "Implement the feature in taskstore.py" in user:
+            develop_calls[0] += 1
+            raise TurnCapHit("error_max_turns", "", num_turns=40)
+        return _good_phase(system, user, repo)
+
+    results = run_scenario(PLUGIN, SPINE, run_phase=capped_develop, workspace=tmp_path, retries=1)
+    assert [r.phase for r in results] == list(PHASES)  # every phase reported
+    develop = results[4]
+    assert not develop.passed and develop_calls[0] == 1  # not retried
+    (cp,) = develop.checkpoints
+    assert cp.name == "session undetermined (error_max_turns)" and cp.detail == "num_turns=40"
+    assert "[FAIL] session undetermined (error_max_turns) — num_turns=40" in str(cp)
+    assert results[5].phase == "code-review" and results[5].passed
+    assert not all_passed(results)

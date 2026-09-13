@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any
 
 from agentic_forge.agent_eval import Runner
+from agentic_forge.gate import MAX_UNDETERMINED
 from agentic_forge.tier1_runner import SkillTrigger, load_triggers
 
 __all__ = [
@@ -44,6 +45,10 @@ __all__ = [
     "prepare_workspace",
     "WHY_PROMPT",
     "WHY_BUCKETS",
+    "HIT",
+    "MISS",
+    "COLLIDED",
+    "skill_call",
     "skill_invoked",
     "session_id_of",
     "session_ran",
@@ -56,24 +61,47 @@ __all__ = [
     "pooled",
 ]
 
-def skill_invoked(stream: str, target: str) -> bool:
-    """True if the transcript ``stream`` contains a ``Skill`` tool call naming ``target``.
+# What a transcript's `Skill` calls say about the target (see `skill_call`).
+HIT = "hit"
+MISS = "miss"
+COLLIDED = "collided"
+
+
+def skill_call(stream: str, target: str, *, builtins: frozenset[str] = frozenset()) -> str:
+    """What the transcript ``stream``'s ``Skill`` tool calls say about ``target``: :data:`HIT` when
+    one names it — bare or namespaced (``agentic-forge:x`` matches target ``x``); :data:`COLLIDED`
+    when the only matching call is BARE and ``builtins`` owns that name too; :data:`MISS` otherwise.
 
     Scans every JSON object in the stream (one per line for ``--output-format stream-json``, or a
     single ``--output-format json`` envelope) for an assistant ``tool_use`` block whose tool is
-    ``Skill`` and whose skill argument is ``target`` — bare or namespaced (``agentic-forge:x``
-    matches target ``x``). A skill the model merely *names in prose* does not count: it must be an
-    actual tool call, because acting-vs-routing is the whole point (ADR 0088)."""
+    ``Skill``. A skill the model merely *names in prose* does not count: it must be an actual tool
+    call, because acting-vs-routing is the whole point (ADR 0088).
+
+    A bare ``Skill(code-review)`` in a live session is Claude Code's built-in of that name — plugin
+    skills are namespaced there — so it is not a hit for ours; and it is not "did the work by hand"
+    either, so it is not a miss to be asked why. A third outcome, reported as such (eval audit,
+    M6). A scorer guard, not a baseline correction: the live probe showed the model calling
+    ``agentic-forge:code-review`` and ``agentic-forge:security-review`` namespaced."""
     bare = target.split(":")[-1]
+    collided = False
     for obj in _objects(stream):
         for block in _tool_use_blocks(obj):
             if block.get("name") != "Skill":
                 continue
             inp = block.get("input") or {}
             named = str(inp.get("skill") or inp.get("name") or inp.get("command") or "")
-            if named.split(":")[-1] == bare:
-                return True
-    return False
+            if named.split(":")[-1] != bare:
+                continue
+            if ":" in named or bare not in builtins:
+                return HIT
+            collided = True  # a bare call on a name a built-in owns too: whose is not knowable
+    return COLLIDED if collided else MISS
+
+
+def skill_invoked(stream: str, target: str, *, builtins: frozenset[str] = frozenset()) -> bool:
+    """True if the transcript ``stream`` contains a ``Skill`` tool call naming ``target`` — see
+    :func:`skill_call`; a bare call on a name in ``builtins`` is not one."""
+    return skill_call(stream, target, builtins=builtins) == HIT
 
 
 # What a prompt needs to find when it looks around. The first Tier-1b runs used one EMPTY temp dir
@@ -264,6 +292,7 @@ class ActivationReport:
     misses: list[str] = field(default_factory=list)  # prompts where the skill was NOT invoked
     why: list[tuple[str, str]] = field(default_factory=list)  # (prompt, stated reason) per miss
     undetermined: list[tuple[str, str]] = field(default_factory=list)  # (prompt, error): never ran
+    collided: list[str] = field(default_factory=list)  # a bare Skill call a built-in owns too (M6)
 
     @property
     def determined(self) -> int:
@@ -271,14 +300,15 @@ class ActivationReport:
 
     def summary_line(self) -> str:
         dead = f"; {len(self.undetermined)} never ran" if self.undetermined else ""
-        frac = f"({self.activated}/{self.determined}{dead})"
+        bare = f"; {len(self.collided)} bare-collided" if self.collided else ""
+        frac = f"({self.activated}/{self.determined}{dead}{bare})"
         return f"[{self.skill}] activation={self.rate:.3f} {frac}"
 
 
-# When gated, a run with more than this share of sessions that never ran FAILS on that alone: the
-# rate over the rest may be fine, but the run is not the measurement it claims to be. Below it, a
-# stray limit hit or crash is excluded from the rate rather than read as a miss (ADR 0093).
-MAX_UNDETERMINED = 0.10
+# When gated, a run with more than `MAX_UNDETERMINED` of its sessions never ran FAILS on that alone:
+# the rate over the rest may be fine, but the run is not the measurement it claims to be. Below it,
+# a stray limit hit or crash is excluded from the rate rather than read as a miss (ADR 0093). The
+# number now lives in `gate` — every tier applies it — and is re-exported here.
 
 
 @dataclass
@@ -294,6 +324,7 @@ class Pooled:
     passed: bool
     gated: bool = False  # False when run as a pure measurement (no floor) — ADR 0088
     reasons: list[str] = field(default_factory=list)
+    collided: int = 0  # bare Skill calls on a name a built-in owns too: not hits, not misses (M6)
 
     @property
     def determined(self) -> int:
@@ -303,9 +334,10 @@ class Pooled:
         status = "----" if not self.gated else ("PASS" if self.passed else "FAIL")
         suffix = "  (" + "; ".join(self.reasons) + ")" if self.reasons else ""
         dead = f", {self.undetermined} of {self.prompts} never ran" if self.undetermined else ""
+        bare = f", {self.collided} bare-collided" if self.collided else ""
         return (
             f"pooled {status}  activation={self.rate:.3f} ({self.activated}/{self.determined} over "
-            f"{self.skills} skill(s), mean of rates {self.mean_of_rates:.3f}{dead}){suffix}"
+            f"{self.skills} skill(s), mean of rates {self.mean_of_rates:.3f}{dead}{bare}){suffix}"
         )
 
 
@@ -334,6 +366,7 @@ def pooled(reports: list[ActivationReport], min_activation: float | None = None)
     return Pooled(
         activated=activated, prompts=prompts, undetermined=dead, rate=rate, mean_of_rates=mean,
         skills=len(reports), passed=not reasons, gated=min_activation is not None, reasons=reasons,
+        collided=sum(len(r.collided) for r in reports),
     )
 
 
@@ -352,22 +385,31 @@ def activation_rate(
     ask_why: Callable[[str, str], str] | None = None,
     namespace: str = "agentic-forge",
     workspace_factory: Callable[[], Path] | None = None,
+    builtins: frozenset[str] = frozenset(),
 ) -> ActivationReport:
     """Fraction of ``trig``'s should_trigger prompts on which a live session invoked the skill.
 
     ``ask_why(session_id, question)`` — when given — is called for every miss whose transcript has
     a session id, with :data:`WHY_PROMPT` filled in; the answer is kept beside the prompt. A miss
     with no session id is kept too, with :data:`NO_SESSION` as its reason. A session that never
-    got a turn (:func:`session_ran`) is ``undetermined``: out of the rate, listed with its error."""
+    got a turn (:func:`session_ran`) is ``undetermined``: out of the rate, listed with its error.
+    A bare ``Skill`` call on a name in ``builtins`` (Claude Code's own ``code-review``,
+    ``security-review``) is ``collided`` (:func:`skill_call`): in the denominator, not a hit, not
+    a miss to be asked why — listed so the collision stays visible."""
     activated = 0
     misses: list[str] = []
     why: list[tuple[str, str]] = []
     undetermined: list[tuple[str, str]] = []
+    collided: list[str] = []
     for prompt in trig.should_trigger:
         cwd = workspace_factory() if workspace_factory else workdir
         stream = run_fn("", prompt, cwd)
-        if skill_invoked(stream, target):
+        outcome = skill_call(stream, target, builtins=builtins)
+        if outcome == HIT:
             activated += 1
+            continue
+        if outcome == COLLIDED:
+            collided.append(prompt)
             continue
         if not session_ran(stream):
             undetermined.append((prompt, session_error(stream)))
@@ -389,7 +431,7 @@ def activation_rate(
     return ActivationReport(
         skill=trig.name, activated=activated, prompts=n,
         rate=activated / determined if determined else 0.0,
-        misses=misses, why=why, undetermined=undetermined,
+        misses=misses, why=why, undetermined=undetermined, collided=collided,
     )
 
 
@@ -401,17 +443,21 @@ def run_activation(
     workdir: Path | None = None,
     ask_why: Callable[[str, str], str] | None = None,
     workspace_factory: Callable[[], Path] | None = None,
+    builtins: frozenset[str] = frozenset(),
 ) -> list[ActivationReport]:
     """Measure unprompted skill activation for the on-listing skills (optionally a subset).
 
     ``run_fn`` must run a REAL Claude Code session with the plugin loaded and return its transcript
     (see the CLI). One report per skill, a lens each; the verdict is :func:`pooled` over them
-    (ADR 0093) — or no verdict at all, the measurement the first runs were (ADR 0088)."""
+    (ADR 0093) — or no verdict at all, the measurement the first runs were (ADR 0088).
+    ``builtins`` are the skill names Claude Code itself owns (the CLI loads them from the fixture
+    ``tier1_runner.load_extra_listing`` reads), so a bare call on one is scored as a collision."""
     work = workdir or plugin_dir
     triggers = [t for t in load_triggers(plugin_dir) if skills is None or t.name in skills]
     return [
         activation_rate(
             t, run_fn, work, target=t.name, ask_why=ask_why, workspace_factory=workspace_factory,
+            builtins=builtins,
         )
         for t in triggers
     ]

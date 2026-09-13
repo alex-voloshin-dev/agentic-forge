@@ -54,16 +54,25 @@
           "required": ["recall", "specificity"],
           "properties": {
             "recall": { "type": "number", "minimum": 0, "maximum": 1 },
-            "specificity": { "type": "number", "minimum": 0, "maximum": 1 }
+            "specificity": { "type": "number", "minimum": 0, "maximum": 1 },
+            "runs": {
+              "type": "integer",
+              "minimum": 1,
+              "$comment": "Optional floor on the samples per prompt (the CLI defaults to 5); gate.tier1_trigger fails a run measured with fewer."
+            }
           }
         },
         "tier2_quality": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["min_pass_rate"],
+          "required": ["min_pass_rate", "runs"],
           "properties": {
             "min_pass_rate": { "type": "number", "minimum": 0, "maximum": 1 },
-            "runs": { "type": "integer", "minimum": 1 },
+            "runs": {
+              "type": "integer",
+              "minimum": 5,
+              "$comment": "Required, >= 5: the gate is mean - stddev, and stddev is 0.0 at n = 1, so a contract without a runs floor passed at N = 1 (eval audit, C9)."
+            },
             "max_overhead_tokens": { "type": "integer", "minimum": 0 },
             "max_overhead_seconds": { "type": "number", "minimum": 0 },
             "min_lift": { "type": "number", "minimum": 0, "maximum": 1 },

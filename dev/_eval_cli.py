@@ -35,6 +35,10 @@ def build_runners(
         api = agent_eval.api_runner(model)
         return api, api
     if runner == "claude":
+        # The turn caps bound a runaway session, not a slow one. A session that hits its cap is
+        # `error_max_turns` in the CLI envelope: raised as `TurnCapHit`, never re-run, recorded by
+        # the Tier-2 loop as an undetermined case with its `num_turns` on the evidence line — so a
+        # cap hit is no longer indistinguishable from a failed case (eval audit, C13).
         component_fn = agent_eval.claude_cli_runner(
             allowed_tools=allowed_tools, model=model, max_turns=40
         )

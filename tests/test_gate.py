@@ -188,3 +188,82 @@ def test_version_regression_missing_mean_fails() -> None:
     bench = {"run_summary": {"with_skill": {"pass_rate": {}, "n": 5}}}  # no current mean
     res = gate.version_regression(bench, {"mean": 0.9}, thr)
     assert res is not None and not res.passed
+
+
+# --- sessions that produced no measurement (eval audit C8/C13; ADR 0093 for every tier) -------
+
+
+def _sessions(total: int, undetermined: int = 0, ungraded: int = 0, **subtypes: int) -> dict:
+    return {
+        "total": total, "undetermined": undetermined, "ungraded": ungraded,
+        "subtypes": subtypes, "events": [],
+    }
+
+
+def test_tier2_unmeasured_share_over_the_cap_fails() -> None:
+    bm = _benchmark(1.0, 0.0, 5)
+    bm["run_summary"]["with_skill"]["sessions"] = _sessions(10, undetermined=2, error_max_turns=2)
+    res = gate.tier2_quality(bm, {"tier2_quality": {"min_pass_rate": 0.8, "runs": 5}})
+    assert not res.passed
+    assert res.reasons == [
+        "2 of 10 sessions unmeasured (> 10%): 2 undetermined [error_max_turns x2] — the run "
+        "failed, not the component"
+    ]
+
+
+def test_tier2_unmeasured_share_at_the_cap_passes_and_is_printed() -> None:
+    bm = _benchmark(1.0, 0.0, 5)
+    bm["run_summary"]["with_skill"]["sessions"] = _sessions(10, ungraded=1)
+    res = gate.tier2_quality(bm, {"tier2_quality": {"min_pass_rate": 0.8, "runs": 5}})
+    assert res.passed
+    line = gate.format_tier2_summary("x", passed=True, benchmark=bm, reasons=[])
+    assert line == (
+        "x: PASS (mean=1.000, stddev=0.000, lower_bound=1.000, n=5; "
+        "1/10 sessions unmeasured: 1 ungraded)"
+    )
+
+
+def test_tier2_summary_without_sessions_is_unchanged() -> None:
+    line = gate.format_tier2_summary(
+        "x", passed=True, benchmark=_benchmark(0.9, 0.05, 5), reasons=[]
+    )
+    assert line == "x: PASS (mean=0.900, stddev=0.050, lower_bound=0.850, n=5)"
+
+
+def test_tier2_evidence_lines_name_run_case_subtype_and_turns() -> None:
+    bm = _benchmark(1.0, 0.0, 5)
+    bm["run_summary"]["with_skill"]["sessions"] = {
+        "total": 10, "undetermined": 1, "ungraded": 1, "subtypes": {"error_max_turns": 1},
+        "events": [
+            {"run": 2, "case": 1, "kind": "undetermined", "subtype": "error_max_turns",
+             "num_turns": 40, "text": ""},
+            {"run": 3, "case": 2, "kind": "ungraded", "subtype": "grading-unparseable",
+             "text": "no valid JSON grading object"},
+        ],
+    }
+    assert gate.tier2_evidence_lines(bm) == [
+        "    unmeasured: run 2 case 1 undetermined (error_max_turns, num_turns=40)",
+        "    unmeasured: run 3 case 2 ungraded (grading-unparseable): no valid JSON grading object",
+    ]
+    assert gate.tier2_evidence_lines(_benchmark(1.0, 0.0, 5)) == []
+
+
+def test_max_undetermined_is_one_number_for_every_tier() -> None:
+    from agentic_forge import activation
+
+    assert gate.MAX_UNDETERMINED == 0.10 and activation.MAX_UNDETERMINED is gate.MAX_UNDETERMINED
+
+
+# --- Tier-1 samples-per-prompt floor (eval audit C3/C9) ----------------------------------------
+
+
+def test_tier1_runs_floor_from_the_contract() -> None:
+    thr = {"tier1_trigger": {"recall": 0.9, "specificity": 0.9, "runs": 5}}
+    good = {"recall": 1.0, "specificity": 1.0, "runs": 5}
+    assert gate.tier1_trigger(good, thr).passed
+    thin = gate.tier1_trigger({**good, "runs": 2}, thr)
+    assert not thin.passed and thin.reasons == ["only 2 sample(s) per prompt; need >= 5"]
+    unknown = gate.tier1_trigger({"recall": 1.0, "specificity": 1.0}, thr)
+    assert not unknown.passed and "only 0 sample(s)" in unknown.reasons[0]
+    # no `runs` in the contract: the count is not gated (the CLI's default 5 still applies)
+    assert gate.tier1_trigger({**good, "runs": 1}, {"tier1_trigger": {"recall": 0.9}}).passed

@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import handoff, ops, release, vault
-from .agent_eval import Runner
+from .agent_eval import Runner, SessionUndetermined
 from .frontmatter import parse as parse_frontmatter
 from .gate import all_passed
 
@@ -42,6 +42,7 @@ __all__ = [
     "PHASES",
     "Checkpoint",
     "PhaseResult",
+    "TEST_TIMEOUT",
     "check_architecture",
     "repo_tests_pass",
     "check_develop",
@@ -76,6 +77,11 @@ FIXTURE_REPO = "eval/fixtures/spine/target-repo"
 PRD = "eval/fixtures/spine/prd.md"
 PLAN = "eval/fixtures/spine/plan.md"
 PHASES = ("research", "product", "architecture", "plan", "develop", "code-review")
+
+# Seconds the fixture repo's own test suite gets. The suite under test was just written by the
+# model, so a test that spins forever must read as a failed checkpoint, not a hung Tier-3 run —
+# `repo_tests_pass` ran it with no timeout at all (eval audit, C7).
+TEST_TIMEOUT = 600.0
 
 _SEMVER = re.compile(r"^v?\d+\.\d+\.\d+$")
 
@@ -118,7 +124,9 @@ def _copy_fixture(plugin_dir: Path, repo: Path, fixture: str | None) -> None:
     if repo.exists():  # allow re-running against the same --workspace (a natural debugging move)
         shutil.rmtree(repo)
     if fixture:
-        shutil.copytree(plugin_dir / fixture, repo)
+        shutil.copytree(
+            plugin_dir / fixture, repo, ignore=shutil.ignore_patterns("__pycache__")
+        )
     else:
         repo.mkdir(parents=True)
 
@@ -154,15 +162,24 @@ def check_architecture(repo: Path, slug: str = FEATURE_SLUG) -> list[Checkpoint]
     ]
 
 
-def repo_tests_pass(repo: Path) -> bool:
-    result = subprocess.run(
-        # sys.executable (not "python") so the nested run uses the same interpreter — portable.
-        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"],
-        cwd=str(repo),
-        capture_output=True,
-        text=True,
-    )
-    return result.returncode == 0
+def _run_repo_tests(repo: Path, timeout: float = TEST_TIMEOUT) -> Checkpoint:
+    """The fixture repo's test suite as a checkpoint: green, red, or timed out (named as such)."""
+    try:
+        result = subprocess.run(
+            # sys.executable (not "python") so the nested run uses the same interpreter — portable.
+            [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"],
+            cwd=str(repo),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return Checkpoint("repo test suite passes", False, f"tests timed out after {timeout:g}s")
+    return Checkpoint("repo test suite passes", result.returncode == 0)
+
+
+def repo_tests_pass(repo: Path, *, timeout: float = TEST_TIMEOUT) -> bool:
+    return _run_repo_tests(repo, timeout).passed
 
 
 def check_develop(repo: Path, *, run_tests: bool = True) -> list[Checkpoint]:
@@ -175,7 +192,7 @@ def check_develop(repo: Path, *, run_tests: bool = True) -> list[Checkpoint]:
     has_priority = any(m in code for m in ("priority=", "priority:", ".priority"))
     cps = [Checkpoint("priority implemented in taskstore", has_priority)]
     if run_tests:
-        cps.append(Checkpoint("repo test suite passes", repo_tests_pass(repo)))
+        cps.append(_run_repo_tests(repo))
     return cps
 
 
@@ -469,11 +486,26 @@ def _run_phase_with_retry(
     """Run a phase, re-running it up to ``retries`` more times if its checkpoints fail — this
     retries the **model** (a fresh attempt at the same prompt), never relaxing a checkpoint, so a
     one-off invalid artifact (model frontmatter variance) self-corrects. Returns the first passing
-    attempt, or the last one."""
+    attempt, or the last one.
+
+    A session that never produced a result (:class:`SessionUndetermined`: a turn cap, a dead API,
+    a usage limit, a timeout) is NOT retried: a cap hit re-run in the same repo would see its own
+    partial files, and a refusal does not clear between attempts. The phase fails on one named
+    checkpoint — ``session undetermined (<subtype>)`` with ``num_turns`` — and the scenario goes
+    on, so the later phases are still run and reported instead of the run dying at that phase with
+    nothing said about the ones already done (eval audit, C8/C14)."""
     body = skill_body(plugin_dir, phase.skill)
     attempt = 0
     while True:
-        run_phase(body, phase.prompt, repo)
+        try:
+            run_phase(body, phase.prompt, repo)
+        except SessionUndetermined as exc:
+            turns = f"num_turns={exc.num_turns}" if exc.num_turns is not None else ""
+            detail = "; ".join(p for p in (turns, exc.text) if p)
+            return PhaseResult(
+                phase.skill,
+                [Checkpoint(f"session undetermined ({exc.subtype})", False, detail)],
+            )
         result = PhaseResult(phase.skill, phase.checks(repo))
         if result.passed or attempt >= retries:
             return result

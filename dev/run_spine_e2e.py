@@ -70,8 +70,13 @@ def main(argv: list[str]) -> int:
         print(f"Dry-run ({', '.join(names)}):", "OK" if not problems else "problems found")
         return 0 if not problems else 1
 
+    # 60, not 40: the develop phase reads the plan and the design, implements, writes tests and
+    # runs the suite until green — at 40 it hit the cap mid-task, and a cap hit was
+    # indistinguishable from a failed phase (eval audit, C13). One runner serves every phase; the
+    # artifact phases finish well inside either cap, and a cap hit is now a named `session
+    # undetermined (error_max_turns)` checkpoint rather than a silent miss.
     run_phase = agent_eval.claude_cli_runner(
-        allowed_tools="Read,Write,Edit,Bash,Grep,Glob", model=args.model, max_turns=40
+        allowed_tools="Read,Write,Edit,Bash,Grep,Glob", model=args.model, max_turns=60
     )
     base = args.workspace or Path(tempfile.mkdtemp(prefix="tier3-e2e-"))
     ok = True

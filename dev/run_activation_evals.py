@@ -138,6 +138,15 @@ def main(argv: list[str]) -> int:
 
     _eval_cli.warn_if_api_key_set(args.runner)
     env = dict(kv.split("=", 1) for kv in args.env if "=" in kv)
+    # Claude Code's own skills (the fixture the Tier-1 built-in condition reads, ADR 0086): a BARE
+    # `Skill(code-review)` in a live session is the built-in, not ours, so it scores as a collision
+    # rather than a hit (M6). A namespaced call is a hit as before.
+    builtins = frozenset(
+        c.name
+        for c in tier1_runner.load_extra_listing(
+            plugin_dir / "eval" / "fixtures" / "claude-code-builtin-skills.json"
+        )
+    )
     run_fn = _cli_runner(plugin_dir, args.model, args.max_turns, args.timeout, env)
     ask = _why_runner(plugin_dir, args.model, args.timeout, env) if args.ask_why else None
     floor = args.min_activation
@@ -160,6 +169,7 @@ def main(argv: list[str]) -> int:
                 plugin_dir, run_fn, skills=args.skills,
                 workdir=Path(tmp), ask_why=ask,
                 workspace_factory=None if args.empty_workdir else fresh_workspace,
+                builtins=builtins,
             )
     except Exception as exc:  # a crash (mis-wired plugin) — record, then fail
         print(f"Tier-1b ERROR — {exc}", flush=True)
@@ -172,6 +182,12 @@ def main(argv: list[str]) -> int:
     for report in reports:  # a session that never ran is out of the rate, never out of sight
         for prompt, error in report.undetermined:
             print(f"  never ran [{report.skill}] {prompt[:60]}: {error}", flush=True)
+        for prompt in report.collided:  # a bare call on a built-in's name: not ours, not by hand
+            print(
+                f"  bare-collided [{report.skill}] {prompt[:60]}: called `{report.skill}` bare, "
+                "a name Claude Code's built-in owns too",
+                flush=True,
+            )
     print(f"\n{verdict.summary_line()}", flush=True)
     if not verdict.passed:
         _eval_cli.record_failure("tier1b-activation", "; ".join(verdict.reasons), kind="anomaly")
