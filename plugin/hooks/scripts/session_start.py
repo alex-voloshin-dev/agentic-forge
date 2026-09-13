@@ -20,10 +20,28 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
 
 from agentic_forge import diagnostics, observability, settings, vault  # noqa: E402
 
+# The measured problem (ADR 0088): a session reaches for the matching skill on ~0.35 of the
+# requests squarely in its domain, and the rate falls the EASIER the task is to just do by hand —
+# `skill-factory` (no by-hand path) fires 1.000, `code-review` / `develop` fire 0.000. A skill's
+# description makes it findable; nothing told the model that finding it is the point. This line
+# does, in the one channel that reaches every session, and its whole cost is these two sentences.
+SKILL_ROUTING_NOTE = (
+    "agentic-forge skills are WORKFLOWS, not reference material: each one runs a multi-step "
+    "process (fan-out, review gates, handoff artifacts) that doing the task by hand skips. When a "
+    "request matches an agentic-forge skill's description — reviewing a change, implementing a "
+    "planned step, designing, planning, researching, cutting a release — invoke that skill rather "
+    "than doing the work directly, *especially* when doing it directly looks straightforward."
+)
+
 
 def build_context(cwd: str) -> str:
-    """The ``additionalContext`` to inject for repo ``cwd`` ("" = nothing to inject)."""
-    return vault.session_summary(cwd)
+    """The ``additionalContext`` to inject for repo ``cwd``.
+
+    The routing note is unconditional — it is the intervention ADR 0088's baseline calls for, and
+    it must reach a session whether or not the repo has a knowledge vault. The vault map follows
+    when there is one."""
+    summary = vault.session_summary(cwd)
+    return f"{SKILL_ROUTING_NOTE}\n\n{summary}" if summary.strip() else SKILL_ROUTING_NOTE
 
 
 def main() -> int:

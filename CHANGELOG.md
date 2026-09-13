@@ -7,6 +7,8 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.9.3] - 2026-09-13
+
 ### Changed — the weekly eval measures routing, not everything (ADR 0083)
 
 2026.9.2 made a scheduled eval run fail when it cannot measure. It left the other half unasked:
@@ -124,6 +126,33 @@ wrong-but-valid choice was a decision and decisions were not sampled. Specificit
 This is the first direct evidence for ADR 0086's hypothesis: the built-in listing competes hard,
 to the point of total loss on exact-name collisions. No description or name is changed here — the
 attributed re-run decides that.
+
+### Added — tell the session that skills are workflows: activation 0.333 → 0.560 (ADR 0088)
+
+The Tier-1b baseline said the model reaches for the right skill on a third of the requests squarely
+in its domain, and that the rate falls the *easier* the task is to do by hand. The cheapest
+intervention the roadmap called for, measured against that baseline on the same 84 prompts:
+
+`SKILL_ROUTING_NOTE` — two sentences in the SessionStart `additionalContext`, saying agentic-forge
+skills are workflows with review gates and handoff artifacts that doing the task by hand skips, and
+to invoke the matching skill **especially when doing it directly looks straightforward**.
+
+```
+pooled         28/84 = 0.333  ->  47/84 = 0.560   (+68% relative, z = 3.03)
+the four zeros code-review, deep-review, develop, security-review — ALL moved off zero
+unmoved        skill-factory 1.000; nothing that worked regressed
+```
+
+All four zeros moved, which is what the baseline's shape predicted. The lift is outside single-run
+noise at the pooled level; individual rows are not (±0.2 is one prompt), so the decision rests on
+the pooled number, not on any one skill.
+
+`build_context` now returns the note **unconditionally** — a repo with no knowledge vault used to
+get no injection at all, which is every fresh session. The vault map follows the note when present.
+
+It does not finish the job: at 0.560 the model still works by hand on nearly half, and
+`code-review` / `develop` / `security-review` sit at 0.200–0.250. The pre-router hook (step 3) now
+has a measured bar to beat.
 
 ### Added — Tier-1b: does a skill fire when nobody asks which skill (ADR 0088)
 
