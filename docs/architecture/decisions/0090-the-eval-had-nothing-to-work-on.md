@@ -66,8 +66,12 @@ where the code was. The eval scored that as a miss.
    leaves one unstaged edit — so `git diff`, `git diff main..HEAD`, "this branch", "the plan" and
    "this module" all exist. One directory per prompt; nothing carries over. `--empty-workdir`
    keeps the old condition only to reproduce the old numbers.
-2. **The four placeholder prompts become concrete** ("for the task-priorities feature", "storing
-   task priorities"). Trigger data is a contract: Tier-1 re-runs for those three skills.
+2. **The four placeholder prompts become concrete** ("for the task-priorities feature"). Trigger
+   data is a contract: Tier-1 re-ran for those three skills — `plan` and `product` at 1.000 at
+   once; `research` at 0.800 on the first wording, because "options for *storing* task
+   priorities" reads as a storage-design question and the router sent it to `architecture` 5/5.
+   Re-worded as prior-art investigation ("investigate prior art and produce a research brief"),
+   1.000. A concrete topic must not smuggle in a neighbour's domain.
 3. **The buckets get a `nothing-to-work-on` bucket, first,** and lose `directly`.
 4. **Two earlier conclusions are retracted in place** (the ADRs keep their text and gain a dated
    note, because the reasoning was sound on the data it had, and the data was wrong):
