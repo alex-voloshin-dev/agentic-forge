@@ -24,7 +24,7 @@ are optional. A ready, schema-valid example with **every** key ships at
 | `routing_note.enabled` | bool | `true` | The SessionStart note telling the session that agentic-forge skills are workflows to invoke (2026.9.3). Overridable with `AGENTIC_FORGE_ROUTING_NOTE` — the switch its own A/B uses (ADR 0092). |
 | `pre_router.enabled` | bool | `false` | The deterministic pre-router hook (ADR 0089): on each prompt, name the clearly-matching skill in the prompt's context. Suggests only; never invokes. **Off by default** — measured at +0.095 activation over the session note (inside single-run noise) on a stand ADR 0090 then found empty, so the null result is uninterpretable; it stays off because the honest baseline left it nothing to fix (ADR 0091). Overridable with `AGENTIC_FORGE_PRE_ROUTER`. |
 | `logs.enabled` | bool | `true` | Write a redacted audit record per tool call (ADR 0019/0078). **On by default** — it is the only record of what the agent did, and the substrate of the diagnostics bundle. Turning it off stops the writing; it does not move the file (that is ADR 0072's state root). Overridable with `AGENTIC_FORGE_LOGS`. |
-| `diagnostics.enabled` | bool | `false` | Turn on the self-diagnostics log `~/.agentic-forge/state/<repo-slug>/diagnostics.jsonl` (ADR 0072) — guardrail denials, hook crashes, pipeline failures (ADR 0039). **This is "the logger."** |
+| `diagnostics.enabled` | bool | `false` | Turn on the self-diagnostics log `~/.agentic-forge/state/<repo-slug>/diagnostics.jsonl` (ADR 0072) — guardrail denials, pipeline failures (ADR 0039). **This is "the logger."** Hook crashes are recorded regardless of this switch and announced once per session (ADR 0094); the file is rotated at session start under the `logs.*` bounds. |
 | `state.in_repo` | bool | `false` | Keep generated runtime state (diagnostics, audit, schedule, PR-watch queue) **inside** the project at `<repo>/.agentic-forge/` instead of the user-level state root. Off by default: the plugin must not write into a repo it does not own (ADR 0072). The committed `config.json` is unaffected — configuration is the project's, state is the runtime's. `AGENTIC_FORGE_STATE_HOME` relocates the root when the default is not wanted. |
 | `subagent_budget.soft` | int ≥ 0 | `25` | Per-session subagent (`Task`) count at which the budget hook warns. |
 | `subagent_budget.hard` | int ≥ 0 | `50` | Count at which the budget hook blocks further `Task` spawns. |
@@ -52,7 +52,7 @@ These win over both files (an empty value is ignored, so `export VAR=` can't clo
 | `AGENTIC_FORGE_DIAGNOSTICS` | `diagnostics.enabled` |
 | `AGENTIC_FORGE_SUBAGENT_SOFT` | `subagent_budget.soft` |
 | `AGENTIC_FORGE_SUBAGENT_HARD` | `subagent_budget.hard` |
-| `AGENTIC_FORGE_SKIP_TEST_GATE` | `test_gate.skip` |
+| `AGENTIC_FORGE_SKIP_TEST_GATE` | `test_gate.skip` (a boolean like the others: `0`/`false` keep the gate — ADR 0094) |
 | `AGENTIC_FORGE_LOGS` | `logs.enabled` |
 | `AGENTIC_FORGE_ROUTING_NOTE` | `routing_note.enabled` |
 | `AGENTIC_FORGE_PRE_ROUTER` | `pre_router.enabled` |
