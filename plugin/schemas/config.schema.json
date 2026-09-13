@@ -168,7 +168,7 @@
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "Default false: measured at +0.095 activation over the SessionStart note (inside single-run noise) and no effect on the skills with an obvious by-hand path (ADR 0089). Opt in for the middle band. Overridable with AGENTIC_FORGE_PRE_ROUTER."
+          "description": "Default false: measured at +0.095 activation over the SessionStart note (inside single-run noise) on a stand ADR 0090 found empty, so the null result is uninterpretable; stays off per ADR 0091. Overridable with AGENTIC_FORGE_PRE_ROUTER."
         }
       }
     },
@@ -179,7 +179,7 @@
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "Default true. Overridable with AGENTIC_FORGE_ROUTING_NOTE \u2014 the switch the note's own A/B uses (ADR 0091)."
+          "description": "Default true. Overridable with AGENTIC_FORGE_ROUTING_NOTE \u2014 the switch the note's own A/B uses (ADR 0092)."
         }
       }
     }

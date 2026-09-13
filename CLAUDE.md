@@ -50,6 +50,8 @@ This file is the project constitution. Every contributor (human or agent) MUST f
      covers the structural + doc-sync checks; `pytest`/`ruff`/`mypy`/`--cov-fail-under=80` are
      enforced via the CI Tier-0 job in `ci.yml`, not by `validate.py` itself.)
    - Tier 1 (trigger): should-trigger recall >= 0.9, should-not-trigger specificity >= 0.9.
+   - Tier 1b (activation, on demand): a live session with the plugin loaded invokes the skill
+     unprompted; the rate pooled over the run >= 0.80 (ADR 0088/0093).
    - Tier 2 (quality, LLM-judge, N >= 5 runs): (mean - sigma) pass-rate >= 0.8. Tier-2 is
      declared by self-contained skills and all six roles; the SDLC-spine skills carry only
      Tier-1 and inherit quality from their delegated roles' Tier-2 plus the Tier-3 spine
@@ -76,7 +78,7 @@ This file is the project constitution. Every contributor (human or agent) MUST f
   review, review loop, Ralph loop, worktree(-parallel), knowledge-recall, handoff).
 - L2 Workflow skills: a phase-workflow per SDLC phase (fan out → synthesize a handoff artifact), depth via references.
 - L3 Knowledge base: Obsidian vault, recall skill, session-start injection.
-- L4 Guardrails & observability: hooks (security, test-gate, merge-preflight, logging, budgets, pr-created); scheduling + audit
+- L4 Guardrails & observability: hooks (security, test-gate, merge-preflight, logging, budgets, pr-created, pre-router); scheduling + audit
   digest; an opt-in self-diagnostics channel (`diagnostics.py`, ADR 0039) for errors/anomalies.
 - Plugin extensions (cross-cutting, opt-in; not a new layer — see `docs/architecture/extensions.md`):
   plugin config (`settings.py`, ADR 0041/0049), model tiering + runtime routing (`models.py`, ADR
@@ -90,12 +92,12 @@ plugin/
   skills/<name>/{SKILL.md, references/, assets/, scripts/, evals/evals.json}
   agents/<name>.md          # + agents/evals/<name>.evals.json (agent contracts)
   patterns/                 # engine pattern references (handoff, multi-aspect/adversarial review, review-loop, fan-out/fan-in, worktree(-parallel), knowledge-recall, ralph)
-  hooks/{hooks.json, scripts/*.py}        # L3 session-start + L4 guardrail hooks (security, test-gate, merge-preflight, logging, budgets, pr-created)
+  hooks/{hooks.json, scripts/*.py}        # L3 session-start + L4 guardrail hooks (security, test-gate, merge-preflight, logging, budgets, pr-created, pre-router)
   lib/agentic_forge/        # shared, importable, tested
   eval/{README.md, fixtures/}             # harness docs + agent eval fixtures
   schemas/                  # JSON Schema for evals.json + contract
 tests/                      # pytest for lib + hooks + harness
-dev/{validate.py, run_agent_evals.py, run_skill_evals.py, run_tier1_evals.py, run_spine_e2e.py, audit_digest.py, diagnostics_digest.py, ralph.py, sync_models.py}  # maintainer + eval CLIs — NOT shipped
+dev/{validate.py, run_agent_evals.py, run_skill_evals.py, run_tier1_evals.py, run_activation_evals.py, run_spine_e2e.py, hook_smoke.py, audit_digest.py, diagnostics_digest.py, ralph.py, sync_models.py}  # maintainer + eval CLIs — NOT shipped
 plugin/bin/{run_scheduled.py, pr_watch.py, external_review.py, state_migrate.py}  # runtime CLIs that DO ship (ADR 0072)
 docs/                       # product vision, architecture, ADRs, roadmap
 CHANGELOG.md                # what changed, by milestone

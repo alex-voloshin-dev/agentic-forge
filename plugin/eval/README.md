@@ -15,7 +15,7 @@ into a pass/fail decision against our numeric thresholds.
 | Capture `timing.json` (`total_tokens`, `duration_ms`) | skill-creator |
 | Run + grade subagent **roles** (Tier-2) | `lib/agentic_forge/agent_eval.py` (skill-creator is skill-only; see ADR 0011) |
 | Aggregate runs -> `benchmark.json` shape | `lib/agentic_forge/benchmark.py` |
-| Apply threshold gate (Tier 1 trigger, Tier 2 quality) | `lib/agentic_forge/gate.py` |
+| Apply threshold gate (Tier 1 trigger, Tier 2 quality; Tier 1b activation) | `lib/agentic_forge/gate.py` (+ `activation.pooled`) |
 | Static checks (Tier 0) | `lib/agentic_forge/validation.py` + `dev/validate.py` |
 | Scripts / hooks tests | `pytest` |
 

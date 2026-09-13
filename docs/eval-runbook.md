@@ -67,7 +67,7 @@ runners: **Tier-0** `dev/validate.py`; **skill Tier-1** `dev/run_tier1_evals.py`
 recall/specificity on the live listing — see below); **skill Tier-2** `dev/run_skill_evals.py`
 (see below); **Tier-3** `dev/run_spine_e2e.py`. The spine phase-workflow skills carry no
 skill-level Tier-2 — their quality is exercised end-to-end by the Tier-3 spine E2E plus the agent
-Tier-2 of the roles they fork. Every skill that declares a `tier2_quality` threshold (19 today:
+Tier-2 of the roles they fork. Every skill that declares a `tier2_quality` threshold (21 today — incl. `diagnostics-bundle` and `pr-watch`:
 `deep-review`, `skill-factory`, `knowledge`, `engineering-standards`, the nine `*-patterns` packs,
 and the Stage-4–6 own-behavior skills `release`, `deploy-watch`, `incident-response`, `marketing`,
 `ux-design`, `repo-onboarding`) **is run by `run_skill_evals.py`** (ADR 0017) — no longer a manual

@@ -45,11 +45,11 @@ plugin/
   schemas/{evals,config}.schema.json  # the component contract schema (superset) + the config schema
   eval/{README.md, fixtures/}         # harness architecture + agent eval fixtures (L1)
   hooks/{hooks.json, scripts/*.py}    # L3 session-start + L4 guardrail hooks (ADR 0018/0019)
-dev/{validate.py, run_agent_evals.py, run_skill_evals.py, run_tier1_evals.py, run_spine_e2e.py, audit_digest.py, diagnostics_digest.py, ralph.py, sync_models.py}  # maintainer + eval CLIs — NOT shipped
+dev/{validate.py, run_agent_evals.py, run_skill_evals.py, run_tier1_evals.py, run_activation_evals.py, run_spine_e2e.py, hook_smoke.py, audit_digest.py, diagnostics_digest.py, ralph.py, sync_models.py}  # maintainer + eval CLIs — NOT shipped
 plugin/bin/{run_scheduled.py, pr_watch.py, external_review.py, state_migrate.py}  # runtime CLIs that DO ship to users (ADR 0072)
 tests/                                # pytest for lib + harness + plugin integrity
 pyproject.toml                        # uv / pytest / ruff / mypy config
-.github/workflows/{ci.yml,eval.yml}   # Tier-0 always; Tier 1/2/3 cost-gated
+.github/workflows/{ci.yml,eval.yml,scheduled.yml}  # Tier-0 + hooks-on-3.9 always; Tier-1 weekly, Tier-2/3 on demand; scheduled wiring smoke
 ```
 
 ## The shared library (`plugin/lib/agentic_forge/`)
@@ -68,7 +68,7 @@ pyproject.toml                        # uv / pytest / ruff / mypy config
 | `stacks.py` | Deterministic stack detection for target repos: `detect`/`primary` from hints/manifests plus the toolchain registry the spine's `develop`/`code-review` consume (by-stack; ADR 0015). |
 | `tier1_runner.py` | Tier-1 trigger runner on the **live** skill listing: classify each on-listing skill's trigger prompts via the router, gate recall/specificity (ADR 0016). An off-format reply is `INVALID` — dropped from the denominator and reported, never mined for a skill name; an all-invalid prompt is `unmeasured` and fails (ADR 0064). |
 | `activation.py` | **Tier-1b** activation runner (ADR 0088): run each skill's should_trigger prompts through a REAL Claude Code session with the plugin loaded and scan the transcript for a `Skill` tool call naming that skill — the fraction that fire unprompted, where Tier-1 only measures the router answering when asked. Gated on the rate **pooled** over the run (`pooled()`, `--min-activation 0.80` in CI — ADR 0093); the per-skill lines are a lens, since at 4-9 prompts a skill they cannot be a gate. A measurement when no floor is given. |
-| `pre_router.py` | Deterministic pre-router (ADR 0089): on each prompt, IDF-weighted coverage of the prompt by each skill's profile (description ∪ trigger prompts, minus other skills' trigger vocabulary — the contrastive-clause leak) names the clearly-matching skill in `additionalContext`. Abstains on ambiguity; `self_check` is the leave-one-out calibration (recall 0.500 / precision 0.955 / wrong-skill 0 at 0.40 / 0.15). Suggests only, never invokes. |
+| `pre_router.py` | Deterministic pre-router (ADR 0089): on each prompt, IDF-weighted coverage of the prompt by each skill's profile (description ∪ trigger prompts, minus other skills' trigger vocabulary — the contrastive-clause leak) names the clearly-matching skill in `additionalContext`. Abstains on ambiguity; `self_check` is the leave-one-out calibration (recall 0.488 / precision 0.932 / wrong-skill 1, recalibrated in ADR 0092 at 0.40 / 0.15). Suggests only, never invokes. |
 | `skill_eval.py` | Skill Tier-2 quality runner: knowledge skills run as the `software-engineer` with them loaded, others directly; reuses `agent_eval.run_eval_cases` (ADR 0017). |
 | `vault.py` | L3 knowledge-vault core: parse/resolve `[[wikilinks]]`, load + validate the note graph, scaffold, add+link notes, rank recall candidates, build the session-start summary (ADR 0018). |
 | `guardrails.py` | L4 guardrail logic: dangerous-command deny-list, test-gate command choice, secret redaction + audit record, subagent-budget counter (ADR 0019). |
@@ -170,12 +170,20 @@ Tier-0 gate.
 
 ## CI
 
-- `ci.yml` runs the Tier-0 gate on every push/PR: `validate`, `pytest`, `ruff`, `mypy`.
-- `eval.yml` runs Tier-1/2 on demand or when a PR is labelled `eval`. The agent Tier-2 runs
-  on a Claude **subscription** token (`CLAUDE_CODE_OAUTH_TOKEN`) via the `claude` CLI and
-  deliberately leaves `ANTHROPIC_API_KEY` unset (it would override the subscription); the
-  skill path uses skill-creator, and the optional `--runner api` path uses
-  `ANTHROPIC_API_KEY`. This keeps expensive LLM evals off the always-on path.
+- `ci.yml` runs the Tier-0 gate on every push/PR: `validate`, `pytest`, `ruff`, `mypy` — plus
+  `hooks-py39`, which compiles, imports and smoke-runs every hook under **Python 3.9** with nothing
+  installed (`dev/hook_smoke.py`): the floor a stock macOS `python3` gives the field, tested rather
+  than assumed, because a hook that cannot start fails open and silent (ADR 0094).
+- `eval.yml` runs three jobs (ADR 0083): `wiring` on every trigger; `trigger` — Tier-1 routing —
+  on the **weekly cron**, on dispatch and on the `eval` label, failing when the token is missing
+  (ADR 0082); `quality` — Tier-2 + Tier-3 — on demand only. The dispatch input `tiers` (`all` /
+  `trigger-only` / `builtins-condition` / `activation`) maps each value to exactly one path, by
+  positive list; `activation` runs Tier-1b gated at pooled ≥ 0.80 (ADR 0093), and the job summary
+  names the step that ran. Model-backed steps use a Claude **subscription** token
+  (`CLAUDE_CODE_OAUTH_TOKEN`) via the `claude` CLI and deliberately leave `ANTHROPIC_API_KEY`
+  unset (it would override the subscription); skills are run by `dev/run_skill_evals.py`
+  (ADR 0017), and the optional `--runner api` path uses `ANTHROPIC_API_KEY`. `scheduled.yml` is a
+  wiring smoke for the scheduled entry point. Expensive LLM evals stay off the always-on path.
 
 ## How to extend
 

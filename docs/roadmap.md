@@ -539,16 +539,16 @@ bugs (neutral `config.example.json` + configuration.md python/models clarificati
   skill (hypothesis (c), reproduced 2/2 headless). **Tier-1b** (ADR 0088, `activation.py`)
   now measures exactly that. Next, in order, each measured before the next: (1) take the
   activation baseline; (2) one line in the SessionStart `additionalContext` telling the model
-  to invoke a matching skill rather than do the work — **done, 0.333 → 0.560** (2026.9.3); (3) a
+  to invoke a matching skill rather than do the work — **done** (2026.9.3; the honest measurement is 0.571 → 0.929, ADR 0092); (3) a
   `UserPromptSubmit` pre-router hook naming the matching skill in-context — **built (ADR 0089)**,
   shipped off by default; (4) description edits — **cancelled (ADR 0091)**. The why-diagnostic
   found 36/36 misses were the eval's empty working directory (ADR 0090); on a rebuilt stand with a
   real repo per prompt the first honest baseline is **78/84 = 0.929**, the "hard four" 17/19, and
   the one preference miss in 84 is a fair proportionality call. The pre-router stays off (its A/B
-  could only measure the noise floor); the Stop-hook is not built. **(b) is done (ADR 0092):** with
+  could only measure the noise floor); the Stop-hook is not built. **The note A/B is done (ADR 0092):** with
   the note off the same stand reads 0.571; with it on, 0.929 — z = 5.87, thirty prompts from two
   sentences, and the note-off misses say *"momentum"*, *"never paused"*, not cost. The note is the
-  fix. **(c) is done** (content-bearing prompts, a blog post and a page in the fixture, max-turns
+  fix. **The stand polish is done** (content-bearing prompts, a blog post and a page in the fixture, max-turns
   4), re-baselined at **79/84 = 0.940**, and the gate is live at pooled ≥ 0.80 (ADR 0093).
   **What remains is (a) alone:** the next field bundle on ≥ 2026.9.3 — `Skill` vs `Agent`
   counts against 183-to-3. Nothing is built ahead of it; if the field does not move, ADR 0081's

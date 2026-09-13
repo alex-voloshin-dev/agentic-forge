@@ -23,4 +23,19 @@ jobs:
       - name: Lint
         run: ruff check .
       - name: Types
-        run: mypy plugin/lib plugin/hooks dev
+        run: mypy plugin/lib plugin/hooks plugin/bin dev
+
+  # Hooks run under the user's bare `python3` — a stock macOS gives CPython 3.9.6 — and a hook that
+  # fails to start fails OPEN, silently. So the floor is tested, not assumed: compile every shipped
+  # file, import every hook-reachable module and run every hook under 3.9, nothing installed
+  # (ADR 0094). The dev tooling itself stays on 3.11+.
+  hooks-py39:
+    name: Hooks on Python 3.9 (the field's floor)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: Compile, import and smoke-run every hook (stdlib only)
+        run: python dev/hook_smoke.py
