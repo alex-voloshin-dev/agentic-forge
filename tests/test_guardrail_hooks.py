@@ -278,8 +278,11 @@ def test_audit_log_bad_stdin_safe(monkeypatch) -> None:
 def test_hooks_json_registers_all_events() -> None:
     raw = (_REPO / "plugin" / "hooks" / "hooks.json").read_text(encoding="utf-8")
     hooks = json.loads(raw)["hooks"]
-    assert set(hooks) == {"SessionStart", "PreToolUse", "PostToolUse"}
-    _scripts = ("security.py", "commit_gate.py", "budget.py", "audit_log.py", "session_start.py")
+    assert set(hooks) == {"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse"}
+    _scripts = (
+        "security.py", "commit_gate.py", "budget.py", "audit_log.py", "session_start.py",
+        "pre_router.py",
+    )
 
     def scripts_for(event: str, matcher: str | None) -> set[str]:
         out: set[str] = set()
@@ -292,6 +295,7 @@ def test_hooks_json_registers_all_events() -> None:
 
     # assert each script is wired to the RIGHT event + matcher (not just present somewhere in the
     # blob) — a script moved to the wrong event/matcher would now fail.
+    assert scripts_for("UserPromptSubmit", None) == {"pre_router.py"}  # ADR 0089
     assert scripts_for("SessionStart", None) == {"session_start.py"}
     assert scripts_for("PreToolUse", "Bash") == {"security.py", "commit_gate.py"}
     assert scripts_for("PreToolUse", "Task") == {"budget.py"}

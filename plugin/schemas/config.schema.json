@@ -160,6 +160,17 @@
           "description": "How many gzipped archives of rotated-out records to keep beside the live log. Default 6; 0 discards them instead."
         }
       }
+    },
+    "pre_router": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The deterministic pre-router hook (ADR 0089): on each prompt, a lexical classifier over the skills' own trigger examples names the clearly-matching skill in the prompt's context. Suggests only, never invokes.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Default false: measured at +0.095 activation over the SessionStart note (inside single-run noise) and no effect on the skills with an obvious by-hand path (ADR 0089). Opt in for the middle band. Overridable with AGENTIC_FORGE_PRE_ROUTER."
+        }
+      }
     }
   }
 }

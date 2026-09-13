@@ -7,6 +7,54 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Added — ask the session why it did the work by hand (ADR 0088, step 4)
+
+`dev/run_activation_evals.py --ask-why` resumes every session that did NOT invoke its skill and
+puts one neutral question to it — *the `agentic-forge:<skill>` skill was available and you did the
+work directly; why?* — then prints a keyword-bucket tally (cost/overhead, task-is-simple,
+not-noticed, not-applicable, no-artifacts-wanted, other) and every answer raw beneath it. The tally
+is a lens, the text is the evidence, and a self-report is a claim (ADR 0073), not a measurement:
+across 40+ misses the *distribution* is still the cheapest signal on what the model believes it is
+choosing between, and it decides whether rewriting descriptions is aimed at a real cause. `--env
+KEY=VALUE` makes the measured condition explicit (e.g. `AGENTIC_FORGE_PRE_ROUTER=1`).
+
+### Added — the pre-router: name the matching skill in the prompt itself (ADR 0089)
+
+Step 3 of ADR 0088's sequence. The SessionStart note lifted unprompted activation 0.333 → 0.560 and
+left nearly half — concentrated on the skills with an obvious do-it-by-hand path. A standing note is
+advice the model weighs once per session; a line attached to *this* prompt is a suggestion it reads
+at the moment of deciding.
+
+A new `UserPromptSubmit` hook (`hooks/scripts/pre_router.py`, lib `pre_router.py`) classifies each
+prompt against every skill's profile — its description's words plus its `evals.json` trigger
+prompts — by IDF-weighted coverage, with IDF computed *across skills* so `feature` and `review`
+weigh little and `changelog`, `incident`, `wcag` weigh a lot. It emits one line naming the skill only
+when that skill wins clearly (coverage ≥ 0.40, ≥ 0.15 ahead of the runner-up, not vetoed by the
+skill's own anti-trigger vocabulary); otherwise nothing. No model call; a few milliseconds; runs on
+the 3.9 the hooks are contracted for.
+
+Two things the first cut got wrong and the leave-one-out self-check caught: (1) this plugin's
+descriptions are deliberately contrastive — "Not for the technical design (architecture)", "for a
+quick lint use code-review" — which routes the *model* well and poisons a bag of words, putting
+`prd` into `architecture`'s profile and `implement` into `security-review`'s; a skill's description
+now loses any word that belongs to another skill's triggers and not its own. (2) A word no skill
+uses weighed nothing, so `Run the app and screenshot it` matched `deep-review` at 0.60 on the single
+word `app`; unknown words now weigh the most. Calibrated on 84 trigger + 71 anti-trigger prompts:
+recall 0.500, precision 0.955, **wrong-skill 0**.
+
+It suggests, never invokes — the line ends "if the request is really something else, ignore this".
+
+**Measured, and shipped off by default.** Same 84 prompts, on top of the session note: pooled
+0.560 → 0.655, +8 prompts, **z = 1.27 — inside single-run noise**. It lifted the middle band
+(marketing 3→8/9, release 2→4/4, qa-test-strategy, ux-design, architecture, product, knowledge
+each +1) and did **nothing** for the four it was built for: code-review 1→1/5, develop 1→1/5,
+security-review 1→0/4, deep-review 3→2/5. And there was no control group to lean on — the hook
+fires on all 84 eval prompts, because they are its own training data — so +0.095 is an upper bound
+on real prompts (leave-one-out recall 0.50). The sharpest finding of the series: those four skills
+received the **exact skill name** in the prompt's context and still did the work by hand. The
+bottleneck is not routing information; the model knows and declines. `pre_router.enabled` opts in
+(`AGENTIC_FORGE_PRE_ROUTER=1`); the code and its leave-one-out contract stay under Tier-0.
+
 ## [2026.9.3] - 2026-09-13
 
 ### Changed — the weekly eval measures routing, not everything (ADR 0083)

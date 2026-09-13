@@ -31,6 +31,7 @@ plugin/
     spine_e2e.py stacks.py            # L2 spine: Tier-3 E2E + by-stack detection
     tier1_runner.py skill_eval.py     # L2: skill Tier-1 (live listing) + skill Tier-2 runners
     activation.py                     # L2: skill Tier-1b (unprompted activation, ADR 0088)
+    pre_router.py                     # L4: deterministic pre-router for the UserPromptSubmit hook (ADR 0089)
     vault.py                          # L3: Obsidian knowledge-vault core (ADR 0018)
     guardrails.py                     # L4: guardrail hook logic (ADR 0019)
     ops.py release.py                 # Stage 4: deploy/incident assessment + release core (ADR 0021)
@@ -67,6 +68,7 @@ pyproject.toml                        # uv / pytest / ruff / mypy config
 | `stacks.py` | Deterministic stack detection for target repos: `detect`/`primary` from hints/manifests plus the toolchain registry the spine's `develop`/`code-review` consume (by-stack; ADR 0015). |
 | `tier1_runner.py` | Tier-1 trigger runner on the **live** skill listing: classify each on-listing skill's trigger prompts via the router, gate recall/specificity (ADR 0016). An off-format reply is `INVALID` — dropped from the denominator and reported, never mined for a skill name; an all-invalid prompt is `unmeasured` and fails (ADR 0064). |
 | `activation.py` | **Tier-1b** activation runner (ADR 0088): run each skill's should_trigger prompts through a REAL Claude Code session with the plugin loaded and scan the transcript for a `Skill` tool call naming that skill — the fraction that fire unprompted, where Tier-1 only measures the router answering when asked. A measurement by default (no gate) until a baseline sets a threshold. |
+| `pre_router.py` | Deterministic pre-router (ADR 0089): on each prompt, IDF-weighted coverage of the prompt by each skill's profile (description ∪ trigger prompts, minus other skills' trigger vocabulary — the contrastive-clause leak) names the clearly-matching skill in `additionalContext`. Abstains on ambiguity; `self_check` is the leave-one-out calibration (recall 0.500 / precision 0.955 / wrong-skill 0 at 0.40 / 0.15). Suggests only, never invokes. |
 | `skill_eval.py` | Skill Tier-2 quality runner: knowledge skills run as the `software-engineer` with them loaded, others directly; reuses `agent_eval.run_eval_cases` (ADR 0017). |
 | `vault.py` | L3 knowledge-vault core: parse/resolve `[[wikilinks]]`, load + validate the note graph, scaffold, add+link notes, rank recall candidates, build the session-start summary (ADR 0018). |
 | `guardrails.py` | L4 guardrail logic: dangerous-command deny-list, test-gate command choice, secret redaction + audit record, subagent-budget counter (ADR 0019). |

@@ -38,5 +38,8 @@
     "max_bytes": 10485760,
     "keep_bytes": 5242880,
     "archives": 6
+  },
+  "pre_router": {
+    "enabled": false
   }
 }
