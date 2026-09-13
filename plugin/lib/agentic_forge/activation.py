@@ -201,7 +201,7 @@ def session_error(stream: str) -> str:
 
 def session_id_of(stream: str) -> str | None:
     """The session id a stream-json transcript was recorded under (from its `init` object), so a
-    miss can be asked, in the same session, why it did the work by hand (ADR 0088, step 4)."""
+    miss can be asked, in the same session, why it did the work by hand (ADR 0090)."""
     for obj in _objects(stream):
         sid = obj.get("session_id")
         if sid and obj.get("type") == "system":

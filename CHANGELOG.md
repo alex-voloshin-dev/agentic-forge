@@ -7,6 +7,73 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Changed — the audit: the same three shapes, everywhere else (ADR 0094)
+
+ADRs 0081–0093 fixed thirteen defects that were three shapes — a verdict from nothing, a message
+to nobody, a stand that presupposes what it does not carry. The whole plugin was swept for those
+shapes (fifteen classes, six areas, every finding traced through its call path, the guardrail
+ones executed); ~50 findings, 9 high, fixed as one change set:
+
+- **Python floor, tested.** Hooks run under the user's bare `python3` (a stock macOS gives 3.9.6),
+  so hook-reachable code stays 3.9-compatible — and `ci.yml` now proves it: `hooks-py39` runs
+  `dev/hook_smoke.py` under 3.9 with nothing installed (every shipped file compiles, every
+  hook-reachable module imports, every hook runs on a minimal payload and prints nothing or
+  JSON; a hook without a smoke payload fails). `mypy` covers `plugin/bin`.
+- **Hooks say what they do.** Warnings (merge preflight, budget soft cap, PR-created reminder,
+  dropped config) are `systemMessage` + `additionalContext` JSON (`diagnostics.hook_notice`) —
+  they were stderr on exit 0, which Claude Code discards. A hook crash is recorded even with
+  `diagnostics.enabled: false` and announced once per session (`hook_crash`). A dropped config
+  rides on `Settings.warnings`, announced once at SessionStart. `diagnostics.jsonl` is rotated
+  like the audit log. Merge-preflight git reads share a 12 s budget. `AGENTIC_FORGE_SKIP_TEST_GATE`
+  is a boolean (`0`/`false` keep the gate). The commit gate keeps a timed-out test's partial
+  output. The pre-router records why its index is empty instead of never suggesting.
+- **A session that never ran is undetermined, in every tier** (ADR 0093 generalised): the runner
+  reads the envelope and raises `SessionUndetermined`/`TurnCapHit`/`SessionTimedOut` at once —
+  no retry for an answer, one for a timeout, backoff only for transport; Tier-2 counts and caps
+  unmeasured runs (`gate.MAX_UNDETERMINED`), Tier-1 gates on the pooled no-decision share instead
+  of the per-prompt half-rule, Tier-3 fails a named checkpoint and continues; grading is
+  shape-aware and an unparseable grading is *ungraded*; `tier2_quality.runs` is required (≥ 5);
+  a namespaced answer is ours; Tier-1b scores a bare built-in-named `Skill` call as *collided*;
+  the spine's fixture tests are bounded; `ralph` aborts on an unlaunchable done-cmd; `api_runner`
+  raises on `max_tokens`. See the runbook, "Sessions that never ran".
+- **The PR watcher never posts for a session that never ran** — `undetermined`, retried next
+  poll; one fixer attempt bounded under the 1800 s watch budget; a watcher pass is killed with
+  its whole process group; every pass ticks and persists the queue before reporting; queue
+  entries carry `failures`; the drop reason is true ("finished" / "tick budget spent: N of M polls
+  failed"); a failed pass fails the job; connectors raise `ops.SourceUnavailable` instead of `[]`
+  and the deploy digest says "unknown — source unavailable" instead of "healthy"; `gh run list`
+  has a timeout; an errored `gh pr list` is an error; an unreadable comment list skips the
+  "please rebase" post; an empty `gh pr view` is "unconfirmed".
+- **Guardrails.** rm/chmod targets by tree depth: roots, whole homes and OS trees block; paths
+  inside `/home/<user>`, `/root`, `/var/tmp`, `/var/folders`, `$TMPDIR` are project paths
+  (`rm -rf /home/runner/work/repo/dist` was blocked on every Linux runner); "permissive" chmod is
+  a grant to *others* (`u+x` no longer fires); `is_commit_or_push`/`is_pr_merge` strip heredocs and
+  match the command word per segment (a `git push` inside a heredoc or a `grep` ran the 110 s
+  gate); a heredoc receiver is a token (`ssh-notes.md` is a file); every block message names the
+  alternative.
+- **Content.** Packs are reached by path — `${CLAUDE_PLUGIN_ROOT}/skills/<pack>/SKILL.md`,
+  `stacks.pack_paths` — since `disable-model-invocation: true` skills cannot be invoked by name
+  (a live `develop` session now reads `engineering-standards` and `python-patterns` from disk);
+  every phase skill has a branch for an absent input (derive, state assumptions, never stop to
+  ask when headless); `doc_delivery.proceed_plan` commits without a remote and pushes without a
+  PR when `gh` is absent; `research` has `WebSearch`/`WebFetch` and no phantom `deep-research`;
+  `marketing` forks `Explore`; `qa-test-strategy` delegates plan-only. Descriptions (same length
+  or shorter): `deep-review` 766→759 and `develop` 431→430 chars lose the cost inventory that
+  read as a price list, with a small-target path in the body; `security-review` 678→662 owns
+  "SECURITY"; `research` 838→761. Shipped `SKILL.md` files no longer link into `docs/`.
+- **Eval content.** `diagnostics-bundle` cases run against a seeded `./fake-home` (`--home` /
+  `AGENTIC_FORGE_HOME`) — a Tier-2 run used to write the operator's real `~/Downloads` and pack
+  their real `~/.claude`; the ten knowledge packs and `skill-factory` seed a manifest, a source
+  file and an existing test (or a plugin skeleton) via the `tree/` fixture layout
+  (`evals.fixture_dest`); `ux-design` gets a design system; `incident-response`'s prompts carry an
+  incident; the Tier-1b stand seeds a `docs/knowledge/` vault; six Tier-2 prompts that dictated
+  their finding now leave it to the fixture; the two `X` placeholders are gone; a test checks that
+  every `files` entry resolves. Trigger prompts changed for `incident-response`, `ux-design`,
+  `develop`, `security-review`, `marketing`, `plan`, `product`.
+- **CI and docs.** The Tier-1 step and both model-backed jobs select by positive list; the
+  summary names the step that ran; retracted ADR 0089 claims marked retracted wherever they still
+  stood as fact; Tier-1b in the pyramid definitions; the ADR amendment convention stated.
+
 ### Changed — the activation gate is pooled and live at 0.80 (ADR 0093)
 
 Re-baselined on the polished stand: **79/84 = 0.940** (mean of rates 0.935, the "hard four"

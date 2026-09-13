@@ -6,7 +6,7 @@ alerts instead of reading a scenario file (ADR 0025):
 ```
 python -c "
 from agentic_forge import connectors, ops
-alerts = connectors.alert_source().active_alerts('production')  # GrafanaAlertSource if GRAFANA_URL set
+alerts = connectors.alert_source().active_alerts('production')  # raises ops.SourceUnavailable when the source cannot answer — report 'unknown', never 'no alerts' (ADR 0094)  # GrafanaAlertSource if GRAFANA_URL set
 print(alerts); print(ops.triage_alerts(alerts))
 "
 ```

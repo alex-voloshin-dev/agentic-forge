@@ -81,7 +81,18 @@ artifacts and emits an anomaly for any whose `verdict` is still `changes` at `it
 - `plugin/bin/run_scheduled.py` — compute due jobs (`schedule.due_jobs`), run each (seam), and record each
   outcome (`schedule.record_run`; a failed job is retried next poll, not fatal). `--dry` lists what
   *would* run without running it (the roadmap's "dry-run green"); `--health` prints the per-job run
-  history (status / runs / failures) without running anything.
+  history (status / runs / failures) without running anything. The hourly `pr-watch-queue` job
+  (ADR 0068/0069) is bounded and audited since ADR 0094: each watcher pass runs in its own process
+  group and is killed with it at the 1800 s budget (an aborted `claude` never keeps editing the
+  checkout); the fixer gets one attempt under `fixer_timeout` (≤ 0.8 × 1800 s / max_threads); a
+  review thread whose fixer session never ran (a usage limit, an auth error) is `undetermined` —
+  nothing is posted, the thread waits for the next poll; every pass ticks and persists the queue
+  *before* reporting; entries carry `failures`, the drop reason is true ("finished (merged or
+  closed)" / "tick budget spent: N of M polls failed"), a failed pass fails the job (`--health`
+  red), and a checkout failure, non-zero exit, kill or job failure is a forced diagnostics event
+  (`pr-watch-queue` / `pr-watch` / `scheduled-run`). The daily deploy digest prints "unknown —
+  source unavailable (why)" when a connector raises `ops.SourceUnavailable`, never "healthy" from
+  no data.
 - `dev/audit_digest.py` — print `observability.digest` of the audit log (a window flag).
   The log itself is size-bounded: the session-start hook calls `observability.rotate_audit`
   (trim to the newest ~5 MB once past ~10 MB — whole records kept; a field repo accrued

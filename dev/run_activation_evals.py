@@ -70,7 +70,7 @@ def _cli_runner(
 def _why_runner(
     plugin_dir: Path, model: str, timeout: int, env: dict[str, str]
 ) -> Callable[[str, str], str]:
-    """Resume a miss's session and ask it why (ADR 0088, step 4). One turn, no tools."""
+    """Resume a miss's session and ask it why (the diagnostic of ADR 0090). One turn, no tools."""
 
     def ask(session_id: str, question: str) -> str:  # pragma: no cover -- real CLI
         cmd = [
@@ -111,7 +111,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--ask-why", action="store_true",
         help="For every miss, resume the session and ask why it did the work by hand "
-        "(ADR 0088, step 4). Self-reports, bucketed and printed raw.",
+        "(the diagnostic of ADR 0090). Self-reports, bucketed and printed raw.",
     )
     parser.add_argument(
         "--env", action="append", default=[], metavar="KEY=VALUE",
