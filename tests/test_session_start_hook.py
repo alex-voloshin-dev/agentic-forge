@@ -13,14 +13,19 @@ import session_start  # noqa: E402
 from agentic_forge import diagnostics, vault  # noqa: E402
 
 
-def test_build_context_no_vault(tmp_path: Path) -> None:
-    assert session_start.build_context(str(tmp_path)) == ""
+def test_build_context_is_the_routing_note_when_there_is_no_vault(tmp_path: Path) -> None:
+    """The routing note is unconditional (ADR 0088): a session with no vault still needs to be
+    told that skills are workflows to invoke, which is the whole intervention."""
+    ctx = session_start.build_context(str(tmp_path))
+    assert ctx == session_start.SKILL_ROUTING_NOTE
+    assert "invoke that skill" in ctx
 
 
 def test_build_context_with_vault(tmp_path: Path) -> None:
     vault.add_note(tmp_path, "central", "Central idea", "the hub")
     ctx = session_start.build_context(str(tmp_path))
     assert "Project knowledge" in ctx and "[[central]]" in ctx
+    assert ctx.startswith(session_start.SKILL_ROUTING_NOTE)  # note first, then the vault map
 
 
 def test_main_emits_injection_json(tmp_path: Path, monkeypatch, capsys) -> None:
@@ -32,10 +37,12 @@ def test_main_emits_injection_json(tmp_path: Path, monkeypatch, capsys) -> None:
     assert "Project knowledge" in data["hookSpecificOutput"]["additionalContext"]
 
 
-def test_main_no_vault_emits_nothing(tmp_path: Path, monkeypatch, capsys) -> None:
+def test_main_injects_the_routing_note_without_a_vault(tmp_path: Path, monkeypatch, capsys) -> None:
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"cwd": str(tmp_path)})))
     assert session_start.main() == 0
-    assert capsys.readouterr().out.strip() == ""  # no vault -> no injection
+    data = json.loads(capsys.readouterr().out)
+    injected = data["hookSpecificOutput"]["additionalContext"]
+    assert injected == session_start.SKILL_ROUTING_NOTE  # no vault, but the note still lands
 
 
 def test_main_bad_stdin_is_safe(monkeypatch, capsys) -> None:

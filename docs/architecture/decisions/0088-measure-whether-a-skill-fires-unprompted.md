@@ -104,6 +104,39 @@ minutes earlier, 0.571 here). The mean and the coarse bands are the signal; a on
 between two adjacent skills is not. A calibrated threshold, if one is ever set, needs multiple runs
 per prompt like the other tiers.
 
+## The intervention, and its lift
+
+Step (2) of the sequence, run the same day against the same 84 prompts, same model, one variable
+changed: `SKILL_ROUTING_NOTE` in the SessionStart `additionalContext` — two sentences saying that
+agentic-forge skills are workflows with gates and handoff artifacts that doing the task by hand
+skips, and to invoke the matching skill *especially when doing it directly looks straightforward*.
+The wording targets the baseline's **shape**, not its mean.
+
+```
+pooled          28/84 = 0.333  ->  47/84 = 0.560      (+0.226, +68% relative, z = 3.03)
+mean of rates   0.347          ->  0.561
+the four zeros  code-review 0.000->0.200   deep-review 0.000->0.600
+                develop     0.000->0.200   security-review 0.000->0.250
+biggest movers  plan 0.400->1.000   deploy-watch 0.571->1.000   knowledge 0.200->0.800
+unmoved         skill-factory 1.000 (nothing to gain), incident-response / qa-test-strategy 0.750,
+                ux-design 0.500, repo-onboarding 0.250
+only regression research 0.400->0.200 (one prompt — inside single-run noise)
+```
+
+**Every one of the four zeros moved off zero**, which is the prediction the baseline's shape made:
+the skills that lost to "I could just do this" are exactly the ones an explicit instruction
+recovers. Nothing that already worked regressed — `skill-factory` held at 1.000.
+
+The pooled lift is outside single-run noise (z = 3.03 on 84 paired prompts, 19 net prompts flipped
+to activation), unlike any individual skill's row, where ±0.2 is one prompt. That is why the
+decision rests on the pooled number and the zeros, and why `research`'s −0.200 is not read as harm.
+
+So the intervention ships. It does **not** finish the job: 0.560 means the model still does the
+work by hand on nearly half the requests squarely in a skill's domain, and `code-review`,
+`develop`, `security-review` remain at 0.200–0.250 — the shapes with both a built-in namesake and
+an obvious by-hand path. Step (3), the `UserPromptSubmit` pre-router that names the matching skill
+in the prompt itself, still has a job to do, and now has a measured bar to beat: 0.560.
+
 ## Alternatives considered
 
 - **Fold activation into Tier-3.** Rejected: Tier-3 drives a skill through its phases to check the
