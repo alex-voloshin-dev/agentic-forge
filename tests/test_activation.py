@@ -192,8 +192,12 @@ def test_prepare_workspace_gives_a_prompt_something_to_work_on(tmp_path: Path) -
     import subprocess
 
     repo = activation.prepare_workspace(PLUGIN, tmp_path)
-    assert (repo / "taskstore.py").is_file() and (repo / "docs/sdlc/task-priorities/plan.md").is_file()
-    git = lambda *a: subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True).stdout  # noqa: E731
+    assert (repo / "taskstore.py").is_file()
+    assert (repo / "docs/sdlc/task-priorities/plan.md").is_file()
+
+    def git(*a: str) -> str:
+        return subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True).stdout
+
     assert git("branch", "--show-current").strip() == "feature/task-priorities"
     assert git("log", "--oneline", "main..HEAD").strip()  # a committed change on the branch
     assert git("diff", "--stat").strip()  # …and an unstaged edit
@@ -222,5 +226,7 @@ def test_run_activation_uses_the_workspace_factory(tmp_path: Path) -> None:
         made[0] += 1
         return tmp_path / f"w{made[0]}"
 
-    activation.activation_rate(trig, run, tmp_path, target="plan", min_activation=None, workspace_factory=factory)
+    activation.activation_rate(
+        trig, run, tmp_path, target="plan", min_activation=None, workspace_factory=factory
+    )
     assert made[0] == len(trig.should_trigger) and len(set(seen)) == len(seen)  # one fresh dir each

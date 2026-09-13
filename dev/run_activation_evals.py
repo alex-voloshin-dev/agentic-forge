@@ -130,7 +130,8 @@ def main(argv: list[str]) -> int:
     run_fn = _cli_runner(plugin_dir, args.model, args.max_turns, args.timeout, env)
     ask = _why_runner(plugin_dir, args.model, args.timeout, env) if args.ask_why else None
     gate = "measure only" if args.min_activation is None else f"gate >= {args.min_activation}"
-    cond = (f", env={env}" if env else "") + (", EMPTY workdir" if args.empty_workdir else ", fixture repo per prompt")
+    stand = ", EMPTY workdir" if args.empty_workdir else ", fixture repo per prompt"
+    cond = (f", env={env}" if env else "") + stand
     print(
         f"running Tier-1b activation via claude (model={args.model}, {gate}{cond})...",
         flush=True,
