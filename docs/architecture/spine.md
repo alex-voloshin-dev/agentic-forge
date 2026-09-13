@@ -76,8 +76,10 @@ stack-parametric. Mechanism (see [ADR 0015](decisions/0015-by-stack-detection-an
   (CLAUDE.md / Makefile / scripts) win.
 - **Stack reference packs** — off-listing (`disable-model-invocation: true`) `*-patterns`
   knowledge skills (toolchain, idioms, testing, layout, pitfalls), modelled on
-  `engineering-standards`, loaded on demand by `develop` / `code-review` and the
-  `software-engineer` / `qa-engineer` roles for the detected stack.
+  `engineering-standards`, read on demand by `develop` / `code-review` and the
+  `software-engineer` / `qa-engineer` roles for the detected stack — **by file path**
+  (`${CLAUDE_PLUGIN_ROOT}/skills/<pack>/SKILL.md`, resolved by `stacks.pack_paths`), because an
+  off-listing skill cannot be invoked by name and is absent from the model's listing (ADR 0094).
 
 **Status:** detection ships for the common stacks, and **every registered stack now ships a
 `*-patterns` pack** — python, typescript, javascript, go, rust, jvm, dotnet, ruby, php. An
