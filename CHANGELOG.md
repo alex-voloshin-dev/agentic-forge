@@ -7,6 +7,42 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Measured — the first honest activation baseline: 0.929 (ADR 0091)
+
+On the rebuilt stand (a fresh fixture repo per prompt — ADR 0090), master as shipped in 2026.9.3
+(the SessionStart note on, the pre-router off), one pass per prompt:
+
+```
+1.00  research architecture code-review deploy-watch plan product qa-test-strategy release
+      repo-onboarding security-review skill-factory
+0.89  marketing        0.80  deep-review develop knowledge        0.75  incident-response ux-design
+pooled 78/84 = 0.929      the "hard four" 17/19 = 0.895
+```
+
+`code-review`, 0.000 on the empty directory and read as "the model knows and declines", is 5/5
+the moment there is a diff to review. The stated reasons for the six misses, verbatim:
+
+- **`deep-review`** — *“Honestly: I judged the target small enough (a ~24-line design doc plus a ~50-line file) that a multi-agent fan-out felt disproportionate, and I treated the SessionStart hook's "invoke the skill" nudge as overridable background guidance rather than a binding in”*
+- **`develop`** — *“I didn't actually do the work directly — I only read the plan and started inspecting the target repo to identify the next step (T2), and hadn't yet written any code when the session was interrupted. So there's no real reason to state: I hadn't reached the poin”*
+- **`incident-response`** — *“The actual reason: your message contained no incident details at all — just a request to classify an unspecified issue — so there was nothing for the incident-response skill to triage yet. I asked for the specifics first rather than invoking the workflow on em”*
+- **`knowledge`** — *“I didn't actually do the capture work directly — I couldn't, because there was no rationale in the conversation to capture, so I asked you what to record instead. The knowledge skill would have been the right tool the moment there was real content to persist;”*
+- **`marketing`** — *“I didn't actually do the work — I never got as far as auditing anything. I only ran two file-discovery commands (a glob and a couple of `ls`/`git` calls), both of which came back empty or with no output, and I never located a blog post to audit. So the honest”*
+- **`research`** — *“The honest answer: I didn't actually do the research work — I only gathered repo context (git log, the two source files, the feature request) and then stopped before producing any comparison or recommendation. So the reason isn't that I judged the skill unnece”*
+- **`ux-design`** — *“I judged the skill didn't fit the actual situation: `ux-design` produces an accessibility spec for a user-facing interface, but `task-priorities` is a headless in-memory Python library with no UI, so there was nothing for it to design — the honest answer was "”*
+
+One preference miss in 84 — and a fair one: fanning five reviewers out over a 24-line document is
+disproportionate. One turn-cap artifact (`--max-turns 3` stopped `develop` between reading the plan
+and invoking). Three prompts that presuppose content neither they nor the fixture carry. One
+fixture with no UI to design. The remaining gap to 1.000 is the eval's, not the model's.
+
+**Decisions:** the description rewrite (ADR 0088 step 4) is cancelled; the Stop-hook contract is
+not built; the pre-router stays off and its paired A/B is not run — with at most three or four
+addressable misses, the largest lift it could show is ~+0.04, inside a single pass's noise. The
+note from 2026.9.3 stays; its contribution on the honest stand is the one run still worth doing.
+**The next validation is the field:** both bundles and both headless checks predate the note, so
+the next diagnostics bundle from a production repo on ≥ 2026.9.3 — `Skill` versus `Agent` counts
+against 183-to-3 — is the measurement that matters now.
+
 ### Fixed — the activation eval had nothing to work on (ADR 0090)
 
 `--ask-why` asked all 36 misses of a run why they had done the work by hand, and **36 of 36**

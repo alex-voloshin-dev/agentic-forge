@@ -541,11 +541,15 @@ bugs (neutral `config.example.json` + configuration.md python/models clarificati
   activation baseline; (2) one line in the SessionStart `additionalContext` telling the model
   to invoke a matching skill rather than do the work — **done, 0.333 → 0.560** (2026.9.3); (3) a
   `UserPromptSubmit` pre-router hook naming the matching skill in-context — **built (ADR 0089)**,
-  shipped off by default; (4) description edits under the listing budget — **deferred (ADR 0090)**:
-  the why-diagnostic found 36/36 misses were the eval's empty working directory, not a preference.
-  The stand is fixed (a fresh fixture repo per prompt); **next is the first honest baseline**, then
-  the pre-router on top of it, and only then a decision about descriptions. No description or
-  skill name is touched before that.
+  shipped off by default; (4) description edits — **cancelled (ADR 0091)**. The why-diagnostic
+  found 36/36 misses were the eval's empty working directory (ADR 0090); on a rebuilt stand with a
+  real repo per prompt the first honest baseline is **78/84 = 0.929**, the "hard four" 17/19, and
+  the one preference miss in 84 is a fair proportionality call. The pre-router stays off (its A/B
+  could only measure the noise floor); the Stop-hook is not built. **What remains:** (a) the next
+  field bundle on ≥ 2026.9.3 — `Skill` vs `Agent` counts against 183-to-3, the only test of the
+  field gap now; (b) one run with the SessionStart note removed, to learn whether 2026.9.3's note
+  does anything on a real workspace; (c) stand polish — three prompts that presuppose absent
+  content, a fixture with no UI, a `--max-turns` cap that stops investigate-first skills early.
 - **Vault write-rate is low in daily work** (9 `docs/knowledge/` writes against 136 sessions) while
   the session-start injection runs everywhere. One week of one repo is too thin to justify
   auto-capture mechanics; keep watching across bundles before designing anything.

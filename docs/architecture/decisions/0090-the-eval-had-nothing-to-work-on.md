@@ -92,7 +92,8 @@ The field evidence does. 183 `Agent` calls against 3 `Skill` calls came from rea
 with real diffs (ADR 0081), and the two headless checks on this repo (ADR 0088) had a real last
 commit to review — the model ran `git show HEAD` and reviewed by hand. Low unprompted activation
 with real targets is real. What this ADR removes is the *eval's* ability to say how low, and
-every conclusion that rested on its absolute numbers. The next baseline is the first honest one.
+every conclusion that rested on its absolute numbers. The next baseline is the first honest one —
+and it came back at **78/84 = 0.929** (ADR 0091).
 
 ## Consequences
 

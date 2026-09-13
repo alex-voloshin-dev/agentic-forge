@@ -109,7 +109,8 @@ per prompt like the other tiers.
 > "build from the plan" — whose sessions looked, found nothing, and asked for the input. That is
 > a different property from "how easily the model can do the task itself". The note's lift below
 > is paired on the same stand and stands as a relative effect; the absolute levels do not. A fresh
-> fixture repo per prompt is now the stand, and the next baseline is the first honest one.
+> fixture repo per prompt is now the stand, and the next baseline is the first honest one —
+> **taken: 78/84 = 0.929, the four at 17/19 (ADR 0091).**
 
 ## The intervention, and its lift
 
