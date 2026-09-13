@@ -70,6 +70,40 @@ starts a new sentence (a boundary or a capital). A leading word that is merely t
 sentence (`research is not the right skill…`) still does not qualify — same discipline as
 answer-last, same tests both ways.
 
+## The baseline
+
+Run 2026-09-13, `--runner claude --model claude-opus-4-8`, one pass per should_trigger prompt
+(85 sessions). Ungated — this is the number, not a verdict.
+
+```
+0.000  code-review, deep-review, develop, security-review
+0.200  architecture, knowledge
+0.222  marketing        0.250  release, repo-onboarding
+0.400  plan, product, research
+0.500  ux-design        0.571  deploy-watch
+0.750  incident-response, qa-test-strategy
+1.000  skill-factory
+mean activation: 0.347
+```
+
+The number confirms the problem: on average the model reaches for the right skill on barely a
+third of the requests that are squarely in its domain — and does the work by hand on the rest,
+exactly as the field bundles and the headless check showed.
+
+The **shape** is the finding, though, and it is not the "doers vs. document-writers" split
+predicted. The zeros are the skills with an obvious do-it-directly path or a Claude Code built-in
+of the same shape: `code-review` / `security-review` (built-in namesakes), `develop` / `deep-review`
+("just write / just review the code"). The top is `skill-factory` at 1.000 — building a plugin
+component has *no* by-hand path, so the skill is the only way through. Reading across the column:
+**a skill fires in inverse proportion to how easily the model can just do the task itself.** That
+sharpens hypothesis (c) into something actionable — the intervention has to make invoking the skill
+the obvious move precisely where doing it by hand is also obvious.
+
+One caveat on precision: single-pass rates are noisy (`deploy-watch` was 0.714 on a 2-skill smoke
+minutes earlier, 0.571 here). The mean and the coarse bands are the signal; a one-notch difference
+between two adjacent skills is not. A calibrated threshold, if one is ever set, needs multiple runs
+per prompt like the other tiers.
+
 ## Alternatives considered
 
 - **Fold activation into Tier-3.** Rejected: Tier-3 drives a skill through its phases to check the
