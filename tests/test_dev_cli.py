@@ -783,3 +783,9 @@ def test_run_tier1_evals_with_builtins_records_apart_from_the_gate(
     assert captured["namespace"] == "agentic-forge" and captured["extra_cards"]
     assert recorded == ["tier1-builtins:fake-skill"]
     assert "condition: +" in capsys.readouterr().out
+
+
+def test_run_activation_evals_dry_ok() -> None:
+    import run_activation_evals
+
+    assert run_activation_evals.main(["run", "--runner", "dry"]) == 0

@@ -125,6 +125,27 @@ This is the first direct evidence for ADR 0086's hypothesis: the built-in listin
 to the point of total loss on exact-name collisions. No description or name is changed here — the
 attributed re-run decides that.
 
+### Added — Tier-1b: does a skill fire when nobody asks which skill (ADR 0088)
+
+The routing eval now reads 17/17 at recall 1.000, and the field still shows 183 `Agent` calls to 3
+`Skill` (ADR 0081). A controlled check settled why: two headless `claude -p` sessions on this repo,
+plugin loaded and the `Skill` tool available, asked to review code — both did the work with
+`Bash`/`Read` and never called a skill, never named one. Tier-1 asks "which skill fits?" (a frame
+the model does not enter on its own); Tier-3 runs skills the harness invokes. Neither measures
+whether a live session *reaches for* a skill unprompted.
+
+`activation.py` + `dev/run_activation_evals.py` do: each skill's should_trigger prompts run through
+a real session with the plugin loaded, and the transcript is scanned for a `Skill` tool call naming
+that skill. The metric is the activation rate. It is a **measurement, not a gate** — no threshold
+until a baseline exists (principle 4) — and not on the weekly cron (model-time-expensive, ADR 0083).
+This homes ADR 0086's hypothesis (b), which the data did not support, and ADR 0081's (a), which the
+headless check ruled out on its own, onto the real one (c): unprompted, the model acts instead of
+routing.
+
+Also ships the answer-FIRST parser rule — the mirror of ADR 0085 — so `none The user is asking a
+general conceptual question…` (answer first, explanation after) is read as the decision it is,
+instead of discarded for length.
+
 ### Corrected — the router drops the namespace for everyone (ADR 0087, amended)
 
 The attributed re-run of the built-in listing condition overturned its own first reading.

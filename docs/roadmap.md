@@ -533,8 +533,15 @@ bugs (neutral `config.example.json` + configuration.md python/models clarificati
   `security-review`) — two of which collide with ours by exact name. The router demonstrably
   picks them (it routed a should-not-trigger prompt to `run` in CI). So the missing Tier-1
   condition is really two: (a) a competing project instruction in context, (b) the built-in
-  listing rendered beside ours. (b) is cheaper and should run first; neither justifies a
-  description edit until it has.
+  listing rendered beside ours. **Both were run (ADR 0087): (b) is not supported — not one
+  loss to a real built-in — and the router answers 17/17 at recall 1.000.** The failure is
+  elsewhere: a live session, asked to *do* a task, does it by hand instead of invoking the
+  skill (hypothesis (c), reproduced 2/2 headless). **Tier-1b** (ADR 0088, `activation.py`)
+  now measures exactly that. Next, in order, each measured before the next: (1) take the
+  activation baseline; (2) one line in the SessionStart `additionalContext` telling the model
+  to invoke a matching skill rather than do the work; (3) a `UserPromptSubmit` pre-router hook
+  naming the matching skill in-context; (4) description edits under the listing budget. No
+  description or skill name is touched before the baseline says which step is needed.
 - **Vault write-rate is low in daily work** (9 `docs/knowledge/` writes against 136 sessions) while
   the session-start injection runs everywhere. One week of one repo is too thin to justify
   auto-capture mechanics; keep watching across bundles before designing anything.

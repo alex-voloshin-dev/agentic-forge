@@ -353,15 +353,38 @@ def _terminal_choice(text: str, names: list[str]) -> tuple[str, str] | None:
     return (OTHER, key)  # a skill-shaped name that is not ours: chosen, not the target
 
 
+def _leading_choice(text: str, names: list[str]) -> tuple[str, str] | None:
+    """``(decision, chosen name)`` when the reply OPENS with the answer and explains after —
+    ``none The user is asking a general conceptual question…`` — the mirror of ADR 0085's
+    answer-last rule (ADR 0088). Only a name we know or ``none`` qualifies (a leading unknown word
+    is just the first word of a sentence), and what follows must start a new sentence: nothing,
+    punctuation, or a capitalised word. ``research is not right here`` does not qualify."""
+    tokens = text.split()
+    if not tokens:
+        return None
+    key = tokens[0].strip("`*\"'.,;:!?()[]{}/").lower().replace("_", "-")
+    if m := _TOOL_CALL.match(key):
+        key = m.group(1).strip("`'\" /")
+    known = {n.lower(): n for n in names}
+    if key not in known and key != "none":
+        return None
+    rest = text[len(tokens[0]) :].lstrip()
+    if rest and not (rest[0].isupper() or rest[0] in ".:!?—–-(\n"):
+        return None
+    return ("none", "none") if key == "none" else (known[key], known[key])
+
+
 def classify_reply(reply: str, names: list[str]) -> Reply:
     """:func:`parse_selection` plus the reason a rejected reply was rejected (ADR 0084)."""
     text = reply.strip()
     if not text:
         return Reply(INVALID, "empty", "")
     # Answer-last wins over every prose guard below (ADR 0085): a terminal, standalone name is a
-    # stated decision however much reasoning precedes it.
+    # stated decision however much reasoning precedes it. Answer-first is its mirror (ADR 0088).
     if (terminal := _terminal_choice(text, names)) is not None:
         return Reply(terminal[0], choice=terminal[1])
+    if (leading := _leading_choice(text, names)) is not None:
+        return Reply(leading[0], choice=leading[1])
     if len(text) > MAX_ANSWER_CHARS:
         return Reply(INVALID, "prose-length", _excerpt(text))  # prose by sheer length
     if sum(1 for ch in text if ch.isalpha() and not ch.isascii()) > MAX_NON_LATIN_LETTERS:
