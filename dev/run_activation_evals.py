@@ -95,8 +95,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument(
         "--ask-why", action="store_true",
-        help="For every miss, resume the session and ask why it did the work by hand (ADR 0088, step 4). "
-        "Self-reports, bucketed and printed raw.",
+        help="For every miss, resume the session and ask why it did the work by hand "
+        "(ADR 0088, step 4). Self-reports, bucketed and printed raw.",
     )
     parser.add_argument(
         "--env", action="append", default=[], metavar="KEY=VALUE",
