@@ -30,15 +30,27 @@ def decide(payload: dict[str, Any], plugin_dir: Path = _PLUGIN_ROOT) -> str:
     if not settings.resolve(cwd).pre_router_enabled:
         return ""
     index = pre_router.build_index(plugin_dir)
+    if not index.skills:
+        # Without PyYAML every SKILL.md fails to parse, the index is empty, and the hook never
+        # suggests — and never said why. One anomaly names the cause; the prompt goes on unhinted.
+        why = index.skipped[0] if index.skipped else f"no skills under {plugin_dir / 'skills'}"
+        diagnostics.emit(
+            cwd, kind="anomaly", component="pre-router",
+            message=f"pre-router index is empty ({len(index.skipped)} skill(s) skipped): {why}",
+            severity="minor", session_id=payload.get("session_id"),
+        )
+        return ""
     suggestion = pre_router.suggest(prompt, index)
     return pre_router.render_context(suggestion, index.namespace) if suggestion else ""
 
 
 def main() -> int:
     cwd = "."
+    session_id: str | None = None
     try:
         payload = json.load(sys.stdin)
         cwd = str(payload.get("cwd") or ".")
+        session_id = payload.get("session_id")
         context = decide(payload)
         if context:
             print(
@@ -51,11 +63,12 @@ def main() -> int:
                     }
                 )
             )
-    except Exception as exc:  # fail open, but record the hook crash (ADR 0039)
-        diagnostics.emit(
-            cwd, kind="error", component="pre-router",
-            message=f"{type(exc).__name__}: {exc}", severity="minor",
+    except Exception as exc:  # fail open, but record + announce the hook crash (ADR 0039)
+        crash = diagnostics.hook_crash(
+            cwd, "pre-router", exc, session_id=session_id, severity="minor"
         )
+        if crash:
+            print(json.dumps(crash))
         return 0
     return 0
 

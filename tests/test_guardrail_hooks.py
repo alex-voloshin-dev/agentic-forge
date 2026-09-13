@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import subprocess
 import sys
 import types
 from pathlib import Path
@@ -250,6 +251,25 @@ def test_budget_main_allows_under_cap(monkeypatch, tmp_path: Path) -> None:
     assert budget.main() == 0  # first spawn, under the default caps
 
 
+def test_budget_soft_cap_warning_reaches_operator_and_model(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    """The soft-cap warning went to stderr with exit 0 — debug-log only — so the first thing anyone
+    saw was the hard block. It is JSON on stdout now, for both audiences."""
+    monkeypatch.setattr(budget.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setenv("AGENTIC_FORGE_SUBAGENT_SOFT", "0")
+    monkeypatch.setenv("AGENTIC_FORGE_SUBAGENT_HARD", "100")
+    _stdin(monkeypatch, {"tool_name": "Task", "session_id": "soft", "cwd": str(tmp_path)})
+    assert budget.main() == 0  # warns, never blocks
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    out = json.loads(captured.out)
+    assert "budget hook warning: 1 subagents" in out["systemMessage"]
+    assert out["hookSpecificOutput"] == {
+        "hookEventName": "PreToolUse", "additionalContext": out["systemMessage"]
+    }
+
+
 # --- audit_log ---------------------------------------------------------------
 
 
@@ -388,6 +408,39 @@ def test_commit_gate_runs_the_projects_own_linter(monkeypatch, tmp_path: Path) -
     assert str(local) in str(seen["path"])  # a package script's own tools resolve too
 
 
+def test_commit_gate_timeout_records_which_test_hung(monkeypatch, tmp_path: Path, capsys) -> None:
+    """`TimeoutExpired` carries the partial output as BYTES (POSIX, even in text mode); only
+    `str(exc)` was recorded, so nothing said which test hung."""
+    (tmp_path / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    monkeypatch.delenv("AGENTIC_FORGE_SKIP_TEST_GATE", raising=False)
+    monkeypatch.setenv("AGENTIC_FORGE_DIAGNOSTICS", "1")
+
+    def hang(cmd, **kwargs):
+        raise subprocess.TimeoutExpired(
+            cmd, 110, output=b"x" * 600 + b"\ntests/test_slow.py::test_hangs ", stderr=b"warn"
+        )
+
+    monkeypatch.setattr(commit_gate.subprocess, "run", hang)
+    payload = {
+        "tool_name": "Bash", "tool_input": {"command": "git commit -m x"},
+        "cwd": str(tmp_path), "session_id": "s-hang",
+    }
+    assert commit_gate.gate_decision(payload) == guardrails.ALLOW
+    capsys.readouterr()
+    log = diagnostics.state_root(tmp_path) / diagnostics.DIAGNOSTICS_FILE
+    event = json.loads(log.read_text(encoding="utf-8").strip().splitlines()[-1])
+    assert "TimeoutExpired" in event["message"]
+    assert event["context"]["stdout"].endswith("tests/test_slow.py::test_hangs")
+    assert len(event["context"]["stdout"]) == 400  # the last 400 chars, decoded
+    assert event["context"]["stderr"] == "warn"
+
+
+def test_commit_gate_tail_decodes_bytes_and_caps() -> None:
+    assert commit_gate._tail(None) == "" and commit_gate._tail("") == ""
+    assert commit_gate._tail(b"  caf\xc3\xa9 \n") == "café"
+    assert commit_gate._tail("a" * 1000) == "a" * 400
+
+
 def test_commit_gate_timeout_notice_names_the_real_remedy() -> None:
     """A slow lint is not a missing tool — "install it" is the wrong advice (ADR 0082)."""
     timeout = commit_gate.fail_open_notice(
@@ -420,3 +473,49 @@ def test_commit_gate_resolves_python_to_python3(monkeypatch, tmp_path: Path) -> 
         {"tool_name": "Bash", "tool_input": {"command": "git commit"}, "cwd": str(tmp_path)}
     )
     assert seen["cmd"] == ["python3", "dev/validate.py"]
+
+
+# --- a hook crash is recorded WITHOUT the diagnostics toggle, and announced once (A5) ---------
+
+
+@pytest.mark.parametrize(
+    ("module", "entry", "component"),
+    [
+        (security, "decide", "security-hook"),
+        (budget, "decide", "budget-hook"),
+        (commit_gate, "gate_decision", "commit-gate"),
+        (audit_log, "write_audit", "audit-hook"),
+    ],
+)
+def test_hook_crash_is_recorded_and_announced_once_per_session(
+    monkeypatch, tmp_path: Path, capsys, module, entry: str, component: str
+) -> None:
+    """Every hook fails open on its own error and "records the crash" — gated on
+    `diagnostics.enabled`, off by default, so a default install had no record and no message."""
+    monkeypatch.delenv("AGENTIC_FORGE_DIAGNOSTICS", raising=False)
+
+    def boom(*_a, **_k):
+        raise RuntimeError("guardrail exploded")
+
+    monkeypatch.setattr(module, entry, boom)
+    payload = {
+        "tool_name": "Bash", "tool_input": {"command": "ls"},
+        "cwd": str(tmp_path), "session_id": "s-crash",
+    }
+    _stdin(monkeypatch, payload)
+    assert module.main() == 0  # fail open
+    first = json.loads(capsys.readouterr().out)
+    name = component[: -len("-hook")] if component.endswith("-hook") else component
+    assert f"agentic-forge {name} hook crashed: RuntimeError: guardrail exploded" in (
+        first["systemMessage"]
+    )
+    assert "failing open" in first["systemMessage"]
+
+    _stdin(monkeypatch, payload)
+    assert module.main() == 0
+    assert capsys.readouterr().out == ""  # said once per session
+
+    log = diagnostics.state_root(tmp_path) / diagnostics.DIAGNOSTICS_FILE
+    events = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    crashes = [e for e in events if e["component"] == component]
+    assert len(crashes) == 2 and all(e["kind"] == "error" for e in crashes)  # BOTH recorded

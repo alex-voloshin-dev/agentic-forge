@@ -228,3 +228,24 @@ def test_rotation_notice_speaks_in_days(tmp_path, monkeypatch) -> None:
     assert "days of records" in event["message"] and "archived to" in event["message"]
     assert record_days(b'{"ts": "2026-09-01T00:00:00"}\n{"ts": "2026-09-11T00:00:00"}\n') == 10.0
     assert record_days(b"not json\n") is None
+
+
+# --- the diagnostics log is rotated under the same bounds (A11) --------------------------------
+
+
+def test_rotate_diagnostics_trims_archives_and_records(tmp_path) -> None:
+    from agentic_forge import diagnostics
+    from agentic_forge.observability import rotate_diagnostics
+
+    assert rotate_diagnostics(tmp_path) is False  # no file yet
+    path = diagnostics.state_file(tmp_path, diagnostics.DIAGNOSTICS_FILE)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(_dated(400, 1) + _dated(400, 20)) + "\n", encoding="utf-8")
+    assert rotate_diagnostics(tmp_path, max_bytes=1_000, keep_bytes=800) is True
+    kept = path.read_text(encoding="utf-8").splitlines()
+    assert 0 < len(kept) < 800
+    archives = sorted((path.parent / "archive").glob("diagnostics-*.jsonl.gz"))
+    assert len(archives) == 1  # beside the audit archives, under its own name
+    last = json.loads(kept[-1])  # the trim is recorded — in the log it just trimmed
+    assert last["component"] == "diagnostics-rotation"
+    assert "diagnostics log rotated" in last["message"] and "days of records" in last["message"]

@@ -336,3 +336,49 @@ def test_load_reads_from_the_main_root(tmp_path) -> None:
     )
     diagnostics.record_event(wt, event, force=True)  # writes at main
     assert diagnostics.load(wt) == diagnostics.load(main) != []
+
+
+# --- hook_crash: recorded regardless of the toggle, announced once per session (A5) -----------
+
+
+def test_hook_crash_records_without_the_toggle_and_announces_once(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.delenv("AGENTIC_FORGE_DIAGNOSTICS", raising=False)  # the default install
+    exc = RuntimeError(f"boom {_SECRET}")
+    first = diagnostics.hook_crash(tmp_path, "security-hook", exc, session_id="s1")
+    assert "agentic-forge security hook crashed: RuntimeError: boom" in first["systemMessage"]
+    assert _SECRET not in first["systemMessage"]  # redacted for the operator too
+    assert "failing open" in first["systemMessage"]
+    log = diagnostics.state_root(tmp_path) / diagnostics.DIAGNOSTICS_FILE
+    assert str(log) in first["systemMessage"]  # says where the record is
+    assert diagnostics.hook_crash(tmp_path, "security-hook", exc, session_id="s1") == {}  # once
+    assert diagnostics.hook_crash(tmp_path, "budget-hook", exc, session_id="s1")  # per hook
+    assert diagnostics.hook_crash(tmp_path, "security-hook", exc, session_id="s2")  # per session
+    events = [json.loads(line) for line in diagnostics.load(tmp_path)]
+    assert len(events) == 4 and all(e["kind"] == "error" for e in events)  # every crash recorded
+    assert all(_SECRET not in e["message"] for e in events)
+    assert {e["severity"] for e in events} == {"blocker"}
+
+
+def test_hook_crash_without_a_session_records_but_stays_quiet(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("AGENTIC_FORGE_DIAGNOSTICS", raising=False)
+    out = diagnostics.hook_crash(tmp_path, "audit-hook", ValueError("x"), severity="major")
+    assert out == {}  # no session id -> nothing to key "once" on, so no notice …
+    (event,) = [json.loads(line) for line in diagnostics.load(tmp_path)]  # … but recorded
+    assert event["severity"] == "major" and event["component"] == "audit-hook"
+
+
+def test_hook_crash_never_raises(tmp_path: Path, monkeypatch) -> None:
+    def boom(*_a: object, **_k: object) -> bool:
+        raise RuntimeError("diagnostics exploded")
+
+    monkeypatch.setattr(diagnostics, "emit", boom)
+    assert diagnostics.hook_crash(tmp_path, "x", ValueError("y"), session_id="s") == {}
+
+
+def test_hook_notice_shape() -> None:
+    assert diagnostics.hook_notice("PostToolUse", "hello") == {
+        "systemMessage": "hello",
+        "hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "hello"},
+    }

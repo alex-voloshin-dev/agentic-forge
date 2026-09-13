@@ -4,7 +4,8 @@ Where :mod:`observability` rolls up tool *usage* from ``audit.jsonl``, this modu
 went *wrong* — guardrail denials/warnings, hook crashes, and pipeline failures — into a redacted,
 user-level ``diagnostics.jsonl`` (see :func:`state_root`) so maintainers can fix the plugin.
 Capture is
-**opt-in** (``AGENTIC_FORGE_DIAGNOSTICS``), **never blocks** a caller, **never leaks secrets**
+**opt-in** (``AGENTIC_FORGE_DIAGNOSTICS``) except for what must always be auditable — outward
+actions and the hooks' own crashes (``force``) — **never blocks** a caller, **never leaks secrets**
 (every string is passed through :func:`guardrails.redact_secrets`), and **never sends anything
 outward** — it is a local log a maintainer reviews/digests.
 
@@ -34,6 +35,9 @@ __all__ = [
     "state_root",
     "state_file",
     "once_per_session",
+    "hook_notice",
+    "hook_crash_notice",
+    "hook_crash",
     "existing_state_file",
     "KINDS",
     "DEFAULT_REVIEW_CAP",
@@ -174,6 +178,64 @@ def once_per_session(cwd: Path | str, marker: str, session_id: str | None) -> bo
     except OSError:
         pass
     return True
+
+
+HOOK_CRASH_MARKER = "hook-crash:"  # + component — the once-per-session key of the crash notice
+
+
+def hook_notice(event: str, message: str) -> dict[str, Any]:
+    """The JSON a hook prints to say ``message`` to SOMEONE: ``systemMessage`` reaches the
+    operator, ``additionalContext`` reaches the model. ``event`` is the hook event the output is
+    for (``PreToolUse`` / ``PostToolUse`` / ...).
+
+    The channels that do not work, verified against the hooks contract: stderr from a hook that
+    exits 0 goes to the debug log only, and bare stdout from a Pre/PostToolUse hook is shown in
+    transcript mode only, never to the model. Three hooks' only output went there."""
+    return {
+        "systemMessage": message,
+        "hookSpecificOutput": {"hookEventName": event, "additionalContext": message},
+    }
+
+
+def hook_crash_notice(component: str, message: str, log: Path | str) -> str:
+    """The one line for a hook that crashed: which hook, what raised, that it failed open, and
+    where the record is."""
+    name = component[: -len("-hook")] if component.endswith("-hook") else component
+    return (
+        f"agentic-forge {name} hook crashed: {message} — failing open (the hook exited 0 and did "
+        f"not do its job for this call); see {log}"
+    )
+
+
+def hook_crash(
+    cwd: Path | str,
+    component: str,
+    exc: BaseException,
+    *,
+    session_id: str | None = None,
+    severity: str = "blocker",
+) -> dict[str, Any]:
+    """Record a hook's own crash and return the JSON the hook should print (``{}`` once it has
+    already said so this session).
+
+    Every hook fails OPEN on an internal error (ADR 0039) and "records the crash" — but the record
+    was gated on ``diagnostics.enabled``, which is off by default, so on a default install a
+    crashing guardrail left no record and no message: indistinguishable from a healthy one. The
+    event is now written regardless of the toggle (``force``, like an outward action), and the
+    first crash of a session per hook reaches the operator through ``systemMessage``. Never
+    raises — the caller is an except-clause that must still exit 0."""
+    try:
+        message = guardrails.redact_secrets(f"{type(exc).__name__}: {exc}")[:_MAX_LEN]
+        emit(
+            cwd, kind="error", component=component, message=message, severity=severity,
+            session_id=session_id, force=True,
+        )
+        if once_per_session(cwd, HOOK_CRASH_MARKER + component, session_id):
+            log = state_root(cwd) / DIAGNOSTICS_FILE
+            return {"systemMessage": hook_crash_notice(component, message, log)}
+    except Exception:
+        pass
+    return {}
 
 
 def existing_state_file(cwd: Path | str, filename: str, legacy_rel: str) -> Path:

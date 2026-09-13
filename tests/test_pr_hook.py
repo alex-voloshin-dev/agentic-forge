@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import subprocess
 import sys
@@ -14,6 +15,9 @@ from agentic_forge import diagnostics, pr_hook, pr_watch
 
 _URL = "https://github.com/owner/name/pull/11"
 HOOK = Path(__file__).resolve().parents[1] / "plugin" / "hooks" / "scripts" / "pr_created.py"
+sys.path.insert(0, str(HOOK.parent))
+
+import pr_created  # noqa: E402  — the hook script, for the in-process crash test
 
 
 def _payload(command: str, response: Any = _URL) -> dict[str, Any]:
@@ -98,9 +102,15 @@ def _run_hook(payload: Any) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_hook_prints_notice_and_exits_zero() -> None:
+def test_hook_injects_the_notice_and_exits_zero() -> None:
+    # Bare stdout from a PostToolUse hook is transcript-only: the model never saw the reminder
+    # ADR 0063 says this hook injects. It has to be `additionalContext` (+ `systemMessage`).
     done = _run_hook(_payload("gh pr create --fill"))
-    assert done.returncode == 0 and _URL in done.stdout
+    assert done.returncode == 0
+    out = json.loads(done.stdout)
+    assert out["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
+    assert _URL in out["hookSpecificOutput"]["additionalContext"]
+    assert out["systemMessage"] == out["hookSpecificOutput"]["additionalContext"]
 
 
 def test_hook_silent_for_unrelated_calls() -> None:
@@ -225,3 +235,24 @@ def test_no_queue_file_when_auto_watch_is_off(tmp_path: Path) -> None:
 def test_queued_when_both_are_on(tmp_path: Path) -> None:
     done = _hook_env(tmp_path, {"pr_watcher": {"enabled": True}})  # auto_watch defaults on
     assert done.returncode == 0 and _queued(tmp_path)
+    out = json.loads(done.stdout)  # ONE JSON object — a second stdout line would break the channel
+    assert "queued for the scheduled watch" in out["systemMessage"]
+
+
+# --- a crash is recorded regardless of the diagnostics toggle, and announced (A5) --------------
+
+
+def test_hook_crash_is_recorded_and_announced(monkeypatch, tmp_path: Path, capsys) -> None:
+    monkeypatch.delenv("AGENTIC_FORGE_DIAGNOSTICS", raising=False)  # the DEFAULT install
+
+    def boom(_payload: dict[str, Any]) -> str:
+        raise RuntimeError("notice exploded")
+
+    monkeypatch.setattr(pr_created.pr_hook, "pr_created_notice", boom)
+    payload = {**_payload("gh pr create --fill"), "cwd": str(tmp_path), "session_id": "s-x"}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    assert pr_created.main() == 0
+    out = json.loads(capsys.readouterr().out)
+    assert "pr-created hook crashed: RuntimeError: notice exploded" in out["systemMessage"]
+    events = [json.loads(line) for line in diagnostics.load(tmp_path)]
+    assert any(e["component"] == "pr-created-hook" and e["kind"] == "error" for e in events)

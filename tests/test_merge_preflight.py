@@ -8,6 +8,7 @@ annoyance for a wedged workflow.
 
 from __future__ import annotations
 
+import io
 import json
 import subprocess
 import sys
@@ -17,8 +18,11 @@ import pytest
 
 _REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO / "plugin" / "lib"))
+sys.path.insert(0, str(_REPO / "plugin" / "hooks" / "scripts"))
 
-from agentic_forge import guardrails  # noqa: E402
+import merge_preflight  # noqa: E402  — the hook script, for the in-process tests
+
+from agentic_forge import diagnostics, guardrails  # noqa: E402
 
 _HOOK = _REPO / "plugin" / "hooks" / "scripts" / "merge_preflight.py"
 _MAIN = "/repo"
@@ -146,4 +150,88 @@ def test_hook_warns_on_a_real_repo_with_a_diverged_base(tmp_path: Path) -> None:
     payload = {"tool_name": "Bash", "cwd": str(clone), "tool_input": {"command": "gh pr merge 1"}}
     result = _run_hook(payload)
     assert result.returncode == 0  # warn, never block
-    assert "pre-merge" in result.stderr and "ahead" in result.stderr
+    # stderr from a hook that exits 0 is debug-log only — the warning has to be JSON on stdout,
+    # for the operator (systemMessage) AND the model (additionalContext).
+    assert result.stderr == ""
+    out = json.loads(result.stdout)
+    assert "pre-merge" in out["systemMessage"] and "ahead" in out["systemMessage"]
+    assert out["hookSpecificOutput"] == {
+        "hookEventName": "PreToolUse", "additionalContext": out["systemMessage"]
+    }
+
+
+# --- the git reads share ONE deadline inside the hook's own timeout (A12) ---------------------
+
+
+def _fake_git(monkeypatch, *, seconds_per_call: float) -> list[float]:
+    """Stub `subprocess.run` + `time.monotonic`: every git call "takes" ``seconds_per_call`` and
+    records the timeout it was given."""
+    clock = {"now": 100.0}
+    timeouts: list[float] = []
+
+    def run(cmd, **kwargs):
+        timeouts.append(kwargs["timeout"])
+        clock["now"] += seconds_per_call
+        out = "origin/master" if "symbolic-ref" in cmd else "0"
+        return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr="")
+
+    monkeypatch.setattr(merge_preflight.subprocess, "run", run)
+    monkeypatch.setattr(merge_preflight.time, "monotonic", lambda: clock["now"])
+    return timeouts
+
+
+def test_git_reads_share_one_deadline(monkeypatch, tmp_path: Path) -> None:
+    """Three reads at 5 s each summed to exactly the hook's 15 s cap in hooks.json, so a stalled
+    git got the hook killed by Claude Code instead of recorded by the hook."""
+    timeouts = _fake_git(monkeypatch, seconds_per_call=4.0)
+    assert merge_preflight.preflight(str(tmp_path), budget=12.0) == guardrails.ALLOW
+    assert timeouts == [12.0, 8.0, 4.0]  # each call gets only what is LEFT of the budget
+    assert merge_preflight._BUDGET_SECONDS < 15  # the hook's own cap in hooks.json
+
+
+def test_exhausted_budget_is_recorded_not_killed(monkeypatch, tmp_path: Path, capsys) -> None:
+    """Past the deadline the hook raises TimeoutExpired itself — inside its 15 s cap, so the crash
+    path still runs: fail open, record it (diagnostics OFF), announce it."""
+    monkeypatch.delenv("AGENTIC_FORGE_DIAGNOSTICS", raising=False)
+    _fake_git(monkeypatch, seconds_per_call=7.0)  # two calls eat 14 s of a 12 s budget
+    payload = {
+        "tool_name": "Bash", "cwd": str(tmp_path), "session_id": "s-slow",
+        "tool_input": {"command": "gh pr merge 1"},
+    }
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    assert merge_preflight.main() == 0
+    out = json.loads(capsys.readouterr().out)
+    assert "merge-preflight hook crashed: TimeoutExpired" in out["systemMessage"]
+    events = [json.loads(line) for line in diagnostics.load(tmp_path)]
+    assert [e["kind"] for e in events if e["component"] == "merge-preflight"] == ["error"]
+
+
+# --- a crash is recorded regardless of the diagnostics toggle, and announced once (A5) --------
+
+
+def test_hook_crash_is_recorded_and_announced_once_per_session(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    monkeypatch.delenv("AGENTIC_FORGE_DIAGNOSTICS", raising=False)  # the DEFAULT install
+
+    def boom(_cwd: str) -> guardrails.Decision:
+        raise RuntimeError("git exploded")
+
+    monkeypatch.setattr(merge_preflight, "preflight", boom)
+    payload = {
+        "tool_name": "Bash", "cwd": str(tmp_path), "session_id": "s-crash",
+        "tool_input": {"command": "gh pr merge 1"},
+    }
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    assert merge_preflight.main() == 0  # fail open
+    first = json.loads(capsys.readouterr().out)
+    assert "merge-preflight hook crashed: RuntimeError: git exploded" in first["systemMessage"]
+    assert "failing open" in first["systemMessage"]
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    assert merge_preflight.main() == 0
+    assert capsys.readouterr().out == ""  # same session: said once
+
+    events = [json.loads(line) for line in diagnostics.load(tmp_path)]
+    crashes = [e for e in events if e["component"] == "merge-preflight"]
+    assert len(crashes) == 2 and all(e["kind"] == "error" for e in crashes)  # BOTH recorded
