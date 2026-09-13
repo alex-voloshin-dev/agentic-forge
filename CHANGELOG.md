@@ -7,6 +7,27 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Fixed — the activation eval had nothing to work on (ADR 0090)
+
+`--ask-why` asked all 36 misses of a run why they had done the work by hand, and **36 of 36**
+answered a version of *"the working directory was empty — there was no diff / plan / module to run
+the skill on, so I asked where the code was"*. The Tier-1b stand ran every prompt in one empty,
+shared temp directory; a `product` activation's PRD leaked into later prompts; four trigger
+prompts contained a literal `X`. The session was behaving correctly and the eval scored it as a
+miss. One answer in 36 was a preference (`deploy-watch`: "a snap judgment that it was a trivial
+one-liner").
+
+- Every prompt now runs in a **fresh copy of the Tier-3 spine fixture** (`prepare_workspace`): a
+  Python repo with a git history, the SDLC docs, a feature branch with a committed change and an
+  unstaged edit — so a diff, a PR-shaped branch, the plan and a module all exist. Nothing carries
+  over between prompts. `--empty-workdir` reproduces the old condition only.
+- The four placeholder prompts are concrete now; Tier-1 re-run for `plan`, `product`, `research`.
+- The why-buckets gain `nothing-to-work-on` (first) and lose `directly`, which echoed the question.
+- **Retracted in place:** ADR 0089's "the model knows and declines" (uninterpretable on that stand)
+  and ADR 0088's activation *shape* (the zeros were the artifact-dependent skills). The note's
+  relative lift stands; the absolute levels do not. The description rewrite is deferred, not
+  cancelled — it was aimed at a reason the diagnostic did not find.
+
 ### Added — ask the session why it did the work by hand (ADR 0088, step 4)
 
 `dev/run_activation_evals.py --ask-why` resumes every session that did NOT invoke its skill and

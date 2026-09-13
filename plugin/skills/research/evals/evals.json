@@ -48,8 +48,8 @@
       "Research how other task apps handle priorities before we spec it",
       "Investigate the options and prior art for adding full-text search",
       "Explore the landscape for our notifications idea and write a research brief",
-      "Compare approaches for X and recommend one before we design it",
-      "What are the options for X? Research and produce a brief."
+      "Compare approaches for task prioritization and recommend one before we design it",
+      "What are the options for storing task priorities? Research and produce a brief."
     ],
     "should_not_trigger": [
       "Write a PRD with goals and acceptance criteria for the feature",

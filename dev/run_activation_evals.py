@@ -94,6 +94,11 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--max-turns", type=int, default=3)
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument(
+        "--empty-workdir", action="store_true",
+        help="Run every prompt in an EMPTY temp dir (the condition of the first runs, kept only "
+        "to reproduce them). Default: a fresh fixture repo per prompt (ADR 0090).",
+    )
+    parser.add_argument(
         "--ask-why", action="store_true",
         help="For every miss, resume the session and ask why it did the work by hand "
         "(ADR 0088, step 4). Self-reports, bucketed and printed raw.",
@@ -125,16 +130,23 @@ def main(argv: list[str]) -> int:
     run_fn = _cli_runner(plugin_dir, args.model, args.max_turns, args.timeout, env)
     ask = _why_runner(plugin_dir, args.model, args.timeout, env) if args.ask_why else None
     gate = "measure only" if args.min_activation is None else f"gate >= {args.min_activation}"
-    cond = f", env={env}" if env else ""
+    cond = (f", env={env}" if env else "") + (", EMPTY workdir" if args.empty_workdir else ", fixture repo per prompt")
     print(
         f"running Tier-1b activation via claude (model={args.model}, {gate}{cond})...",
         flush=True,
     )
     try:
         with tempfile.TemporaryDirectory() as tmp:
+            counter = [0]
+
+            def fresh_workspace() -> Path:  # pragma: no cover -- exercised by the lib's own test
+                counter[0] += 1
+                return activation.prepare_workspace(plugin_dir, Path(tmp) / f"p{counter[0]}")
+
             reports = activation.run_activation(
                 plugin_dir, run_fn, skills=args.skills,
                 workdir=Path(tmp), min_activation=args.min_activation, ask_why=ask,
+                workspace_factory=None if args.empty_workdir else fresh_workspace,
             )
     except Exception as exc:  # a crash (mis-wired plugin) — record, then fail
         print(f"Tier-1b ERROR — {exc}", flush=True)

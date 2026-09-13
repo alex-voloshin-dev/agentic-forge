@@ -21,6 +21,8 @@ so ``run_activation`` reports rates and only flags a shortfall when a ``min_acti
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,6 +33,9 @@ from agentic_forge.tier1_runner import SkillTrigger, load_triggers
 
 __all__ = [
     "ActivationReport",
+    "FIXTURE_REPO",
+    "FIXTURE_DOCS",
+    "prepare_workspace",
     "WHY_PROMPT",
     "WHY_BUCKETS",
     "skill_invoked",
@@ -60,6 +65,72 @@ def skill_invoked(stream: str, target: str) -> bool:
     return False
 
 
+# What a prompt needs to find when it looks around. The first Tier-1b runs used one EMPTY temp dir
+# for all 84 prompts: "review my PR", "build from the plan", "audit this module" had no PR, no plan,
+# no module — the session looked, found nothing (or a PRD another prompt's skill had written into
+# the shared dir), and asked where the code was. The eval scored that as "did the work by hand".
+# 36 of 36 stated reasons said so (ADR 0090). Now every prompt gets a fresh copy of the Tier-3
+# fixture: a small Python repo with a git history, the SDLC artifacts a spine phase expects, a
+# feature branch with a committed change, and an unstaged edit — so a diff, a PR-shaped branch, a
+# plan and a module all exist to be reviewed, implemented against, or audited.
+FIXTURE_REPO = "eval/fixtures/spine/target-repo"
+FIXTURE_DOCS = {  # src (relative to the plugin) -> dest (relative to the workspace)
+    "eval/fixtures/spine/research-brief.md": "docs/sdlc/task-priorities/research-brief.md",
+    "eval/fixtures/spine/prd.md": "docs/sdlc/task-priorities/prd.md",
+    "eval/fixtures/spine/tech-design.md": "docs/sdlc/task-priorities/tech-design.md",
+    "eval/fixtures/spine/plan.md": "docs/sdlc/task-priorities/plan.md",
+}
+_FEATURE_BRANCH = "feature/task-priorities"
+
+
+def _git(repo: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-C", str(repo), *args], check=True, capture_output=True, text=True,
+        env={"GIT_AUTHOR_NAME": "eval", "GIT_AUTHOR_EMAIL": "eval@example.invalid",
+             "GIT_COMMITTER_NAME": "eval", "GIT_COMMITTER_EMAIL": "eval@example.invalid",
+             "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"},
+    )
+
+
+def prepare_workspace(plugin_dir: Path, dest: Path) -> Path:
+    """Materialize ``dest/repo`` as the workspace a Tier-1b prompt runs in (ADR 0090).
+
+    A copy of the spine fixture repo with the SDLC docs seeded, ``git init`` + a baseline commit
+    on ``main``, then a feature branch carrying one committed change AND one unstaged edit — so
+    ``git diff``, ``git diff main..HEAD`` and "this branch" all have content, and "the plan" is a
+    real file. Idempotent per call; each prompt should get its own ``dest``."""
+    repo = dest / "repo"
+    if repo.exists():
+        shutil.rmtree(repo)
+    shutil.copytree(
+        plugin_dir / FIXTURE_REPO, repo, ignore=shutil.ignore_patterns("__pycache__")
+    )
+    for src, rel in FIXTURE_DOCS.items():
+        target = repo / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text((plugin_dir / src).read_text(encoding="utf-8"), encoding="utf-8")
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "baseline")
+    _git(repo, "checkout", "-q", "-b", _FEATURE_BRANCH)
+    module = repo / "taskstore.py"
+    module.write_text(
+        module.read_text(encoding="utf-8")
+        + "\n\ndef priority_of(task: dict) -> int:\n"
+        "    \"\"\"Task priority (1 = highest); missing means lowest.\"\"\"\n"
+        "    return int(task.get(\"priority\", 5))\n",
+        encoding="utf-8",
+    )
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "feat: task priority accessor (step 1 of the plan)")
+    readme = repo / "README.md"
+    readme.write_text(
+        readme.read_text(encoding="utf-8") + "\n## Priorities\n\nTasks carry a priority.\n",
+        encoding="utf-8",
+    )  # unstaged: `git diff` is non-empty too
+    return repo
+
+
 def session_id_of(stream: str) -> str | None:
     """The session id a stream-json transcript was recorded under (from its `init` object), so a
     miss can be asked, in the same session, why it did the work by hand (ADR 0088, step 4)."""
@@ -87,10 +158,18 @@ WHY_PROMPT = (
 # Crude buckets over the stated reasons — keyword families, first match wins, reported alongside
 # the raw text so nobody has to trust the buckets.
 WHY_BUCKETS: dict[str, tuple[str, ...]] = {
+    # First, because it turned out to be the whole story of the first run (ADR 0090): the session
+    # had nothing to run the skill ON — an empty workdir, a placeholder in the prompt, no target.
+    "nothing-to-work-on": ("empty", "nothing to", "no diff", "no code", "no plan", "no pr ",
+                           "no target", "no design", "no docs", "no change", "not a git",
+                           "only a prd", "placeholder", "dead end", "didn't find", "did not find",
+                           "couldn't find", "nothing there", "nothing here", "no incident",
+                           "пуст", "не было", "нет кода", "ничего"),
     "cost/overhead": ("overhead", "heavy", "heavyweight", "expensive", "slow", "longer", "too much",
                       "overkill", "faster", "quicker", "efficient", "lightweight", "cost"),
-    "task-is-simple": ("simple", "straightforward", "small", "trivial", "directly", "quick",
-                       "just ", "single", "one-line", "minimal"),
+    # NOT "directly": the question itself says "did the work directly", and the answer echoes it.
+    "task-is-simple": ("simple", "straightforward", "small", "trivial", "quick", "one-liner",
+                       "just ", "single", "one-line", "minimal", "snap judgment"),
     "not-noticed": ("didn't notice", "did not notice", "unaware", "not aware", "didn't see",
                     "did not see", "forgot", "overlooked", "wasn't aware", "missed"),
     "not-applicable": ("not applicable", "doesn't apply", "does not apply", "did not apply",
@@ -163,6 +242,7 @@ def activation_rate(
     min_activation: float | None,
     ask_why: Callable[[str, str], str] | None = None,
     namespace: str = "agentic-forge",
+    workspace_factory: Callable[[], Path] | None = None,
 ) -> ActivationReport:
     """Fraction of ``trig``'s should_trigger prompts on which a live session invoked the skill.
 
@@ -172,7 +252,8 @@ def activation_rate(
     misses: list[str] = []
     why: list[tuple[str, str]] = []
     for prompt in trig.should_trigger:
-        stream = run_fn("", prompt, workdir)
+        cwd = workspace_factory() if workspace_factory else workdir
+        stream = run_fn("", prompt, cwd)
         if skill_invoked(stream, target):
             activated += 1
             continue
@@ -212,6 +293,7 @@ def run_activation(
     workdir: Path | None = None,
     min_activation: float | None = None,
     ask_why: Callable[[str, str], str] | None = None,
+    workspace_factory: Callable[[], Path] | None = None,
 ) -> list[ActivationReport]:
     """Measure unprompted skill activation for the on-listing skills (optionally a subset).
 
@@ -222,7 +304,8 @@ def run_activation(
     triggers = [t for t in load_triggers(plugin_dir) if skills is None or t.name in skills]
     return [
         activation_rate(
-            t, run_fn, work, target=t.name, min_activation=min_activation, ask_why=ask_why
+            t, run_fn, work, target=t.name, min_activation=min_activation, ask_why=ask_why,
+            workspace_factory=workspace_factory,
         )
         for t in triggers
     ]
