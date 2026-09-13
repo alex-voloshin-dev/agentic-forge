@@ -55,6 +55,9 @@ DEFAULTS: dict[str, Any] = {
     # OFF by default: measured at +0.095 over the session note (z = 1.27, inside noise) with no
     # effect on the skills it was built for — it did not beat its bar, so it does not ship on.
     "pre_router": {"enabled": False},
+    # The SessionStart routing note (2026.9.3). On by default; the switch exists so its contribution
+    # can be MEASURED with it off (ADR 0091) — and so an operator who finds it noise can drop it.
+    "routing_note": {"enabled": True},
     "review": {"passes": 3},  # the bounded review-loop budget N (review-loop.md)
     "external_reviewer": {"enabled": True, "command": "codex"},  # on by default (ADR 0057)
     "models": {},  # tier/role -> model id (increment 4); empty = the runner default
@@ -94,6 +97,7 @@ class Settings:
     subagent_hard: int
     skip_test_gate: bool
     pre_router_enabled: bool
+    routing_note_enabled: bool
     review_passes: int
     external_reviewer_enabled: bool
     external_reviewer_command: str
@@ -192,6 +196,7 @@ def _settings_from(data: dict[str, Any]) -> Settings:
         subagent_hard=_int(data["subagent_budget"]["hard"], DEFAULTS["subagent_budget"]["hard"]),
         skip_test_gate=_coerce_bool(data["test_gate"]["skip"]),
         pre_router_enabled=_coerce_bool((data.get("pre_router") or {}).get("enabled", False)),
+        routing_note_enabled=_coerce_bool((data.get("routing_note") or {}).get("enabled", True)),
         review_passes=_int(data["review"]["passes"], DEFAULTS["review"]["passes"]),
         external_reviewer_enabled=_coerce_bool(data["external_reviewer"]["enabled"]),
         external_reviewer_command=str(data["external_reviewer"]["command"]),
@@ -242,6 +247,10 @@ def resolve(
             data["subagent_budget"]["hard"] = hard
         if src.get("AGENTIC_FORGE_SKIP_TEST_GATE"):
             data["test_gate"]["skip"] = True
+        if src.get("AGENTIC_FORGE_ROUTING_NOTE"):
+            data.setdefault("routing_note", {})["enabled"] = _coerce_bool(
+                src["AGENTIC_FORGE_ROUTING_NOTE"]
+            )
         if src.get("AGENTIC_FORGE_PRE_ROUTER"):
             data.setdefault("pre_router", {})["enabled"] = _coerce_bool(
                 src["AGENTIC_FORGE_PRE_ROUTER"]

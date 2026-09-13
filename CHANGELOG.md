@@ -7,6 +7,13 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Added — an off switch for the SessionStart routing note (ADR 0091)
+
+`routing_note.enabled` (default `true`, `AGENTIC_FORGE_ROUTING_NOTE=0` to disable) — the same shape
+as every other hook's switch. It exists first so the note's contribution can be **measured** with it
+off, paired against the 0.929 baseline on the same stand, and second so an operator who finds the
+note noise can drop it without forking the hook.
+
 ### Measured — the first honest activation baseline: 0.929 (ADR 0091)
 
 On the rebuilt stand (a fresh fixture repo per prompt — ADR 0090), master as shipped in 2026.9.3

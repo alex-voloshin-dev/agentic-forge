@@ -41,5 +41,8 @@
   },
   "pre_router": {
     "enabled": false
+  },
+  "routing_note": {
+    "enabled": true
   }
 }

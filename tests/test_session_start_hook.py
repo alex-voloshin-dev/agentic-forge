@@ -73,3 +73,13 @@ def test_hooks_json_valid_session_start() -> None:
     assert handler["type"] == "command"
     assert "session_start.py" in handler["command"]
     assert "CLAUDE_PLUGIN_ROOT" in handler["command"]  # plugin-relative path
+
+
+def test_routing_note_has_an_off_switch(tmp_path: Path, monkeypatch) -> None:
+    """ADR 0091: the note's contribution is measured with it OFF; the switch is the same shape as
+    every other hook's."""
+    monkeypatch.setenv("AGENTIC_FORGE_ROUTING_NOTE", "0")
+    assert session_start.build_context(str(tmp_path)) == ""
+    vault.add_note(tmp_path, "central", "Central idea", "the hub")
+    ctx = session_start.build_context(str(tmp_path))
+    assert "Project knowledge" in ctx and session_start.SKILL_ROUTING_NOTE not in ctx
