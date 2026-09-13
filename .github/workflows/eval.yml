@@ -24,7 +24,7 @@ on:
         required: false
         default: "all"
         type: choice
-        options: ["all", "trigger-only", "builtins-condition"]
+        options: ["all", "trigger-only", "builtins-condition", "activation"]
   schedule:
     - cron: "0 9 * * 1"  # Mondays 09:00 UTC — Tier-1 only
   pull_request:
@@ -94,7 +94,7 @@ jobs:
       # per-prompt routing rate, gated recall/specificity >= 0.9 (ADR 0016/0026). Skipped without
       # the token — on a fork, or a dispatch from someone who has none.
       - name: Skill Tier-1 trigger (subscription via claude)
-        if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' && github.event.inputs.tiers != 'builtins-condition' }}
+        if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' && github.event.inputs.tiers != 'builtins-condition' && github.event.inputs.tiers != 'activation' }}
         run: python dev/run_tier1_evals.py --runner claude --model "$EVAL_MODEL"
 
       # ADR 0086's measurement, on demand: the same prompts against the listing a live session
@@ -102,6 +102,13 @@ jobs:
       - name: Skill Tier-1 with the built-in listing (condition, not the gate)
         if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' && github.event.inputs.tiers == 'builtins-condition' }}
         run: python dev/run_tier1_evals.py --runner claude --model "$EVAL_MODEL" --with-builtins
+
+      # Tier-1b, on demand (ADR 0088/0092): does a live session with the plugin loaded invoke the
+      # skill unprompted? Each prompt runs in a fresh fixture repo. A measurement — no gate until
+      # a threshold is calibrated against the polished-stand baseline (ADR 0092).
+      - name: Skill Tier-1b activation (measurement, on demand)
+        if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' && github.event.inputs.tiers == 'activation' }}
+        run: python dev/run_activation_evals.py --runner claude --model "$EVAL_MODEL"
       - name: Say what this measured
         if: ${{ always() }}
         run: |

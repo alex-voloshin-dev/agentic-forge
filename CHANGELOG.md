@@ -7,6 +7,13 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Added — `tiers: activation`, Tier-1b on demand in CI (ADR 0088/0092)
+
+`eval.yml`'s `workflow_dispatch` gains `activation`: the Tier-1b runner against a fresh fixture
+repo per prompt, in the `trigger` job, in place of the routing step. A measurement — ungated
+until `--min-activation` is calibrated against the polished-stand baseline. Not on the weekly cron
+(84 full sessions, ADR 0083).
+
 ### Measured — the note is the fix: 0.571 → 0.929 on the same stand (ADR 0092)
 
 Same rebuilt stand, same 84 prompts, one variable — the 2026.9.3 SessionStart note off, then on:
