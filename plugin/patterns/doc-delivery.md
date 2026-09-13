@@ -36,6 +36,12 @@ So every document phase working on `<feature-slug>` shares `../wt-docs-<slug>` o
    - no open PR for `docs/<slug>` (`pr_view_argv` returns nothing) → open one (`pr_create_argv`),
      titled for the feature, body listing the artifacts delivered so far;
    - a PR already exists → the push updated it. Say so; do not open a second.
+
+   **A repo with no remote or no `gh` is not a failed phase.** Run `remote_argv` first: empty
+   output means nowhere to push — commit only and report `no remote: committed on docs/<slug>, not
+   pushed`; a remote but no `gh` on PATH (`gh_on_path()`) — push and report the branch for a
+   hand-opened PR. `proceed_plan(worktree, phase, slug, remotes=<output>, gh=gh_on_path())`
+   returns the argv to run, whether the PR steps apply, and the sentence to report.
 5. **`escalate`** — commit **nothing**. If the PR exists, mark it a draft (`pr_draft_argv`). This
    needs no new mechanism: the merge gate already refuses a `draft PR`, so an unresolved review
    stops the merge through the rail that is already tested.

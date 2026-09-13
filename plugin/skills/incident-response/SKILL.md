@@ -9,8 +9,8 @@ allowed-tools: Read, Grep, Glob, Bash, Task, Write, Edit
 The incident phase: triage a production incident — classify severity, capture impact and timeline,
 coordinate mitigation, and draft the postmortem — recorded as an `incident` handoff. The severity
 classification is deterministic (`agentic_forge.ops.classify_incident`); the skill assembles the
-record and drives mitigation before root cause. (Design:
-[quality-ops.md](../../../docs/architecture/quality-ops.md).)
+record and drives mitigation before root cause. (Design: `docs/architecture/quality-ops.md` in
+the agentic-forge repository.)
 
 ## When to use
 
@@ -29,7 +29,12 @@ python -c "from agentic_forge import ops; print(ops.classify_incident(outage=Tru
 1. **Assess the signal.** From the alerts/impact, determine the facts: is it a full **outage**?
    **data loss**? **degraded** (still working, slower/partial)? is there a **workaround**? For a
    live incident, pull active alerts via a connector (see
-   [references/connectors.md](references/connectors.md)).
+   [references/connectors.md](references/connectors.md)). **No signal and no connector** (the
+   prompt is all there is): triage from the prompt — take the facts it states, mark each missing
+   one `unknown` in the record (onset time, blast radius, workaround, …), classify with the
+   conservative default for every unknown (`outage=False`, `degraded=True`, `workaround=False`
+   unless the prompt says otherwise), and proceed; ask for the missing facts only when interactive
+   — a headless run has no one to ask.
 2. **Classify severity.** `ops.classify_incident(outage=…, data_loss=…, degraded=…, workaround=…)`
    → `sev1` (outage / data loss), `sev2` (degraded, no workaround), `sev3` (degraded, workaround),
    `sev4` (cosmetic / latent). Use the derived level — do not eyeball it.

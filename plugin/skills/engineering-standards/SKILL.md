@@ -8,8 +8,8 @@ disable-model-invocation: true
 
 The standards we hold to when implementing in a target repo. This is deliberately short — it
 lists only what is project-opinionated or easy to skip, not general programming knowledge the
-model already has. Load the matching **stack skill** (e.g. a `*-patterns` skill) for
-language/framework idioms.
+model already has. Read the matching **stack pack** (`${CLAUDE_PLUGIN_ROOT}/skills/<stack>-patterns/SKILL.md`
+— like this file, off the listing, so read rather than invoked) for language/framework idioms.
 
 ## Always
 

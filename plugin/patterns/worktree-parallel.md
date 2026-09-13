@@ -3,7 +3,8 @@
 Implement **mutually-independent** plan tasks concurrently — one git worktree per task — then
 integrate them in dependency order. The parallel counterpart of [worktree.md](worktree.md), used by
 the `develop` workflow for plans with independent work
-([ADR 0034](../../docs/architecture/decisions/0034-develop-parallelism.md)).
+(ADR 0034 — `docs/architecture/decisions/0034-develop-parallelism.md` in the agentic-forge
+repository, not shipped with the plugin).
 
 ## When
 
@@ -17,7 +18,8 @@ parallelism (a single chain) degrades to the plain one-worktree flow — no orch
    independent task ids.
 2. **Fan out (per level).** Create one worktree per task off the base branch and run a
    `software-engineer` in each **concurrently** (Task fan-out — [fan-out-fan-in.md](fan-out-fan-in.md)),
-   each scoped to its task, each loading the stack pack + `engineering-standards`.
+   each scoped to its task, each **reading** the stack pack + `engineering-standards` from
+   `${CLAUDE_PLUGIN_ROOT}/skills/<pack>/SKILL.md` (off the listing — `Read`, not invoke).
 3. **Integrate (per level).** Merge the level's worktrees back into the base in a **deterministic
    order** (e.g. by task id), resolving conflicts as they surface — integration is where cross-task
    conflicts live, so it is explicit, not silent. If a conflict can't be resolved mechanically,

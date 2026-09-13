@@ -5,8 +5,8 @@
 A high-fidelity review that resists the blind spots of a single pass (especially an author's
 own). Decompose the review into independent **lenses**, **fan out** one fresh reviewer per
 lens, **verify** every finding against the source, then **synthesize** one deduplicated,
-prioritized report. This is the review analogue of `deep-research`'s fan-out→verify→synthesize
-harness; the `deep-review` skill orchestrates it.
+prioritized report. This is the review analogue of the `research` skill's fan-out→verify→synthesize
+shape; the `deep-review` skill orchestrates it.
 
 ## When to use
 

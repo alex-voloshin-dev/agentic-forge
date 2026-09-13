@@ -237,3 +237,50 @@ def test_every_spec_has_a_test_command() -> None:
 def test_module_exports_are_importable() -> None:
     for name in stacks.__all__:
         assert hasattr(stacks, name)
+
+
+# --- pack files: what a role READS (ADR 0015 + CLAUDE.md §2) -------------------
+
+PLUGIN = Path(__file__).resolve().parents[1] / "plugin"
+
+
+def test_pack_path_is_the_pack_skill_file() -> None:
+    assert stacks.pack_path("/root", "python-patterns") == Path(
+        "/root/skills/python-patterns/SKILL.md"
+    )
+    assert stacks.pack_path(Path("/root"), stacks.STANDARDS_PACK) == Path(
+        "/root/skills/engineering-standards/SKILL.md"
+    )
+
+
+@pytest.mark.parametrize("bad", ["../escape", "", "Python-Patterns", "a/b", "-lead", "x" * 65])
+def test_pack_path_rejects_a_bad_name_rather_than_sanitising(bad: str) -> None:
+    with pytest.raises(ValueError):
+        stacks.pack_path("/root", bad)
+
+
+def test_pack_paths_read_the_standards_first_then_the_stack_pack(tmp_path: Path) -> None:
+    profile = primary(_repo(tmp_path, {"pyproject.toml": ""}))
+    assert stacks.pack_paths("/root", profile) == [
+        Path("/root/skills/engineering-standards/SKILL.md"),
+        Path("/root/skills/python-patterns/SKILL.md"),
+    ]
+    # No pack -> the standards alone; never an empty list, never a `None` path.
+    assert stacks.pack_paths("/root", UNKNOWN) == [
+        Path("/root/skills/engineering-standards/SKILL.md")
+    ]
+
+
+def test_every_registered_pack_ships_and_is_off_the_listing() -> None:
+    # The registry names packs a role must be able to READ, so each must exist in the shipped tree
+    # at the path `pack_path` builds — and each must be `disable-model-invocation: true` (off the
+    # listing, CLAUDE.md §2), which is exactly why the path, not the name, is the contract: a role
+    # cannot invoke what is not listed.
+    from agentic_forge.frontmatter import parse as parse_frontmatter
+
+    names = [stacks.STANDARDS_PACK, *(spec.pack for spec in STACKS.values() if spec.pack)]
+    for name in names:
+        path = stacks.pack_path(PLUGIN, name)
+        assert path.is_file(), name
+        fm, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
+        assert fm.get("disable-model-invocation") is True, name

@@ -27,9 +27,12 @@ __all__ = [
     "StackProfile",
     "STACKS",
     "UNKNOWN",
+    "STANDARDS_PACK",
     "detect",
     "primary",
     "format_profile",
+    "pack_path",
+    "pack_paths",
 ]
 
 
@@ -276,6 +279,35 @@ def detect(repo: Path | str) -> list[StackProfile]:
 def primary(repo: Path | str) -> StackProfile:
     """The single most-relevant stack profile for ``repo`` (first of :func:`detect`)."""
     return detect(repo)[0]
+
+
+# Knowledge packs — `engineering-standards` and every `*-patterns` skill — are
+# `disable-model-invocation: true` (ADR 0015): absent from the model's skill listing, which is
+# what keeps the listing budget flat, and therefore impossible to invoke by name. A role reaches
+# one only by READING its file; `pack_path` is the one place that knows the file's shape.
+STANDARDS_PACK = "engineering-standards"
+_PACK_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+
+
+def pack_path(plugin_root: Path | str, pack: str) -> Path:
+    """The file a role reads to load a knowledge pack: ``<plugin_root>/skills/<pack>/SKILL.md``.
+
+    ``plugin_root`` is ``${CLAUDE_PLUGIN_ROOT}`` at runtime. The name is validated to the skill-name
+    shape rather than sanitised — a pack name that needs escaping is a caller bug, not something
+    to paper over (the same stance ``doc_delivery`` takes on slugs).
+    """
+    if not _PACK_NAME_RE.match(pack):
+        raise ValueError(f"invalid pack name {pack!r}: expected {_PACK_NAME_RE.pattern}")
+    return Path(plugin_root) / "skills" / pack / "SKILL.md"
+
+
+def pack_paths(plugin_root: Path | str, profile: StackProfile) -> list[Path]:
+    """Every pack file a role reads for ``profile``, in reading order: the standards first, then
+    the stack pack when the profile names one (the ``unknown`` profile reads the standards only)."""
+    paths = [pack_path(plugin_root, STANDARDS_PACK)]
+    if profile.pack:
+        paths.append(pack_path(plugin_root, profile.pack))
+    return paths
 
 
 def format_profile(profile: StackProfile) -> str:

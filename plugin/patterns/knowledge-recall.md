@@ -3,7 +3,8 @@
 Before a workflow phase produces its artifact, **recall the project's relevant prior decisions**
 from the knowledge vault (`docs/knowledge/`) so it builds on what's already settled instead of
 re-deriving it. This realizes the constitution's "workflows … read [the vault] to enrich their
-context" ([ADR 0033](../../docs/architecture/decisions/0033-knowledge-recall-in-spine.md)).
+context" (ADR 0033 — `docs/architecture/decisions/0033-knowledge-recall-in-spine.md` in the
+agentic-forge repository, not shipped with the plugin).
 
 ## When
 

@@ -26,11 +26,16 @@ task breakdown (`plan`), or implementation (`develop`).
 > shared documentation worktree rather than the checkout, and deliver the result as a pull
 > request (see [doc-delivery](../../patterns/doc-delivery.md)). One worktree and one PR per
 > **feature**, shared by every document phase — that is what lets the next phase read what
-> this one wrote. Skip it for a one-off document outside a feature flow.
+> this one wrote. Skip it for a one-off document outside a feature flow. A repo with no remote (or
+> no `gh`) still commits — on `docs/<slug>`, reported as not pushed / no PR — never a failed phase.
 
 1. **Read the inputs.** Load the `prd.md` handoff (`docs/sdlc/<feature-slug>/prd.md`) — use
    `agentic_forge.handoff.load_artifact(..., expected_type="prd")` and **refuse to design from it unless `handoff.is_handoff_ready(header)`** — and study how the current
-   system is built so the design fits reality.
+   system is built so the design fits reality. **If `prd.md` is absent** (check `Path.exists()`
+   first — `load_artifact` raises on a missing file): design from the request + the repo instead,
+   record the goals you assumed and the fact that no PRD existed in the design's body, and
+   proceed. Never stop to ask when running headless — there is no user to answer; ask only when
+   interactive and the gap blocks the design.
 2. **Find the decisions that matter.** Identify the few choices that shape the design
    (datastore, boundaries, sync model, …). When several are independent, evaluate them in
    parallel (fan out — see [patterns/fan-out-fan-in.md](../../patterns/fan-out-fan-in.md)) and

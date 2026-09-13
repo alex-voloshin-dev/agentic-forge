@@ -14,9 +14,12 @@ that phases are joined only by committed handoff artifacts.
 from __future__ import annotations
 
 import re
+import shutil
+from dataclasses import dataclass
 
 __all__ = [
     "SLUG_RE",
+    "Delivery",
     "branch_name",
     "worktree_dir",
     "add_worktree_argv",
@@ -27,6 +30,9 @@ __all__ = [
     "pr_create_argv",
     "pr_draft_argv",
     "pr_view_argv",
+    "remote_argv",
+    "gh_on_path",
+    "proceed_plan",
 ]
 
 # A feature slug reaches argv as part of a branch name and a directory, so it is constrained to the
@@ -110,3 +116,47 @@ def pr_view_argv(repo_slug: str, slug: str) -> list[str]:
         "gh", "pr", "list", "-R", repo_slug, "--head", branch_name(slug),
         "--state", "open", "--json", "number", "-q", ".[].number",
     ]
+
+
+def remote_argv(worktree: str) -> list[str]:
+    """argv listing the worktree's remotes. Empty output means there is nowhere to push — a fresh
+    ``git init`` repo, a headless stand — and :func:`proceed_plan` turns that into a local commit
+    rather than a failed phase."""
+    return ["git", "-C", worktree, "remote"]
+
+
+def gh_on_path() -> bool:
+    """Whether the ``gh`` CLI is installed — a PATH lookup, not a process, so the module's
+    "never runs it" stance holds. Without ``gh`` the PR steps are skipped, not failed."""
+    return shutil.which("gh") is not None
+
+
+@dataclass(frozen=True)
+class Delivery:
+    """What ``proceed`` runs, decided from facts the caller gathered (:func:`remote_argv` output and
+    :func:`gh_on_path`)."""
+
+    argv: tuple[list[str], ...]  # in order: commit, then push — only when there is a remote
+    open_pr: bool  # whether the PR steps (`pr_view_argv` / `pr_create_argv`) apply at all
+    note: str  # the one sentence to report for this delivery
+
+
+def proceed_plan(worktree: str, phase: str, slug: str, *, remotes: str, gh: bool) -> Delivery:
+    """The ``proceed`` steps for the repo as it actually is.
+
+    - no remote (``remotes`` is blank) → commit only; report
+      ``no remote: committed on <branch>, not pushed``;
+    - a remote but no ``gh`` → commit and push; the PR is the user's to open;
+    - both → commit, push, and the PR steps.
+
+    Never a failure: a phase that reached ``proceed`` has its artifact, and a repo with nowhere to
+    push is a fact about the repo, not a defect in the phase.
+    """
+    branch = branch_name(slug)
+    commit = commit_argv(worktree, phase, slug)
+    if not remotes.strip():
+        return Delivery((commit,), False, f"no remote: committed on {branch}, not pushed")
+    push = push_argv(worktree, slug)
+    if not gh:
+        return Delivery((commit, push), False, f"no gh: pushed {branch}; open its PR by hand")
+    return Delivery((commit, push), True, f"pushed {branch}; opening or updating its PR")

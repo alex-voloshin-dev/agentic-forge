@@ -74,6 +74,13 @@ frontmatter, or a header that fails its schema (wrong `type`, missing required f
 enum). Use `validate_header(header, expected_type=...)` to get the list of problems without
 raising, and `schema_for(type)` to inspect a schema.
 
+**When the predecessor is absent.** `load_artifact` raising on a missing file is deliberate — a
+mistyped path must not read as "no upstream" — so a phase that can run without its input checks
+`Path(path).exists()` *before* calling it. Absent means: derive the inputs from the request and the
+repo, record the assumptions and the missing artifact in the artifact the phase produces, and
+proceed. Never stop to ask when running headless — a headless session has no user; ask only when
+interactive and the gap blocks the work.
+
 ## Language: artifact vs summary
 
 **Written artifacts follow the project's convention** — for most repos that is English, and it

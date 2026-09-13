@@ -7,7 +7,8 @@ cited**. This is the evidence foundation the strategy and content build on.
 
 1. **Gather evidence.** Use the provided research/notes if present; otherwise gather it **live with
    `WebSearch` / `WebFetch`** — search analyst / market-size reports, competitor sites, and pricing
-   pages (or fork `research` / `Explore` via `Task` for deeper tracks). **Record every source URL**
+   pages (or fork the built-in `Explore` agent via `Task` for a repo / notes sweep, and a fresh
+   `general-purpose` subagent per web track when fanning out). **Record every source URL**
    so each claim can be cited.
 2. **Segments.** Identify the real buyer segments from the evidence (who buys, what they want) —
    not invented personas.

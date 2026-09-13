@@ -6,6 +6,10 @@ Perplexity / Google AI Overviews extract and cite it?) and/or **technical SEO**.
 cannot see. Output is a scored report with prioritized fixes; chain into
 [content.md](content.md) when asked to rewrite.
 
+**No target given** (no URL, HTML or markdown in the request): audit the repo's own landing
+content — the README and the `docs/` landing page — say that this is what was audited and why,
+and proceed; ask for the intended page only when interactive (a headless run has no one to ask).
+
 ## GEO rubric: five categories, 0–100 total
 
 Score each category 0–20; sum for the overall score.
