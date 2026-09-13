@@ -27,6 +27,15 @@ _FAIL_OPEN_MARKER = "commit-gate:fail-open"
 
 
 _GATE_TIMEOUT = 110  # seconds; the hook itself is capped at 120 in hooks.json
+_TAIL_CHARS = 400  # of a hung gate's output kept in the record (each context value caps at 500)
+
+
+def _tail(raw: object) -> str:
+    """The last ``_TAIL_CHARS`` of a captured stream. ``TimeoutExpired`` carries the partial output
+    as BYTES on POSIX even in text mode; only ``str(exc)`` was recorded, so nothing said which test
+    hung."""
+    text = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw or "")
+    return text.strip()[-_TAIL_CHARS:]
 
 
 def fail_open_notice(gate: list[str], detail: str) -> str:
@@ -86,10 +95,15 @@ def gate_decision(payload: dict[str, Any]) -> guardrails.Decision:
         # Infra error (tool missing, timeout) -> don't block, but RECORD the fail-open: a gate
         # that silently never runs is indistinguishable from a healthy one in the diagnostics
         # log (a real 7-day bundle had zero events — this makes that reading trustworthy).
+        context: dict[str, Any] = {"gate": " ".join(gate)}
+        for stream in ("stdout", "stderr"):  # a timeout's partial output: WHICH test hung
+            tail = _tail(getattr(exc, stream, None))
+            if tail:
+                context[stream] = tail
         diagnostics.emit(
             cwd, kind="anomaly", component="commit-gate",
             message=f"gate fail-open (infra): {type(exc).__name__}: {exc}",
-            severity="minor", context={"gate": " ".join(gate)},
+            severity="minor", context=context,
             session_id=payload.get("session_id"),
         )
         _announce(cwd, gate, f"{type(exc).__name__}: {exc}", payload.get("session_id"))
@@ -121,14 +135,17 @@ def gate_decision(payload: dict[str, Any]) -> guardrails.Decision:
 
 
 def main() -> int:
+    cwd = "."
+    session_id: str | None = None
     try:
         payload = json.load(sys.stdin)
+        cwd = str(payload.get("cwd") or ".")
+        session_id = payload.get("session_id")
         decision = gate_decision(payload)
-    except Exception as exc:  # fail open, but record the hook crash (ADR 0039)
-        diagnostics.emit(
-            ".", kind="error", component="commit-gate",
-            message=f"{type(exc).__name__}: {exc}", severity="blocker",
-        )
+    except Exception as exc:  # fail open, but record + announce the hook crash (ADR 0039)
+        crash = diagnostics.hook_crash(cwd, "commit-gate", exc, session_id=session_id)
+        if crash:
+            print(json.dumps(crash))
         return 0
     if decision.block:
         print(f"agentic-forge test-gate {decision.message}", file=sys.stderr)

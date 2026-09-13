@@ -175,3 +175,70 @@ def test_malformed_config_without_jsonschema_never_raises(
     _write_config(tmp_path, {"subagent_budget": {"soft": "oops"}})  # bad type, now unvalidated
     s = settings.resolve(tmp_path, env={}, home=tmp_path / "nohome")  # must not raise
     assert s.subagent_soft == settings.DEFAULTS["subagent_budget"]["soft"]  # coerced to the default
+
+
+# --- D5: the skip switch is a boolean like every other switch ---------------------------------
+
+
+@pytest.mark.parametrize(
+    ("val", "expected"), [("1", True), ("true", True), ("0", False), ("false", False)]
+)
+def test_skip_test_gate_env_is_coerced(tmp_path: Path, val: str, expected: bool) -> None:
+    # `=0` / `=false` used to DISABLE the commit gate: any non-empty value was taken as "skip".
+    s = settings.resolve(tmp_path, env={"AGENTIC_FORGE_SKIP_TEST_GATE": val})
+    assert s.skip_test_gate is expected
+
+
+def test_skip_test_gate_env_zero_beats_a_file_that_skips(tmp_path: Path) -> None:
+    _write_config(tmp_path, {"test_gate": {"skip": True}})
+    env = {"AGENTIC_FORGE_SKIP_TEST_GATE": "0"}
+    assert settings.resolve(tmp_path, env=env).skip_test_gate is False  # env wins, like the rest
+    assert settings.resolve(tmp_path, env={}).skip_test_gate is True  # the file still applies
+
+
+# --- A4: a dropped config file is carried on the result, not only shouted at stderr -----------
+
+
+def test_no_warnings_by_default(tmp_path: Path) -> None:
+    assert settings.resolve(tmp_path, env={}).warnings == ()
+
+
+def test_dropped_config_is_carried_as_a_warning(tmp_path: Path) -> None:
+    _write_config(tmp_path, {"review": {"passes": 0}, "test_gate": {"skip": True}})
+    s = settings.resolve(tmp_path, env={})
+    assert s.skip_test_gate is False  # the WHOLE file is dropped …
+    (warning,) = s.warnings  # … and the result says so, naming the file and the reason
+    assert "ignoring invalid" in warning and str(tmp_path / settings.CONFIG_PATH) in warning
+    assert "minimum" in warning and "whole file is dropped" in warning
+
+
+def test_unreadable_and_user_level_drops_are_both_carried(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    _write_user_config(home, {"bogus": True})  # schema-invalid at the user level
+    d = tmp_path / "repo" / ".agentic-forge"
+    d.mkdir(parents=True)
+    (d / "config.json").write_text("{not json", encoding="utf-8")  # unreadable at the repo level
+    s = settings.resolve(tmp_path / "repo", env={}, home=home)
+    assert len(s.warnings) == 2
+    assert "ignoring invalid" in s.warnings[0] and "ignoring unreadable" in s.warnings[1]
+
+
+def test_malformed_unvalidated_config_fallback_is_carried(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(sys.modules, "jsonschema", None)
+    _write_config(tmp_path, {"pr_watcher": "nope"})  # a non-mapping where a mapping must be
+    s = settings.resolve(tmp_path, env={}, home=tmp_path / "nohome")  # must not raise
+    assert s.review_passes == 3 and len(s.warnings) == 1
+    assert "ignoring malformed config" in s.warnings[0]
+
+
+def test_non_object_config_without_jsonschema_is_carried(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(sys.modules, "jsonschema", None)
+    d = tmp_path / ".agentic-forge"
+    d.mkdir(parents=True)
+    (d / "config.json").write_text("[1, 2, 3]", encoding="utf-8")
+    s = settings.resolve(tmp_path, env={}, home=tmp_path / "nohome")
+    assert s.review_passes == 3 and "not a JSON object" in s.warnings[0]

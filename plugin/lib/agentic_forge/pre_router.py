@@ -111,6 +111,9 @@ class Index:
     idf: dict[str, float]
     namespace: str = "agentic-forge"
     unknown_weight: float = 0.0
+    # Skills that could NOT be indexed, one reason each — so an empty index can say why (without
+    # PyYAML every SKILL.md fails to parse, and the hook then never suggests anything).
+    skipped: list[str] = field(default_factory=list)
 
     def _own_trigger_feats(self, skill: str, *, exclude: _Doc | None = None) -> set[str]:
         feats: set[str] = set()
@@ -162,15 +165,19 @@ class Index:
 
 def _load_skill_examples(
     plugin_dir: Path,
-) -> tuple[list[str], dict[str, frozenset[str]], dict[str, list[_Doc]], dict[str, list[_Doc]]]:
-    """Every on-listing skill's description features and trigger prompts as example documents."""
+) -> tuple[
+    list[str], dict[str, frozenset[str]], dict[str, list[_Doc]], dict[str, list[_Doc]], list[str]
+]:
+    """Every on-listing skill's description features and trigger prompts as example documents,
+    plus one line per skill that could not be indexed (and why)."""
     skills: list[str] = []
     descriptions: dict[str, frozenset[str]] = {}
     positives: dict[str, list[_Doc]] = {}
     negatives: dict[str, list[_Doc]] = {}
+    skipped: list[str] = []
     skills_dir = plugin_dir / "skills"
     if not skills_dir.is_dir():
-        return skills, descriptions, positives, negatives
+        return skills, descriptions, positives, negatives, skipped
     for skill_dir in sorted(p for p in skills_dir.iterdir() if p.is_dir()):
         md = skill_dir / "SKILL.md"
         evals_path = skill_dir / "evals" / "evals.json"
@@ -178,25 +185,28 @@ def _load_skill_examples(
             continue
         try:
             fm, _ = parse_frontmatter(md.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001 — a malformed SKILL.md is Tier-0's problem, not the hook's
+        except Exception as exc:  # noqa: BLE001 — a bad SKILL.md is Tier-0's problem
+            skipped.append(f"{skill_dir.name}: {type(exc).__name__}: {exc}")
             continue
         if fm.get("disable-model-invocation") is True:
             continue  # off-listing: the model cannot invoke it, so never suggest it
         try:
             data = json.loads(evals_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError) as exc:
+            skipped.append(f"{skill_dir.name}: evals.json: {exc}")
             continue
         triggers = data.get("triggers") or {}
         pos = [str(p) for p in triggers.get("should_trigger") or []]
         neg = [str(p) for p in triggers.get("should_not_trigger") or []]
         if not pos:
+            skipped.append(f"{skill_dir.name}: no should_trigger prompts")
             continue
         name = str(fm.get("name") or skill_dir.name)
         skills.append(name)
         descriptions[name] = frozenset(features(str(fm.get("description") or "")))
         positives[name] = [_Doc(name, "pos", x, frozenset(features(x))) for x in pos]
         negatives[name] = [_Doc(name, "neg", x, frozenset(features(x))) for x in neg]
-    return skills, descriptions, positives, negatives
+    return skills, descriptions, positives, negatives, skipped
 
 
 def _idf_over_profiles(profiles: dict[str, frozenset[str]]) -> dict[str, float]:
@@ -220,7 +230,7 @@ def _plugin_namespace(plugin_dir: Path) -> str:
 def build_index(plugin_dir: Path | str) -> Index:
     """Index every on-listing skill's description and eval triggers (cheap: a few ms)."""
     plugin_dir = Path(plugin_dir)
-    skills, descriptions, positives, negatives = _load_skill_examples(plugin_dir)
+    skills, descriptions, positives, negatives, skipped = _load_skill_examples(plugin_dir)
     index = Index(
         skills=skills,
         descriptions=descriptions,
@@ -228,6 +238,7 @@ def build_index(plugin_dir: Path | str) -> Index:
         negatives=negatives,
         idf={},
         namespace=_plugin_namespace(plugin_dir),
+        skipped=skipped,
     )
     index.idf = _idf_over_profiles({s: index.profile(s) for s in skills})
     index.unknown_weight = max(index.idf.values(), default=0.0)

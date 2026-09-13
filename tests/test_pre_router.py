@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from agentic_forge import pre_router, settings
+from agentic_forge import diagnostics, pre_router, settings
 
 _REPO = Path(__file__).resolve().parents[1]
 PLUGIN = _REPO / "plugin"
@@ -57,6 +57,53 @@ def test_index_skips_off_listing_skills(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     assert pre_router.build_index(tmp_path).skills == []
+
+
+def test_index_says_why_a_skill_was_skipped(tmp_path: Path, monkeypatch) -> None:
+    """Without PyYAML every SKILL.md raises FrontmatterError, swallowed into an EMPTY index — the
+    hook then never suggested and never said why (A13)."""
+    sk = tmp_path / "skills" / "broken"
+    (sk / "evals").mkdir(parents=True)
+    (sk / "SKILL.md").write_text("---\nname: broken\ndescription: x\n---\n", encoding="utf-8")
+    (sk / "evals" / "evals.json").write_text(
+        json.dumps({"triggers": {"should_trigger": ["do broken"]}}), encoding="utf-8"
+    )
+    monkeypatch.setitem(sys.modules, "yaml", None)  # make the lazy `import yaml` fail
+    index = pre_router.build_index(tmp_path)
+    assert index.skills == []
+    (reason,) = index.skipped
+    assert reason.startswith("broken: FrontmatterError") and "PyYAML" in reason
+
+
+def test_hook_records_an_empty_index_instead_of_silently_never_suggesting(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    monkeypatch.setenv("AGENTIC_FORGE_PRE_ROUTER", "1")
+    monkeypatch.setenv("AGENTIC_FORGE_DIAGNOSTICS", "1")
+    monkeypatch.setitem(sys.modules, "yaml", None)
+    payload = {"prompt": "Cut a release and write the changelog for it", "cwd": str(tmp_path)}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    assert hook.main() == 0
+    assert capsys.readouterr().out.strip() == ""  # still silent to the session …
+    (event,) = [json.loads(line) for line in diagnostics.load(tmp_path)]  # … but it says why
+    assert event["kind"] == "anomaly" and event["component"] == "pre-router"
+    assert "index is empty" in event["message"] and "PyYAML" in event["message"]
+
+
+def test_hook_crash_is_recorded_and_announced(tmp_path: Path, monkeypatch, capsys) -> None:
+    monkeypatch.delenv("AGENTIC_FORGE_DIAGNOSTICS", raising=False)  # the default install
+
+    def boom(_payload: dict[str, object]) -> str:
+        raise RuntimeError("router exploded")
+
+    monkeypatch.setattr(hook, "decide", boom)
+    payload = {"prompt": "hi", "cwd": str(tmp_path), "session_id": "s-crash"}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    assert hook.main() == 0
+    out = json.loads(capsys.readouterr().out)
+    assert "pre-router hook crashed: RuntimeError: router exploded" in out["systemMessage"]
+    (event,) = [json.loads(line) for line in diagnostics.load(tmp_path)]
+    assert event["kind"] == "error" and event["component"] == "pre-router"
 
 
 # --- suggest --------------------------------------------------------------------

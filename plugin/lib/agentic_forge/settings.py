@@ -7,11 +7,13 @@ home, a repo overrides them per-project, and CI / one-off env vars still win. Bo
 validated against `schemas/config.schema.json`.
 
 `resolve()` **never raises**: a missing file is defaults; a malformed / schema-invalid file is
-defaults + a one-line stderr warning. `jsonschema` is imported **lazily and is optional** — a
-guardrail hook may run under a bare `python3` without the plugin's third-party deps, so when it is
-unavailable a committed (trusted) file is loaded *unvalidated* rather than dropped, and resolve
-still coerces every value defensively. Settings must not break a session, and deliberately does
-**not** depend on :mod:`diagnostics` (which reads settings — that would be circular).
+defaults + a one-line warning — printed to stderr and carried on ``Settings.warnings``, which the
+session-start hook shows once per session (a hook's stderr reaches nobody). `jsonschema` is
+imported **lazily and is optional** — a guardrail hook may run under a bare `python3` without the
+plugin's third-party deps, so when it is unavailable a committed (trusted) file is loaded
+*unvalidated* rather than dropped, and resolve still coerces every value defensively. Settings
+must not break a session, and deliberately does **not** depend on :mod:`diagnostics` (which reads
+settings — that would be circular).
 """
 
 from __future__ import annotations
@@ -111,6 +113,11 @@ class Settings:
     pr_watcher_max_ticks: int
     pr_watcher_merge_method: str
     pr_watcher_poll_seconds: int
+    # One line per config file that was DROPPED on the way here. A malformed or schema-invalid
+    # file is ignored whole, so a `test_gate.skip` or `pr_watcher.enabled` in it is silently
+    # ineffective — and the stderr line that says so reaches nobody from a hook (exit-0 stderr is
+    # debug-log only). The session-start hook surfaces these once per session instead.
+    warnings: tuple[str, ...] = ()
 
 
 def _schema() -> dict[str, Any]:
@@ -148,34 +155,47 @@ def _deep_merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
     return base
 
 
-def _load_config(path: Path) -> dict[str, Any]:
-    """Read + schema-validate ONE ``config.json``; ``{}`` if absent / unreadable / invalid (with a
-    one-line stderr note). ``jsonschema`` is imported **lazily and optionally**: when it is
-    unavailable (a hook under a bare ``python3``) a committed JSON object is loaded *unvalidated*
-    rather than dropped — :func:`resolve` then coerces every value defensively."""
+def _dropped(reason: str) -> str:
+    """The warning for a config file resolve had to ignore: printed to stderr (kept — it costs
+    nothing) and returned for :attr:`Settings.warnings`. It spells out the consequence, because
+    "ignoring" alone did not convey that every switch in the file is now at its default."""
+    warning = (
+        f"agentic-forge: {reason} — the whole file is dropped, so every setting in it is at its "
+        f"built-in default until it is fixed"
+    )
+    print(warning, file=sys.stderr)
+    return warning
+
+
+def _load_config(path: Path) -> tuple[dict[str, Any], str]:
+    """Read + schema-validate ONE ``config.json`` -> ``(data, warning)``: ``({}, "")`` if absent,
+    ``({}, why)`` if unreadable / invalid (see :func:`_dropped`). ``jsonschema`` is imported
+    **lazily and optionally**: when it is unavailable (a hook under a bare ``python3``) a committed
+    JSON object is loaded *unvalidated* rather than dropped — :func:`resolve` then coerces every
+    value defensively."""
     if not path.is_file():
-        return {}
+        return {}, ""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
-        print(f"agentic-forge: ignoring unreadable {path}: {exc}", file=sys.stderr)
-        return {}
+        return {}, _dropped(f"ignoring unreadable {path}: {exc}")
     try:
         import jsonschema
     except ImportError:
         # No validator available — trust the committed file, but only if it is a JSON object.
-        return cast("dict[str, Any]", data) if isinstance(data, dict) else {}
+        if isinstance(data, dict):
+            return cast("dict[str, Any]", data), ""
+        return {}, _dropped(f"ignoring invalid {path}: not a JSON object")
     errors = sorted(jsonschema.Draft7Validator(_schema()).iter_errors(data), key=str)
     if errors:
-        print(f"agentic-forge: ignoring invalid {path}: {errors[0].message}", file=sys.stderr)
-        return {}
-    return cast("dict[str, Any]", data)
+        return {}, _dropped(f"ignoring invalid {path}: {errors[0].message}")
+    return cast("dict[str, Any]", data), ""
 
 
-def _settings_from(data: dict[str, Any]) -> Settings:
+def _settings_from(data: dict[str, Any], warnings: tuple[str, ...] = ()) -> Settings:
     """Build :class:`Settings` from a merged config mapping, coercing every value so a stray type in
     an unvalidated file can't raise (resolve wraps this and falls back to pure defaults if it
-    somehow still does)."""
+    somehow still does). ``warnings`` are carried through untouched."""
     pr = data["pr_watcher"]
     models = data["models"] if isinstance(data.get("models"), dict) else {}
     repos = pr["repos"] if isinstance(pr.get("repos"), list) else []
@@ -215,6 +235,7 @@ def _settings_from(data: dict[str, Any]) -> Settings:
         pr_watcher_poll_seconds=_int(
             pr.get("poll_seconds"), DEFAULTS["pr_watcher"]["poll_seconds"]
         ),
+        warnings=warnings,
     )
 
 
@@ -228,8 +249,11 @@ def resolve(
     home_dir = Path.home() if home is None else Path(home)
 
     data = copy.deepcopy(DEFAULTS)
-    _deep_merge(data, _load_config(home_dir / CONFIG_PATH))  # user-level (cross-project)
-    _deep_merge(data, _load_config(Path(repo) / CONFIG_PATH))  # per-repo (overrides user-level)
+    user_data, user_warning = _load_config(home_dir / CONFIG_PATH)  # user-level (cross-project)
+    repo_data, repo_warning = _load_config(Path(repo) / CONFIG_PATH)  # per-repo (overrides it)
+    _deep_merge(data, user_data)
+    _deep_merge(data, repo_data)
+    warnings = tuple(w for w in (user_warning, repo_warning) if w)
 
     try:
         # Legacy env-var overrides (back-compat; env wins over both files). An empty value is
@@ -246,7 +270,9 @@ def resolve(
         if hard is not None:
             data["subagent_budget"]["hard"] = hard
         if src.get("AGENTIC_FORGE_SKIP_TEST_GATE"):
-            data["test_gate"]["skip"] = True
+            # _coerce_bool like every other switch: `=0` / `=false` used to DISABLE the commit
+            # gate, because any non-empty value was taken as "skip".
+            data["test_gate"]["skip"] = _coerce_bool(src["AGENTIC_FORGE_SKIP_TEST_GATE"])
         if src.get("AGENTIC_FORGE_ROUTING_NOTE"):
             data.setdefault("routing_note", {})["enabled"] = _coerce_bool(
                 src["AGENTIC_FORGE_ROUTING_NOTE"]
@@ -255,8 +281,9 @@ def resolve(
             data.setdefault("pre_router", {})["enabled"] = _coerce_bool(
                 src["AGENTIC_FORGE_PRE_ROUTER"]
             )
-        return _settings_from(data)
-    except Exception:
+        return _settings_from(data, warnings)
+    except Exception as exc:
         # An unvalidated (no-jsonschema) malformed file slipped through; never raise — fall back to
-        # pure defaults (a session / guardrail hook must not break on a bad config).
-        return _settings_from(copy.deepcopy(DEFAULTS))
+        # pure defaults (a session / guardrail hook must not break on a bad config), and say so.
+        dropped = _dropped(f"ignoring malformed config ({type(exc).__name__}: {exc})")
+        return _settings_from(copy.deepcopy(DEFAULTS), (*warnings, dropped))

@@ -2,9 +2,11 @@
 """PR-created hook (PostToolUse): notice `gh pr create`, prompt the autonomous watch (ADR 0063).
 
 A skill cannot observe a command it did not run, so the *automatic* half of "watching starts when
-the PR is created" has to live in a hook. This one is **observability-only**: it prints a reminder
-naming the PR and exits 0. It deliberately does **not** spawn a watcher — auto-merge sits downstream
-of this signal, and a guardrail layer must not silently start an agent that can merge.
+the PR is created" has to live in a hook. This one is **observability-only**: it injects a reminder
+naming the PR (`additionalContext` for the model, `systemMessage` for the operator — bare stdout
+from a PostToolUse hook is transcript-only) and exits 0. It deliberately does **not** spawn a
+watcher — auto-merge sits downstream of this signal, and a guardrail layer must not silently start
+an agent that can merge.
 
 Never blocks (always exits 0, like `audit_log.py`); any internal error is recorded, not raised.
 """
@@ -61,19 +63,25 @@ def enqueue(cwd: str, payload: dict[str, Any]) -> bool:
 
 def main() -> int:
     cwd = "."
+    session_id: str | None = None
     try:
         payload = json.load(sys.stdin)
         cwd = str(payload.get("cwd") or ".")
+        session_id = payload.get("session_id")
         notice = pr_hook.pr_created_notice(payload)
         if notice:
-            print(notice)
             if enqueue(cwd, payload):
-                print("agentic-forge: queued for the scheduled watch (pr_watcher.auto_watch).")
-    except Exception as exc:  # a reminder must never break a session — but record the crash
-        diagnostics.emit(
-            cwd, kind="error", component="pr-created-hook",
-            message=f"{type(exc).__name__}: {exc}", severity="minor",
+                notice += "\nagentic-forge: queued for the scheduled watch (pr_watcher.auto_watch)."
+            # ONE JSON object: bare stdout from a PostToolUse hook is transcript-only, so the
+            # reminder ADR 0063 says this hook "injects" never reached the model. additionalContext
+            # does; systemMessage shows the operator the same line.
+            print(json.dumps(diagnostics.hook_notice("PostToolUse", notice)))
+    except Exception as exc:  # a reminder must never break a session — but record and say so
+        crash = diagnostics.hook_crash(
+            cwd, "pr-created-hook", exc, session_id=session_id, severity="minor"
         )
+        if crash:
+            print(json.dumps(crash))
     return 0
 
 

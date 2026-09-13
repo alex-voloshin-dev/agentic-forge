@@ -30,6 +30,7 @@ __all__ = [
     "render",
     "record_days",
     "rotate_audit",
+    "rotate_diagnostics",
 ]
 
 AUDIT_PATH = ".agentic-forge/audit.jsonl"  # legacy in-repo location (readers only)
@@ -152,25 +153,27 @@ def _archive(path: Path, chunk: bytes, keep: int) -> Path | None:
     return target
 
 
-def rotate_audit(
+def _rotate(
     repo: Path | str,
+    path: Path,
     *,
-    max_bytes: int = MAX_AUDIT_BYTES,
-    keep_bytes: int = KEEP_AUDIT_BYTES,
-    archives: int = KEEP_AUDIT_ARCHIVES,
+    label: str,
+    component: str,
+    max_bytes: int,
+    keep_bytes: int,
+    archives: int,
 ) -> bool:
-    """Trim the audit log to its most recent ``keep_bytes`` once it exceeds ``max_bytes``
-    (unbounded growth guard — the log previously grew forever). Keeps whole records: the kept
-    tail starts at its first complete line (nothing is dropped when the window already starts on
-    one). The rewrite is atomic (`os.replace`), so a crash mid-rotation can't destroy the log.
-    Returns True when a trim happened; never raises (called from the session-start hook, which
-    must not break a session). The bounds are the caller's (``logs.max_bytes`` /
-    ``logs.keep_bytes`` / ``logs.archives``), and a trim is **recorded** rather than silent — see
-    ADR 0080/0081. The discarded records are gzipped into a dated sibling first, so a rotation
-    costs disk rather than history."""
+    """Trim the JSONL log at ``path`` to its most recent ``keep_bytes`` once it exceeds
+    ``max_bytes`` (unbounded growth guard — the audit log previously grew forever). Keeps whole
+    records: the kept tail starts at its first complete line (nothing is dropped when the window
+    already starts on one). The rewrite is atomic (`os.replace`), so a crash mid-rotation can't
+    destroy the log. Returns True when a trim happened; never raises (called from the
+    session-start hook, which must not break a session). A trim is **recorded** rather than
+    silent — see ADR 0080/0081 — and the discarded records are gzipped into a dated sibling
+    first, so a rotation costs disk rather than history. ``label`` names the log in that record
+    and ``component`` tags it."""
     from . import diagnostics
 
-    path = diagnostics.state_file(repo, AUDIT_FILE)  # trim what the writer appends to
     try:
         if not path.is_file() or path.stat().st_size <= max_bytes:
             return False
@@ -198,9 +201,9 @@ def rotate_audit(
         kept_days = record_days(tail)
         retention = f"; the live log now holds ~{kept_days:.0f} days" if kept_days else ""
         diagnostics.emit(
-            repo, kind="anomaly", component="audit-rotation",
+            repo, kind="anomaly", component=component,
             message=(
-                f"audit log rotated: {span} ({len(dropped)} bytes) left the live log — {landed}"
+                f"{label} rotated: {span} ({len(dropped)} bytes) left the live log — {landed}"
                 f"{retention}. The live log is a bounded rolling window (bound {max_bytes}, kept "
                 f"{len(tail)}) — raise logs.max_bytes/logs.keep_bytes if it must hold more."
             ),
@@ -209,6 +212,44 @@ def rotate_audit(
         return True
     except Exception:  # any failure leaves the log as it was; a session must not break
         return False
+
+
+def rotate_audit(
+    repo: Path | str,
+    *,
+    max_bytes: int = MAX_AUDIT_BYTES,
+    keep_bytes: int = KEEP_AUDIT_BYTES,
+    archives: int = KEEP_AUDIT_ARCHIVES,
+) -> bool:
+    """Rotate the audit log (see :func:`_rotate`). The bounds are the caller's (``logs.max_bytes``
+    / ``logs.keep_bytes`` / ``logs.archives``); it trims what the writer appends to."""
+    from . import diagnostics
+
+    return _rotate(
+        repo, diagnostics.state_file(repo, AUDIT_FILE), label="audit log",
+        component="audit-rotation", max_bytes=max_bytes, keep_bytes=keep_bytes,
+        archives=archives,
+    )
+
+
+def rotate_diagnostics(
+    repo: Path | str,
+    *,
+    max_bytes: int = MAX_AUDIT_BYTES,
+    keep_bytes: int = KEEP_AUDIT_BYTES,
+    archives: int = KEEP_AUDIT_ARCHIVES,
+) -> bool:
+    """Rotate the diagnostics log under the SAME bounds as the audit log (``logs.*``). It was
+    appended per event and never rotated; now that every hook crash is recorded regardless of the
+    diagnostics toggle, a file that only grows is no longer an opt-in problem. Its archives sit
+    beside the audit ones (``archive/diagnostics-<stamp>.jsonl.gz``)."""
+    from . import diagnostics
+
+    return _rotate(
+        repo, diagnostics.state_file(repo, diagnostics.DIAGNOSTICS_FILE),
+        label="diagnostics log", component="diagnostics-rotation", max_bytes=max_bytes,
+        keep_bytes=keep_bytes, archives=archives,
+    )
 
 
 def load_audit(repo: Path | str, *, max_lines: int | None = None) -> list[str]:  # pragma: no cover

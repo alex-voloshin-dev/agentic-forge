@@ -25,14 +25,17 @@ def decide(payload: dict[str, Any]) -> guardrails.Decision:
 
 
 def main() -> int:
+    cwd = "."
+    session_id: str | None = None
     try:
         payload = json.load(sys.stdin)
+        cwd = str(payload.get("cwd") or ".")
+        session_id = payload.get("session_id")
         decision = decide(payload)
-    except Exception as exc:  # fail open, but record the hook crash (ADR 0039)
-        diagnostics.emit(
-            ".", kind="error", component="security-hook",
-            message=f"{type(exc).__name__}: {exc}", severity="blocker",
-        )
+    except Exception as exc:  # fail open, but record + announce the hook crash (ADR 0039)
+        crash = diagnostics.hook_crash(cwd, "security-hook", exc, session_id=session_id)
+        if crash:
+            print(json.dumps(crash))
         return 0
     if decision.block:
         print(f"agentic-forge security hook {decision.message}", file=sys.stderr)

@@ -18,8 +18,10 @@ from typing import Any
 
 __all__ = ["created_pr_url", "is_pr_create", "pr_created_notice", "created_pr_ref", "NOTICE"]
 
-# The reminder printed into the transcript. It names the follow-up explicitly so the session can act
-# on it; it does not itself start anything (a hook must not launch a merging agent — ADR 0063 §6).
+# The reminder the hook injects — as `additionalContext` (the model) and `systemMessage` (the
+# operator); bare stdout from a PostToolUse hook is transcript-only, so until 2026.9 the model never
+# saw it. It names the follow-up explicitly so the session can act on it; it does not itself start
+# anything (a hook must not launch a merging agent — ADR 0063 §6).
 NOTICE = (
     "agentic-forge: pull request created. Autonomous watch is available — run /pr-watch to poll "
     "checks, triage review comments, resolve conflicts, and (when pr_watcher.auto_merge is on and "

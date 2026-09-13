@@ -37,15 +37,18 @@ def write_audit(payload: dict[str, Any], cwd: str) -> Path | None:
 
 def main() -> int:
     cwd = "."
+    session_id: str | None = None
     try:
         payload = json.load(sys.stdin)
         cwd = str(payload.get("cwd") or ".")
+        session_id = payload.get("session_id")
         write_audit(payload, cwd)
-    except Exception as exc:  # observability must never block a session — but record the crash
-        diagnostics.emit(
-            cwd, kind="error", component="audit-hook",
-            message=f"{type(exc).__name__}: {exc}", severity="major",
+    except Exception as exc:  # observability must never block a session — but record + say so
+        crash = diagnostics.hook_crash(
+            cwd, "audit-hook", exc, session_id=session_id, severity="major"
         )
+        if crash:
+            print(json.dumps(crash))
     return 0
 
 
