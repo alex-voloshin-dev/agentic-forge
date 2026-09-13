@@ -123,6 +123,12 @@ before implementing it.
 - `SKILL.md` body <= 500 lines; move detail to `references/` (one level deep).
 - Use relative runtime paths and `${CLAUDE_SKILL_DIR}` / `${CLAUDE_PLUGIN_ROOT}`; never absolute user paths.
 - Every model-invocable skill MUST ship `evals/evals.json` with thresholds, or Tier 0 fails.
+- **Hook-reachable code runs on Python 3.9.** Hooks run under the user's bare `python3` — a stock
+  macOS gives CPython 3.9.6 — and a hook that fails to start fails *open*, silently. So
+  `plugin/hooks/scripts/*` and every lib module they import (transitively) keep `from __future__
+  import annotations` and avoid 3.10+ constructs (`match`, `zip(strict=)`, `datetime.UTC`, dataclass
+  `slots=`/`kw_only=`, runtime `X | Y` unions). CI proves it: `dev/hook_smoke.py` under 3.9
+  (ADR 0094). The dev tooling itself is 3.11+.
 - Run `python dev/validate.py` and `pytest` before every commit.
 - **Inventory before you change a shared thing.** Before editing a shared constant, path, helper
   signature, or any contract with more than one caller: `grep` every reference across `plugin/`,
