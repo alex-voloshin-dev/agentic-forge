@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from agentic_forge import pr_watch
 
 _BOT = "github-actions[bot]"
@@ -191,3 +193,108 @@ def test_run_watch_unresolvable_conflict_no_push() -> None:
     )
     assert result.conflict_unresolved and not result.conflict_resolved
     assert result.pushed is False and pushed == []  # nothing fixed/resolved -> no push
+
+
+# --- undetermined: a fixer session that never ran posts NOTHING (audit F1) ---------------
+
+
+def test_run_watch_undetermined_posts_nothing_and_leaves_the_thread() -> None:
+    calls: list[list[str]] = []
+    pushed: list[bool] = []
+    recorded: list[str] = []
+    state = pr_watch.parse_pr(_pr_json())
+    result = pr_watch.run_watch(
+        state, bot=_BOT, max_threads=10,
+        fixer=lambda t: (pr_watch.UNDETERMINED, "reply reads as a CLI error: You've hit your"),
+        gh_exec=calls.append, push=lambda: pushed.append(True), record=recorded.append,
+    )
+    assert result.undetermined == ["T1"] and result.actionable == ["T1"]
+    assert result.fixed == [] and result.rejected == []  # handled in NO column
+    assert calls == [] and pushed == []  # no reply, no resolve, no push: nothing outward at all
+    assert recorded == [
+        "thread T1 (a.py): undetermined (reply reads as a CLI error: You've hit your)"
+    ]
+
+
+def test_run_watch_a_raising_fixer_is_undetermined_not_a_rejection() -> None:
+    calls: list[list[str]] = []
+    recorded: list[str] = []
+
+    def boom(thread: pr_watch.ReviewThread) -> tuple[str, str]:
+        raise RuntimeError("claude call failed after 1 attempts")
+
+    state = pr_watch.parse_pr(_pr_json())
+    result = pr_watch.run_watch(
+        state, bot=_BOT, max_threads=10, fixer=boom, gh_exec=calls.append, push=lambda: None,
+        record=recorded.append,
+    )
+    assert result.undetermined == ["T1"] and result.rejected == [] and calls == []
+    assert recorded[0].startswith("thread T1 (a.py): undetermined (fixer raised RuntimeError: ")
+
+
+def test_run_watch_undetermined_thread_still_holds_the_merge_gate() -> None:
+    # The thread stays unresolved, so the recomputed gate cannot open over it (ADR 0067).
+    merged: list[bool] = []
+    data = {"data": {"repository": {"pullRequest": {
+        "number": 5, "mergeable": "MERGEABLE", "headRefName": "f", "baseRefName": "main",
+        "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}]},
+        "reviewThreads": {"nodes": [{"id": "T9", "isResolved": False, "comments": {"nodes": [
+            {"body": "x", "path": "a.py", "line": 1, "author": {"login": "rev"}}]}}]},
+    }}}}
+    result = pr_watch.run_watch(
+        pr_watch.parse_pr(data), bot=_BOT, max_threads=10,
+        fixer=lambda t: (pr_watch.UNDETERMINED, "limit"), gh_exec=lambda a: None,
+        push=lambda: None, merge=lambda: merged.append(True), auto_merge=True,
+    )
+    assert result.undetermined == ["T9"] and merged == [] and not result.merged
+    assert "1 unresolved review thread(s)" in result.merge_blocked_by
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "",
+        "   \n ",
+        "You've hit your usage limit · resets 3pm",
+        "You've hit your session limit.",
+        "Claude AI usage limit reached|1760000000",
+        'API Error: 429 {"type":"error","error":{"type":"rate_limit_error"}}',
+        "API Error: 529 Overloaded",
+        "API Error (Request timed out.)",
+        "Not logged in · Please run /login",
+        "Invalid API key · Fix external API key",
+        "error_during_execution",
+        "Your credit balance is too low to access the Anthropic API.",
+    ],
+)
+def test_reply_never_ran_recognises_the_cli_error_texts(reply: str) -> None:
+    why = pr_watch.reply_never_ran(reply)
+    assert why is not None and ("empty" in why or "CLI error" in why)
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "No change needed: the null check on line 5 already covers this case.",
+        "I added a rate limit to the login handler as the reviewer asked.",  # prose, not the CLI
+        "Done. The API error handling now retries once; see the new test.",
+        "The usage limit the comment mentions is a feature flag; hoisted the constant.",
+        "x" * 200 + " API Error: 500",  # a marker deep inside prose is not the reply's subject
+    ],
+)
+def test_reply_never_ran_accepts_model_prose(reply: str) -> None:
+    assert pr_watch.reply_never_ran(reply) is None
+
+
+# --- the fixer's bounds: max_threads calls fit the driver's budget (audit F2) ------------
+
+
+def test_fixer_timeout_fits_the_watch_budget() -> None:
+    assert pr_watch.WATCH_BUDGET_SECONDS == 1800
+    assert pr_watch.fixer_timeout(10) == 144  # 80% of 1800 s shared by ten threads
+    assert pr_watch.fixer_timeout(1) == 1440
+    assert pr_watch.fixer_timeout(0) == pr_watch.fixer_timeout(1)  # clamped like max_threads
+    for n in range(1, 25):
+        assert pr_watch.fixer_timeout(n) * n <= pr_watch.WATCH_BUDGET_SECONDS
+    assert pr_watch.fixer_timeout(10_000) == pr_watch.FIXER_TIMEOUT_FLOOR == 60  # the floor
+    assert pr_watch.fixer_timeout(4, budget=400) == 80

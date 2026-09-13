@@ -74,3 +74,43 @@ def test_queue_path_is_not_committable() -> None:
     # pull request cannot enqueue itself by committing a file.
     assert pr_watch.QUEUE_FILE == "pr-watch-queue.json"  # lives under the state root (0072)
     assert not pr_watch.QUEUE_FILE.endswith("config.json")  # never the committed config
+
+
+# --- failures: the drop reason says how many polls actually ran (audit F3) ---------------
+
+
+def test_failures_round_trip_and_default_to_zero() -> None:
+    entry = pr_watch.WatchEntry("o", "n", 7, "feat-x", ticks=3, failures=2)
+    assert pr_watch.parse_queue(pr_watch.queue_dump([entry])) == [entry]
+    legacy = pr_watch.parse_queue([{"owner": "o", "name": "n", "number": 7, "ticks": 3}])
+    assert legacy == [pr_watch.WatchEntry("o", "n", 7, "", 3, 0)]  # a pre-`failures` queue file
+
+
+@pytest.mark.parametrize(
+    "junk,expected",
+    [("x", 0), (None, 0), (True, 0), (-3, 0), (2.9, 2), ([], 0), ({}, 0), ("4", 4)],
+)
+def test_corrupt_counters_read_as_zero_and_never_raise(junk: Any, expected: int) -> None:
+    # `int("x")` on a corrupt ticks field used to take the whole scheduler down.
+    item = {"owner": "o", "name": "n", "number": 1, "ticks": junk, "failures": junk}
+    [entry] = pr_watch.parse_queue([item])
+    assert (entry.ticks, entry.failures) == (expected, expected)
+
+
+def test_tick_entry_counts_a_failed_pass() -> None:
+    e = _e(ticks=4)
+    assert (pr_watch.tick_entry(e).ticks, pr_watch.tick_entry(e).failures) == (5, 0)
+    failed = pr_watch.tick_entry(e, failed=True)
+    assert (failed.ticks, failed.failures) == (5, 1)  # the tick advances EITHER way
+    kept = pr_watch.queue_after_tick(e, finished=False, max_ticks=144, failed=True)
+    assert kept is not None and (kept.ticks, kept.failures) == (5, 1)
+
+
+def test_drop_reason_is_true_to_what_happened() -> None:
+    assert pr_watch.drop_reason(_e(ticks=9), finished=True) == "finished (merged or closed)"
+    spent = pr_watch.WatchEntry("o", "n", 7, "", ticks=143, failures=143)
+    assert pr_watch.drop_reason(spent, finished=False, failed=True) == (
+        "tick budget spent: 144 of 144 polls failed"  # 144 silent crashes are not a finished PR
+    )
+    mixed = pr_watch.WatchEntry("o", "n", 7, "", ticks=143, failures=2)
+    assert pr_watch.drop_reason(mixed, finished=False) == "tick budget spent: 2 of 144 polls failed"

@@ -156,3 +156,57 @@ def test_classify_incident_outputs_are_valid_severities() -> None:
 def test_module_exposes_vocabularies() -> None:
     assert ops.HEALTH == ("healthy", "degraded", "failing")
     assert ops.ALERT_SEVERITIES[0] == "critical"
+
+
+# --- SourceUnavailable: a source that cannot answer is never "healthy" ----------------
+
+
+class _Down:
+    """A source that raises — a rate-limited ``gh``, a Grafana login page."""
+
+    def __init__(self, why: str) -> None:
+        self.why = why
+
+    def recent_deploys(self, environment: str) -> list[Deploy]:
+        raise ops.SourceUnavailable(self.why)
+
+    def active_alerts(self, environment: str) -> list[Alert]:
+        raise ops.SourceUnavailable(self.why)
+
+
+def test_deploy_status_unavailable_pipeline_is_unknown_not_healthy() -> None:
+    status = deploy_status(_Down("gh run list timed out after 60s"), InMemoryAlerts({}), "prod")
+    assert status["pipeline"] == ops.HEALTH_UNKNOWN == "unknown"
+    assert status["unavailable"] == {"pipeline": "gh run list timed out after 60s"}
+    assert status["deploys"] == [] and status["alerts"] == {}
+    assert "investigate" in str(status["action"]) and "unavailable" in str(status["action"])
+    header = {"type": "deploy-status", **status}
+    assert handoff.validate_header(header, expected_type="deploy-status") == []  # still valid
+
+
+def test_deploy_status_keeps_a_worse_verdict_when_the_other_source_is_down() -> None:
+    # A failing deploy is still failing when the alert source is down: the outage is reported
+    # alongside, never allowed to soften (or hide) what the pipeline says.
+    pipeline = InMemoryPipeline({"prod": [Deploy(sha="a", status="failing", environment="prod")]})
+    status = deploy_status(pipeline, _Down("grafana fetch failed: 401"), "prod")
+    assert status["pipeline"] == "failing" and "roll back" in str(status["action"])
+    assert status["unavailable"] == {"alerts": "grafana fetch failed: 401"}
+
+
+def test_deploy_status_both_sources_down_names_both() -> None:
+    status = deploy_status(_Down("gh: rate limited"), _Down("grafana: login page"), "prod")
+    assert status["pipeline"] == "unknown"
+    assert status["unavailable"] == {
+        "pipeline": "gh: rate limited", "alerts": "grafana: login page"
+    }
+
+
+def test_deploy_status_has_no_unavailable_key_when_sources_answer() -> None:
+    status = deploy_status(InMemoryPipeline({}), InMemoryAlerts({}), "prod")
+    assert "unavailable" not in status and status["pipeline"] == "healthy"  # empty != unavailable
+
+
+def test_unknown_health_is_outside_the_assessed_levels() -> None:
+    assert ops.HEALTH_UNKNOWN not in ops.HEALTH  # not a rung on the healthy..failing ladder
+    assert "investigate" in recommended_action(ops.HEALTH_UNKNOWN)
+    assert issubclass(ops.SourceUnavailable, RuntimeError)

@@ -78,17 +78,23 @@ def _merger(repo: Path, slug: str, number: int, method: str) -> pr_watch.Merge: 
     return merge
 
 
-def _merge_confirmer(  # pragma: no cover
-    repo: Path, slug: str, number: int
+def _merge_confirmer(
+    repo: Path, slug: str, number: int, *, run: Callable[..., Any] = subprocess.run
 ) -> pr_watch.ConfirmMerged:
-    """Read the PR's own state — the outcome of a non-atomic `gh pr merge` (ADR 0065)."""
+    """Read the PR's own state — the outcome of a non-atomic `gh pr merge` (ADR 0065). ``run`` is
+    the subprocess seam (injected by the tests; production uses :func:`subprocess.run`)."""
 
     def confirm() -> bool:
-        done = subprocess.run(
+        done = run(
             pr_watch.merged_argv(slug, number),
             cwd=str(repo), capture_output=True, text=True, check=True, timeout=120,
         )
-        return pr_watch.parse_merged(json.loads(done.stdout or "{}"))
+        text = str(done.stdout or "").strip()
+        if not text:
+            # An exit-0 empty body is NOT "not merged": parsed as `{}` it became a definite verdict
+            # from no content. Raising lands in run_watch's "merge outcome unconfirmed" path.
+            raise RuntimeError("gh pr view returned no output")
+        return pr_watch.parse_merged(json.loads(text))
 
     return confirm
 
@@ -106,55 +112,123 @@ def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:  # pragma:
 
 def _pr_comment_bodies(  # pragma: no cover -- real `gh pr view`
     repo: Path, owner: str, name: str, number: int
-) -> list[str]:
-    """The bodies of a PR's existing comments (for the conflict-notice idempotency check)."""
-    out = subprocess.run(
-        ["gh", "pr", "view", str(number), "-R", f"{owner}/{name}",
-         "--json", "comments", "-q", ".comments[].body"],
-        cwd=str(repo), capture_output=True, text=True, timeout=120,
-    ).stdout
-    return [line for line in out.splitlines() if line]
+) -> list[str] | None:
+    """The bodies of a PR's existing comments (for the conflict-notice idempotency check), or
+    ``None`` when they could not be read — unknown is not the same as absent."""
+    try:
+        done = subprocess.run(
+            ["gh", "pr", "view", str(number), "-R", f"{owner}/{name}",
+             "--json", "comments", "-q", ".comments[].body"],
+            cwd=str(repo), capture_output=True, text=True, timeout=120,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return None
+    if done.returncode != 0:
+        return None
+    return [line for line in done.stdout.splitlines() if line]
 
 
-def _conflict_handler(  # pragma: no cover
-    repo: Path, owner: str, name: str, number: int, base: str
+def _conflict_handler(
+    repo: Path,
+    owner: str,
+    name: str,
+    number: int,
+    base: str,
+    *,
+    git: Callable[..., Any] = _git,
+    comment_bodies: Callable[[Path, str, str, int], list[str] | None] = _pr_comment_bodies,
+    post: Callable[[list[str]], object] | None = None,
 ) -> Callable[[], bool]:
     """Mechanically merge the PR's base branch INTO it to clear a conflict; on failure, abort + post
     a PR comment. Merge (not rebase) on purpose: it preserves the branch's commits, so the loop's
     follow-up push is a fast-forward — no force-push needed. This updates the PR branch; it never
-    rebases/force-pushes and never merges/closes the PR itself. Returns True iff it landed clean."""
+    rebases/force-pushes and never merges/closes the PR itself. Returns True iff it landed clean.
+
+    The notice is posted ONCE per PR: only when the existing comments were read and do not hold it.
+    When they could not be read the post is skipped and the reason recorded — a failed read once
+    read as "no comments", and the "please rebase" comment was re-posted every poll. ``git``,
+    ``comment_bodies`` and ``post`` are seams (injected by the tests)."""
+
+    def post_comment(argv: list[str]) -> None:  # pragma: no cover -- real `gh pr comment`
+        subprocess.run(argv, cwd=str(repo), capture_output=True, text=True, timeout=120)
+
+    post_notice = post or post_comment
+
     def handle() -> bool:
-        if _git(repo, "fetch", "origin", base).returncode != 0:
+        if git(repo, "fetch", "origin", base).returncode != 0:
             return False  # can't fetch base -> don't merge against a stale/missing ref
-        if _git(repo, "merge", "--no-edit", f"origin/{base}").returncode == 0:
+        if git(repo, "merge", "--no-edit", f"origin/{base}").returncode == 0:
             return True  # clean merge -> HEAD advanced; the loop's non-force push delivers it
-        _git(repo, "merge", "--abort")
-        if not pr_watch.conflict_notice_present(_pr_comment_bodies(repo, owner, name, number)):
-            subprocess.run(  # post the rebase-request notice ONCE (idempotent across hourly polls)
-                pr_watch.pr_comment_argv(f"{owner}/{name}", number, pr_watch.CONFLICT_NOTICE),
-                cwd=str(repo), capture_output=True, text=True, timeout=120,
+        git(repo, "merge", "--abort")
+        bodies = comment_bodies(repo, owner, name, number)
+        if bodies is None:
+            msg = (
+                f"conflict on #{number}: could not read the PR's comments — rebase notice NOT "
+                "posted this poll (unknown is not absent)"
+            )
+            print(f"pr-watch: {msg}", file=sys.stderr)
+            diagnostics.emit(
+                repo, kind="anomaly", component="pr-watch", message=msg, severity="major",
+                force=True,
+            )
+            return False
+        if not pr_watch.conflict_notice_present(bodies):
+            post_notice(  # post the rebase-request notice ONCE (idempotent across polls)
+                pr_watch.pr_comment_argv(f"{owner}/{name}", number, pr_watch.CONFLICT_NOTICE)
             )
         return False
 
     return handle
 
 
-def _fixer(repo: Path, model: str) -> pr_watch.Fixer:  # pragma: no cover
+def _fixer(
+    repo: Path,
+    model: str,
+    *,
+    max_threads: int = 1,
+    runner: agent_eval.Runner | None = None,
+    git: Callable[..., Any] = _git,
+) -> pr_watch.Fixer:
     """A headless software-engineer that edits the repo to address one review comment. It runs
     WITHOUT the Bash tool (Read/Write/Edit/Grep/Glob only) to bound prompt-injection from the
     attacker-controlled comment body; it commits the change so the loop's push delivers it; and it
     reports "fixed" only if a diff actually landed — else "rejected", so a disputed/unaddressed
-    comment is never silently resolved (ADR 0044 §6)."""
-    run = agent_eval.claude_cli_runner(allowed_tools="Read,Write,Edit,Grep,Glob", model=model)
+    comment is never silently resolved (ADR 0044 §6).
+
+    **Bounded**: one attempt per thread (no retries) inside :func:`pr_watch.fixer_timeout` seconds,
+    so ``max_threads`` fixes fit the driver's :data:`pr_watch.WATCH_BUDGET_SECONDS` — on the
+    runner's defaults (3 retries x 900 s) one thread could outlive the whole watch pass.
+
+    **Undetermined**: when the session never ran — the runner raised (a usage limit, an auth error,
+    a crash, the timeout) or, with no diff landed, its reply is the CLI's own error text — the
+    answer is :data:`pr_watch.UNDETERMINED`: nothing is posted and the thread waits for the next
+    poll. Edits an aborted session left behind are discarded, but only when the tree was clean
+    before it started, so a manual ``--apply`` on a dirty checkout never loses the user's work.
+    ``runner`` / ``git`` are seams (injected by the tests)."""
+    run = runner or agent_eval.claude_cli_runner(
+        allowed_tools="Read,Write,Edit,Grep,Glob", model=model,
+        retries=0, call_timeout=pr_watch.fixer_timeout(max_threads),
+    )
 
     def fix(thread: pr_watch.ReviewThread) -> tuple[str, str]:
         loc = f"{thread.path}:{thread.line}" if thread.line else thread.path
-        run(_SE_SYSTEM, f"Address this review comment on {loc}:\n\n{thread.body}", repo)
-        _git(repo, "add", "-A")  # stage the agent's edits incl. NEW files (plain diff misses them)
-        if _git(repo, "diff", "--cached", "--quiet").returncode == 0:  # nothing staged -> no change
+        clean_before = not str(git(repo, "status", "--porcelain").stdout or "").strip()
+        try:
+            reply = run(_SE_SYSTEM, f"Address this review comment on {loc}:\n\n{thread.body}", repo)
+        except (RuntimeError, OSError) as exc:  # the call failed, timed out, or never ran
+            if clean_before:  # a killed session may have half-edited the tree: leave it as found
+                git(repo, "reset", "--hard", "--quiet")
+                git(repo, "clean", "-fdq")  # new files only; ignored ones (no -x) are kept
+            why = " ".join(str(exc).split())[:200] or type(exc).__name__
+            return (pr_watch.UNDETERMINED, f"fixer session did not complete: {why}")
+        git(repo, "add", "-A")  # stage the agent's edits incl. NEW files (plain diff misses them)
+        if git(repo, "diff", "--cached", "--quiet").returncode == 0:  # nothing staged -> no change
+            never_ran = pr_watch.reply_never_ran(str(reply))
+            if never_ran:  # the CLI answered, the model did not: not a decision about the thread
+                return (pr_watch.UNDETERMINED, never_ran)
             return ("rejected", "No change made — may be a discussion point or already addressed.")
-        _git(repo, "commit", "-m", f"PR watcher: address review on {thread.path}")
-        sha = _git(repo, "rev-parse", "--short", "HEAD").stdout.strip()
+        git(repo, "commit", "-m", f"PR watcher: address review on {thread.path}")
+        sha = str(git(repo, "rev-parse", "--short", "HEAD").stdout or "").strip()
         return ("fixed", f"Addressed in {sha}.")
 
     return fix
@@ -224,7 +298,7 @@ def main(  # noqa: PLR0913 - the seams are injected for testing; production uses
         state,
         bot=bot,
         max_threads=max_threads,
-        fixer=fixer or _fixer(repo, model),
+        fixer=fixer or _fixer(repo, model, max_threads=max_threads),
         gh_exec=gh_exec or _gh_exec(repo),
         push=push or _pusher(repo, state.branch),
         record=lambda m: diagnostics.emit(
@@ -241,7 +315,8 @@ def main(  # noqa: PLR0913 - the seams are injected for testing; production uses
     )
     print(
         f"pr-watch: fixed {len(result.fixed)}, rejected {len(result.rejected)}, "
-        f"pushed={result.pushed}, merged={result.merged}"
+        f"undetermined {len(result.undetermined)}, pushed={result.pushed}, "
+        f"merged={result.merged}"
         + (f" (held: {'; '.join(result.merge_blocked_by)})" if result.merge_blocked_by else "")
     )
     return 0
