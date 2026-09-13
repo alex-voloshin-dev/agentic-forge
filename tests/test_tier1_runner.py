@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from agentic_forge.agent_eval import SessionTimedOut, SessionUndetermined, TurnCapHit
 from agentic_forge.tier1_runner import (
     OTHER,
     Reply,
@@ -186,7 +187,8 @@ def test_eval_skill_unmeasured_prompt_fails_and_is_named(tmp_path: Path) -> None
 
 
 def test_eval_skill_reports_discarded_calls_even_when_passing(tmp_path: Path) -> None:
-    # A green number computed from half the samples is weaker evidence — the line must say so.
+    # A green number computed from fewer samples is weaker evidence — the line must say so. At
+    # 2 of 20 calls (10%, not over the pooled cap) the skill passes and still reports them.
     trig = SkillTrigger("research", _THRESH, ["a"], ["c"])
     seen: dict[str, int] = {}
 
@@ -196,9 +198,9 @@ def test_eval_skill_reports_discarded_calls_even_when_passing(tmp_path: Path) ->
             return "a long prose reply that does not answer the routing question being asked here"
         return "research" if prompt == "a" else "none"
 
-    rep = eval_skill(trig, ["research", "product"], run, "sys", 2, tmp_path)
-    assert rep.passed is True and rep.invalid_calls == 2
-    assert "no decision" in rep.summary_line()
+    rep = eval_skill(trig, ["research", "product"], run, "sys", 10, tmp_path)
+    assert rep.passed is True and rep.invalid_calls == 2 and rep.total_calls == 20
+    assert "no decision" in rep.summary_line() and "n=10" in rep.summary_line()
 
 
 def test_eval_skill_low_recall_fails(tmp_path: Path) -> None:
@@ -689,7 +691,7 @@ def test_namespaced_unknown_name_is_still_a_choice() -> None:
 @pytest.mark.parametrize(
     ("reply", "decision", "choice"),
     [
-        ("Skill(agentic-forge:plan)", OTHER, "agentic-forge:plan"),  # the tool-call spelling
+        ("Skill(agentic-forge:plan)", "plan", "plan"),  # the tool-call spelling, namespaced
         ("The user wants a plan. Skill(plan)", "plan", "plan"),
         ("I've invoked the /code-review skill. /code-review", "code-review", "code-review"),
         ("Best fit here. design", OTHER, "design"),
@@ -767,3 +769,130 @@ def test_answer_first_then_explanation_is_a_decision(reply: str, decision: str) 
 )
 def test_a_leading_word_that_is_just_a_word_is_not_an_answer(reply: str) -> None:
     assert classify_reply(reply, sorted(ON_LISTING)).decision == "invalid"
+
+
+# --- thin evidence is judged pooled, not per prompt (eval audit C9 / ADR 0093) -----------------
+
+
+def test_a_prompt_with_fewer_than_half_valid_calls_is_measured_from_the_valid_ones() -> None:
+    # ADR 0067's per-prompt floor returned rate=None here and failed the skill; at n = 5 that
+    # failed 7 of 17 skills at recall 1.000 (ADR 0084).
+    replies = iter(["", "", "", "research", "research"])
+    run = lambda system, prompt, workdir: next(replies)  # noqa: E731
+    rate = selection_rate(run, "sys", "p", ["research"], 5, Path("."), target="research")
+    assert rate.rate == 1.0 and rate.invalid == 3  # measured — thin, and it says so
+
+
+def test_pooled_no_decision_share_over_the_cap_fails_the_skill(tmp_path: Path) -> None:
+    trig = SkillTrigger("research", _THRESH, ["a"], ["c"])
+    seen: dict[str, int] = {}
+
+    def run(system: str, prompt: str, workdir: Path) -> str:
+        seen[prompt] = seen.get(prompt, 0) + 1
+        if prompt == "a" and seen[prompt] <= 3:  # 3 of the skill's 10 calls: 30%
+            return ""
+        return "research" if prompt == "a" else "none"
+
+    rep = eval_skill(trig, ["research", "product"], run, "sys", 5, tmp_path)
+    assert rep.recall == 1.0 and rep.specificity == 1.0  # the rates over the valid calls are fine
+    assert not rep.passed and not rep.unmeasured  # …but the run measured less than it claims
+    assert any("3 of 10 calls returned no decision (> 10%)" in r for r in rep.reasons)
+
+
+def test_every_call_invalid_on_one_prompt_is_still_unmeasured_and_fails(tmp_path: Path) -> None:
+    trig = SkillTrigger("research", _THRESH, ["a", "b"], ["c"])
+
+    def run(system: str, prompt: str, workdir: Path) -> str:
+        return "" if prompt == "b" else ("research" if prompt == "a" else "none")
+
+    rep = eval_skill(trig, ["research", "product"], run, "sys", 5, tmp_path)
+    assert rep.unmeasured == ["b"] and not rep.passed
+    assert rep.recall == 1.0  # from the prompt that answered; never a fabricated 0.5
+
+
+# --- a call whose session never ran is INVALID with the reason (eval audit C8/C13) -------------
+
+
+@pytest.mark.parametrize(
+    ("exc", "reason"),
+    [
+        (SessionUndetermined("api_error_404", "Not found: model"), "session-never-ran"),
+        (TurnCapHit("error_max_turns", "", num_turns=4), "turn-cap"),
+        (SessionTimedOut("timeout", "2 attempt(s) of 900s"), "timeout"),
+    ],
+)
+def test_an_undetermined_call_is_a_no_decision_not_a_crash(
+    exc: Exception, reason: str
+) -> None:
+    replies = iter([exc, "research", "research"])
+
+    def run(system: str, prompt: str, workdir: Path) -> str:
+        item = next(replies)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    rate = selection_rate(run, "sys", "p", ["research"], 3, Path("."), target="research")
+    assert rate.rate == 1.0 and rate.invalid == 1 and rate.reasons == (reason,)
+
+
+def test_an_undetermined_call_no_longer_aborts_the_whole_tier1_run(tmp_path: Path) -> None:
+    calls = {"n": 0}
+    owner = {p: t.name for t in load_triggers(PLUGIN) for p in t.should_trigger}
+
+    def router(system: str, prompt: str, workdir: Path) -> str:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise SessionUndetermined("error", "You\'ve hit your session limit")
+        return owner.get(prompt, "none")
+
+    (report,) = run_tier1(PLUGIN, router, skills=["research"], runs=5, workdir=tmp_path)
+    assert report.passed and report.invalid_calls == 1
+    assert report.invalid_reasons == {"session-never-ran": 1}
+    assert report.invalid_excerpts == ["You\'ve hit your session limit"]
+
+
+# --- a namespaced terminal answer names OUR skill (eval audit C5) ---------------------------
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "agentic-forge:research",
+        "`agentic-forge:research`",
+        "Skill(agentic-forge:research)",
+        "/agentic-forge:research",
+        "The request is an investigation before speccing. agentic-forge:research",
+        "agentic-forge:research The user wants prior art before a spec is written.",
+    ],
+)
+def test_a_namespaced_spelling_of_our_skill_is_ours_on_the_bare_gate_run(reply: str) -> None:
+    # On the gate run `names` are bare; every one of these scored OTHER — a recall miss — though
+    # it names the skill as plainly as activation.skill_invoked's split(":")[-1] reads it.
+    out = classify_reply(reply, sorted(ON_LISTING))
+    assert (out.decision, out.choice) == ("research", "research"), reply
+
+
+def test_a_namespaced_name_that_is_not_ours_is_still_other() -> None:
+    assert trailing_answer("Best fit. cloudflare:wrangler", sorted(ON_LISTING)) == OTHER
+    assert classify_reply("cloudflare:wrangler", sorted(ON_LISTING)).decision == OTHER
+
+
+# --- the samples-per-prompt count is on every line, and a contract may floor it (C3/C9) -------
+
+
+def test_summary_line_always_prints_n() -> None:
+    rep = Tier1Report(skill="plan", recall=1.0, specificity=1.0, passed=True, runs=5)
+    assert "[plan] PASS  recall=1.000 specificity=1.000 n=5" in rep.summary_line()
+
+
+def test_a_contract_runs_floor_fails_a_thinner_run(tmp_path: Path) -> None:
+    floor = {"tier1_trigger": {"recall": 0.9, "specificity": 0.9, "runs": 5}}
+    trig = SkillTrigger("research", floor, ["a"], ["c"])
+
+    def run(system: str, prompt: str, workdir: Path) -> str:
+        return "research" if prompt == "a" else "none"
+
+    thin = eval_skill(trig, ["research", "product"], run, "sys", 2, tmp_path)
+    assert not thin.passed and any("need >= 5" in r for r in thin.reasons)
+    assert eval_skill(trig, ["research", "product"], run, "sys", 5, tmp_path).passed

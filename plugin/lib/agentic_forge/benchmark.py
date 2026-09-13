@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 __all__ = [
+    "passed_value",
     "pass_rate_of",
     "summarize",
     "make_record",
@@ -21,6 +22,17 @@ __all__ = [
     "load_history",
     "save_history",
 ]
+
+
+def passed_value(value: object) -> bool:
+    """Whether a grader's ``passed`` field says the assertion held. ``True`` — and the spellings a
+    model reaches for when it ignores the JSON instruction: ``"true"``, ``"pass"``, ``"passed"``
+    (case-insensitive). Anything else, ``"false"`` included, is a fail: a grader must never inflate
+    a score by being sloppy, and ``"PASS"`` used to be scored as a fail for the same sloppiness
+    (eval audit, C5)."""
+    if value is True:
+        return True
+    return isinstance(value, str) and value.strip().lower() in ("true", "pass", "passed")
 
 
 def pass_rate_of(grading: dict[str, Any]) -> float:
@@ -41,7 +53,7 @@ def pass_rate_of(grading: dict[str, Any]) -> float:
     results = grading.get("assertion_results") or []
     if not results:
         return 0.0
-    hits = sum(1 for r in results if r.get("passed") is True)
+    hits = sum(1 for r in results if passed_value(r.get("passed")))
     return hits / len(results)
 
 
@@ -76,13 +88,18 @@ def summarize(
     *,
     with_skill_timing: list[dict[str, Any]] | None = None,
     without_skill_timing: list[dict[str, Any]] | None = None,
+    with_skill_sessions: dict[str, Any] | None = None,
+    without_skill_sessions: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a benchmark.json-shaped mapping from grading.json (and optional timing.json) lists.
 
     Pass `*_timing` lists of `{duration_ms}` (with an optional `total_tokens`) to populate the
     time/token means and the with-vs-without overhead delta that `gate.tier2_quality` checks.
     ``tokens`` is reported only when a count is present — transports that report usage supply it
-    (ADR 0038); a text-only reply omits it (ADR 0036).
+    (ADR 0038); a text-only reply omits it (ADR 0036). ``*_sessions`` is the runner's tally of
+    sessions that produced no measurement (``{total, undetermined, ungraded, subtypes, events}``,
+    see ``agent_eval._run_passes``); it rides along under ``sessions`` so the gate can cap it and
+    the summary line can print it.
     """
     ws = _stats([pass_rate_of(g) for g in with_skill])
     ws_summary: dict[str, Any] = {
@@ -93,6 +110,8 @@ def summarize(
         ws_summary["time_seconds"] = _mean_seconds(with_skill_timing)
         if _has_tokens(with_skill_timing):
             ws_summary["tokens"] = _mean_tokens(with_skill_timing)
+    if with_skill_sessions is not None:
+        ws_summary["sessions"] = with_skill_sessions
 
     run_summary: dict[str, Any] = {"with_skill": ws_summary}
 
@@ -107,6 +126,8 @@ def summarize(
             wo_summary["time_seconds"] = _mean_seconds(without_skill_timing)
             if _has_tokens(without_skill_timing):
                 wo_summary["tokens"] = _mean_tokens(without_skill_timing)
+        if without_skill_sessions is not None:
+            wo_summary["sessions"] = without_skill_sessions
         if with_skill_timing is not None and without_skill_timing is not None:
             delta["time_seconds"] = ws_summary["time_seconds"] - wo_summary["time_seconds"]
             if "tokens" in ws_summary and "tokens" in wo_summary:

@@ -8,8 +8,12 @@ import pytest
 
 from agentic_forge.agent_eval import (
     ROLES,
+    GradingUnparseable,
     RoleReport,
     RunOutput,
+    SessionTimedOut,
+    SessionUndetermined,
+    TurnCapHit,
     api_runner,
     build_grading_prompt,
     build_role_prompt,
@@ -20,7 +24,9 @@ from agentic_forge.agent_eval import (
     load_fixtures,
     materialize_fixtures,
     parse_grading,
+    run_eval_cases,
     run_role,
+    session_outcome,
 )
 
 PLUGIN = Path(__file__).resolve().parents[1] / "plugin"
@@ -159,16 +165,22 @@ def test_claude_cli_runner_retries_then_succeeds(monkeypatch: pytest.MonkeyPatch
 
 
 def test_claude_cli_runner_raises_after_exhausting_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A TRANSPORT failure (non-zero exit, no envelope to read) keeps the backoff retries and ends
+    # in a plain RuntimeError carrying the decoded output tails.
     import subprocess
     import time
 
-    def always_timeout(cmd: list[str], **kw: object) -> object:
-        raise subprocess.TimeoutExpired(cmd, 1)
+    def always_crash(cmd: list[str], **kw: object) -> object:
+        raise subprocess.CalledProcessError(2, cmd, output=b"boom \xe2\x80\x94 bytes", stderr="err")
 
-    monkeypatch.setattr(subprocess, "run", always_timeout)
-    monkeypatch.setattr(time, "sleep", lambda s: None)
-    with pytest.raises(RuntimeError, match="claude call failed after 3 attempts"):
+    monkeypatch.setattr(subprocess, "run", always_crash)
+    sleeps: list[float] = []
+    monkeypatch.setattr(time, "sleep", sleeps.append)
+    with pytest.raises(RuntimeError, match="claude call failed after 3 attempts") as info:
         claude_cli_runner(retries=2)("S", "P", Path("."))
+    assert not isinstance(info.value, SessionUndetermined)  # not a session outcome: the CLI died
+    assert "boom — bytes" in str(info.value) and "err" in str(info.value)  # decoded, kept
+    assert sleeps == [15, 30]  # backoff between the three attempts
 
 
 def test_run_output_is_str_and_carries_usage() -> None:
@@ -286,39 +298,59 @@ def test_build_grading_prompt_numbers_assertions() -> None:
 
 
 def test_parse_grading_plain() -> None:
-    assert parse_grading('{"a": 1}') == {"a": 1}
+    assert parse_grading('{"assertion_results": [{"passed": true}]}') == {
+        "assertion_results": [{"passed": True}]
+    }
 
 
 def test_parse_grading_prose_wrapped() -> None:
-    assert parse_grading('Here is the grading: {"a": 1} done') == {"a": 1}
+    got = parse_grading('Here is the grading: {"assertion_results": []} done')
+    assert got == {"assertion_results": []}
 
 
 def test_parse_grading_fenced() -> None:
-    assert parse_grading('```json\n{"a": 1}\n```') == {"a": 1}
+    assert parse_grading('```json\n{"assertion_results": []}\n```') == {"assertion_results": []}
 
 
 def test_parse_grading_no_json_raises() -> None:
-    with pytest.raises(ValueError, match="no valid JSON object"):
+    with pytest.raises(GradingUnparseable, match="no valid JSON grading object"):
         parse_grading("no json here")
+    with pytest.raises(GradingUnparseable):  # JSON, but not a grading: no assertion_results list
+        parse_grading('{"a": 1} and {"assertion_results": "not a list"}')
 
 
 def test_parse_grading_brace_and_escape_in_string() -> None:
     # Braces inside a JSON string (and an escaped quote) must not break extraction.
-    obj = parse_grading('{"evidence": "a \\" } { quote", "passed": true}')
-    assert obj["passed"] is True
-    assert "}" in obj["evidence"]
+    obj = parse_grading(
+        '{"assertion_results": [{"evidence": "a \\" } { quote", "passed": true}]}'
+    )
+    assert obj["assertion_results"][0]["passed"] is True
+    assert "}" in obj["assertion_results"][0]["evidence"]
 
 
 def test_parse_grading_skips_unbalanced_leading_brace() -> None:
     # A stray unbalanced '{' before the real object must be skipped, not corrupt parsing.
-    obj = parse_grading('noise {oops not json\n\n{"passed": true}')
-    assert obj["passed"] is True
+    obj = parse_grading('noise {oops not json\n\n{"assertion_results": [{"passed": true}]}')
+    assert obj["assertion_results"][0]["passed"] is True
 
 
 def test_parse_grading_skips_invalid_then_takes_valid() -> None:
     # A balanced-but-invalid object is skipped (json.loads fails); the next valid one is used.
-    obj = parse_grading('{not: valid json} {"passed": true}')
-    assert obj["passed"] is True
+    obj = parse_grading('{not: valid json} {"assertion_results": [{"passed": true}]}')
+    assert obj["assertion_results"][0]["passed"] is True
+
+
+def test_parse_grading_picks_the_grading_object_not_the_first_object() -> None:
+    """THE bug (eval audit, C5): a grader that wrote another JSON object before its grading had
+    that object picked — no assertion_results — and the case scored 0/N silently."""
+    reply = (
+        'Plan: {"steps": ["read the file", "check each assertion"]}\n'
+        '{"assertion_results": [{"text": "a", "passed": true, "evidence": "x"}], '
+        '"summary": {"total": 1, "passed": 1, "pass_rate": 1.0}}'
+    )
+    assert parse_grading(reply)["assertion_results"][0]["passed"] is True
+    graded = grade_output(["a"], "out", "g", lambda s, p, w: reply, Path("."))
+    assert graded["summary"] == {"total": 1, "passed": 1, "pass_rate": 1.0}
 
 
 def test_grade_output_retries_on_unparseable_then_succeeds() -> None:
@@ -389,12 +421,35 @@ def test_grade_output_strict_bool_no_string_inflation() -> None:
     assert graded["summary"] == {"total": 2, "passed": 1, "pass_rate": 0.5}
 
 
-def test_grade_output_missing_results_key() -> None:
+def test_grade_output_without_the_shape_is_ungraded_not_zero() -> None:
+    # `{}` used to score 0/N with no complaint. A reply with no grading object — after the retry —
+    # is GradingUnparseable; the run loop records the case as ungraded (see run_eval_cases tests).
+    calls = {"n": 0}
+
     def empty_grader(system: str, prompt: str, workdir: Path) -> str:
+        calls["n"] += 1
         return "{}"
 
-    graded = grade_output(["a", "b"], "out", "g", empty_grader, Path("."))
-    assert graded["summary"] == {"total": 2, "passed": 0, "pass_rate": 0.0}
+    with pytest.raises(GradingUnparseable):
+        grade_output(["a", "b"], "out", "g", empty_grader, Path("."))
+    assert calls["n"] == 2  # the stricter retry was tried first
+
+
+@pytest.mark.parametrize("spelling", ["true", "TRUE", "pass", "PASS", "passed", " Passed "])
+def test_grade_output_accepts_passed_spellings(spelling: str) -> None:
+    # A grader that ignores the JSON instruction and writes "PASS" used to be scored as a FAIL.
+    def grader(system: str, prompt: str, workdir: Path) -> str:
+        return json.dumps({"assertion_results": [{"text": "a", "passed": spelling}]})
+
+    assert grade_output(["a"], "out", "g", grader, Path("."))["summary"]["passed"] == 1
+
+
+@pytest.mark.parametrize("value", ["false", "FAIL", "no", False, None, 1, "yes"])
+def test_grade_output_rejects_everything_else(value: object) -> None:
+    def grader(system: str, prompt: str, workdir: Path) -> str:
+        return json.dumps({"assertion_results": [{"text": "a", "passed": value}]})
+
+    assert grade_output(["a"], "out", "g", grader, Path("."))["summary"]["passed"] == 0
 
 
 # --- check_wiring --------------------------------------------------------------------
@@ -623,3 +678,303 @@ def test_materialize_fixtures_keeps_the_layout_below_tree(tmp_path: Path) -> Non
     assert not (wd / "eval").exists() and not (wd / "tree").exists()  # no repo path leaks
     labels = load_fixtures(tmp_path, rels)
     assert "--- FILE: src/lib.rs ---" in labels and "eval/fixtures" not in labels
+
+
+# --- a session that never ran is neither a pass nor a fail (eval audit C7/C8/C13/C14) ---------
+
+# Envelope shapes measured on Claude Code 2.1.270 with `claude -p --output-format json`.
+API_ERROR = (
+    '{"is_error":true,"subtype":"success","api_error_status":404,"result":"Not found: model"}'
+)
+CAP_HIT = (
+    '{"type":"result","is_error":true,"subtype":"error_max_turns","terminal_reason":"max_turns",'
+    '"num_turns":40}'
+)
+LIMIT_HIT = (
+    '{"type":"result","subtype":"error","is_error":true,'
+    '"result":"You\'ve hit your session limit · resets 4pm (America/New_York)"}'
+)
+
+
+def test_session_outcome_reads_each_measured_shape() -> None:
+    api = session_outcome(API_ERROR)
+    assert isinstance(api, SessionUndetermined) and not isinstance(api, TurnCapHit)
+    assert api.subtype == "api_error_404" and "Not found" in api.text and api.marker == "!"
+    cap = session_outcome(CAP_HIT)
+    assert isinstance(cap, TurnCapHit) and cap.subtype == "error_max_turns"
+    assert cap.num_turns == 40 and cap.text == "" and cap.marker == "C"
+    assert "num_turns=40" in str(cap)
+    limit = session_outcome(LIMIT_HIT)
+    assert isinstance(limit, SessionUndetermined) and limit.subtype == "error"
+    assert "session limit" in limit.text
+    # the json format's "no assistant turn": a success envelope with zero turns
+    dead = session_outcome('{"subtype":"success","is_error":false,"result":"","num_turns":0}')
+    assert dead is not None and dead.subtype == "no_turns"
+
+
+def test_session_outcome_is_none_for_a_reply_or_a_non_envelope() -> None:
+    assert session_outcome('{"result":"VERDICT-OK","subtype":"success","num_turns":1}') is None
+    assert session_outcome('{"result":"ok"}') is None  # older CLI: no subtype, no num_turns
+    assert session_outcome("not json at all") is None  # a transport failure, not an outcome
+    assert session_outcome("[1, 2]") is None and session_outcome("") is None
+
+
+def test_undetermined_is_a_runtime_error_with_the_audit_shape() -> None:
+    exc = SessionUndetermined("error", "limit", num_turns=None)
+    assert isinstance(exc, RuntimeError)  # pr_watch and the old CLI paths still catch it
+    assert issubclass(TurnCapHit, SessionUndetermined)
+    assert issubclass(SessionTimedOut, SessionUndetermined)
+    assert (exc.subtype, exc.text, exc.num_turns) == ("error", "limit", None)
+
+
+@pytest.mark.parametrize(
+    ("stdout", "kind", "marker"),
+    [
+        (CAP_HIT, TurnCapHit, "C"),
+        (API_ERROR, SessionUndetermined, "!"),
+        (LIMIT_HIT, SessionUndetermined, "!"),
+    ],
+)
+def test_claude_cli_runner_never_retries_a_session_that_said_no(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], stdout: str, kind: type,
+    marker: str,
+) -> None:
+    """A dead session or a cap hit was retried 3x with 15/30/45 s backoff — a cap hit re-running
+    the full session in the SAME workdir, so a write role saw its own partial files."""
+    import subprocess
+    import time
+
+    calls = {"n": 0}
+
+    def exit_1(cmd: list[str], **kw: object) -> object:
+        calls["n"] += 1
+        raise subprocess.CalledProcessError(1, cmd, output=stdout)
+
+    monkeypatch.setattr(subprocess, "run", exit_1)
+    monkeypatch.setattr(time, "sleep", lambda s: pytest.fail("a session outcome must not sleep"))
+    with pytest.raises(kind):
+        claude_cli_runner(retries=3)("S", "P", Path("."))
+    assert calls["n"] == 1 and capsys.readouterr().err == marker
+
+
+def test_claude_cli_runner_reads_the_envelope_on_exit_0_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The usage-limit refusal's exit code is not pinned down: handle both. Exit 0 with an is_error
+    # envelope used to be returned as the reply text and graded — as a fail.
+    import subprocess
+
+    class _Done:
+        stdout = LIMIT_HIT
+
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: _Done())
+    with pytest.raises(SessionUndetermined, match="session limit"):
+        claude_cli_runner()("S", "P", Path("."))
+
+
+def test_claude_cli_runner_decodes_a_bytes_envelope(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    def exit_1(cmd: list[str], **kw: object) -> object:
+        raise subprocess.CalledProcessError(1, cmd, output=CAP_HIT.encode("utf-8"))
+
+    monkeypatch.setattr(subprocess, "run", exit_1)
+    with pytest.raises(TurnCapHit) as info:
+        claude_cli_runner()("S", "P", Path("."))
+    assert info.value.num_turns == 40
+
+
+def test_claude_cli_runner_timeout_prints_T_retries_once_and_keeps_partial_stdout(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """TimeoutExpired printed nothing, was retried 3x with a fresh 900 s budget each, and the
+    partial stdout survived only as a 400-char repr tail (eval audit, C7)."""
+    import subprocess
+    import time
+
+    calls = {"n": 0}
+
+    def always_timeout(cmd: list[str], **kw: object) -> object:
+        calls["n"] += 1
+        raise subprocess.TimeoutExpired(cmd, 900, output=b"partial \xc3\xa9 transcript")
+
+    monkeypatch.setattr(subprocess, "run", always_timeout)
+    sleeps: list[float] = []
+    monkeypatch.setattr(time, "sleep", sleeps.append)
+    with pytest.raises(SessionTimedOut) as info:
+        claude_cli_runner(retries=3)("S", "P", Path("."))
+    assert calls["n"] == 2 and sleeps == [15]  # one retry, not three
+    assert capsys.readouterr().err == "TT"  # one marker per timed-out attempt
+    assert info.value.subtype == "timeout" and "partial é transcript" in info.value.text
+    assert "2 attempt(s) of 900s" in str(info.value)
+
+
+def test_claude_cli_runner_timeout_then_success_returns_the_reply(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import subprocess
+    import time
+
+    calls = {"n": 0}
+
+    class _Done:
+        stdout = '{"result": "ok", "subtype": "success", "num_turns": 3}'
+
+    def once(cmd: list[str], **kw: object) -> object:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise subprocess.TimeoutExpired(cmd, 1)
+        return _Done()
+
+    monkeypatch.setattr(subprocess, "run", once)
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+    assert claude_cli_runner()("S", "P", Path(".")) == "ok" and calls["n"] == 2
+
+
+def test_api_runner_raises_when_the_reply_was_cut_at_max_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # `stop_reason` was never inspected: a truncated artifact was graded as the role's work (C13).
+    import sys
+    import types
+
+    class _Block:
+        type = "text"
+
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+    class _Msg:
+        content = [_Block("a very long design that got cut")]
+        stop_reason = "max_tokens"
+        usage = types.SimpleNamespace(input_tokens=40, output_tokens=4096)
+
+    class _Client:
+        messages = types.SimpleNamespace(create=lambda **kw: _Msg())
+
+    fake = types.ModuleType("anthropic")
+    fake.Anthropic = lambda: _Client()  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "anthropic", fake)
+    with pytest.raises(SessionUndetermined) as info:
+        api_runner("m", max_tokens=4096)("S", "P", Path("."))
+    assert info.value.subtype == "max_tokens" and "got cut" in info.value.text
+
+
+# --- Tier-2 records an undetermined case instead of aborting the role (C8/C13/C14) ------------
+
+_TWO_CASES = [
+    {"id": 1, "prompt": "do a", "assertions": ["a1", "a2"]},
+    {"id": 2, "prompt": "do b", "assertions": ["b1", "b2"]},
+]
+_THRESH = {"tier2_quality": {"min_pass_rate": 0.8, "runs": 5}}
+
+
+def _dying_component(die_on: set[tuple[int, int]], exc: Exception):
+    """A component that raises `exc` on the given (run, case) sessions and passes otherwise."""
+    seen: dict[int, int] = {}
+
+    def run(system: str, prompt: str, workdir: Path) -> str:
+        case = 1 if prompt.startswith("do a") else 2
+        seen[case] = seen.get(case, 0) + 1
+        if (seen[case], case) in die_on:
+            raise exc
+        return "GOOD"
+
+    return run
+
+
+def _eval(run_fn, *, runs: int = 5, grader=None):
+    return run_eval_cases(
+        system_body="s", grader_body="g", cases=_TWO_CASES, thresholds=_THRESH,
+        plugin_dir=PLUGIN, run_fn=run_fn, grader_fn=grader or make_grader(True), runs=runs,
+        isolate=False,
+    )
+
+
+def test_one_dead_session_is_excluded_counted_and_printed_not_fatal() -> None:
+    """Before: `_run_passes` let the RuntimeError through to the CLI, which printed ERROR and
+    dropped the WHOLE role — every finished session ungraded. Now the case is undetermined."""
+    cap = TurnCapHit("error_max_turns", "", num_turns=40)
+    bench, result, gradings = _eval(_dying_component({(1, 2)}, cap))
+    ws = bench["run_summary"]["with_skill"]
+    assert ws["n"] == 5 and ws["pass_rate"]["mean"] == 1.0  # the other 9 sessions still count
+    assert gradings[0]["summary"]["total"] == 2  # run 1 graded only case 1's two assertions
+    assert ws["sessions"]["total"] == 10 and ws["sessions"]["undetermined"] == 1
+    assert ws["sessions"]["subtypes"] == {"error_max_turns": 1}
+    (event,) = ws["sessions"]["events"]
+    assert (event["run"], event["case"], event["kind"]) == (1, 2, "undetermined")
+    assert event["subtype"] == "error_max_turns" and event["num_turns"] == 40
+    assert result.passed  # 1 of 10 = 10%: not over the cap
+    report = RoleReport("x", 5, bench, result)
+    assert "n=5; 1/10 sessions unmeasured: 1 undetermined [error_max_turns x1]" in (
+        report.summary_line()
+    )
+    assert report.evidence_lines() == [
+        "    unmeasured: run 1 case 2 undetermined (error_max_turns, num_turns=40)"
+    ]
+
+
+def test_too_many_dead_sessions_fail_the_role_with_the_reason() -> None:
+    dead = SessionUndetermined("api_error_404", "Not found: model")
+    bench, result, _ = _eval(_dying_component({(1, 1), (2, 2)}, dead))
+    ws = bench["run_summary"]["with_skill"]
+    assert ws["pass_rate"]["mean"] == 1.0  # the rate over the rest is fine…
+    assert not result.passed  # …but 2 of 10 > 10%: the run failed, not the component
+    assert any(
+        "2 of 10 sessions unmeasured (> 10%): 2 undetermined [api_error_404 x2]" in r
+        for r in result.reasons
+    )
+    assert "FAIL" in RoleReport("x", 5, bench, result).summary_line()
+
+
+def test_a_run_whose_every_session_died_is_dropped_not_scored_zero() -> None:
+    timeout = SessionTimedOut("timeout", "2 attempt(s) of 900s")
+    bench, result, gradings = _eval(_dying_component({(1, 1), (1, 2)}, timeout))
+    ws = bench["run_summary"]["with_skill"]
+    assert len(gradings) == 4 and ws["n"] == 4  # run 1 has nothing to summarize: n drops
+    assert ws["pass_rate"]["mean"] == 1.0  # not dragged to 0.8 by a fabricated 0.0
+    assert any("only 4 run(s); need >= 5" in r for r in result.reasons)
+    assert any("timeout x2" in r for r in result.reasons)
+
+
+def test_an_unparseable_grading_is_ungraded_not_zero() -> None:
+    graded_once = {"n": 0}
+
+    def flaky_grader(system: str, prompt: str, workdir: Path) -> str:
+        graded_once["n"] += 1
+        if graded_once["n"] <= 2:  # the first case's grading AND its stricter retry: no shape
+            return '{"plan": "look at the output"}'
+        return make_grader(True)(system, prompt, workdir)
+
+    bench, result, _ = _eval(lambda s, p, w: "GOOD", grader=flaky_grader)
+    ws = bench["run_summary"]["with_skill"]
+    assert ws["sessions"]["ungraded"] == 1 and ws["sessions"]["undetermined"] == 0
+    assert ws["sessions"]["subtypes"] == {}  # subtypes are the component's, not the grader's
+    assert ws["pass_rate"]["mean"] == 1.0 and result.passed  # 1 of 10: reported, not fatal
+    line = RoleReport("x", 5, bench, result).summary_line()
+    assert "1/10 sessions unmeasured: 1 ungraded" in line
+    (event,) = ws["sessions"]["events"]
+    assert event["kind"] == "ungraded" and "no valid JSON grading object" in event["text"]
+
+
+def test_baseline_pass_records_its_own_sessions() -> None:
+    bench, _, _ = run_eval_cases(
+        system_body="s", grader_body="g", cases=_TWO_CASES, thresholds=_THRESH,
+        plugin_dir=PLUGIN, run_fn=lambda s, p, w: "GOOD", grader_fn=make_grader(True), runs=5,
+        isolate=False, baseline_system_body="",
+    )
+    rs = bench["run_summary"]
+    assert rs["with_skill"]["sessions"]["total"] == 10
+    assert rs["without_skill"]["sessions"]["total"] == 10
+
+
+def test_agent_eval_stays_python_39_compatible() -> None:
+    """`pr_watch` imports `agent_eval` on a hook-reachable path that may run under a bare
+    `python3` (observed 3.9, ADR 0050): no `match`, no `zip(strict=)`, no runtime PEP 604 unions,
+    no `datetime.UTC`. The grammar check parses with the 3.9 feature set; the rest is grepped."""
+    import ast
+
+    src = (PLUGIN / "lib" / "agentic_forge" / "agent_eval.py").read_text(encoding="utf-8")
+    ast.parse(src, feature_version=(3, 9))
+    assert "from __future__ import annotations" in src
+    assert "strict=" not in src and "datetime.UTC" not in src

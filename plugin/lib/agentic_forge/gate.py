@@ -16,11 +16,13 @@ from typing import Any, Protocol
 
 __all__ = [
     "GateResult",
+    "MAX_UNDETERMINED",
     "trigger_metrics",
     "tier1_trigger",
     "tier2_quality",
     "version_regression",
     "format_tier2_summary",
+    "tier2_evidence_lines",
     "evaluate",
     "all_passed",
 ]
@@ -28,6 +30,13 @@ __all__ = [
 # Float-comparison tolerance: a metric exactly at its threshold must not FAIL due to binary-float
 # representation (e.g. 0.85 - 0.05 == 0.7999999999999999, not 0.8).
 _EPS = 1e-9
+
+# A run with more than this share of its samples unmeasured FAILS on that alone: the rate over the
+# rest may be fine, but the run is not the measurement it claims to be. Below it, a stray dead
+# session, turn-cap hit, unparseable grading or no-decision router call is excluded from the rate
+# rather than read as a failure (ADR 0093, first for Tier-1b; now every tier). One number, one
+# meaning: "sample produced no measurement" is the same event whichever runner saw it.
+MAX_UNDETERMINED = 0.10
 
 
 @dataclass
@@ -66,6 +75,9 @@ def trigger_metrics(
 
 
 def tier1_trigger(measured: dict[str, float | None], thresholds: dict[str, Any]) -> GateResult:
+    """Gate recall/specificity, and — when the contract sets ``tier1_trigger.runs`` — the number of
+    samples each prompt was asked (``measured["runs"]``): a rate from one call per prompt is a coin
+    flip dressed as a rate, so a contract may pin the floor the CLI's default (5) provides."""
     want = thresholds.get("tier1_trigger") or {}
     reasons: list[str] = []
     for key in ("recall", "specificity"):
@@ -77,6 +89,13 @@ def tier1_trigger(measured: dict[str, float | None], thresholds: dict[str, Any])
             reasons.append(f"missing measured {key}")
         elif got < target - _EPS:
             reasons.append(f"{key} {got:.3f} < required {target:.3f}")
+    req_runs = want.get("runs")
+    if req_runs is not None:
+        n = measured.get("runs")
+        if n is None or n < req_runs:
+            reasons.append(
+                f"only {n if n is not None else 0} sample(s) per prompt; need >= {req_runs}"
+            )
     return GateResult("tier1_trigger", not reasons, reasons)
 
 
@@ -108,6 +127,16 @@ def tier2_quality(benchmark: dict[str, Any], thresholds: dict[str, Any]) -> Gate
     req_runs = want.get("runs")
     if req_runs is not None and n < req_runs:
         reasons.append(f"only {n} run(s); need >= {req_runs}")
+
+    # Sessions that produced no measurement — the component never answered (undetermined) or the
+    # grader never graded (ungraded) — are out of the pass-rate; above MAX_UNDETERMINED of them the
+    # run fails on that alone, with the reason naming what happened (ADR 0093 applied to Tier-2).
+    total, unmeasured = _unmeasured(ws)
+    if total and unmeasured / total > MAX_UNDETERMINED:
+        reasons.append(
+            f"{unmeasured} of {total} sessions unmeasured (> {MAX_UNDETERMINED:.0%}): "
+            f"{_unmeasured_breakdown(ws)} — the run failed, not the component"
+        )
 
     delta = run_summary.get("delta") or {}
     max_tokens = want.get("max_overhead_tokens")
@@ -154,24 +183,76 @@ def version_regression(
     return GateResult("version_regression", not reasons, reasons)
 
 
+def _unmeasured(ws: dict[str, Any]) -> tuple[int, int]:
+    """``(sessions attempted, sessions unmeasured)`` from a ``with_skill`` summary's ``sessions``
+    block (absent for a stub transport that never fails: 0/0)."""
+    sessions = ws.get("sessions") or {}
+    total = int(sessions.get("total", 0) or 0)
+    dead = int(sessions.get("undetermined", 0) or 0) + int(sessions.get("ungraded", 0) or 0)
+    return total, dead
+
+
+def _unmeasured_breakdown(ws: dict[str, Any]) -> str:
+    """``2 undetermined [error_max_turns x2], 1 ungraded`` — the WHY beside the count."""
+    sessions = ws.get("sessions") or {}
+    parts: list[str] = []
+    dead = int(sessions.get("undetermined", 0) or 0)
+    if dead:
+        subtypes = sessions.get("subtypes") or {}
+        why = ", ".join(
+            f"{k} x{v}" for k, v in sorted(subtypes.items(), key=lambda kv: (-kv[1], kv[0]))
+        )
+        parts.append(f"{dead} undetermined" + (f" [{why}]" if why else ""))
+    ungraded = int(sessions.get("ungraded", 0) or 0)
+    if ungraded:
+        parts.append(f"{ungraded} ungraded")
+    return ", ".join(parts)
+
+
 def format_tier2_summary(
     label: str, *, passed: bool, benchmark: dict[str, Any], reasons: list[str]
 ) -> str:
     """One-line Tier-2 result: ``<label>: PASS/FAIL (mean=…, stddev=…, lower_bound=…, n=…)``.
 
     Shared by the role and skill runners so the lower-bound formula lives in one place (here, next
-    to :func:`tier2_quality`)."""
+    to :func:`tier2_quality`). Sessions that produced no measurement are printed ALWAYS, pass or
+    fail — ``n=5; 1/15 sessions unmeasured: 1 undetermined [timeout x1]`` — because a green number
+    computed from fewer sessions than were asked is weaker evidence, and hiding that is a silent
+    cap (the same rule Tier-1 applies to no-decision calls, ADR 0084)."""
     ws = (benchmark.get("run_summary") or {}).get("with_skill") or {}
     pr = ws.get("pass_rate") or {}
     mean = pr.get("mean", 0.0)
     stddev = pr.get("stddev", 0.0)
     status = "PASS" if passed else "FAIL"
     detail = "" if passed else " — " + "; ".join(reasons)
+    total, unmeasured = _unmeasured(ws)
+    noise = (
+        f"; {unmeasured}/{total} sessions unmeasured: {_unmeasured_breakdown(ws)}"
+        if unmeasured
+        else ""
+    )
     return (
         f"{label}: {status} "
         f"(mean={mean:.3f}, stddev={stddev:.3f}, lower_bound={mean - stddev:.3f}, "
-        f"n={ws.get('n', 0)}){detail}"
+        f"n={ws.get('n', 0)}{noise}){detail}"
     )
+
+
+def tier2_evidence_lines(benchmark: dict[str, Any]) -> list[str]:
+    """One line per session that produced no measurement — which run and case, what the CLI said
+    (``subtype``, ``num_turns``) — printed under the summary so the log can tell a turn-cap hit
+    from a dead API without paying for the run again (ADR 0084's rule, applied to Tier-2)."""
+    ws = (benchmark.get("run_summary") or {}).get("with_skill") or {}
+    events = (ws.get("sessions") or {}).get("events") or []
+    lines: list[str] = []
+    for ev in events:
+        turns = f", num_turns={ev['num_turns']}" if ev.get("num_turns") is not None else ""
+        text = f": {ev['text']}" if ev.get("text") else ""
+        lines.append(
+            f"    unmeasured: run {ev.get('run')} case {ev.get('case')} "
+            f"{ev.get('kind')} ({ev.get('subtype')}{turns}){text}"
+        )
+    return lines
 
 
 def evaluate(

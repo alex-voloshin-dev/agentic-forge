@@ -119,6 +119,8 @@ def main(argv: list[str]) -> int:
             all_passed = False
             continue
         print(report.summary_line(), flush=True)
+        for line in report.evidence_lines():  # which run/case, subtype, num_turns (ADR 0084)
+            print(line, flush=True)
         if not report.passed:
             _eval_cli.record_failure(
                 f"agent-eval:{role}", "; ".join(report.gate.reasons), kind="anomaly"

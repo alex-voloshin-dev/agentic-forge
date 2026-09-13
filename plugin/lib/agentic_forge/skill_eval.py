@@ -68,6 +68,11 @@ class SkillReport:
             self.skill, passed=self.passed, benchmark=self.benchmark, reasons=self.gate.reasons
         )
 
+    def evidence_lines(self) -> list[str]:
+        """The sessions that produced no measurement, one line each — see
+        ``gate.tier2_evidence_lines``."""
+        return gate.tier2_evidence_lines(self.benchmark)
+
 
 def _skill_md(plugin_dir: Path, skill: str) -> Path:
     return plugin_dir / "skills" / skill / "SKILL.md"

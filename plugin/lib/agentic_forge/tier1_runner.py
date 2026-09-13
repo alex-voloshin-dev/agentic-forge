@@ -25,10 +25,16 @@ from pathlib import Path
 from typing import Any
 
 from agentic_forge import gate
-from agentic_forge.agent_eval import DEFAULT_RUNS, Runner
+from agentic_forge.agent_eval import (
+    DEFAULT_RUNS,
+    Runner,
+    SessionTimedOut,
+    SessionUndetermined,
+    TurnCapHit,
+)
 from agentic_forge.evals import load_evals
 from agentic_forge.frontmatter import parse as parse_frontmatter
-from agentic_forge.gate import all_passed
+from agentic_forge.gate import MAX_UNDETERMINED, all_passed
 
 __all__ = [
     "DEFAULT_RUNS",
@@ -154,6 +160,7 @@ class Tier1Report:
     should_not_trigger_rates: list[float] = field(default_factory=list)  # per-prompt false-fire
     invalid_calls: int = 0  # router calls that returned no decision at all (ADR 0064)
     total_calls: int = 0
+    runs: int = 0  # samples asked per prompt — printed as `n=` on every line
     unmeasured: list[str] = field(default_factory=list)  # prompts where EVERY call was invalid
     invalid_reasons: dict[str, int] = field(default_factory=dict)  # reason -> count (ADR 0084)
     invalid_excerpts: list[str] = field(default_factory=list)  # what those calls said instead
@@ -183,7 +190,10 @@ class Tier1Report:
             if self.bare_collided
             else ""
         )
-        return f"[{self.skill}] {status}  recall={rc} specificity={sp}{noise}{collided}{suffix}"
+        return (
+            f"[{self.skill}] {status}  recall={rc} specificity={sp} n={self.runs}"
+            f"{noise}{collided}{suffix}"
+        )
 
     def evidence_lines(self) -> list[str]:
         """Sample replies that produced no decision, and who won the should-trigger prompts this
@@ -291,7 +301,21 @@ INVALID_REASONS = (
     "negation-or-acting",
     "ambiguous",
     "unknown-name",
+    # The call never produced a reply to classify (a `SessionUndetermined` from the transport):
+    # a dead API or a usage limit, a `--max-turns` hit, a timeout. Neither a decision nor a
+    # routing failure — the ADR 0093 "never ran" outcome, in Tier-1's own vocabulary.
+    "session-never-ran",
+    "turn-cap",
+    "timeout",
 )
+
+
+def _undetermined_reason(exc: SessionUndetermined) -> str:
+    if isinstance(exc, TurnCapHit):
+        return "turn-cap"
+    if isinstance(exc, SessionTimedOut):
+        return "timeout"
+    return "session-never-ran"
 
 
 def _excerpt(text: str, limit: int = 120) -> str:
@@ -329,6 +353,22 @@ def trailing_answer(text: str, names: list[str]) -> str | None:
 _TOOL_CALL = re.compile(r"^skill\((.+?)\)?$")  # `Skill(agentic-forge:plan)` — the invocation form
 
 
+def _known_name(key: str, known: dict[str, str]) -> str | None:
+    """``key`` as one of ours: an exact name, or a ``prefix:`` spelling whose tail is ours. The
+    gate run lists bare names, and a live-session router answers ``agentic-forge:research``,
+    ``Skill(agentic-forge:research)`` or ``/agentic-forge:research`` — every one of which scored
+    OTHER, a recall miss, though it names our skill as plainly as ``activation.skill_invoked``
+    reads it with ``split(":")[-1]`` (eval audit, C5). Under the namespaced condition the full
+    name is in ``known`` already and matches first."""
+    if key in known:
+        return known[key]
+    if ":" in key:
+        tail = key.split(":")[-1]
+        if tail in known:
+            return known[tail]
+    return None
+
+
 def _terminal_choice(text: str, names: list[str]) -> tuple[str, str] | None:
     """``(decision, chosen name)`` for a terminal standalone answer, or None. The chosen name is
     kept even when the decision is :data:`OTHER`, so a should-trigger loss can say WHO won
@@ -341,24 +381,26 @@ def _terminal_choice(text: str, names: list[str]) -> tuple[str, str] | None:
     if m := _TOOL_CALL.match(key):
         key = m.group(1).strip("`'\" /")
     known = {n.lower(): n for n in names}
-    if key not in known and key != "none" and not _SKILL_NAME_SHAPE.match(key):
+    ours = _known_name(key, known)
+    if ours is None and key != "none" and not _SKILL_NAME_SHAPE.match(key):
         return None
     head = text[: text.rfind(tokens[-1])].rstrip()
     if head and not head.endswith(_ANSWER_BOUNDARY):
         return None
     if key == "none":
         return ("none", "none")
-    if key in known:
-        return (known[key], known[key])
+    if ours is not None:
+        return (ours, ours)
     return (OTHER, key)  # a skill-shaped name that is not ours: chosen, not the target
 
 
 def _leading_choice(text: str, names: list[str]) -> tuple[str, str] | None:
     """``(decision, chosen name)`` when the reply OPENS with the answer and explains after —
     ``none The user is asking a general conceptual question…`` — the mirror of ADR 0085's
-    answer-last rule (ADR 0088). Only a name we know or ``none`` qualifies (a leading unknown word
-    is just the first word of a sentence), and what follows must start a new sentence: nothing,
-    punctuation, or a capitalised word. ``research is not right here`` does not qualify."""
+    answer-last rule (ADR 0088). Only a name we know (bare or ``prefix:``-spelled, see
+    :func:`_known_name`) or ``none`` qualifies (a leading unknown word is just the first word of a
+    sentence), and what follows must start a new sentence: nothing, punctuation, or a capitalised
+    word. ``research is not right here`` does not qualify."""
     tokens = text.split()
     if not tokens:
         return None
@@ -366,12 +408,16 @@ def _leading_choice(text: str, names: list[str]) -> tuple[str, str] | None:
     if m := _TOOL_CALL.match(key):
         key = m.group(1).strip("`'\" /")
     known = {n.lower(): n for n in names}
-    if key not in known and key != "none":
+    ours = _known_name(key, known)
+    if ours is None and key != "none":
         return None
     rest = text[len(tokens[0]) :].lstrip()
     if rest and not (rest[0].isupper() or rest[0] in ".:!?—–-(\n"):
         return None
-    return ("none", "none") if key == "none" else (known[key], known[key])
+    if key == "none":
+        return ("none", "none")
+    assert ours is not None
+    return (ours, ours)
 
 
 def classify_reply(reply: str, names: list[str]) -> Reply:
@@ -445,9 +491,19 @@ def selection_rate(
 
     Calls whose reply is :data:`INVALID` (no routing decision — see :func:`parse_selection`) are
     **excluded from the denominator**, not counted as misses (ADR 0064): a call that failed to
-    answer is missing data, and averaging it in as a miss silently understates recall. The count
-    is returned so the caller can surface it — a rate computed from 2 of 5 calls is not the same
-    evidence as one from 5 of 5, and hiding that would be a silent cap.
+    answer is missing data, and averaging it in as a miss silently understates recall. A call
+    whose session never produced a reply at all (:class:`SessionUndetermined` from the transport)
+    is INVALID too, with the reason saying which — ``session-never-ran``, ``turn-cap``,
+    ``timeout`` — instead of aborting the whole Tier-1 run. The count is returned so the caller
+    can surface it — a rate computed from 2 of 5 calls is not the same evidence as one from 5 of
+    5, and hiding that would be a silent cap.
+
+    ``rate`` is ``None`` only when EVERY call was invalid (the prompt is unmeasured). The
+    per-prompt floor that stood here — "unmeasured below half the samples", ADR 0067 — is gone: at
+    n = 5 it turned two no-decision calls on one prompt into a failed skill, 7 of 17 skills at
+    recall 1.000 in ADR 0084's run. The evidence question is asked once, pooled over the skill's
+    calls in :func:`eval_skill` — the shape ADR 0093 chose for Tier-1b, where per-item floors at
+    small n flake on a healthy plugin and miss a real drop.
     """
     hits = 0
     reasons: list[str] = []
@@ -455,7 +511,10 @@ def selection_rate(
     choices: list[str] = []
     hit_names: list[str] = []
     for _ in range(runs):
-        reply = classify_reply(run_fn(system, prompt, workdir), names)
+        try:
+            reply = classify_reply(run_fn(system, prompt, workdir), names)
+        except SessionUndetermined as exc:
+            reply = Reply(INVALID, _undetermined_reason(exc), _excerpt(exc.text))
         if reply.decision == INVALID:
             reasons.append(reply.reason)
             if reply.excerpt and len(excerpts) < 2:  # two samples are enough to see the shape
@@ -473,12 +532,6 @@ def selection_rate(
         "choices": tuple(choices),
         "hit_names": tuple(hit_names),
     }
-    # A rate from ONE surviving call carried the same weight in the mean as one from five, so a
-    # single stray answer could set a prompt to a flat 0.0 or 1.0 (ADR 0067). Below half the
-    # samples there is not enough evidence to average — treat the prompt as unmeasured, which is
-    # the loud path that already exists, rather than a confident number from thin data.
-    if valid * 2 < runs:
-        return PromptRate(rate=None, invalid=invalid, runs=runs, **detail)
     return PromptRate(rate=(hits / valid) if valid else None, invalid=invalid, runs=runs, **detail)
 
 
@@ -528,7 +581,14 @@ def eval_skill(
     Prompts whose every call came back :data:`INVALID` are **unmeasured**: they are left out of the
     means (a fabricated 0.0 would read as a routing failure) and instead **fail the gate** with an
     explicit reason. Not measuring something is not the same as it passing, and it is not the same
-    as it failing either — so the report says exactly that (ADR 0064)."""
+    as it failing either — so the report says exactly that (ADR 0064).
+
+    Thin evidence is judged POOLED, the way ADR 0093 judges Tier-1b: the skill fails when more than
+    :data:`gate.MAX_UNDETERMINED` of its calls returned no decision, whatever prompt they fell on.
+    A per-prompt floor at n = 5 (ADR 0067's "unmeasured below half the samples") failed 7 of 17
+    skills at recall 1.000 (ADR 0084) — a healthy router losing two calls on one prompt is noise,
+    while a router losing a tenth of ALL its calls is a run that measured less than it claims. The
+    per-prompt view stays as the lens: the ``[k/N no decision]`` bracket on every line."""
     # the name as the LISTING shows it — namespaced under ADR 0086's built-in condition. The bare
     # name is accepted as the same choice: the router drops the prefix for every skill, namesake
     # or not (ADR 0087, corrected), so a bare answer is not evidence of choosing someone else.
@@ -554,6 +614,7 @@ def eval_skill(
         if r.rate is None
     ]
     measured = gate.trigger_metrics(st_rates, sn_rates)
+    measured["runs"] = runs  # samples per prompt, for a contract `tier1_trigger.runs` floor
     result = gate.tier1_trigger(measured, trig.thresholds)
     reasons = list(result.reasons)
     tally: dict[str, int] = {}
@@ -569,16 +630,25 @@ def eval_skill(
         reasons.append(
             f"{len(unmeasured)} prompt(s) unmeasured — every router call returned no decision"
         )
+    invalid_calls = sum(r.invalid for r in [*st, *sn])
+    total_calls = sum(r.runs for r in [*st, *sn])
+    too_thin = bool(total_calls) and invalid_calls / total_calls > MAX_UNDETERMINED
+    if too_thin:
+        reasons.append(
+            f"{invalid_calls} of {total_calls} calls returned no decision "
+            f"(> {MAX_UNDETERMINED:.0%}): the run failed, not the router"
+        )
     return Tier1Report(
         skill=trig.name,
         recall=measured["recall"],
         specificity=measured["specificity"],
-        passed=result.passed and not unmeasured,
+        passed=result.passed and not unmeasured and not too_thin,
         reasons=reasons,
         should_trigger_rates=st_rates,
         should_not_trigger_rates=sn_rates,
-        invalid_calls=sum(r.invalid for r in [*st, *sn]),
-        total_calls=sum(r.runs for r in [*st, *sn]),
+        invalid_calls=invalid_calls,
+        total_calls=total_calls,
+        runs=runs,
         unmeasured=unmeasured,
         invalid_reasons=tally,
         invalid_excerpts=excerpts,

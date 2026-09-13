@@ -26,6 +26,18 @@ sys.path.insert(0, str(_REPO_ROOT / "plugin" / "lib"))
 
 from agentic_forge import agent_eval, diagnostics, models, ralph, settings  # noqa: E402
 
+
+class DoneCommandError(RuntimeError):
+    """``--done-cmd`` could not be launched (not found, not executable). Aborts the loop: every
+    iteration would read "not done" and the budget would burn to an `exhausted` blamed on the
+    agent (eval audit, C14)."""
+
+
+class RepoStateError(RuntimeError):
+    """``git`` failed in ``--repo`` (not a repository, or git itself broken). Aborts the loop: a
+    tree whose state cannot be read looks unchanged forever, which used to read as a stall."""
+
+
 _SE_SYSTEM = (
     "You are a software engineer driving a task to completion across many short iterations. Each "
     "time you run, read the task and the current state of the repo, then make the single next "
@@ -44,16 +56,24 @@ def _agent_runner(repo: Path, task: str, model: str) -> Callable[[int], object]:
     return run_iteration
 
 
-def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:  # pragma: no cover
-    return subprocess.run(
+def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    """Run ``git`` in ``repo`` and return the completed process; :class:`RepoStateError` when it
+    fails — a non-git ``--repo`` must not read as "no progress" (eval audit, C7)."""
+    cp = subprocess.run(
         ["git", "-C", str(repo), "-c", "core.hooksPath=/dev/null", *args],
         capture_output=True, text=True, timeout=120,
     )
+    if cp.returncode != 0:
+        raise RepoStateError(
+            f"git {' '.join(args)} failed in {repo} (exit {cp.returncode}): {cp.stderr.strip()}"
+        )
+    return cp
 
 
-def _progress_checker(repo: Path) -> Callable[[], bool]:  # pragma: no cover
+def _progress_checker(repo: Path) -> Callable[[], bool]:
     """True when the git tree changed since the previous call (HEAD + working-tree status), so an
-    iteration that edits/commits counts as progress and a no-op one trips the stall counter."""
+    iteration that edits/commits counts as progress and a no-op one trips the stall counter. The
+    baseline is read on construction, so a repo git cannot read fails HERE, before the loop."""
     def signature() -> str:
         head = _git(repo, "rev-parse", "HEAD").stdout.strip()
         return head + "\n" + _git(repo, "status", "--porcelain").stdout
@@ -69,18 +89,30 @@ def _progress_checker(repo: Path) -> Callable[[], bool]:  # pragma: no cover
     return progressed
 
 
-def _done_checker(repo: Path, done_cmd: str | None) -> Callable[[], bool]:  # pragma: no cover
+def _done_checker(
+    repo: Path, done_cmd: str | None, *, timeout: float = 600
+) -> Callable[[], bool]:
     """The stop signal: ``done_cmd`` exits 0 (run as argv, no shell). No command -> never done (the
-    loop ends on the budget / stall)."""
+    loop ends on the budget / stall). A command that cannot be LAUNCHED raises
+    :class:`DoneCommandError` — a typo'd ``--done-cmd`` used to read as "not done" on every
+    iteration and end as `exhausted`, the agent's failure. A command that runs past ``timeout`` is
+    "not done" for this iteration and says so on stderr."""
     argv = shlex.split(done_cmd) if done_cmd else []
 
     def is_done() -> bool:
         if not argv:
             return False
         try:
-            cp = subprocess.run(argv, cwd=str(repo), capture_output=True, timeout=600)
-        except (OSError, subprocess.SubprocessError):
-            return False  # a hung / un-runnable done-cmd -> "not done"; the loop ends via budget
+            cp = subprocess.run(argv, cwd=str(repo), capture_output=True, timeout=timeout)
+        except OSError as exc:
+            raise DoneCommandError(f"done-cmd {done_cmd!r} could not be launched: {exc}") from exc
+        except subprocess.TimeoutExpired:
+            print(
+                f"ralph: done-cmd {done_cmd!r} timed out after {timeout:g}s — not done this "
+                "iteration",
+                file=sys.stderr, flush=True,
+            )
+            return False
         return cp.returncode == 0
 
     return is_done
@@ -120,14 +152,23 @@ def main(  # noqa: PLR0913 - seams are injected for testing; production uses the
         return 0
 
     model = models.model_for("software-engineer", settings.resolve(repo).models, default=args.model)
-    result = ralph.run_ralph(
-        run_iteration=run_iteration or _agent_runner(repo, task, model),
-        is_done=is_done or _done_checker(repo, args.done_cmd),
-        progressed=progressed or _progress_checker(repo),
-        max_iterations=max_iterations,
-        stall_after=stall_after,
-        record=record or (lambda m: print(f"ralph: {m}")),
-    )
+    try:
+        result = ralph.run_ralph(
+            run_iteration=run_iteration or _agent_runner(repo, task, model),
+            is_done=is_done or _done_checker(repo, args.done_cmd),
+            progressed=progressed or _progress_checker(repo),
+            max_iterations=max_iterations,
+            stall_after=stall_after,
+            record=record or (lambda m: print(f"ralph: {m}")),
+        )
+    except (DoneCommandError, RepoStateError) as exc:
+        # The harness, not the agent, is broken: say so and stop, instead of burning the budget
+        # and reporting `exhausted` / `stalled` as if the task had defeated the loop.
+        print(f"ralph: error: {exc}", file=sys.stderr, flush=True)
+        diagnostics.emit(
+            repo, kind="error", component="ralph", message=str(exc), severity="major"
+        )
+        return 1
     print(f"ralph: {result.outcome} after {result.iterations} iteration(s)")
     if result.outcome != ralph.DONE and args.done_cmd:  # a goal was set but not reached -> anomaly
         diagnostics.emit(

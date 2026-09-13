@@ -1270,3 +1270,149 @@ def test_deploy_digest_healthy_line_unchanged(
     assert _digest(monkeypatch, tmp_path, passing, ops.InMemoryAlerts({})) == (
         "deploy-digest [production]: healthy — none — continue monitoring (1 recent runs)"
     )
+
+
+# --- eval audit fixes: what the CLIs print, pass and refuse ------------------------------------
+
+
+def test_run_agent_evals_prints_the_unmeasured_sessions(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rep = _FakeReport(True)
+    rep.evidence_lines = lambda: [  # type: ignore[method-assign]
+        "    unmeasured: run 1 case 2 undetermined (error_max_turns, num_turns=40)"
+    ]
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(run_agent_evals, "_build_runners", lambda *a, **k: (object(), object()))
+    monkeypatch.setattr(run_agent_evals.agent_eval, "run_role", lambda *a, **k: rep)
+    assert run_agent_evals.main(["run", "--runner", "claude", "--role", "reviewer"]) == 0
+    assert "undetermined (error_max_turns, num_turns=40)" in capsys.readouterr().out
+
+
+def test_run_skill_evals_prints_the_unmeasured_sessions(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rep = _FakeReport(True)
+    rep.evidence_lines = lambda: ["    unmeasured: run 3 case 1 ungraded (grading-unparseable)"]  # type: ignore[method-assign]
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(run_skill_evals, "_build_runners", lambda *a, **k: (object(), object()))
+    monkeypatch.setattr(run_skill_evals.skill_eval, "run_skill", lambda *a, **k: rep)
+    assert run_skill_evals.main(["run", "--runner", "claude", "--skill", "python-patterns"]) == 0
+    assert "ungraded (grading-unparseable)" in capsys.readouterr().out
+
+
+def test_run_spine_e2e_gives_the_phases_sixty_turns(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 40 stopped the develop phase mid-task, and a cap hit read as a failed phase (audit C13).
+    seen: dict[str, object] = {}
+
+    def fake_runner(*a: object, **k: object) -> object:
+        seen.update(k)
+        return lambda *x, **y: ""
+
+    monkeypatch.setattr(run_spine_e2e.agent_eval, "claude_cli_runner", fake_runner)
+    monkeypatch.setattr(run_spine_e2e.spine_e2e, "run_scenario", lambda *a, **k: [_FakePhase(True)])
+    assert run_spine_e2e.main(["run", "--runner", "claude", "--scenario", "spine"]) == 0
+    assert seen["max_turns"] == 60
+
+
+def test_run_activation_evals_scores_a_bare_builtin_name_as_a_collision(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import run_activation_evals
+    from agentic_forge import activation as activation_lib
+    from agentic_forge.activation import ActivationReport
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(run_activation_evals, "_cli_runner", lambda *a, **k: object())
+    captured: dict[str, object] = {}
+
+    def fake_run(*a: object, **k: object) -> list[ActivationReport]:
+        captured.update(k)
+        return [ActivationReport("code-review", 4, 5, 0.8, collided=["Review my PR"])]
+
+    monkeypatch.setattr(activation_lib, "run_activation", fake_run)
+    assert run_activation_evals.main(["run", "--runner", "claude"]) == 0
+    builtins = captured["builtins"]
+    assert isinstance(builtins, frozenset) and {"code-review", "security-review"} <= builtins
+    out = capsys.readouterr().out
+    assert "[code-review] activation=0.800 (4/5; 1 bare-collided)" in out
+    assert "bare-collided [code-review] Review my PR: called `code-review` bare" in out
+    assert "1 bare-collided)" in out.splitlines()[-1]  # and on the pooled line
+
+
+# --- ralph: a harness fault is an error, not the agent's exhaustion (eval audit C7/C14) --------
+
+
+def test_ralph_done_checker_runs_the_command_as_argv(tmp_path: Path) -> None:
+    assert ralph_cli._done_checker(tmp_path, "true")() is True
+    assert ralph_cli._done_checker(tmp_path, "false")() is False
+    assert ralph_cli._done_checker(tmp_path, None)() is False  # no command: never done
+
+
+def test_ralph_done_checker_that_cannot_launch_is_an_error(tmp_path: Path) -> None:
+    with pytest.raises(ralph_cli.DoneCommandError, match="could not be launched"):
+        ralph_cli._done_checker(tmp_path, "no-such-command-xyz-123 -q")()
+
+
+def test_ralph_done_checker_timeout_is_not_done_and_says_so(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    is_done = ralph_cli._done_checker(tmp_path, "sleep 5", timeout=0.2)
+    assert is_done() is False
+    assert "timed out after 0.2s" in capsys.readouterr().err
+
+
+def _git_repo(path: Path) -> Path:
+    import subprocess
+
+    path.mkdir()
+    subprocess.run(["git", "-C", str(path), "init", "-q", "-b", "main"], check=True)
+    (path / "f.txt").write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(path), "add", "-A"], check=True)
+    subprocess.run(
+        ["git", "-C", str(path), "-c", "user.email=t@local", "-c", "user.name=t",
+         "commit", "-q", "-m", "baseline"],
+        check=True,
+    )
+    return path
+
+
+def test_ralph_progress_checker_sees_a_tree_change(tmp_path: Path) -> None:
+    repo = _git_repo(tmp_path / "repo")
+    progressed = ralph_cli._progress_checker(repo)
+    assert progressed() is False  # nothing changed since the baseline
+    (repo / "g.txt").write_text("new\n", encoding="utf-8")
+    assert progressed() is True and progressed() is False
+
+
+def test_ralph_progress_checker_on_a_non_git_repo_is_an_error(tmp_path: Path) -> None:
+    with pytest.raises(ralph_cli.RepoStateError, match="git rev-parse HEAD failed"):
+        ralph_cli._progress_checker(tmp_path)
+
+
+def test_ralph_apply_aborts_on_an_unlaunchable_done_cmd(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A typo'd --done-cmd read as "not done" on every iteration, burned the budget and reported
+    # `exhausted` as the agent's failure. Now: one clear message, exit 1, no iterations wasted.
+    runs: list[int] = []
+    rc = ralph_cli.main(
+        ["x", "--repo", str(tmp_path), "--task", str(_task(tmp_path)), "--apply",
+         "--done-cmd", "no-such-command-xyz-123", "--max-iterations", "5"],
+        run_iteration=runs.append, progressed=lambda: True,
+    )
+    assert rc == 1 and runs == [1]  # the first check found the fault
+    assert "ralph: error: done-cmd 'no-such-command-xyz-123' could not be launched" in (
+        capsys.readouterr().err
+    )
+
+
+def test_ralph_apply_aborts_on_a_non_git_repo(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rc = ralph_cli.main(
+        ["x", "--repo", str(tmp_path), "--task", str(_task(tmp_path)), "--apply",
+         "--done-cmd", "true"],
+        run_iteration=lambda n: None, is_done=lambda: False,
+    )
+    assert rc == 1 and "ralph: error: git rev-parse HEAD failed" in capsys.readouterr().err

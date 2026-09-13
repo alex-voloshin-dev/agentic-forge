@@ -119,3 +119,30 @@ def test_load_history_tolerates_garbage(tmp_path) -> None:
     assert benchmark.load_history(p) == []  # unreadable -> []
     p.write_text('{"not": "a list"}', encoding="utf-8")
     assert benchmark.load_history(p) == []  # non-list -> []
+
+
+# --- passed spellings + the sessions block (eval audit C5/C8) ----------------------------------
+
+
+def test_passed_value_accepts_true_and_the_pass_spellings_only() -> None:
+    from agentic_forge.benchmark import passed_value
+
+    assert all(passed_value(v) for v in (True, "true", "TRUE", "pass", "PASS", "passed", " Pass "))
+    assert not any(passed_value(v) for v in (False, "false", "FAIL", None, 1, "yes", ""))
+
+
+def test_pass_rate_of_fallback_uses_passed_value() -> None:
+    grading = {"assertion_results": [{"passed": "PASS"}, {"passed": "false"}]}
+    assert benchmark.pass_rate_of(grading) == 0.5
+
+
+def test_summarize_attaches_sessions_when_given() -> None:
+    sessions = {"total": 4, "undetermined": 1, "ungraded": 0, "subtypes": {}, "events": []}
+    out = benchmark.summarize(
+        [{"summary": {"pass_rate": 1.0}}], [{"summary": {"pass_rate": 0.5}}],
+        with_skill_sessions=sessions, without_skill_sessions={"total": 4},
+    )
+    assert out["run_summary"]["with_skill"]["sessions"] == sessions
+    assert out["run_summary"]["without_skill"]["sessions"] == {"total": 4}
+    plain = benchmark.summarize([{"summary": {"pass_rate": 1.0}}])
+    assert "sessions" not in plain["run_summary"]["with_skill"]

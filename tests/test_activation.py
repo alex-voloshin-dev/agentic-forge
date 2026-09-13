@@ -315,3 +315,75 @@ def test_prepare_workspace_seeds_a_valid_knowledge_vault(tmp_path: Path) -> None
     notes = load_vault(repo).notes
     assert {"moc", "task-priority-ordering", "auth-approach"} <= set(notes)
     assert "auth" in notes["auth-approach"].tags
+
+
+# --- a bare call on a built-in's name is a collision, not a hit (eval audit M6) -----------------
+
+BUILTINS = frozenset({"code-review", "security-review", "run", "simplify"})
+
+
+def test_skill_call_three_outcomes() -> None:
+    bare = _stream(_skill_call("code-review"))
+    assert activation.skill_call(bare, "code-review", builtins=BUILTINS) == activation.COLLIDED
+    assert activation.skill_call(bare, "code-review") == activation.HIT  # no builtins known
+    namespaced = _stream(_skill_call("agentic-forge:code-review"))
+    assert activation.skill_call(namespaced, "code-review", builtins=BUILTINS) == activation.HIT
+    assert activation.skill_call(_stream(_skill_call("plan")), "plan", builtins=BUILTINS) == (
+        activation.HIT
+    )  # a bare name no built-in owns is ours
+    assert activation.skill_call(_stream(_bash("ls")), "code-review", builtins=BUILTINS) == (
+        activation.MISS
+    )
+    # a bare AND a namespaced call in one session: the namespaced one settles it
+    both = _stream(_skill_call("code-review"), _skill_call("agentic-forge:code-review"))
+    assert activation.skill_call(both, "code-review", builtins=BUILTINS) == activation.HIT
+
+
+def test_skill_invoked_is_false_for_a_bare_collided_call() -> None:
+    bare = _stream(_skill_call("security-review"))
+    assert not activation.skill_invoked(bare, "security-review", builtins=BUILTINS)
+    assert activation.skill_invoked(bare, "security-review")  # the pre-M6 reading, builtins unknown
+
+
+def test_activation_rate_records_a_collision_apart_from_hits_and_misses(tmp_path: Path) -> None:
+    trig = next(t for t in load_triggers(PLUGIN) if t.name == "code-review")
+    first, second = trig.should_trigger[0], trig.should_trigger[1]
+
+    def run(system: str, prompt: str, workdir: Path) -> str:
+        if prompt == first:
+            return _init("s1") + "\n" + _stream(_skill_call("code-review"))  # bare: the built-in
+        if prompt == second:
+            return _stream(_skill_call("agentic-forge:code-review"))
+        return _init("s2") + "\n" + _stream(_bash("git diff"))
+
+    asked: list[str] = []
+    report = activation.activation_rate(
+        trig, run, tmp_path, target="code-review", builtins=BUILTINS,
+        ask_why=lambda sid, q: asked.append(sid) or "by hand",
+    )
+    n = len(trig.should_trigger)
+    assert report.activated == 1 and report.collided == [first]
+    assert first not in report.misses and len(report.misses) == n - 2
+    assert report.determined == n and report.rate == 1 / n  # in the denominator, not a hit
+    assert "s1" not in asked  # never asked why it "did the work by hand": it did not
+    assert f"(1/{n}; 1 bare-collided)" in report.summary_line()
+
+
+def test_pooled_line_counts_collisions() -> None:
+    reports = [
+        activation.ActivationReport("code-review", 4, 5, 0.8, collided=["p"]),
+        activation.ActivationReport("plan", 5, 5, 1.0),
+    ]
+    verdict = activation.pooled(reports, min_activation=0.8)
+    assert verdict.collided == 1 and verdict.passed
+    assert "(9/10 over 2 skill(s), mean of rates 0.900, 1 bare-collided)" in verdict.summary_line()
+
+
+def test_run_activation_passes_builtins_through(tmp_path: Path) -> None:
+    def bare_call(system: str, prompt: str, workdir: Path) -> str:
+        return _stream(_skill_call("security-review"))
+
+    (report,) = activation.run_activation(
+        PLUGIN, bare_call, skills=["security-review"], workdir=tmp_path, builtins=BUILTINS
+    )
+    assert report.activated == 0 and len(report.collided) == report.prompts

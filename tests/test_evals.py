@@ -91,3 +91,20 @@ def test_thresholds_rejects_unknown_key() -> None:
     # a junk key is rejected by additionalProperties:false on thresholds (closes the junk-key hole)
     data = {**VALID, "thresholds": {"whatever": 1}}
     assert any("whatever" in e or "Additional" in e for e in evals_mod.validate_evals(data))
+
+
+def test_tier2_quality_requires_runs_of_at_least_five() -> None:
+    # The gate is mean - stddev and stddev is 0.0 at n = 1: a contract without a runs floor plus
+    # `--runs 1` passed at N = 1 (eval audit, C9). All 27 contracts already set 5.
+    missing = {**VALID, "thresholds": {"tier2_quality": {"min_pass_rate": 0.8}}}
+    assert any("runs" in e for e in evals_mod.validate_evals(missing))
+    thin = {**VALID, "thresholds": {"tier2_quality": {"min_pass_rate": 0.8, "runs": 3}}}
+    assert any("runs" in e and "minimum" in e for e in evals_mod.validate_evals(thin))
+    assert evals_mod.validate_evals(VALID) == []  # runs: 5
+
+
+def test_tier1_trigger_accepts_an_optional_runs_floor() -> None:
+    ok = {**VALID, "thresholds": {"tier1_trigger": {"recall": 0.9, "specificity": 0.9, "runs": 5}}}
+    assert evals_mod.validate_evals(ok) == []
+    bad = {**VALID, "thresholds": {"tier1_trigger": {"recall": 0.9, "specificity": 0.9, "runs": 0}}}
+    assert any("runs" in e for e in evals_mod.validate_evals(bad))
