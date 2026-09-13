@@ -80,7 +80,7 @@ one, type `/agentic-forge:<skill>` (e.g. `/agentic-forge:release`).
 ## Skills by stage
 
 The `*-patterns` packs (python, typescript, javascript, go, rust, jvm, dotnet, ruby, php) and
-`engineering-standards` load on demand for the repo's detected stack — they don't appear in the menu.
+`engineering-standards` are read by file path on demand for the repo's detected stack — they don't appear in the menu.
 
 **Frame & design**
 - `research` — investigate options / prior art before speccing → `research-brief`
