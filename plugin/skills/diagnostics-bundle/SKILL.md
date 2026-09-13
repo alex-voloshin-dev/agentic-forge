@@ -30,6 +30,8 @@ and not for the plugin's own SDLC work.
 
    Add `--repo /path/to/repo` to bundle a different repo. It writes strictly to
    `~/Downloads/agentic-forge-diagnostics-<YYYYMMDD-HHMMSS>.zip` (UTC stamp) and prints the path.
+   `--home /path` (or `AGENTIC_FORGE_HOME`) points it at another home — the eval stand uses a
+   seeded `./fake-home` so a run never reads the operator's `~/.claude` or writes their Downloads.
 3. Report the absolute output path, the covered window, and the audit/diagnostics counts from the
    command output. The bundle is already redacted — logs are hook-redacted at write time and the
    config/settings slices are re-redacted (the settings slice keeps only enablement + hooks, never
