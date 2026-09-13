@@ -38,7 +38,7 @@ jobs:
   # an unresolvable fixture or a broken role prompt fails here in a minute, for free.
   wiring:
     name: Wiring (dry-run, no auth)
-    if: github.event_name != 'pull_request' || github.event.label.name == 'eval'
+    if: contains(fromJSON('["schedule", "workflow_dispatch"]'), github.event_name) || github.event.label.name == 'eval'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -64,7 +64,7 @@ jobs:
   # edit can break a neighbour's routing; this is the regression worth catching on a schedule.
   trigger:
     name: Tier-1 trigger (routing)
-    if: github.event_name != 'pull_request' || github.event.label.name == 'eval'
+    if: contains(fromJSON('["schedule", "workflow_dispatch"]'), github.event_name) || github.event.label.name == 'eval'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
@@ -92,9 +92,11 @@ jobs:
 
       # Classifies each skill's trigger prompts against the LIVE listing, scored as the mean
       # per-prompt routing rate, gated recall/specificity >= 0.9 (ADR 0016/0026). Skipped without
-      # the token — on a fork, or a dispatch from someone who has none.
+      # the token — on a fork, or a dispatch from someone who has none. A POSITIVE list of the
+      # inputs that mean "the gate" (the cron and the label carry no input): an exclusion list
+      # ran the whole suite on the first unknown value once (ADR 0087, the quality job).
       - name: Skill Tier-1 trigger (subscription via claude)
-        if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' && github.event.inputs.tiers != 'builtins-condition' && github.event.inputs.tiers != 'activation' }}
+        if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' && contains(fromJSON('["", "all", "trigger-only"]'), github.event.inputs.tiers) }}
         run: python dev/run_tier1_evals.py --runner claude --model "$EVAL_MODEL"
 
       # ADR 0086's measurement, on demand: the same prompts against the listing a live session
@@ -104,21 +106,29 @@ jobs:
         run: python dev/run_tier1_evals.py --runner claude --model "$EVAL_MODEL" --with-builtins
 
       # Tier-1b, on demand (ADR 0088/0092): does a live session with the plugin loaded invoke the
-      # skill unprompted? Each prompt runs in a fresh fixture repo. A measurement — no gate until
-      # a threshold is calibrated against the polished-stand baseline (ADR 0092).
+      # skill unprompted? Each prompt runs in a fresh fixture repo.
       # Gated on the rate POOLED over the run's 84 prompts, not per skill: at 4-9 prompts a skill a
       # per-skill floor flakes or misses (ADR 0093). 0.80 sits five sigma under the 0.940 baseline,
       # fails the note-off regime (0.571) with certainty and a drop to 0.75 seven runs in eight.
       - name: Skill Tier-1b activation (pooled gate, on demand)
         if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' && github.event.inputs.tiers == 'activation' }}
         run: python dev/run_activation_evals.py --runner claude --model "$EVAL_MODEL" --min-activation 0.80
+      # The summary names the step that ran, not the job: with `tiers: activation` the routing
+      # step is skipped, and a summary that still said "Tier-1 gated at 0.9" would be the ADR 0082
+      # failure in a new place.
       - name: Say what this measured
         if: ${{ always() }}
+        env:
+          TIERS: ${{ github.event.inputs.tiers }}
         run: |
-          if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-            echo "Measured: **Tier-1 routing** on \`$EVAL_MODEL\` — recall/specificity gated at 0.9." >> "$GITHUB_STEP_SUMMARY"
-          else
+          if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
             echo "**Skipped** — no subscription token, so no threshold was checked." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$TIERS" = "activation" ]; then
+            echo "Measured: **Tier-1b activation** on \`$EVAL_MODEL\` — pooled rate gated at 0.80 (ADR 0093). Tier-1 routing was NOT run." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$TIERS" = "builtins-condition" ]; then
+            echo "Measured: **Tier-1 under the built-in listing** on \`$EVAL_MODEL\` — a condition, NOT the 0.9 gate (ADR 0086/0087), which was NOT run." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Measured: **Tier-1 routing** on \`$EVAL_MODEL\` — recall/specificity gated at 0.9." >> "$GITHUB_STEP_SUMMARY"
           fi
 
   # The expensive half: ~95 role sessions + ~265 skill sessions + five Tier-3 chains. On demand

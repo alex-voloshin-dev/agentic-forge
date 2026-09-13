@@ -32,8 +32,8 @@ dropped with it) and shows `T` in the progress line; a miss with no session id r
 ### Added — `tiers: activation`, Tier-1b on demand in CI (ADR 0088/0092)
 
 `eval.yml`'s `workflow_dispatch` gains `activation`: the Tier-1b runner against a fresh fixture
-repo per prompt, in the `trigger` job, in place of the routing step. A measurement — ungated
-until `--min-activation` is calibrated against the polished-stand baseline. Not on the weekly cron
+repo per prompt, in the `trigger` job, in place of the routing step. Gated at `--min-activation 0.80`
+since ADR 0093 (above). Not on the weekly cron
 (84 full sessions, ADR 0083).
 
 ### Measured — the note is the fix: 0.571 → 0.929 on the same stand (ADR 0092)
@@ -136,7 +136,7 @@ one-liner").
   relative lift stands; the absolute levels do not. The description rewrite is deferred, not
   cancelled — it was aimed at a reason the diagnostic did not find.
 
-### Added — ask the session why it did the work by hand (ADR 0088, step 4)
+### Added — ask the session why it did the work by hand (the diagnostic before ADR 0088's step 4)
 
 `dev/run_activation_evals.py --ask-why` resumes every session that did NOT invoke its skill and
 puts one neutral question to it — *the `agentic-forge:<skill>` skill was available and you did the
@@ -181,7 +181,9 @@ security-review 1→0/4, deep-review 3→2/5. And there was no control group to 
 fires on all 84 eval prompts, because they are its own training data — so +0.095 is an upper bound
 on real prompts (leave-one-out recall 0.50). The sharpest finding of the series: those four skills
 received the **exact skill name** in the prompt's context and still did the work by hand. The
-bottleneck is not routing information; the model knows and declines. `pre_router.enabled` opts in
+bottleneck is not routing information; the model knows and declines. *(Retracted in ADR 0090: the
+stand had nothing to work on, so this null result is uninterpretable; the hook stays off per ADR
+0091.)* `pre_router.enabled` opts in
 (`AGENTIC_FORGE_PRE_ROUTER=1`); the code and its leave-one-out contract stay under Tier-0.
 
 ## [2026.9.3] - 2026-09-13

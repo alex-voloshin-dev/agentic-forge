@@ -93,6 +93,8 @@ Quality is enforced the same way at every layer:
 - **Tier 0 — static** (always blocks, no LLM): standard validation, frontmatter lint, body
   length, reference resolution, `pytest`, `ruff`, `mypy`, script coverage ≥ 80%.
 - **Tier 1 — trigger**: should-trigger recall ≥ 0.9, should-not-trigger specificity ≥ 0.9.
+- **Tier 1b — activation** (on demand): a live session with the plugin loaded invokes the skill
+  unprompted; the rate pooled over the run ≥ 0.80 (ADR 0088/0093).
 - **Tier 2 — quality** (LLM judge, N ≥ 5): pass-rate lower bound (mean − σ) ≥ 0.8. The opt-in
   `--baseline` skill run also gates the with/without A/B pass-rate lift, the wall-clock time
   overhead, and the token overhead; version-over-version A/B (regression vs a stored benchmark
