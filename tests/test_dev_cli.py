@@ -825,3 +825,448 @@ def test_run_activation_evals_gates_the_pooled_rate(
     assert "never ran [a] Investigate X: limit hit" in out and "1 of 14 never ran" in out
     assert run_activation_evals.main(["run", "--runner", "claude"]) == 0  # measure only
     assert "pooled ----" in capsys.readouterr().out
+
+
+# --- the PR watcher's undetermined outcome, bounds and honest failures (audit 2026-09) -------
+
+import json  # noqa: E402
+import subprocess  # noqa: E402
+
+from agentic_forge import ops, pr_watch  # noqa: E402
+
+
+def _completed(stdout: str, returncode: int = 0, stderr: str = "") -> types.SimpleNamespace:
+    return types.SimpleNamespace(stdout=stdout, returncode=returncode, stderr=stderr)
+
+
+def _enable(tmp_path: Path, extra: str = "") -> None:
+    cfg = tmp_path / ".agentic-forge"
+    cfg.mkdir(parents=True, exist_ok=True)
+    (cfg / "config.json").write_text(
+        '{"pr_watcher": {"enabled": true' + extra + "}}", encoding="utf-8"
+    )
+
+
+def _log(tmp_path: Path) -> str:
+    log = diagnostics.state_root(tmp_path) / diagnostics.DIAGNOSTICS_FILE
+    return log.read_text(encoding="utf-8") if log.is_file() else ""
+
+
+class _Git:
+    """A fake `_git(repo, *args)`: records every call; answers per subcommand."""
+
+    def __init__(self, *, dirty: bool = False, diff: bool = False) -> None:
+        self.calls: list[tuple[str, ...]] = []
+        self.dirty = dirty  # `status --porcelain` shows changes BEFORE the fixer ran
+        self.diff = diff  # `add -A` stages something (the session landed an edit)
+
+    def __call__(self, repo: Path, *args: str) -> types.SimpleNamespace:
+        self.calls.append(args)
+        if args[0] == "status":
+            return _completed(" M a.py\n" if self.dirty else "")
+        if args[:2] == ("diff", "--cached"):
+            return _completed("", returncode=1 if self.diff else 0)
+        if args[0] == "rev-parse":
+            return _completed("abc1234\n")
+        return _completed("")
+
+    def ran(self, *prefix: str) -> bool:
+        return any(c[: len(prefix)] == prefix for c in self.calls)
+
+
+_THREAD = pr_watch.ReviewThread("T1", False, "rev", "fix this", "a.py", 5)
+
+
+def test_fixer_runner_raising_is_undetermined_and_restores_a_clean_tree(tmp_path: Path) -> None:
+    git = _Git()
+
+    def runner(system: str, prompt: str, workdir: Path) -> str:
+        raise RuntimeError("claude call failed after 1 attempts: You've hit your usage limit")
+
+    action, reply = pr_watch_cli._fixer(tmp_path, "m", runner=runner, git=git)(_THREAD)
+    assert action == pr_watch.UNDETERMINED
+    assert reply.startswith("fixer session did not complete: claude call failed")
+    assert git.ran("reset", "--hard") and git.ran("clean", "-fdq")  # half-edits discarded
+    assert not git.ran("commit") and not git.ran("add")
+
+
+def test_fixer_never_discards_a_tree_that_was_dirty_before_it_ran(tmp_path: Path) -> None:
+    git = _Git(dirty=True)  # a manual --apply on a checkout holding the user's own edits
+
+    def runner(system: str, prompt: str, workdir: Path) -> str:
+        raise OSError("claude: command not found")
+
+    action, _ = pr_watch_cli._fixer(tmp_path, "m", runner=runner, git=git)(_THREAD)
+    assert action == pr_watch.UNDETERMINED
+    assert not git.ran("reset") and not git.ran("clean")  # the user's work is left alone
+
+
+@pytest.mark.parametrize("reply", ["", "You've hit your usage limit · resets 3pm"])
+def test_fixer_cli_error_reply_without_a_diff_is_undetermined(tmp_path: Path, reply: str) -> None:
+    git = _Git(diff=False)
+    fix = pr_watch_cli._fixer(tmp_path, "m", runner=lambda s, p, w: reply, git=git)
+    action, why = fix(_THREAD)
+    assert action == pr_watch.UNDETERMINED and ("empty" in why or "CLI error" in why)
+    assert not git.ran("commit")
+
+
+def test_fixer_prose_without_a_diff_is_rejected_and_with_a_diff_is_fixed(tmp_path: Path) -> None:
+    prose = "No change needed: the check already covers this."
+    git = _Git(diff=False)
+    fix = pr_watch_cli._fixer(tmp_path, "m", runner=lambda s, p, w: prose, git=git)
+    assert fix(_THREAD) == (
+        "rejected", "No change made — may be a discussion point or already addressed."
+    )
+    git = _Git(diff=True)
+    fix = pr_watch_cli._fixer(tmp_path, "m", runner=lambda s, p, w: prose, git=git)
+    assert fix(_THREAD) == ("fixed", "Addressed in abc1234.") and git.ran("commit")
+
+
+def test_fixer_builds_a_bounded_runner(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    seen: dict[str, object] = {}
+
+    def fake_runner(**kwargs: object) -> object:
+        seen.update(kwargs)
+        return lambda s, p, w: ""
+
+    monkeypatch.setattr(pr_watch_cli.agent_eval, "claude_cli_runner", fake_runner)
+    pr_watch_cli._fixer(tmp_path, "the-model", max_threads=10)
+    assert seen["retries"] == 0  # one attempt: a retry loop could outlive the whole watch pass
+    assert seen["call_timeout"] == pr_watch.fixer_timeout(10) == 144
+    assert seen["model"] == "the-model" and seen["allowed_tools"] == "Read,Write,Edit,Grep,Glob"
+
+
+def test_pr_watch_apply_undetermined_posts_nothing(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    _enable(tmp_path)
+    calls: list[list[str]] = []
+    pushed: list[bool] = []
+    rc = pr_watch_cli.main(
+        ["x", "--repo", str(tmp_path), "--owner", "o", "--name", "r", "--pr", "42", "--apply"],
+        fetch=_pr_fetch, fixer=lambda t: (pr_watch.UNDETERMINED, "limit hit"),
+        gh_exec=calls.append, push=lambda: pushed.append(True),
+    )
+    out = capsys.readouterr().out
+    assert rc == 0 and "undetermined 1" in out and "fixed 0" in out
+    assert calls == [] and pushed == []  # no reply on the reviewer's thread, nothing pushed
+    assert "undetermined (limit hit)" in _log(tmp_path)  # but audited (forced)
+
+
+# F7: the conflict notice is posted once — and NOT when the comments could not be read.
+
+
+class _ConflictGit:
+    def __init__(self, *, fetch_ok: bool = True, merge_ok: bool = False) -> None:
+        self.fetch_ok, self.merge_ok = fetch_ok, merge_ok
+        self.calls: list[tuple[str, ...]] = []
+
+    def __call__(self, repo: Path, *args: str) -> types.SimpleNamespace:
+        self.calls.append(args)
+        if args[0] == "fetch":
+            return _completed("", returncode=0 if self.fetch_ok else 1)
+        if args[:2] == ("merge", "--no-edit"):
+            return _completed("", returncode=0 if self.merge_ok else 1)
+        return _completed("")
+
+
+def _handler(tmp_path: Path, git: _ConflictGit, bodies: list[str] | None, posted: list) -> object:
+    return pr_watch_cli._conflict_handler(
+        tmp_path, "o", "r", 42, "main", git=git,
+        comment_bodies=lambda repo, owner, name, number: bodies, post=posted.append,
+    )
+
+
+def test_conflict_handler_unreadable_comments_skips_the_notice(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    posted: list[list[str]] = []
+    git = _ConflictGit()
+    assert _handler(tmp_path, git, None, posted)() is False
+    assert posted == []  # unknown is not absent: nothing re-posted this poll
+    assert ("merge", "--abort") in git.calls
+    assert "rebase notice NOT posted" in capsys.readouterr().err
+    assert "rebase notice NOT posted" in _log(tmp_path)  # and recorded why
+
+
+def test_conflict_handler_posts_the_notice_once(tmp_path: Path) -> None:
+    posted: list[list[str]] = []
+    assert _handler(tmp_path, _ConflictGit(), [], posted)() is False
+    assert len(posted) == 1 and pr_watch.CONFLICT_NOTICE in posted[0]  # first poll: posted
+    present = [f"x {pr_watch.CONFLICT_NOTICE}"]
+    assert _handler(tmp_path, _ConflictGit(), present, posted)() is False
+    assert len(posted) == 1  # already there: not again
+
+
+def test_conflict_handler_clean_merge_and_failed_fetch(tmp_path: Path) -> None:
+    posted: list[list[str]] = []
+    assert _handler(tmp_path, _ConflictGit(merge_ok=True), [], posted)() is True
+    git = _ConflictGit(fetch_ok=False)
+    assert _handler(tmp_path, git, [], posted)() is False
+    assert posted == [] and not any(c[0] == "merge" for c in git.calls)  # no merge on a stale base
+
+
+# F11: an empty `gh pr view` body is "unconfirmed", never "not merged".
+
+
+def test_merge_confirmer_empty_output_is_unconfirmed_not_unmerged(tmp_path: Path) -> None:
+    def confirmer(stdout: str) -> pr_watch.ConfirmMerged:
+        return pr_watch_cli._merge_confirmer(
+            tmp_path, "o/r", 42, run=lambda *a, **k: _completed(stdout)
+        )
+
+    with pytest.raises(RuntimeError, match="no output"):
+        confirmer("")()
+    assert confirmer('{"state": "MERGED"}')() is True
+    assert confirmer('{"state": "OPEN"}')() is False
+    # Through run_watch the raise becomes an "unconfirmed" outcome, not an unmerged one.
+    state = pr_watch.parse_pr({"pullRequest": {
+        "number": 42, "mergeable": "MERGEABLE", "headRefName": "f", "baseRefName": "main",
+        "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}]},
+        "reviewThreads": {"nodes": []},
+    }})
+    result = pr_watch.run_watch(
+        state, bot="b", max_threads=1, fixer=lambda t: ("fixed", "x"), gh_exec=lambda a: None,
+        push=lambda: None, merge=lambda: None, auto_merge=True, confirm_merged=confirmer(""),
+    )
+    assert not result.merged
+    assert result.merge_blocked_by == ["merge outcome unconfirmed: gh pr view returned no output"]
+
+
+# F12: an errored `gh pr list` is an error, not "no open PRs".
+
+
+def test_pr_list_errors_are_errors_not_no_open_prs(tmp_path: Path) -> None:
+    list_prs = run_scheduled._pr_list(tmp_path, run=lambda *a, **k: _completed("1\n2\n"))
+    assert list_prs("o", "r") == [1, 2]
+    broken = run_scheduled._pr_list(
+        tmp_path, run=lambda *a, **k: _completed("", 4, "gh: HTTP 403: API rate limit exceeded")
+    )
+    with pytest.raises(RuntimeError, match=r"exit 4\): gh: HTTP 403: API rate limit exceeded"):
+        broken("o", "r")
+
+
+# F2: the watcher runs in its own process group, bounded by the budget, killed as a group.
+
+
+class _Proc:
+    def __init__(self, *, returncode: int = 0, hang: bool = False) -> None:
+        self.pid, self.returncode, self.hang = 4242, returncode, hang
+        self.communicates: list[float | None] = []
+
+    def communicate(self, timeout: float | None = None) -> tuple[None, None]:
+        self.communicates.append(timeout)
+        if self.hang and timeout is not None:
+            raise subprocess.TimeoutExpired(cmd="x", timeout=timeout)
+        return (None, None)
+
+
+def test_run_watcher_kills_the_whole_group_at_the_budget(tmp_path: Path) -> None:
+    spawned: dict[str, object] = {}
+    proc = _Proc(hang=True)
+    killed: list[int] = []
+
+    def popen(cmd: list[str], **kwargs: object) -> _Proc:
+        spawned.update(kwargs)
+        return proc
+
+    rc = run_scheduled._run_watcher(["w"], tmp_path, 7.0, popen=popen, kill_group=killed.append)
+    assert rc is None
+    assert spawned["start_new_session"] is True  # its own group: the kill reaches the grandchild
+    assert killed == [4242] and proc.communicates == [7.0, None]  # killed at 7 s, then reaped
+
+
+def test_run_watcher_returns_the_exit_code(tmp_path: Path) -> None:
+    proc = _Proc(returncode=3)
+    killed: list[int] = []
+    rc = run_scheduled._run_watcher(
+        ["w"], tmp_path, 7.0, popen=lambda *a, **k: proc, kill_group=killed.append
+    )
+    assert rc == 3 and killed == []
+
+
+# F3 / F8: a watch pass reports its outcome; anything but exit 0 is a forced diagnostics event.
+
+
+def test_watch_one_pr_reads_the_exit_code_and_records_failures(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    _enable(tmp_path, ', "auto_merge": true, "bot": "trusted[bot]"')
+    cmds: list[list[str]] = []
+
+    def run_watcher(cmd: list[str]) -> int | None:
+        cmds.append(cmd)
+        return {1: 0, 2: 1, 3: None}[int(cmd[cmd.index("--pr") + 1])]
+
+    watch = run_scheduled._watch_one_pr(
+        tmp_path, checkout=lambda argv: 0, run_watcher=run_watcher
+    )
+    assert watch("o", "r", 1) == run_scheduled.WatchOutcome(True)
+    assert _log(tmp_path) == ""  # a completed pass is not an anomaly
+    assert watch("o", "r", 2) == run_scheduled.WatchOutcome(False, "watcher exited 1")
+    assert watch("o", "r", 3).reason.startswith("watcher killed at the 1800s budget")
+    log = _log(tmp_path)
+    assert "o/r#2: watcher exited 1" in log and "o/r#3: watcher killed" in log
+    assert log.count('"component": "pr-watch-queue"') == 2
+    assert "skip #2" in capsys.readouterr().err
+    # the trusted (pre-checkout) settings reach the watcher as argv, after --apply
+    assert cmds[0][-6:] == [
+        "--apply", "--bot", "trusted[bot]", "--merge-method", "rebase", "--auto-merge"
+    ]
+
+
+def test_watch_one_pr_checkout_failure_is_recorded(tmp_path: Path) -> None:
+    _enable(tmp_path)
+    ran: list[list[str]] = []
+
+    def run_watcher(cmd: list[str]) -> int | None:
+        ran.append(cmd)
+        return 0
+
+    watch = run_scheduled._watch_one_pr(
+        tmp_path, component="pr-watch", checkout=lambda argv: 128, run_watcher=run_watcher
+    )
+    assert watch("o", "r", 9) == run_scheduled.WatchOutcome(False, "checkout failed (exit 128)")
+    assert ran == []  # never --apply on the wrong branch
+
+    def hung(argv: list[str]) -> int:
+        raise subprocess.TimeoutExpired(cmd=argv, timeout=120)
+
+    watch = run_scheduled._watch_one_pr(tmp_path, checkout=hung, run_watcher=run_watcher)
+    assert watch("o", "r", 9).reason.startswith("checkout failed: ")
+    log = _log(tmp_path)
+    assert '"component": "pr-watch"' in log and "checkout failed (exit 128)" in log
+
+
+# F2c / F3: every entry's tick advances, the queue is persisted, THEN failed passes are reported.
+
+
+def _queue(tmp_path: Path, entries: list[dict]) -> Path:
+    path = diagnostics.state_file(tmp_path, pr_watch.QUEUE_FILE)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(entries), encoding="utf-8")
+    return path
+
+
+def test_pr_watch_queue_persists_ticks_then_reports_failed_passes(tmp_path: Path) -> None:
+    _enable(tmp_path)
+    path = _queue(tmp_path, [
+        {"owner": "o", "name": "r", "number": 1},
+        {"owner": "o", "name": "r", "number": 2, "ticks": 5, "failures": 1},
+        {"owner": "o", "name": "r", "number": 3},
+    ])
+
+    def watch_one(owner: str, name: str, number: int) -> run_scheduled.WatchOutcome:
+        if number == 2:
+            return run_scheduled.WatchOutcome(False, "watcher killed at the 1800s budget")
+        if number == 3:
+            raise RuntimeError("driver bug")
+        return run_scheduled.WatchOutcome(True)
+
+    with pytest.raises(RuntimeError, match=r"3 watched, 0 dropped, 3 remaining; 2 of 3 watch"):
+        run_scheduled._pr_watch_queue(tmp_path, watch_one=watch_one, finished=lambda e: False)
+    kept = pr_watch.parse_queue(json.loads(path.read_text(encoding="utf-8")))
+    assert [(e.number, e.ticks, e.failures) for e in kept] == [(1, 1, 0), (2, 6, 2), (3, 1, 1)]
+    assert "o/r#3: watch crashed: driver bug" in _log(tmp_path)
+
+
+def test_pr_watch_queue_drop_reasons_are_true(tmp_path: Path) -> None:
+    _enable(tmp_path, ', "max_ticks": 3')
+    path = _queue(tmp_path, [
+        {"owner": "o", "name": "r", "number": 1, "ticks": 2, "failures": 2},  # every poll failed
+        {"owner": "o", "name": "r", "number": 2},  # merged meanwhile
+    ])
+
+    def watch_one(owner: str, name: str, number: int) -> run_scheduled.WatchOutcome:
+        return run_scheduled.WatchOutcome(number == 2, "" if number == 2 else "watcher exited 1")
+
+    with pytest.raises(RuntimeError, match="1 of 2 watch pass"):
+        run_scheduled._pr_watch_queue(
+            tmp_path, watch_one=watch_one, finished=lambda e: e.number == 2
+        )
+    assert json.loads(path.read_text(encoding="utf-8")) == []  # both left the queue
+    log = _log(tmp_path)
+    assert "dropped o/r#1 (tick budget spent: 3 of 3 polls failed)" in log
+    assert "dropped o/r#2 (finished (merged or closed))" in log
+
+
+def test_pr_watch_queue_all_ok_is_a_plain_summary(tmp_path: Path) -> None:
+    _enable(tmp_path)
+    _queue(tmp_path, [{"owner": "o", "name": "r", "number": 1}])
+
+    def watch_one(owner: str, name: str, number: int) -> run_scheduled.WatchOutcome:
+        return run_scheduled.WatchOutcome(True)
+
+    summary = run_scheduled._pr_watch_queue(tmp_path, watch_one=watch_one, finished=lambda e: False)
+    assert summary == "pr-watch-queue: 1 watched, 0 dropped, 1 remaining"
+    assert _log(tmp_path) == ""
+
+
+def test_run_scheduled_job_failure_is_a_diagnostics_event(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom(repo: Path) -> str:
+        raise RuntimeError("action failed")
+
+    monkeypatch.setitem(run_scheduled._ACTIONS, "kb_maintenance", boom)
+    assert run_scheduled.main(["run", "--repo", str(tmp_path), "--force"]) == 1
+    log = _log(tmp_path)
+    assert '"component": "scheduled-run"' in log and "kb-maintenance: action failed" in log
+    assert '"kind": "error"' in log
+
+
+# F5: the deploy digest says "unknown" when a source is down — never "healthy" on zero data.
+
+
+class _Pipe:
+    """A pipeline source that is NOT the in-memory fake (which short-circuits the digest)."""
+
+    def __init__(self, deploys: list[ops.Deploy] | None = None, why: str = "") -> None:
+        self.deploys, self.why = deploys or [], why
+
+    def recent_deploys(self, environment: str) -> list[ops.Deploy]:
+        if self.why:
+            raise ops.SourceUnavailable(self.why)
+        return list(self.deploys)
+
+
+class _DownAlerts:
+    def active_alerts(self, environment: str) -> list[ops.Alert]:
+        raise ops.SourceUnavailable("grafana fetch failed: HTTP 401")
+
+
+def _digest(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, pipe: object, alerts: object) -> str:
+    monkeypatch.setattr(run_scheduled.connectors, "pipeline_source", lambda repo: pipe)
+    monkeypatch.setattr(run_scheduled.connectors, "alert_source", lambda: alerts)
+    return run_scheduled._deploy_digest(tmp_path)
+
+
+def test_deploy_digest_says_unknown_when_the_source_is_down(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    line = _digest(monkeypatch, tmp_path, _Pipe(why="gh run list timed out after 60s"),
+                   ops.InMemoryAlerts({}))
+    assert line == (
+        "deploy-digest [production]: unknown — source unavailable "
+        "(pipeline: gh run list timed out after 60s)"
+    )
+
+
+def test_deploy_digest_names_a_down_source_next_to_a_real_verdict(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    failing = _Pipe([ops.Deploy("abc", "failing", "production")])
+    line = _digest(monkeypatch, tmp_path, failing, _DownAlerts())
+    assert line.startswith("deploy-digest [production]: failing — roll back")
+    assert line.endswith(
+        "(1 recent runs); source unavailable (alerts: grafana fetch failed: HTTP 401)"
+    )
+
+
+def test_deploy_digest_healthy_line_unchanged(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    passing = _Pipe([ops.Deploy("abc", "passing", "production")])
+    assert _digest(monkeypatch, tmp_path, passing, ops.InMemoryAlerts({})) == (
+        "deploy-digest [production]: healthy — none — continue monitoring (1 recent runs)"
+    )

@@ -44,6 +44,11 @@ __all__ = [
     "run_watch",
     "parse_repos",
     "watch_repos",
+    "UNDETERMINED",
+    "WATCH_BUDGET_SECONDS",
+    "FIXER_TIMEOUT_FLOOR",
+    "fixer_timeout",
+    "reply_never_ran",
 ]
 
 # The body the watcher posts when it can't auto-resolve a conflict. A constant so the post and the
@@ -126,6 +131,9 @@ class WatchResult:
     actionable: list[str] = field(default_factory=list)  # thread ids that needed attention
     fixed: list[str] = field(default_factory=list)  # threads fixed + resolved
     rejected: list[str] = field(default_factory=list)  # threads answered but left open
+    # Threads whose fixer session never ran (a usage limit, an auth error, a crash): NOTHING was
+    # posted and the thread is left, untouched, for the next poll. Not "handled" in any sense.
+    undetermined: list[str] = field(default_factory=list)
     pushed: bool = False
     conflicting: bool = False
     conflict_resolved: bool = False  # a CONFLICTING PR was rebased clean (1b, ADR 0045)
@@ -371,7 +379,10 @@ def plan_watch(state: PrState, *, bot: str, max_threads: int) -> WatchResult:
 
 
 # Seams: the model fix decision, the gh write, the git push. fixer(thread) -> (action, reply) where
-# action is "fixed" (applied + resolve the thread) or "rejected" (reply only, leave it open).
+# action is "fixed" (applied + resolve the thread), "rejected" (reply only, leave it open) or
+# UNDETERMINED (the fixer session never ran: post nothing, leave the thread for the next poll —
+# then `reply` is the reason, for the audit row, not a text for the reviewer).
+UNDETERMINED = "undetermined"
 Fixer = Callable[[ReviewThread], "tuple[str, str]"]
 GhExec = Callable[[list[str]], None]
 Push = Callable[[], None]
@@ -379,6 +390,69 @@ Merge = Callable[[], None]
 # Reads the PR's own merged state (see `merged_argv` / `parse_merged`). Supplying it makes the
 # merge outcome an OBSERVATION rather than an inference from the merge command's exit status.
 ConfirmMerged = Callable[[], bool]
+
+# --- the fixer's bounds ------------------------------------------------------
+# One watch pass over one PR must finish inside this budget: the scheduled driver kills the
+# watcher — its whole process group — when it is exceeded. Shared here so the driver's timeout
+# and the fixer's per-call timeout derive from the same number.
+WATCH_BUDGET_SECONDS = 1800
+# The least time one fixer call gets, however many threads share the budget: below this a
+# headless software-engineer session cannot read the file and land an edit at all.
+FIXER_TIMEOUT_FLOOR = 60
+# The share of the budget the fixer calls may use; the rest is headroom for the fetch, the push,
+# the conflict merge and the merge itself (each bounded by its own subprocess timeout).
+_FIXER_BUDGET_SHARE = 0.8
+
+
+def fixer_timeout(max_threads: int, *, budget: int = WATCH_BUDGET_SECONDS) -> int:
+    """Seconds one fixer call may take so that ``max_threads`` calls fit inside ``budget``.
+
+    The fixer used to run on the eval runner's defaults — three retries of a 900 s call, up to
+    ~3690 s per thread — under an 1800 s driver budget, so a slow pass was killed mid-thread. Note
+    the floor: a very large ``max_threads`` can still overrun the budget, and then the driver's
+    group kill is what bounds the pass."""
+    per_call = int(budget * _FIXER_BUDGET_SHARE) // max(1, max_threads)
+    return max(FIXER_TIMEOUT_FLOOR, per_call)
+
+
+# Reply text that is the CLI reporting it could NOT run the session — a usage or rate limit, an
+# auth failure, an execution error — rather than the model's answer. Matched near the START of
+# the reply (case-insensitive): these are whole-result messages, whereas a model reply that merely
+# mentions a limit further in is prose about the change.
+_NEVER_RAN_MARKERS = (
+    "you've hit your",  # "You've hit your usage/session limit ..."
+    "you have hit your",
+    "usage limit reached",  # "Claude AI usage limit reached|<epoch>"
+    "rate_limit",  # an API rate_limit_error surfaced as the result text
+    "rate limit exceeded",
+    "not logged in",  # "Not logged in · Please run /login"
+    "invalid api key",
+    "api error:",  # "API Error: 4xx/5xx ..." — the colon keeps "the API error handling" prose out
+    "api error (",  # "API Error (Request timed out.)"
+    "error_during_execution",  # result subtypes the CLI reports without a result text
+    "error_max_turns",
+    "credit balance is too low",
+    "overloaded_error",  # a 529
+)
+_NEVER_RAN_WINDOW = 80  # a marker must start within this many characters to be the subject
+
+
+def reply_never_ran(reply: str) -> str | None:
+    """Why a fixer reply cannot be read as the model's decision, or ``None`` when it can.
+
+    An empty reply, or one that opens with the CLI's own limit / auth / execution-error wording,
+    means the software-engineer session never got a turn. Read as "no change made", such a reply
+    once posted a canned rejection on a reviewer's thread while the account was rate-limited; the
+    watcher now reports the thread :data:`UNDETERMINED` and leaves it for the next poll. The
+    caller consults this only when no diff landed — a session that edited the tree did run."""
+    text = " ".join(str(reply).split())
+    if not text:
+        return "empty reply from the fixer session"
+    head = text[:_NEVER_RAN_WINDOW].lower()
+    for marker in _NEVER_RAN_MARKERS:
+        if marker in head:
+            return f"reply reads as a CLI error: {text[:120]}"
+    return None
 
 
 def run_watch(
@@ -397,7 +471,10 @@ def run_watch(
 ) -> WatchResult:
     """Run the bounded auto-fix loop over a PR's actionable threads (ADR 0044): per thread the
     ``fixer`` decides fix-vs-reject and the reply; a fix posts the reply, resolves the thread; a
-    rejection posts the reasoned reply and leaves the thread open. On a ``CONFLICTING`` PR the
+    rejection posts the reasoned reply and leaves the thread open. A fixer that answers
+    :data:`UNDETERMINED` — or raises — never ran the session (a usage limit, an auth error, a
+    crash): **nothing is posted**, the thread is recorded ``undetermined`` with the reason and left
+    for the next poll, and it counts as neither fixed nor rejected. On a ``CONFLICTING`` PR the
     ``handle_conflict`` seam (1b, ADR 0045) attempts a mechanical resolve — it returns True if the
     rebase landed clean (so the push delivers it) and is expected to post a comment + return False
     when it can't. The push fires once if anything was fixed **or** a conflict was resolved.
@@ -426,7 +503,18 @@ def run_watch(
     result = WatchResult(conflicting=state.conflicting)
     for thread in actionable_threads(state, bot=bot)[:max_threads]:
         result.actionable.append(thread.id)
-        action, reply = fixer(thread)
+        try:
+            action, reply = fixer(thread)
+        except Exception as exc:  # noqa: BLE001 — a seam crash is not a decision about the thread
+            action, reply = UNDETERMINED, f"fixer raised {type(exc).__name__}: {exc}"
+        if action == UNDETERMINED:
+            # A reply the model never wrote must not reach the reviewer — a limit-hit session once
+            # read as "no change made" and posted a canned rejection. Post nothing; the thread
+            # stays open, untouched, for the next poll.
+            result.undetermined.append(thread.id)
+            if record:
+                record(f"thread {thread.id} ({thread.path}): undetermined ({reply})")
+            continue
         gh_exec(reply_argv(thread.id, reply))
         if action == "fixed":
             gh_exec(resolve_argv(thread.id))
@@ -549,13 +637,16 @@ _SLUG = re.compile(r"^[A-Za-z0-9._-]+$")
 
 @dataclass(frozen=True)
 class WatchEntry:
-    """One PR the watcher was asked to carry. ``ticks`` counts drains spent on it."""
+    """One PR the watcher was asked to carry. ``ticks`` counts drains spent on it; ``failures``
+    counts the drains whose watch pass did not complete (checkout failed, the watcher exited
+    non-zero or was killed at the budget), so a drop can say how many polls actually ran."""
 
     owner: str
     name: str
     number: int
     branch: str = ""
     ticks: int = 0
+    failures: int = 0
 
     @property
     def slug(self) -> str:
@@ -583,9 +674,20 @@ def parse_queue(payload: Any) -> list[WatchEntry]:
             continue
         out.append(
             WatchEntry(owner, name, number, str(item.get("branch", "") or ""),
-                       int(item.get("ticks", 0) or 0))
+                       _count(item.get("ticks")), _count(item.get("failures")))
         )
     return out
+
+
+def _count(value: Any) -> int:
+    """A non-negative int from an untrusted counter field; junk reads as 0 and never raises (a
+    corrupt ``ticks`` once could have taken the scheduler down with a ``ValueError``)."""
+    if isinstance(value, bool):
+        return 0
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
 
 
 def queue_add(queue: list[WatchEntry], entry: WatchEntry) -> list[WatchEntry]:
@@ -596,21 +698,49 @@ def queue_add(queue: list[WatchEntry], entry: WatchEntry) -> list[WatchEntry]:
     return [*queue, entry][:MAX_QUEUE]
 
 
-def queue_after_tick(entry: WatchEntry, *, finished: bool, max_ticks: int) -> WatchEntry | None:
+def tick_entry(entry: WatchEntry, *, failed: bool = False) -> WatchEntry:
+    """The entry after one drain: ``ticks`` + 1, and ``failures`` + 1 when the pass did not
+    complete (the tick still advances — a hung or crashing watcher must not be re-spawned
+    forever on an entry whose counter never moves)."""
+    return WatchEntry(
+        entry.owner, entry.name, entry.number, entry.branch,
+        entry.ticks + 1, entry.failures + (1 if failed else 0),
+    )
+
+
+def queue_after_tick(
+    entry: WatchEntry, *, finished: bool, max_ticks: int, failed: bool = False
+) -> WatchEntry | None:
     """The entry's next state, or ``None`` when it should leave the queue (ADR 0068).
 
     It leaves when the PR is finished (merged/closed — the gate already reads `state`) or when its
     tick budget is exhausted. Nothing is watched forever: a PR that never becomes mergeable would
-    otherwise hold a poll slot indefinitely."""
+    otherwise hold a poll slot indefinitely. ``failed`` says this drain's pass did not complete;
+    it is counted (see :func:`tick_entry`) so the drop reason can be true."""
     if finished:
         return None
-    nxt = WatchEntry(entry.owner, entry.name, entry.number, entry.branch, entry.ticks + 1)
+    nxt = tick_entry(entry, failed=failed)
     return None if nxt.ticks >= max_ticks else nxt
+
+
+def drop_reason(entry: WatchEntry, *, finished: bool, failed: bool = False) -> str:
+    """Why ``entry`` leaves the queue on this tick, with the true counts.
+
+    "finished or tick budget spent" once covered a PR whose every poll had crashed — the
+    watcher's exit code was discarded, so 144 failed polls read as a completed watch. The reason
+    now says which it was and how many of the polls actually ran."""
+    if finished:
+        return "finished (merged or closed)"
+    nxt = tick_entry(entry, failed=failed)
+    return f"tick budget spent: {nxt.failures} of {nxt.ticks} polls failed"
 
 
 def queue_dump(queue: list[WatchEntry]) -> list[dict[str, Any]]:
     """The queue as plain JSON-serialisable data."""
     return [
-        {"owner": e.owner, "name": e.name, "number": e.number, "branch": e.branch, "ticks": e.ticks}
+        {
+            "owner": e.owner, "name": e.name, "number": e.number, "branch": e.branch,
+            "ticks": e.ticks, "failures": e.failures,
+        }
         for e in queue
     ]

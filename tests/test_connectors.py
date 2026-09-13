@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import types
 
 import pytest
 
@@ -95,12 +97,60 @@ def test_recent_deploys_parses_fetched_payload(monkeypatch: pytest.MonkeyPatch) 
     assert len(deploys) == 1 and deploys[0].status == "passing"
 
 
-def test_recent_deploys_degrades_on_fetch_error(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_recent_deploys_fetch_error_is_unavailable_not_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A failed fetch used to degrade to [] — which the assessment read as *healthy*.
     def boom(repo: str, limit: int) -> str:
         raise OSError("gh not found")
 
     monkeypatch.setattr(connectors, "_gh_run_list", boom)
-    assert GhPipelineSource("owner/repo").recent_deploys("prod") == []
+    with pytest.raises(ops.SourceUnavailable, match="gh run list failed: gh not found"):
+        GhPipelineSource("owner/repo").recent_deploys("prod")
+
+
+def test_recent_deploys_timeout_and_exit_code_are_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def slow(repo: str, limit: int) -> str:
+        raise subprocess.TimeoutExpired(cmd="gh", timeout=60)
+
+    monkeypatch.setattr(connectors, "_gh_run_list", slow)
+    with pytest.raises(ops.SourceUnavailable, match="gh run list timed out after 60s"):
+        GhPipelineSource("owner/repo").recent_deploys("prod")
+
+    def denied(repo: str, limit: int) -> str:
+        raise subprocess.CalledProcessError(4, "gh", stderr="gh: HTTP 403: API rate limit exceeded")
+
+    monkeypatch.setattr(connectors, "_gh_run_list", denied)
+    with pytest.raises(ops.SourceUnavailable, match=r"exited 4: gh: HTTP 403: API rate limit"):
+        GhPipelineSource("owner/repo").recent_deploys("prod")
+
+
+@pytest.mark.parametrize(
+    "body", ["", "<!DOCTYPE html><html>sign in</html>", '{"message": "Bad credentials"}']
+)
+def test_recent_deploys_non_json_or_non_list_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch, body: str
+) -> None:
+    monkeypatch.setattr(connectors, "_gh_run_list", lambda repo, limit: body)
+    with pytest.raises(ops.SourceUnavailable, match="gh run list returned"):
+        GhPipelineSource("owner/repo").recent_deploys("prod")
+    assert parse_gh_runs(body, "prod") == []  # the pure parser stays tolerant
+
+
+def test_gh_run_list_seam_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The real seam runs on the daily scheduled path: unbounded, a stalled `gh` blocked the whole
+    # run and its state was never saved.
+    seen: dict[str, object] = {}
+
+    def fake_run(argv: list[str], **kwargs: object) -> types.SimpleNamespace:
+        seen.update(kwargs)
+        return types.SimpleNamespace(stdout="[]")
+
+    monkeypatch.setattr(connectors.subprocess, "run", fake_run)
+    assert connectors._gh_run_list("o/r", 5) == "[]"
+    assert seen["timeout"] == connectors.GH_TIMEOUT_SECONDS == 60 and seen["check"] is True
 
 
 # --- pipeline_source selection ---------------------------------------------------------
@@ -185,12 +235,24 @@ def test_grafana_source_parses_fetched(monkeypatch: pytest.MonkeyPatch) -> None:
     assert len(alerts) == 1 and alerts[0].severity == "critical"
 
 
-def test_grafana_source_degrades_on_error(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_grafana_source_fetch_error_is_unavailable_not_no_alerts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     def boom(url: str, token: str) -> str:
         raise OSError("network")
 
     monkeypatch.setattr(connectors, "_grafana_alerts", boom)
-    assert GrafanaAlertSource("https://g.example").active_alerts("prod") == []
+    with pytest.raises(ops.SourceUnavailable, match="grafana fetch failed: network"):
+        GrafanaAlertSource("https://g.example").active_alerts("prod")
+
+
+def test_grafana_login_page_is_unavailable_not_no_alerts(monkeypatch: pytest.MonkeyPatch) -> None:
+    # An expired token answers 200 with the login page: not "no alerts".
+    page = "<!DOCTYPE html><html><title>Grafana</title></html>"
+    monkeypatch.setattr(connectors, "_grafana_alerts", lambda url, token: page)
+    with pytest.raises(ops.SourceUnavailable, match="grafana alerts returned non-JSON"):
+        GrafanaAlertSource("https://g.example", "tok").active_alerts("prod")
+    assert parse_grafana_alerts(page, "prod") == []  # the pure parser stays tolerant
 
 
 def test_grafana_source_refuses_non_http_scheme(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -204,7 +266,8 @@ def test_grafana_source_refuses_non_http_scheme(monkeypatch: pytest.MonkeyPatch)
         return "[]"
 
     monkeypatch.setattr(connectors, "_grafana_alerts", spy)
-    assert GrafanaAlertSource("file:///etc/passwd", "tok").active_alerts("prod") == []
+    with pytest.raises(ops.SourceUnavailable, match="not http"):  # misconfigured != "no alerts"
+        GrafanaAlertSource("file:///etc/passwd", "tok").active_alerts("prod")
     assert not called  # short-circuited before the fetch
 
 
