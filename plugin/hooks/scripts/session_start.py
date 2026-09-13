@@ -37,11 +37,13 @@ SKILL_ROUTING_NOTE = (
 def build_context(cwd: str) -> str:
     """The ``additionalContext`` to inject for repo ``cwd``.
 
-    The routing note is unconditional — it is the intervention ADR 0088's baseline calls for, and
-    it must reach a session whether or not the repo has a knowledge vault. The vault map follows
-    when there is one."""
+    The routing note goes first, whether or not the repo has a knowledge vault, unless
+    ``routing_note.enabled`` is off (``AGENTIC_FORGE_ROUTING_NOTE=0`` — the switch its own A/B uses,
+    ADR 0091). The vault map follows when there is one."""
     summary = vault.session_summary(cwd)
-    return f"{SKILL_ROUTING_NOTE}\n\n{summary}" if summary.strip() else SKILL_ROUTING_NOTE
+    note = SKILL_ROUTING_NOTE if settings.resolve(cwd).routing_note_enabled else ""
+    parts = [p for p in (note, summary) if p.strip()]
+    return "\n\n".join(parts)
 
 
 def main() -> int:

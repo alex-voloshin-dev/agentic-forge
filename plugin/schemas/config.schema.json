@@ -171,6 +171,17 @@
           "description": "Default false: measured at +0.095 activation over the SessionStart note (inside single-run noise) and no effect on the skills with an obvious by-hand path (ADR 0089). Opt in for the middle band. Overridable with AGENTIC_FORGE_PRE_ROUTER."
         }
       }
+    },
+    "routing_note": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The SessionStart note telling the session that agentic-forge skills are workflows to invoke (2026.9.3). On by default.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Default true. Overridable with AGENTIC_FORGE_ROUTING_NOTE \u2014 the switch the note's own A/B uses (ADR 0091)."
+        }
+      }
     }
   }
 }
