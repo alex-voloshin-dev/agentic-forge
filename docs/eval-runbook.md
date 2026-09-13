@@ -267,11 +267,15 @@ different sizes (ADR 0083):
 Tier-1 is the scheduled one because the router listing is at its context ceiling: one description
 edit can break a neighbour's routing, and nothing else catches that. Tier-2/3 move with a release,
 not with the calendar — and a weekly run of them would not fit a 6-hour GitHub job anyway.
-`workflow_dispatch` takes a `tiers` input (`all` / `trigger-only` / `builtins-condition`) so a
+`workflow_dispatch` takes a `tiers` input (`all` / `trigger-only` / `builtins-condition` / `activation`) so a
 manual run can stay cheap. `builtins-condition` is ADR 0086's measurement — the same Tier-1 prompts
 against the listing a live session actually shows (Claude Code's built-ins beside ours, ours
 namespaced); locally: `python dev/run_tier1_evals.py --runner claude --with-builtins`. Its results
-are recorded under `tier1-builtins:` and are not the gate.
+are recorded under `tier1-builtins:` and are not the gate. `activation` runs **Tier-1b** (ADR 0088):
+each on-listing skill's should_trigger prompts through a real `claude -p --plugin-dir` session in a
+fresh fixture repo, scanning for a `Skill` call — the property the field reports are about. Locally:
+`python dev/run_activation_evals.py --runner claude [--ask-why] [--env K=V]`. A measurement until
+`--min-activation` is set from the polished-stand baseline (ADR 0092).
 
 Setup:
 
