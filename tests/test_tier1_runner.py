@@ -735,3 +735,35 @@ def test_losses_on_should_not_trigger_prompts_are_not_counted() -> None:
     assert sum(report.lost_to.values()) == len(
         next(t for t in load_triggers(PLUGIN) if t.name == "research").should_trigger
     )
+
+
+# --- the answer may come FIRST too (ADR 0088) ---------------------------------
+
+
+@pytest.mark.parametrize(
+    ("reply", "decision"),
+    [
+        # verbatim: skill-factory's should-not-trigger prompt, rejected 4/5 for length
+        (
+            "none The user is asking a general conceptual question, not requesting a task that "
+            "any skill performs.",
+            "none",
+        ),
+        ("deep-review. Reason: the request asks for a rigorous, adversarial pass.", "deep-review"),
+        ("Skill(product) The best match is agentic-forge:product — writing a PRD.", "product"),
+        ("`research`: it is an investigation before speccing anything at all here.", "research"),
+    ],
+)
+def test_answer_first_then_explanation_is_a_decision(reply: str, decision: str) -> None:
+    assert classify_reply(reply, sorted(ON_LISTING)).decision == decision
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "research is not the right skill for this, nothing here fits the request at all",
+        "Review the request first, then decide whether any of the listed skills apply to it",
+    ],
+)
+def test_a_leading_word_that_is_just_a_word_is_not_an_answer(reply: str) -> None:
+    assert classify_reply(reply, sorted(ON_LISTING)).decision == "invalid"

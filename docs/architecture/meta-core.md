@@ -30,6 +30,7 @@ plugin/
     handoff.py agent_eval.py          # L1/eval-harness additions
     spine_e2e.py stacks.py            # L2 spine: Tier-3 E2E + by-stack detection
     tier1_runner.py skill_eval.py     # L2: skill Tier-1 (live listing) + skill Tier-2 runners
+    activation.py                     # L2: skill Tier-1b (unprompted activation, ADR 0088)
     vault.py                          # L3: Obsidian knowledge-vault core (ADR 0018)
     guardrails.py                     # L4: guardrail hook logic (ADR 0019)
     ops.py release.py                 # Stage 4: deploy/incident assessment + release core (ADR 0021)
@@ -65,6 +66,7 @@ pyproject.toml                        # uv / pytest / ruff / mypy config
 | `spine_e2e.py` | Tier-3 end-to-end runner — a `Scenario` registry (the SDLC `spine` + the `quality-gate` / `ops-incident` / `product-inception` / `market-brief` domain scenarios) carried through their phases on an isolated fixture copy, with deterministic per-phase checkpoints (L2; ADR 0030). |
 | `stacks.py` | Deterministic stack detection for target repos: `detect`/`primary` from hints/manifests plus the toolchain registry the spine's `develop`/`code-review` consume (by-stack; ADR 0015). |
 | `tier1_runner.py` | Tier-1 trigger runner on the **live** skill listing: classify each on-listing skill's trigger prompts via the router, gate recall/specificity (ADR 0016). An off-format reply is `INVALID` — dropped from the denominator and reported, never mined for a skill name; an all-invalid prompt is `unmeasured` and fails (ADR 0064). |
+| `activation.py` | **Tier-1b** activation runner (ADR 0088): run each skill's should_trigger prompts through a REAL Claude Code session with the plugin loaded and scan the transcript for a `Skill` tool call naming that skill — the fraction that fire unprompted, where Tier-1 only measures the router answering when asked. A measurement by default (no gate) until a baseline sets a threshold. |
 | `skill_eval.py` | Skill Tier-2 quality runner: knowledge skills run as the `software-engineer` with them loaded, others directly; reuses `agent_eval.run_eval_cases` (ADR 0017). |
 | `vault.py` | L3 knowledge-vault core: parse/resolve `[[wikilinks]]`, load + validate the note graph, scaffold, add+link notes, rank recall candidates, build the session-start summary (ADR 0018). |
 | `guardrails.py` | L4 guardrail logic: dangerous-command deny-list, test-gate command choice, secret redaction + audit record, subagent-budget counter (ADR 0019). |
