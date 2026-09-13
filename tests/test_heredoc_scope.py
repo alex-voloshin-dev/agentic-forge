@@ -48,11 +48,31 @@ def test_documentation_heredoc_is_not_a_command(command: str) -> None:
         _doc("sh -s", DUMP),
         _doc("ssh deploy@host", RM),  # a remote shell runs it too
         f"cat <<'EOF' | bash\n{DUMP}\nEOF",  # piped into an interpreter on the OPENING line
+        _doc("kubectl exec -it pod -- sh", RM),  # a remote exec runs it
+        _doc("docker exec -i app sh", RM),
+        _doc("fly ssh console", RM),
+        _doc("sudo -u deploy bash", RM),  # a wrapper argument does not hide the executor
+        f"cat <<'EOF' | ssh host\n{RM}\nEOF",  # piped into a remote shell on the OPENING line
     ],
 )
 def test_an_executed_body_stays_in_scope(command: str) -> None:
     """Any body its receiver will RUN must still be classified — no bypass."""
     assert guardrails.classify_command(command).block
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        _doc("cat > ssh-notes.md", RM),  # a file NAME containing ssh is not a remote shell
+        _doc("cat > kubectl-exec-notes.md", RM),
+        _doc("tee -a docs/bash-tips.md", RM),
+        _doc("cat > notes.md", f"ssh host {RM}"),  # the body mentions ssh; the receiver is cat
+    ],
+)
+def test_a_receiver_is_a_token_not_a_substring(command: str) -> None:
+    """The remote-shell test used a `\\bssh\\b` regex over the opening line, so `ssh-notes.md`
+    kept a documentation body in scope (2026-09 audit, A8)."""
+    assert not guardrails.classify_command(command).block
 
 
 @pytest.mark.parametrize("receiver", ["bash", "sh -s", "python3", "node", "/usr/bin/perl"])

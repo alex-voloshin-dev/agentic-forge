@@ -89,21 +89,49 @@ ALLOW = Decision(False)
 
 # --- security: dangerous-command deny-list -----------------------------------
 
-# A target that means "everything": filesystem root, home, or a top-level system dir (NOT
-# /tmp/x, ./build, ~/Downloads). Quotes are stripped before matching so "/" and '/usr' are seen.
-_DANGER_TARGET = re.compile(
-    r"(?:^|\s)(?:"
+# A target that means "everything": filesystem root, a whole home, or an OS tree. How deep a
+# sub-path still counts depends on the tree. The 2026-09 audit found EVERY path under /home, /root,
+# /var and /usr read as a system target, so on Linux any absolute path inside the user's own home
+# (a CI workspace, a pip cache) blocked while the same path under /Users passed:
+#
+#   target                                  itself   1st level             deeper
+#   /  /*                                   block    -                     -
+#   ~  $HOME  (also ~/*)                    block    allow (~/Downloads)   allow
+#   /home  /Users  (the home trees)         block    block (/home/u is ~)  allow (/home/u/x)
+#   /root  (root's ~)                       block    allow (/root/.cache)  allow
+#   /usr /etc /bin /sbin /lib* /boot        block    block                 block  (OS trees)
+#   /System /Library                        block    block                 block  (OS trees)
+#   /var  /opt                              block    block (/var/lib)      block, except the
+#                                                                          _TEMP_EXEMPT trees
+#
+# A path INSIDE a home is a project path (`~/Downloads/tmp` was always allowed, and `/home/u/x` is
+# the same place); an OS tree is system damage at any depth (`/usr/lib/x` is still /usr); /var and
+# /opt keep the any-depth rule because their children are services' data, not the user's. `find`
+# uses the bare roots only (a sub-path is targeted cleanup) — see _TOK_FIND_TARGET.
+_HOME_ALIASES = r"(?:~|\$HOME|\$\{HOME\})(?:/\*?)?"  # ~, ~/, ~/* — never ~/x
+_SYSTEM_TREES = r"usr|etc|bin|sbin|lib(?:32|64|x32)?|boot|System|Library|var|opt"
+_SYSTEM_ROOTS = rf"{_SYSTEM_TREES}|root|home|Users"  # the bare roots (find's start path)
+_DANGER_ALT = (
     r"/\*?"  # / or /*
-    r"|~/?|\$HOME/?|\$\{HOME\}/?"  # home
-    r"|/(?:usr|etc|bin|sbin|lib|lib64|boot|var|opt|root|home)(?:/\S*)?"  # system dirs
-    r")(?:\s|$)"
+    rf"|{_HOME_ALIASES}"
+    r"|/(?:home|Users)(?:/[^/\s]+)?(?:/\*?)?"  # /home, /home/<user> (and their / and /* forms)
+    r"|/root(?:/\*?)?"  # root's home itself
+    rf"|/(?:{_SYSTEM_TREES})(?:/\S*)?"  # OS trees, /var and /opt at any depth
 )
-# macOS puts the PER-USER temp directory under /var: `mktemp -d` returns
-# /var/folders/<hash>/<hash>/T/tmp.XXXX (and the same path under /private, which /var links to).
-# Deleting one's own temp directory is the normal cleanup path, not an attack on a system
-# directory, and blocking it was a field false positive that fired twice in one session (ADR
-# 0081). Exempt a path INSIDE a session temp dir; the shared roots above it stay protected.
-_TEMP_EXEMPT = re.compile(r"(?:/private)?/var/folders/[^/\s]+/[^/\s]+(?:/\S*)?")
+# The legacy text form (an unparseable segment only): the target as a whitespace-delimited word.
+# Quotes are stripped before matching so "/" and '/usr' are seen.
+_DANGER_TARGET = re.compile(rf"(?:^|\s)(?:{_DANGER_ALT})(?:\s|$)")
+# Temp trees under /var that are the user's own, not a system directory. macOS puts the PER-USER
+# temp directory there: `mktemp -d` returns /var/folders/<hash>/<hash>/T/tmp.XXXX (and the same
+# path under /private, which /var links to), and blocking its cleanup was a field false positive
+# that fired twice in one session (ADR 0081). /var/tmp/<x> is the same kind of place, and $TMPDIR
+# is the variable both come from. A path INSIDE such a tree is exempt; the shared roots above it
+# (/var, /var/tmp, /var/folders, /var/folders/<hash>) stay protected.
+_TEMP_EXEMPT = re.compile(
+    r"(?:/private)?/var/folders/[^/\s]+/[^/\s]+(?:/\S*)?"
+    r"|(?:/private)?/var/tmp/[^\s*]\S*"
+    r"|\$\{?TMPDIR\}?(?:/\S*)?"
+)
 
 
 def _is_danger_target(token: str) -> bool:
@@ -123,19 +151,58 @@ _RM_FORCE = re.compile(r"(?<![\w-])-\w*f\w*\b|--force\b")
 
 _CHMOD = re.compile(r"\bchmod\b")
 _CHMOD_RECURSIVE = re.compile(r"(?<![\w-])-\w*R\w*\b|--recursive\b")
-# a permissive mode: 777 (any leading digit) or a symbolic grant of write/all (a+rwx, o+w, +w).
-# NB: the symbolic clause is anchored with (?<![\w+=]) so re.search can't retry [ugoa]* at every
+# A permissive mode is one that opens the tree to OTHER users: a numeric mode whose others digit
+# carries the write bit (777, 666, 0777, 1777 — not 755 or 700), or a symbolic grant of w/x to
+# `o`, `a`, or to nobody in particular (`o+w`, `a+rwx`, `+x`, `a=rwx`: a bare who-set means all
+# but umask). A grant to the owner or the group (`u+x`, `g+rwx`, `ug+rwx`) is routine maintenance
+# and never counts, so `chmod -R u+x /home/deploy/scripts` (a 2026-09 audit false positive) passes.
+# NB: both clauses open with a negative lookbehind so re.search can't retry the who-set at every
 # position of a long run — without it a crafted `chmod -R ugoa…ugoa /etc` is quadratic ReDoS.
-_PERMISSIVE_MODE = re.compile(r"(?<!\d)[0-7]?777\b|(?<![\w+=])[ugoa]*\+[rwxX]*[wx][rwxX]*|a=rwx\b")
+_PERMISSIVE_MODE = re.compile(
+    r"(?<![\w./-])[0-7]?[0-7]{2}[2367](?![\w./-])"
+    r"|(?<![\w+=])(?:[ugo]*[oa][ugoa]*)?(?:\+[rwxXst]*[wx][rwxXst]*|=[rwxXst]*w[rwxXst]*)"
+)
+
+# Block messages name the hazard AND the safe alternative: a block with no way forward was the
+# 2026-09 audit's A9 — the reader was told what not to do and left to guess what to do instead.
+_QUOTED_TEXT_HINT = (
+    " If this pattern is quoted TEXT you are writing to a file, use a file-write tool rather "
+    "than a shell heredoc."
+)
+_MSG_RM = (
+    "blocked: recursive/forced delete of /, home, or a system dir; delete a project-relative "
+    "path (./build, /tmp/x) instead"
+)
+_MSG_CHMOD = (
+    "blocked: recursive permissive chmod of /, home, or a system dir; chmod a project-relative "
+    "path, or grant to the owner only (u+x), instead"
+)
+_MSG_FIND = (
+    "blocked: find -delete of /, home, or a system dir; start find at a project-relative path "
+    "(find ./build -name '*.tmp' -delete) instead"
+)
+_MSG_DEVICE = (
+    "blocked: overwrite a filesystem/disk device; write to an image file (of=disk.img, "
+    "> out.img) instead." + _QUOTED_TEXT_HINT
+)
+_MSG_PUSH = (
+    "blocked: force-push to a protected branch (main/master/release); push a feature branch "
+    "and open a PR instead"
+)
+_MSG_NET_PIPE = (
+    "blocked: pipe a network download into a shell; download to a file (curl -o install.sh …), "
+    "inspect it, then run it"
+)
+_MSG_FORK_BOMB = "blocked: fork bomb." + _QUOTED_TEXT_HINT
 
 # Raw-text blockers: shapes whose syntax is distinctive enough that quoting them as data is rare
 # (the fork bomb glyphs; a shell redirect into a raw disk device). Everything else is checked on
 # TOKENS in command position (ADR 0054) so quoted mentions never fire.
 _BLOCKERS: list[tuple[re.Pattern[str], str, str]] = [
-    (re.compile(r":\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:"), "fork bomb", "fork-bomb"),
+    (re.compile(r":\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:"), _MSG_FORK_BOMB, "fork-bomb"),
     (
         re.compile(r">\|?\s*/dev/(sd[a-z]|nvme\d|disk\d|mapper/)"),
-        "write to a raw disk device",
+        _MSG_DEVICE,
         "device-write",
     ),
 ]
@@ -188,10 +255,7 @@ _FIND = re.compile(r"\bfind\b")
 _FIND_DELETE = re.compile(r"(?<![\w-])-delete\b")
 # a bare top-level root as find's start path (NOT a sub-path like /opt/app or /etc/x, which are
 # targeted) — so `find /etc -delete` blocks but `find /opt/app -name '*.tmp' -delete` does not.
-_FIND_TARGET = re.compile(
-    r"(?:^|\s)(?:/\*?|~/?|\$HOME/?|\$\{HOME\}/?"
-    r"|/(?:usr|etc|bin|sbin|lib|lib64|boot|var|opt|root|home)/?)(?:\s|$)"
-)
+_FIND_TARGET = re.compile(rf"(?:^|\s)(?:/\*?|{_HOME_ALIASES}|/(?:{_SYSTEM_ROOTS})/?)(?:\s|$)")
 
 
 def _seg_dangerous_find(segment: str) -> bool:
@@ -236,12 +300,6 @@ def _legacy_segment_decision(segment: str) -> Decision:
 # principle ADR 0051 gave the net-pipe rule. Shell-executable payloads are still followed:
 # `sh -c '…'` arguments, `$(…)` and backtick substitutions are re-classified recursively.
 
-_MSG_RM = "blocked: recursive/forced delete of /, home, or a system dir"
-_MSG_CHMOD = "blocked: recursive permissive chmod of /, home, or a system dir"
-_MSG_FIND = "blocked: find -delete of /, home, or a system dir"
-_MSG_DEVICE = "blocked: overwrite a filesystem/disk device"
-_MSG_PUSH = "blocked: force-push to a protected branch (main/master/release)"
-
 _EVIDENCE_LEN = 160  # enough to identify what matched; the full command is logged separately
 
 
@@ -262,17 +320,11 @@ _TOK_RECURSIVE_RM = re.compile(r"-\w*[rR]\w*|--recursive")
 _TOK_FORCE_RM = re.compile(r"-\w*f\w*|--force")
 _TOK_RECURSIVE_CHMOD = re.compile(r"-\w*R\w*|--recursive")
 _TOK_SHORT_F = re.compile(r"-\w*f\w*")
-# rm/chmod targets: root, home, or a system dir INCLUDING sub-paths (`/etc/x` is still system
-# damage), per the legacy _DANGER_TARGET semantics.
-_TOK_DANGER_TARGET = re.compile(
-    r"/\*?|~/?|\$HOME/?|\$\{HOME\}/?"
-    r"|/(?:usr|etc|bin|sbin|lib|lib64|boot|var|opt|root|home)(?:/\S*)?"
-)
+# rm/chmod targets: the same alternation as the legacy text form, matched against ONE token — the
+# depth table above _DANGER_ALT says which sub-paths still count.
+_TOK_DANGER_TARGET = re.compile(_DANGER_ALT)
 # find start paths: only a bare root/system dir (a sub-path like /opt/app is targeted cleanup).
-_TOK_FIND_TARGET = re.compile(
-    r"/\*?|~/?|\$HOME/?|\$\{HOME\}/?"
-    r"|/(?:usr|etc|bin|sbin|lib|lib64|boot|var|opt|root|home)/?"
-)
+_TOK_FIND_TARGET = re.compile(rf"/\*?|{_HOME_ALIASES}|/(?:{_SYSTEM_ROOTS})/?")
 _TOK_PLUS_PROTECTED = re.compile(r"\+(?:\S*:)?(?:main|master|release)")
 _TOK_PROTECTED_DEST = re.compile(r"(?:\S*:)?(?:main|master|release)")
 # Shell substitutions whose content the shell EXECUTES even inside double quotes.
@@ -401,11 +453,9 @@ def _token_decision(tokens: list[str], depth: int, segment: str = "") -> Decisio
     return ALLOW
 
 
-def _git_push_decision(rest: list[str], excerpt: str = "") -> Decision:
-    """Force-push-to-protected detection on tokens: global flags (`-c k=v`, `-C dir`, `--…`) are
-    skipped to find the subcommand; only a `push` subcommand's own tokens are inspected, so a
-    commit MESSAGE mentioning force/main can never fire. A bare `git push --force` (no explicit
-    destination) stays allowed — the target branch is not knowable from the command string."""
+def _git_subcommand(rest: list[str]) -> tuple[str, list[str]]:
+    """git's subcommand and that subcommand's own arguments, skipping the global flags before it
+    (`-c k=v`, `-C dir`, `--no-pager`, …); ``("", [])`` when there is none."""
     j = 0
     while j < len(rest):
         token = rest[j]
@@ -415,10 +465,18 @@ def _git_push_decision(rest: list[str], excerpt: str = "") -> Decision:
         if token.startswith("-"):
             j += 1
             continue
-        break
-    if j >= len(rest) or rest[j] != "push":
+        return token, rest[j + 1 :]
+    return "", []
+
+
+def _git_push_decision(rest: list[str], excerpt: str = "") -> Decision:
+    """Force-push-to-protected detection on tokens: global flags (`-c k=v`, `-C dir`, `--…`) are
+    skipped to find the subcommand; only a `push` subcommand's own tokens are inspected, so a
+    commit MESSAGE mentioning force/main can never fire. A bare `git push --force` (no explicit
+    destination) stays allowed — the target branch is not knowable from the command string."""
+    subcommand, push_args = _git_subcommand(rest)
+    if subcommand != "push":
         return ALLOW
-    push_args = rest[j + 1 :]
     if any(_TOK_PLUS_PROTECTED.fullmatch(t) for t in push_args):
         return Decision(True, _MSG_PUSH, "force-push-protected", excerpt)
     force = any(
@@ -434,14 +492,12 @@ def _classify(command: str, depth: int) -> Decision:
     """One classification pass (recursion-capped): raw blockers, net-pipe, then per-segment
     command-position rules with the legacy text fallback for unparseable segments."""
     if pipe := _dangerous_net_pipe_stage(command):
-        return Decision(
-            True, "blocked: pipe a network download into a shell", "net-pipe", _excerpt(pipe)
-        )
+        return Decision(True, _MSG_NET_PIPE, "net-pipe", _excerpt(pipe))
     if dump := _remote_env_dump_segment(command):
         return Decision(True, _MSG_ENV_DUMP, "remote-env-dump", _excerpt(dump))
-    for pattern, reason, rule in _BLOCKERS:
+    for pattern, message, rule in _BLOCKERS:
         if match := pattern.search(command):
-            return Decision(True, f"blocked: {reason}", rule, _excerpt(match.group()))
+            return Decision(True, message, rule, _excerpt(match.group()))
     segments, balanced = _split_segments(command)
     if not balanced:
         # keep the quote-aware view AND the naive view — an open quote must not hide a hazard.
@@ -650,12 +706,26 @@ _HEREDOC_EXECUTORS = frozenset(
 )
 
 
+_OPENING_LINE_PUNCT = re.compile(r"[|;&()]")
+
+
 def _body_is_executed(opening_line: str) -> bool:
-    """True if whatever receives this heredoc will RUN its body (interpreter or remote shell)."""
-    if _REMOTE_EXEC.search(opening_line):
-        return True
-    words = opening_line.replace("|", " ").replace("(", " ").split()
-    return any(word.rsplit("/", 1)[-1] in _HEREDOC_EXECUTORS for word in words)
+    """True if whatever receives this heredoc will RUN its body (interpreter or remote shell).
+
+    Decided on whole tokens, never on raw text: the remote-shell half used `_REMOTE_EXEC`'s
+    `\\bssh\\b` over the opening line, so `cat > ssh-notes.md <<'EOF'` kept a documentation body
+    in scope (2026-09 audit, A8). Every token position is tested, not only the command word, so a
+    wrapper argument (`sudo -u deploy bash <<'EOF'`) cannot hide the executor — block-leaning,
+    as the interpreter half always was."""
+    flat = _OPENING_LINE_PUNCT.sub(" ", opening_line)
+    words = _shell_tokens(flat)
+    if words is None:  # unbalanced quotes: the plain word split
+        words = flat.split()
+    for i, word in enumerate(words):
+        base = word.rsplit("/", 1)[-1]
+        if base in _HEREDOC_EXECUTORS or _is_remote_exec(base, words[i + 1 :]):
+            return True
+    return False
 
 
 def strip_heredoc_bodies(command: str) -> str:
@@ -704,14 +774,51 @@ def classify_command(command: str) -> Decision:
 # --- test-gate: fast gate before commit/push ---------------------------------
 
 # git commit/push in command position (not "echo 'git commit'"), tolerating an env-var prefix
-# (`VAR=val git commit`) and git global flags (`git -c k=v commit`, `git -C dir commit`).
+# (`VAR=val git commit`) and git global flags (`git -c k=v commit`, `git -C dir commit`). This
+# TEXT form is kept only for a segment `shlex` cannot tokenize; the primary check is on the command
+# word of each quote-aware segment with heredoc bodies stripped (`_segment_commands`).
 _COMMIT_PUSH = re.compile(
     r"(?:^|[\n;&|]\s*)(?:\w+=\S+\s+)*git\s+(?:-[cC]\s+\S+\s+|--\S+\s+|-\w\s+)*(?:commit|push)\b"
 )
 
 
+def _segment_commands(command: str) -> list[tuple[str, list[str], str]]:
+    """``(command word, its arguments, segment text)`` for each quote-aware segment of
+    ``command`` with heredoc bodies stripped; the command word is "" for a segment that does not
+    tokenize, so a caller can fall back to a text match on that segment alone.
+
+    The trigger checks (`is_commit_or_push`, `is_pr_merge`) used to run a raw regex over the whole
+    command string that fired after any `;`/`|`/newline, so writing a README section that shows
+    `git push` with a heredoc, or grepping for `'; git push'`, ran the commit gate — and while the
+    gate happened to be failing, blocked the grep outright (2026-09 audit, A7). Same defect and
+    same fix as the deny-list's ADR 0054/0079: a mention is not a command."""
+    stripped = strip_heredoc_bodies(command)
+    segments, balanced = _split_segments(stripped)
+    if not balanced:
+        segments = list(dict.fromkeys(segments + _segments(stripped)))
+    result: list[tuple[str, list[str], str]] = []
+    for segment in segments:
+        tokens = _shell_tokens(segment)
+        if tokens is None:
+            result.append(("", [], segment))
+            continue
+        ci = _command_index(tokens)
+        if ci is not None:
+            result.append((tokens[ci].rsplit("/", 1)[-1], tokens[ci + 1 :], segment))
+    return result
+
+
 def is_commit_or_push(command: str) -> bool:
-    return bool(_COMMIT_PUSH.search(command))
+    """True for `git commit` / `git push` in command position — the test-gate trigger. An
+    unparseable segment keeps the text match (block-leaning: the gate runs, which is the safe
+    direction for a gate)."""
+    for base, rest, segment in _segment_commands(command):
+        if not base:
+            if _COMMIT_PUSH.search(segment):
+                return True
+        elif base == "git" and _git_subcommand(rest)[0] in ("commit", "push"):
+            return True
+    return False
 
 
 # --- pre-merge preflight: local state that will break the merge's local half (ADR 0076) ------
@@ -722,13 +829,22 @@ def is_commit_or_push(command: str) -> bool:
 # itself succeeded both times — so this WARNS and never blocks (see ADR 0076 for why).
 
 # `gh` global flags may carry a separate argument (`gh --repo o/n pr merge`), so accept any
-# leading tokens that are not the `pr` subcommand itself.
+# leading tokens that are not the `pr` subcommand itself. Text form for unparseable segments only.
 _PR_MERGE = re.compile(r"(?:^|[\n;&|]\s*)(?:\w+=\S+\s+)*gh\s+(?:(?!pr\b)\S+\s+)*pr\s+merge\b")
 
 
 def is_pr_merge(command: str) -> bool:
-    """True for `gh pr merge` in command position (not a quoted mention of it)."""
-    return bool(_PR_MERGE.search(command))
+    """True for `gh pr merge` in command position (not a quoted mention of it) — per quote-aware
+    segment, heredoc bodies stripped, like :func:`is_commit_or_push`."""
+    for base, rest, segment in _segment_commands(command):
+        if not base:
+            if _PR_MERGE.search(segment):
+                return True
+        elif base == "gh" and "pr" in rest:
+            i = rest.index("pr")
+            if rest[i + 1 : i + 2] == ["merge"]:
+                return True
+    return False
 
 
 def worktree_branches(porcelain: str) -> dict[str, str]:
@@ -974,7 +1090,12 @@ def bump_and_check(counter_path: Path | str, *, soft: int, hard: int) -> Decisio
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(str(count), encoding="utf-8")
     if count > hard:
-        return Decision(True, f"blocked: subagent budget exceeded ({count} > hard cap {hard})")
+        return Decision(
+            True,
+            f"blocked: subagent budget exceeded ({count} > hard cap {hard}); raise "
+            "subagent_budget.hard in the plugin settings or AGENTIC_FORGE_SUBAGENT_HARD to "
+            "allow more",
+        )
     if count > soft:
         return Decision(False, f"warning: {count} subagents this session (soft cap {soft})")
     return ALLOW

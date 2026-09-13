@@ -35,6 +35,12 @@ _MAIN = "/repo"
         ("gh pr view 27", False),
         ("gh pr create --title x", False),
         ("echo gh pr merge", False),  # not in command position
+        # --- 2026-09 audit (A7): per quote-aware segment, heredoc bodies stripped ---
+        ('echo "x; gh pr merge 1"', False),  # a separator inside a quoted string
+        ("cat > notes.md <<'EOF'\ngh pr merge 1\nEOF", False),  # a heredoc body is data
+        ("GH_TOKEN=x gh pr merge 2", True),
+        ("gh pr merge 12 --rebase && git pull", True),
+        ("echo don't; gh pr merge 3", True),  # unparseable segment: the text match still fires
     ],
 )
 def test_is_pr_merge(command: str, expected: bool) -> None:
