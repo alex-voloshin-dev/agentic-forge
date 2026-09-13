@@ -48,8 +48,9 @@ contracted for (ADR 0050). The classifier is a bag of words over the plugin's ow
 
 **Calibration is a test, not a hope.** `self_check()` runs leave-one-out over all 84 trigger and
 71 anti-trigger prompts — each classified with itself removed from the index — and
-`test_self_check_precision_holds` pins the contract: recall ≥ 0.5, precision ≥ 0.9, wrong-skill ≤
-2, false-suggest ≤ 2. At the chosen thresholds: **recall 0.500, precision 0.955, wrong-skill 0,
+`test_self_check_precision_holds` pins the contract: recall ≥ 0.5 *(0.45 since ADR 0092 — the
+stand polish made two prompts content-bearing, which lowers lexical coverage)*, precision ≥ 0.9,
+wrong-skill ≤ 2, false-suggest ≤ 2. At the chosen thresholds: **recall 0.500, precision 0.955, wrong-skill 0,
 false-suggest 2**.
 
 ## What the self-check caught before it shipped

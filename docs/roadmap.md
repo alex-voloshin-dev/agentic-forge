@@ -545,11 +545,13 @@ bugs (neutral `config.example.json` + configuration.md python/models clarificati
   found 36/36 misses were the eval's empty working directory (ADR 0090); on a rebuilt stand with a
   real repo per prompt the first honest baseline is **78/84 = 0.929**, the "hard four" 17/19, and
   the one preference miss in 84 is a fair proportionality call. The pre-router stays off (its A/B
-  could only measure the noise floor); the Stop-hook is not built. **What remains:** (a) the next
-  field bundle on ≥ 2026.9.3 — `Skill` vs `Agent` counts against 183-to-3, the only test of the
-  field gap now; (b) one run with the SessionStart note removed, to learn whether 2026.9.3's note
-  does anything on a real workspace; (c) stand polish — three prompts that presuppose absent
-  content, a fixture with no UI, a `--max-turns` cap that stops investigate-first skills early.
+  could only measure the noise floor); the Stop-hook is not built. **(b) is done (ADR 0092):** with
+  the note off the same stand reads 0.571; with it on, 0.929 — z = 5.87, thirty prompts from two
+  sentences, and the note-off misses say *"momentum"*, *"never paused"*, not cost. The note is the
+  fix. **(c) is done** (content-bearing prompts, a blog post and a page in the fixture, max-turns
+  4). **What remains is (a) alone:** the next field bundle on ≥ 2026.9.3 — `Skill` vs `Agent`
+  counts against 183-to-3. Nothing is built ahead of it; if the field does not move, ADR 0081's
+  competing-instruction hypothesis is next, and it is measured before anything is changed.
 - **Vault write-rate is low in daily work** (9 `docs/knowledge/` writes against 136 sessions) while
   the session-start injection runs everywhere. One week of one repo is too thin to justify
   auto-capture mechanics; keep watching across bundles before designing anything.

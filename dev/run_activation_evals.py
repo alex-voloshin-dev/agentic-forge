@@ -91,7 +91,9 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--skill", dest="skills", action="append")
     parser.add_argument("--runner", choices=["dry", "claude"], default="dry")
     parser.add_argument("--model", default="claude-opus-4-8")
-    parser.add_argument("--max-turns", type=int, default=3)
+    # 4, not 3: at 3 the cap stopped `develop` between reading the plan and invoking the skill
+    # (ADR 0091) — investigate-first skills need one more turn to reach the decision.
+    parser.add_argument("--max-turns", type=int, default=4)
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument(
         "--empty-workdir", action="store_true",

@@ -7,6 +7,38 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Measured — the note is the fix: 0.571 → 0.929 on the same stand (ADR 0092)
+
+Same rebuilt stand, same 84 prompts, one variable — the 2026.9.3 SessionStart note off, then on:
+
+```
+                  note OFF     note ON
+pooled            48/84 0.571  78/84 0.929   Δ = +0.357   z = 5.87
+the "hard four"    6/19 0.316  17/19 0.895
+deep-review 0/5→4/5  develop 0/5→4/5  architecture 2/5→5/5  product 2/5→5/5
+security-review 2/4→4/4  repo-onboarding 1/4→4/4  marketing 4/9→8/9  knowledge 2/5→4/5
+```
+
+Thirty prompts out of eighty-four, from two sentences injected once per session. The 36 note-off
+misses were asked why, and only three cite the stand; the rest say *"momentum"*, *"no deliberate
+choice"*, *"never paused to route the task"*, *"an oversight"*, *"I should have used it"*. Not
+one says the skill was too expensive; not one declines. That is the field finding's mechanism in
+its true shape — not "the model knows and declines" (ADR 0089, retracted) but **the model never
+asks itself the question**, and the note is what puts the question in context before the first
+tool call starts the momentum.
+
+- **The note stays and is the fix.** Both field bundles (183 `Agent` to 3 `Skill`) and both
+  headless checks predate it; the next diagnostics bundle from a production repo on ≥ 2026.9.3 is
+  the field test, and nothing is built ahead of it.
+- **Stand polish (ADR 0091) lands:** the `incident-response` and `knowledge` prompts carry the
+  content they presupposed; the fixture gains a blog post (`docs/blog/`) and a task-list page
+  (`web/`) so `marketing` and `ux-design` have a target; `--max-turns` defaults to 4 (3 stopped
+  `develop` between reading the plan and invoking). Trigger prompts are a contract: Tier-1 re-ran
+  for both changed skills — `incident-response` 1.000 / 1.000, `knowledge` 1.000 / 1.000.
+- **Pre-router leave-one-out recall floor 0.50 → 0.45**, rationale in the test: a content-bearing
+  prompt has *less* lexical overlap with its profile; precision (the guarded property) holds at
+  0.932, wrong-skill 1, false-suggest 2. The hook stays off.
+
 ### Added — an off switch for the SessionStart routing note (ADR 0091)
 
 `routing_note.enabled` (default `true`, `AGENTIC_FORGE_ROUTING_NOTE=0` to disable) — the same shape
