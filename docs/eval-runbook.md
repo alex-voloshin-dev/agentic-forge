@@ -257,6 +257,34 @@ python dev/run_agent_evals.py --role software-engineer --role architect --runner
 Exit code is 0 only if every selected role's gate passes. Each role prints a line like
 `reviewer: PASS (mean=0.93, stddev=0.05, lower_bound=0.88, n=5)`.
 
+## Sessions that never ran (ADR 0094)
+
+A `claude -p` session can end without the model deciding anything — a usage limit ("You've hit
+your session limit"), an API error, a crash, a `--max-turns` cap hit, a timeout before the first
+token. Every runner now reads the envelope (`agent_eval.session_outcome`) and treats such a
+session as **undetermined**: excluded from the rate, counted, printed, and capped — a gated run
+with more than `gate.MAX_UNDETERMINED` (10 %) of its sessions undetermined **fails as a run**, with
+the reason on the summary line, because the number over the rest is not the measurement it
+claims to be. The runner never retries an answer (`SessionUndetermined`, `TurnCapHit`), retries a
+timeout once (`SessionTimedOut`, partial transcript kept), and keeps the 15/30/45 s backoff only
+for a transport failure. Progress markers: `.` a session, `C` a cap hit, `!` a dead session, `T`
+a timed-out attempt.
+
+- **Tier-2**: the case's run is unmeasured (`sessions` block on the benchmark; evidence lines
+  carry `subtype` and `num_turns`); an unparseable grading is *ungraded*, never a silent zero —
+  `parse_grading` takes the first object carrying `assertion_results`, and `passed` accepts
+  `true` / `"true"` / `"pass"` / `"passed"`. `tier2_quality.runs` is required (≥ 5) in the schema.
+- **Tier-1**: an undetermined call is `INVALID` with reason `session-never-ran` / `turn-cap` /
+  `timeout`; the skill fails when the pooled share of no-decision calls exceeds 10 % or a prompt
+  has *no* valid call — the per-prompt "fewer than half valid" rule is gone (it failed 7 of 17
+  skills at recall 1.000 in ADR 0084). A namespaced spelling of our skill (`agentic-forge:plan`)
+  is ours on the bare-listing gate run. `n=` is printed on every line; a contract may set a
+  `runs` floor.
+- **Tier-3**: the phase fails a named checkpoint `session undetermined (<subtype>)` and the later
+  phases still run; the fixture's own test suite is bounded at 600 s.
+- **Tier-1b**: a bare `Skill` call on a built-in's name (`code-review`, `security-review`) is
+  *collided*, not a hit — printed per skill and pooled.
+
 ## In CI
 
 `eval.yml` runs as **three jobs**, because "worth measuring weekly" and "affordable weekly" are

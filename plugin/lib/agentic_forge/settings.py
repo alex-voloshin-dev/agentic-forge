@@ -54,11 +54,12 @@ DEFAULTS: dict[str, Any] = {
     "subagent_budget": {"soft": 25, "hard": 50},  # Task-spawn caps (budget hook)
     "test_gate": {"skip": False},  # skip the pre-commit test gate (commit_gate hook)
     # The deterministic pre-router (ADR 0089): names the matching skill in each prompt's context.
-    # OFF by default: measured at +0.095 over the session note (z = 1.27, inside noise) with no
-    # effect on the skills it was built for — it did not beat its bar, so it does not ship on.
+    # OFF by default: measured at +0.095 over the session note (z = 1.27, inside noise) on a stand
+    # ADR 0090 then found empty, so the null result is uninterpretable; the honest baseline
+    # (ADR 0091) left it nothing to fix, so it does not ship on.
     "pre_router": {"enabled": False},
     # The SessionStart routing note (2026.9.3). On by default; the switch exists so its contribution
-    # can be MEASURED with it off (ADR 0091) — and so an operator who finds it noise can drop it.
+    # can be MEASURED with it off (ADR 0092) — and so an operator who finds it noise can drop it.
     "routing_note": {"enabled": True},
     "review": {"passes": 3},  # the bounded review-loop budget N (review-loop.md)
     "external_reviewer": {"enabled": True, "command": "codex"},  # on by default (ADR 0057)
