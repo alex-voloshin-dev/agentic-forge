@@ -1,7 +1,7 @@
 ---
 name: research
-description: Investigate a feature or idea before it is specified or designed — gather inputs, fan out parallel research tracks (e.g. prior art / domain / engineering), synthesize, and produce a research-brief.md with cited sources and a recommendation. Use when asked to research, investigate, or compare options / approaches / prior art for a feature or idea, or recommend a direction BEFORE speccing or designing it. This phase PRODUCES the research brief and feeds product — but turning an existing brief INTO a PRD or product spec is product, not research. For a standalone deep report not tied to the feature flow use deep-research. Not for defining requirements (product), the technical design itself (architecture), implementing (develop), market/competitor research (marketing), or recalling what we have ALREADY noted or decided (knowledge).
-allowed-tools: Read, Grep, Glob, Bash, Task, Write
+description: Investigate a feature or idea before it is specified or designed — gather inputs, fan out parallel research tracks (e.g. prior art / domain / engineering), synthesize, and produce a research-brief.md with cited sources and a recommendation. Use when asked to research, investigate, or compare options / approaches / prior art for a feature or idea, or recommend a direction BEFORE speccing or designing it. This phase PRODUCES the research brief and feeds product — but turning an existing brief INTO a PRD or product spec is product, not research. Not for defining requirements (product), the technical design itself (architecture), implementing (develop), market/competitor research (marketing), or recalling what we have ALREADY noted or decided (knowledge).
+allowed-tools: Read, Grep, Glob, Bash, Task, Write, WebSearch, WebFetch
 ---
 
 # Research (phase workflow)
@@ -26,7 +26,8 @@ art, market/competitors, user needs, technical feasibility. Not for deciding req
 > shared documentation worktree rather than the checkout, and deliver the result as a pull
 > request (see [doc-delivery](../../patterns/doc-delivery.md)). One worktree and one PR per
 > **feature**, shared by every document phase — that is what lets the next phase read what
-> this one wrote. Skip it for a one-off document outside a feature flow.
+> this one wrote. Skip it for a one-off document outside a feature flow. A repo with no remote (or
+> no `gh`) still commits — on `docs/<slug>`, reported as not pushed / no PR — never a failed phase.
 
 1. **Scope & gather.** State the question; collect what's already on hand (the request, repo,
    any existing docs). Pick a `<feature-slug>`.
@@ -34,7 +35,10 @@ art, market/competitors, user needs, technical feasibility. Not for deciding req
    product / users, engineering / feasibility. Only the ones that matter.
 3. **Fan out** one researcher per track (see fan-out/fan-in), delegating:
    - **codebase / internal** → the built-in `Explore` agent;
-   - **external / web** → the `deep-research` skill (multi-source, verified, cited).
+   - **external / web** → `WebSearch` / `WebFetch`, run directly or by a fresh `general-purpose`
+     subagent per track — multi-source, **every source URL kept**, every load-bearing claim cited
+     or labelled an assumption and no bare figure stated as fact (the evidence discipline the
+     `marketing` skill holds to).
    Each returns structured findings with sources.
 4. **Synthesize & verify.** Merge the tracks into one picture; reconcile disagreements; verify
    the load-bearing claims against their sources (drop unsupported ones).

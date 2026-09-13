@@ -8,10 +8,11 @@ allowed-tools: Read, Grep, Glob, Bash, Task, Write, Edit, WebSearch, WebFetch
 
 The marketing domain: turn a product into market understanding, a go-to-market strategy, and
 on-brand content. This is one router skill — it dispatches to the sub-procedure in `references/`
-for the task at hand, and forks the research / `Explore` roles to gather evidence. The product
+for the task at hand, gathering evidence itself (`WebSearch` / `WebFetch`) or via the built-in
+`Explore` agent for a repo sweep. The product
 requirements themselves are the `product` skill's job; this is everything outward-facing.
-(Design: [ADR 0022](../../../docs/architecture/decisions/0022-stage5-marketing-domain.md),
-[product-marketing.md](../../../docs/architecture/product-marketing.md).)
+(Design: ADR 0022 and `docs/architecture/product-marketing.md` in the agentic-forge repository —
+not shipped with the plugin.)
 
 ## When to use
 
@@ -46,12 +47,15 @@ The failure mode of generated marketing is confident, low-signal fluff. So every
 > shared documentation worktree rather than the checkout, and deliver the result as a pull
 > request (see [doc-delivery](../../patterns/doc-delivery.md)). One worktree and one PR per
 > **feature**, shared by every document phase — that is what lets the next phase read what
-> this one wrote. Skip it for a one-off document outside a feature flow.
+> this one wrote. Skip it for a one-off document outside a feature flow. A repo with no remote (or
+> no `gh`) still commits — on `docs/<slug>`, reported as not pushed / no PR — never a failed phase.
 
 1. **Identify the sub-area** from the request and read its reference for the procedure + rubric.
 2. **Gather evidence.** Use provided research/notes if present; otherwise gather it **live with
    `WebSearch` / `WebFetch`** (analyst reports, competitor sites, pricing pages) — or fork the
-   `research` / `Explore` roles via `Task` for deeper tracks — **keeping every source URL**. Then
+   built-in `Explore` agent via `Task` for a repo / notes sweep, and a fresh `general-purpose`
+   subagent per web track when fanning out (there is no `research` *role*; `research` is the
+   feature-flow skill) — **keeping every source URL**. Then
    apply the evidence discipline above (cite or mark every claim; no fabrication).
 3. **Synthesize** the sub-area's output: the handoff artifact — `market-brief` (frontmatter `type`, `feature`, `status`, `competitors`, `segments`, `sources`) or `marketing-strategy` (`type`, `feature`, `status`, `positioning`, `channels`) — validated via
    `handoff.validate_header(header, expected_type="market-brief")` or `"marketing-strategy"` —

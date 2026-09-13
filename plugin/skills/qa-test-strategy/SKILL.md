@@ -10,7 +10,7 @@ The test-planning phase: turn a feature, plan, or change into a **test strategy*
 areas, the test levels to cover, and a prioritized case list — by delegating the test-design
 judgement to the [`qa-engineer`](../../agents/qa-engineer.md) role, then recording a
 `test-strategy` handoff. It plans *what and how to test*; it does not write the tests (that is
-`develop`'s QA step). (Design: [quality-ops.md](../../../docs/architecture/quality-ops.md).)
+`develop`'s QA step). (Design: `docs/architecture/quality-ops.md` in the agentic-forge repository.)
 
 ## When to use
 
@@ -22,9 +22,12 @@ reviewing already-written code (`code-review`), or assembling a release (`releas
 
 1. **Read the inputs.** Load the feature/`plan.md`/`tech-design.md` or the code under change, and
    detect the stack (`stacks.primary(<repo>)`) so the levels and tools match the repo.
-2. **Delegate the analysis.** Fork the `qa-engineer` role (via `Task`) with the feature/code and
-   the question "what are the risk areas, the right test levels, and the cases that matter?" The
-   role brings the test-design expertise; pass it the context, not just the prompt.
+2. **Delegate the analysis — plan only.** Fork the `qa-engineer` role (via `Task`) with the
+   feature/code and the question "what are the risk areas, the right test levels, and the cases
+   that matter?" — and say **plan only: design the strategy and the test list; do not create or
+   edit files, do not run the suite**. The role's standing prompt writes and runs tests; this phase
+   wants its judgement, not its edits. It brings the test-design expertise; pass it the context,
+   not just the prompt.
 3. **Synthesize the strategy.** Aggregate into a `test-strategy` handoff artifact (`handoff` type
    `test-strategy`: `type`, `feature`, `status`, `scope`, `risks`, `test_levels`, `cases`), then
    validate it (`handoff.validate_header(header, expected_type="test-strategy")`; see

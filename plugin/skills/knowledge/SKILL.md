@@ -43,7 +43,9 @@ tags: [tag-a, tag-b]
 
 ## Recall
 
-1. Detect the vault — `vault.validate_vault(repo)` (offer to `vault.scaffold(repo)` if absent).
+1. Detect the vault — `vault.validate_vault(repo)`; if absent, **scaffold it**
+   (`vault.scaffold(repo)`) and say so — don't stop to offer, a headless run has no one to answer.
+   Recall on a fresh vault is then simply "nothing yet".
 2. `vault.recall(repo, query)` → ranked candidate notes; read the top few in full.
 3. Answer **grounded in those notes**, citing `[[note]]` links. If the vault has nothing on it,
    say so plainly — never invent knowledge.
@@ -51,7 +53,11 @@ tags: [tag-a, tag-b]
 ## Capture
 
 1. Distill to **one atomic idea per note** (split if it's several). Choose a kebab-case `name`,
-   a `title`, and `tags`.
+   a `title`, and `tags`. **Nothing to capture** ("remember this" with no decision or rationale
+   attached, nothing in the conversation to distill): say so, and capture what the prompt *does*
+   carry — the decision context, the open question, who raised it and when — as a note tagged
+   `needs-rationale`, so the next session can fill it in; ask for the rationale only when
+   interactive.
 2. `vault.add_note(repo, name, title, body, tags=...)` — writes the note and links it from the
    root MOC. Use `[[wikilinks]]` in the body to connect related notes; add or extend a themed
    MOC (`moc=...`) for a cluster.

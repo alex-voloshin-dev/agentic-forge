@@ -9,9 +9,9 @@ allowed-tools: Read, Grep, Glob, Bash, Task, Write, Edit
 Turn a feature (or PRD) into a **UX spec**: the user flows, the screens and their states, the
 accessibility requirements, and the design-system components to reuse — handed to `develop`. This
 is the *user* experience, distinct from `architecture` (the *technical* design). Outputs are
-**specs and handoff docs, never pixels** — keep visual/brand design out of scope. (Design:
-[ADR 0023](../../../docs/architecture/decisions/0023-stage6-design-onboarding.md),
-[design-onboarding.md](../../../docs/architecture/design-onboarding.md).)
+**specs and handoff docs, never pixels** — keep visual/brand design out of scope. (Design: ADR 0023 and
+`docs/architecture/design-onboarding.md` in the agentic-forge repository — not shipped with the
+plugin.)
 
 ## When to use
 
@@ -25,7 +25,8 @@ the product requirements (`product`).
 > shared documentation worktree rather than the checkout, and deliver the result as a pull
 > request (see [doc-delivery](../../patterns/doc-delivery.md)). One worktree and one PR per
 > **feature**, shared by every document phase — that is what lets the next phase read what
-> this one wrote. Skip it for a one-off document outside a feature flow.
+> this one wrote. Skip it for a one-off document outside a feature flow. A repo with no remote (or
+> no `gh`) still commits — on `docs/<slug>`, reported as not pushed / no PR — never a failed phase.
 
 1. **Read the feature.** Load the feature description / `prd.md`; identify the actors and the jobs
    to be done.

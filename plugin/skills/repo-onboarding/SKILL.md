@@ -9,9 +9,9 @@ allowed-tools: Read, Grep, Glob, Bash, Task, Write, Edit
 Get oriented in an unfamiliar codebase and leave behind a durable map: analyze the structure and
 **seed the Stage-3 knowledge vault** with grounded notes, plus an `onboarding` summary. It reads
 the code (forking `Explore`) and writes notes via the installed `agentic_forge.vault` module —
-everything grounded in the actual code, nothing invented. (Design:
-[ADR 0023](../../../docs/architecture/decisions/0023-stage6-design-onboarding.md),
-[design-onboarding.md](../../../docs/architecture/design-onboarding.md).)
+everything grounded in the actual code, nothing invented. (Design: ADR 0023 and
+`docs/architecture/design-onboarding.md` in the agentic-forge repository — not shipped with the
+plugin.)
 
 ## When to use
 

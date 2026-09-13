@@ -36,7 +36,9 @@ file in `assets/` as the starting scaffold to fill in. Guides explain; templates
 
 **A. Contract.** State, in one place: purpose (why it exists), inputs/outputs,
 dependencies, and for skills the `should_trigger` / `should_not_trigger` prompt sets.
-If purpose or triggers are unclear, stop and ask the user.
+If purpose or triggers are unclear, ask the user when interactive; headless (no user to
+ask), state the purpose and triggers you assume in the contract, proceed, and flag them in
+the report.
 
 **B. Evals first.** Copy [assets/evals.template.json](assets/evals.template.json) to
 `<component>/evals/evals.json` and fill it in (superset format — see

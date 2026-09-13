@@ -27,9 +27,8 @@ CLI is absent (skipped, not a failure), and its findings are **advisory** (promp
 verify against the source, then fold them into the synthesis at their severity like any aspect.
 
 The specialist executors (`software-engineer`, `security-engineer`, stack engineers) are the
-gated Stage 2 roster (see [../../docs/architecture/spine.md](../../docs/architecture/spine.md)
-and [ADR 0014](../../docs/architecture/decisions/0014-software-engineer-base-role.md)); until a
-role ships, that aspect falls back to the generic `reviewer` with an aspect-specific prompt.
+gated Stage 2 roster (see `docs/architecture/spine.md` and ADR 0014 in the agentic-forge
+repository — not shipped with the plugin); until a role ships, that aspect falls back to the generic `reviewer` with an aspect-specific prompt.
 
 ## The method
 

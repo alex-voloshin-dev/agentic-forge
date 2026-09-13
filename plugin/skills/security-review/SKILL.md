@@ -1,6 +1,6 @@
 ---
 name: security-review
-description: Run a dedicated deep security review or audit of a component, module, service, or design — threat surface, authz, secrets, dependencies, input handling — by delegating to the security-engineer role, and record a review handoff with a security lens. Use when the request is about security specifically — "is this code secure?", "review this for security issues", "audit this module/service for vulnerabilities", "security-review this", or "threat-model this flow" — i.e. any security review, security audit, vulnerability hunt, or threat model. Not the per-diff security aspect of a general code review (code-review), implementing fixes (develop), or cutting a release (release).
+description: Run a dedicated SECURITY review or audit of a component, module, service, or design — threat surface, authz, secrets, dependencies, input handling — via the security-engineer role, recorded as a review handoff. Use when the request is about security specifically, however deep — "is this code secure?", "review this for security issues", "audit this module/service for vulnerabilities", or "threat-model this flow" — any security review / audit, vulnerability hunt, or threat model. Not a general deep review for bugs / gaps (deep-review), the per-diff security aspect of a code review (code-review), implementing fixes (develop), or cutting a release (release).
 allowed-tools: Read, Grep, Glob, Bash, Task, Write, Edit
 ---
 
@@ -10,7 +10,7 @@ A dedicated, deeper security pass over a whole target — a component, a design,
 distinct from the per-diff security aspect inside `code-review`. It delegates the security
 judgement to the [`security-engineer`](../../agents/security-engineer.md) role and records a
 `review` handoff (security lens): findings with severity, location, and fix, aggregated into one
-verdict. (Design: [quality-ops.md](../../../docs/architecture/quality-ops.md).)
+verdict. (Design: `docs/architecture/quality-ops.md` in the agentic-forge repository.)
 
 ## When to use
 

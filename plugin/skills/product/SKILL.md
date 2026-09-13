@@ -8,7 +8,8 @@ allowed-tools: Read, Grep, Glob, Bash, Task, Write
 
 The product phase of the SDLC spine: decide *what to build and why*, turning a research brief
 into a PRD the `architecture` phase consumes. This is the conversational phase — elicit what's
-missing from the user rather than inventing it.
+missing from the user rather than inventing it, *when there is a user*: a headless run has none,
+so there the gaps become stated assumptions in the PRD, flagged in the summary.
 
 ## When to use
 
@@ -25,11 +26,15 @@ acceptance criteria, user stories. Not for *what exists* (`research`), *how to b
 > shared documentation worktree rather than the checkout, and deliver the result as a pull
 > request (see [doc-delivery](../../patterns/doc-delivery.md)). One worktree and one PR per
 > **feature**, shared by every document phase — that is what lets the next phase read what
-> this one wrote. Skip it for a one-off document outside a feature flow.
+> this one wrote. Skip it for a one-off document outside a feature flow. A repo with no remote (or
+> no `gh`) still commits — on `docs/<slug>`, reported as not pushed / no PR — never a failed phase.
 
 1. **Digest the inputs.** Load `research-brief.md`
    (`handoff.load_artifact(..., expected_type="research-brief")`; **refuse to build on it unless `handoff.is_handoff_ready(header)` — an escalated upstream run leaves a schema-valid but rejected artifact on disk**) and assess the current product
-   (repo, existing docs). Pick the `<feature-slug>`.
+   (repo, existing docs). Pick the `<feature-slug>`. **If `research-brief.md` is absent** (check
+   `Path.exists()` first — `load_artifact` raises on a missing file): build the PRD from the
+   request + the repo + its existing docs, record the assumptions and that no brief existed in the
+   PRD's body, and proceed — the brief is an input when it exists, not a precondition.
 2. **Frame the change.** From the brief's findings + recommendation, decide the **goals** and
    the explicit **non-goals** (what's out of scope), and the **success metrics**. When the ask
    involves ordering the work (what to build next, MVP scope, roadmap) or picking the metrics,
@@ -38,7 +43,9 @@ acceptance criteria, user stories. Not for *what exists* (`research`), *how to b
 3. **User stories.** Write the change as user stories (from the user's perspective), each with
    acceptance criteria.
 4. **Acceptance.** Turn the stories into concrete, testable **acceptance criteria** for the
-   feature. Elicit anything ambiguous from the user — don't guess load-bearing decisions.
+   feature. Elicit anything ambiguous from the user when interactive — don't guess load-bearing
+   decisions. Headless, there is no one to ask: take the most defensible assumption, mark it
+   `assumption:` in the PRD, and flag it in the summary rather than stopping.
 5. **Write the PRD.** Produce `prd.md` (frontmatter `type`, `feature`, `status`, `goals`, `non_goals`, `metrics`,
    `acceptance`; body = context + user stories; **valid YAML — quote any value containing a colon**,
    e.g. an acceptance criterion naming `{"high": 0}`, or the whole artifact fails to parse for every

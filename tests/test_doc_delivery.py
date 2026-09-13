@@ -69,3 +69,48 @@ def test_worktree_argv_shape() -> None:
     assert add[:5] == ["git", "-C", "/repo", "worktree", "add"]
     assert "docs/x" in add and "../wt-docs-x" in add and add[-1] == "main"
     assert dd.remove_worktree_argv("/repo", "x")[-1] == "../wt-docs-x"
+
+
+# --- a repo with no remote / no gh is a fact, not a failed phase ------------------
+
+
+def test_remote_argv_shape() -> None:
+    assert dd.remote_argv("/wt") == ["git", "-C", "/wt", "remote"]
+
+
+@pytest.mark.parametrize("remotes", ["", "\n", "  \n"])
+def test_no_remote_commits_locally_and_says_so(remotes: str) -> None:
+    # A fresh `git init` repo (or a headless stand) has nowhere to push. The phase still reached
+    # `proceed`, so its artifact is committed; the report says exactly what did not happen.
+    plan = dd.proceed_plan("/wt", "product", "x", remotes=remotes, gh=True)
+    assert plan.argv == (dd.commit_argv("/wt", "product", "x"),)
+    assert not plan.open_pr
+    assert plan.note == "no remote: committed on docs/x, not pushed"
+
+
+def test_remote_without_gh_pushes_but_opens_no_pr() -> None:
+    plan = dd.proceed_plan("/wt", "plan", "x", remotes="origin\n", gh=False)
+    assert plan.argv == (dd.commit_argv("/wt", "plan", "x"), dd.push_argv("/wt", "x"))
+    assert not plan.open_pr
+    assert plan.note.startswith("no gh:") and "docs/x" in plan.note
+
+
+def test_remote_and_gh_run_the_full_rail() -> None:
+    plan = dd.proceed_plan("/wt", "research", "x", remotes="origin\nupstream\n", gh=True)
+    assert plan.argv == (dd.commit_argv("/wt", "research", "x"), dd.push_argv("/wt", "x"))
+    assert plan.open_pr
+    assert "docs/x" in plan.note
+
+
+def test_proceed_plan_never_forces() -> None:
+    plan = dd.proceed_plan("/wt", "ux-design", "x", remotes="origin", gh=True)
+    assert all("--force" not in argv for argv in plan.argv)
+
+
+def test_gh_on_path_is_a_path_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(dd.shutil, "which", lambda name: None)
+    assert dd.gh_on_path() is False
+    monkeypatch.setattr(
+        dd.shutil, "which", lambda name: "/usr/local/bin/gh" if name == "gh" else None
+    )
+    assert dd.gh_on_path() is True

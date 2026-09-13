@@ -1,6 +1,6 @@
 ---
 name: deep-review
-description: Deep, multi-perspective review of a NON-TRIVIAL target — a doc set, a design or architecture, a sizeable code change or PR, or the whole working tree — by fanning out independent reviewers across target-appropriate lenses, verifying every finding against the source, and synthesizing one deduplicated, prioritized report with concrete fixes (optionally applying them and re-running the gate). Use whenever the ask is for DEPTH — a deep / thorough / rigorous / adversarial review, an audit for contradictions / gaps / bugs / risks, or a second opinion — this wins even for a PR, diff, or code when the request asks to go deep. For a quick standard lint of a small or single-file diff use the lighter code-review skill instead; not for running the app or writing code.
+description: Deep, multi-perspective review of a NON-TRIVIAL target — a doc set, a design or architecture, a sizeable code change or PR, or the whole working tree — independent reviewers per lens, every finding verified against the source, one prioritized report with concrete fixes; the lens count scales to the target (a small one gets one or two). Use whenever the ask is for DEPTH — a deep / thorough / rigorous / adversarial review, an audit for everything wrong / contradictions / gaps / bugs / risks, or a second opinion — this wins even for a PR, diff, or code when the request asks to go deep. A SECURITY audit is security-review; for a quick standard lint of a small or single-file diff use the lighter code-review skill; not for running the app or writing code.
 allowed-tools: Read, Grep, Glob, Bash, Edit, Write, Task
 ---
 
@@ -32,8 +32,11 @@ app, or writing code.
    Run them concurrently with the Task tool — or, when the user has opted into multi-agent
    orchestration, with a Workflow built from
    [references/workflow-template.md](references/workflow-template.md) (canonical finding/verdict
-   schemas, per-lens retry, loss disclosure — do not re-invent the harness per run). Scale the
-   count to the ask.
+   schemas, per-lens retry, loss disclosure — do not re-invent the harness per run). **Scale the
+   count to the target**: a small target (one file, a short document) gets one or two lenses — one
+   fresh reviewer that verifies and reports in the structured shape *is* the deep review of it; a
+   five-way fan-out over a 24-line document is disproportionate. The full catalog is for "audit
+   everything".
 3. **Verify** every substantive finding against the source yourself before accepting it —
    open the file, re-run the check. Drop or downgrade what doesn't hold; keep a note of
    notable false alarms with the reason. This step is non-negotiable: it is what keeps the

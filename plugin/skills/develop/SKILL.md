@@ -1,6 +1,6 @@
 ---
 name: develop
-description: Implement a planned change — set up a git worktree, write the code and tests for the current step (via the software-engineer role), gate it with a multi-aspect review, loop back on changes, then harden tests via the qa-engineer role. Use to implement, build, or write the code for a plan or feature step. Not for designing the approach (architecture), breaking work into tasks (plan), or reviewing existing code only (code-review).
+description: Implement a planned or requested code change — write the code and tests (software-engineer role), gate them with a review, then harden the tests (qa-engineer role); isolation and review scale to the change's size. Use to implement, build, or write the code for a plan step, a feature, or a small change. Not for designing the approach (architecture), breaking work into tasks (plan), or reviewing existing code only (code-review).
 allowed-tools: Read, Grep, Glob, Bash, Task, Write, Edit
 ---
 
@@ -25,7 +25,11 @@ designing (`architecture`), task breakdown (`plan`), or reviewing already-writte
 1. **Read inputs; fix the slug; detect the stack.** Load `plan.md` if present
    (`handoff.load_artifact(..., expected_type="plan")`; **refuse to build from it unless `handoff.is_handoff_ready(header)`**) and/or `tech-design.md`; derive
    `<feature-slug>` from the artifact's `feature` header. Pick the current step and the
-   components it touches. Detect the target repo's stack —
+   components it touches. **No plan and no design** (a direct "implement / build X" request):
+   the request *is* the plan — one task, its scope and acceptance stated as `assumptions` in the
+   change summary, the slug derived from the request — and the run takes the small-change path
+   in step 2. Never stop to ask for a plan when running headless (there is no user to answer);
+   ask only when interactive and the scope is genuinely unclear. Detect the target repo's stack —
    `stacks.primary(<repo>)` (`stacks.detect` for monorepos) — and note the profile (pack +
    toolchain); its commands are fallbacks, so **prefer the repo's own declared commands**.
 2. **Batch the work; set up isolation.** Compute the plan's dependency levels with
@@ -34,13 +38,24 @@ designing (`architecture`), task breakdown (`plan`), or reviewing already-writte
    **concurrently** (see [worktree-parallel.md](../../patterns/worktree-parallel.md) +
    [worktree.md](../../patterns/worktree.md)); a one-task level (or a plan with no parallelism) is
    the single-worktree case. `git init` + an initial commit first if the target is not yet a git repo.
+   **Small-change path** — one task, a few files, or no plan: skip the batching; one worktree (or
+   the current branch when the session already runs in a dedicated worktree or a fresh clone — the
+   isolated checkout is the point, not the command), one `software-engineer`, one review round
+   with only the aspects the change warrants (`reviewer` + the stack's lint/type tools; add
+   `security-engineer` when it touches input handling, auth, secrets or dependencies), then QA on
+   that checkout. The review and QA gates still apply; only the fan-out is gone.
 3. **Implement (per task, concurrently).** For each task in the level, spawn a
    [`software-engineer`](../../agents/software-engineer.md) (via `Task`, **not the `fork` subagent
    type** — [subagent-type rule](../../patterns/fan-out-fan-in.md#choosing-the-subagent-type)) into **its own worktree**;
    each re-derives the stack profile there (the same `stacks` helper, so the result matches step 1)
-   and loads `engineering-standards` + the detected `<stack>-patterns` pack (e.g. `python-patterns`;
-   if the profile has no pack, the standards + the profile's toolchain), writes the code and its
-   tests in its worktree, and reports files/tests/assumptions. Keep each change scoped to its task.
+   and **`Read`s the knowledge packs from disk** — `${CLAUDE_PLUGIN_ROOT}/skills/engineering-standards/SKILL.md`,
+   then `${CLAUDE_PLUGIN_ROOT}/skills/<pack>/SKILL.md` for the profile's pack (e.g. `python-patterns`;
+   `stacks.pack_paths(plugin_root, profile)` lists both in reading order). The packs are
+   `disable-model-invocation` skills — off the listing, so they cannot be invoked by name, only
+   read; pass the resolved paths in the `Task` prompt, since a subagent inherits none of this
+   context. If the profile has no pack, the standards + the profile's toolchain. It writes the code
+   and its tests in its worktree, and reports files/tests/assumptions. Keep each change scoped to
+   its task.
 4. **Integrate, then review.** When a level's worktrees finish, **integrate** them — merge each
    into the base branch in a deterministic order (e.g. by task id), resolving conflicts
    ([worktree-parallel.md](../../patterns/worktree-parallel.md)); if a conflict can't be resolved

@@ -25,11 +25,16 @@ requirements (`product`), or implementation (`develop`).
 > shared documentation worktree rather than the checkout, and deliver the result as a pull
 > request (see [doc-delivery](../../patterns/doc-delivery.md)). One worktree and one PR per
 > **feature**, shared by every document phase — that is what lets the next phase read what
-> this one wrote. Skip it for a one-off document outside a feature flow.
+> this one wrote. Skip it for a one-off document outside a feature flow. A repo with no remote (or
+> no `gh`) still commits — on `docs/<slug>`, reported as not pushed / no PR — never a failed phase.
 
 1. **Read the inputs.** Load `tech-design.md`
    (`handoff.load_artifact(..., expected_type="tech-design")`; **refuse to plan from it unless `handoff.is_handoff_ready(header)`**) and the `prd.md` for acceptance
-   context. Pick the `<feature-slug>`.
+   context. Pick the `<feature-slug>`. **If `tech-design.md` (or `prd.md`) is absent** (check
+   `Path.exists()` first — `load_artifact` raises on a missing file): plan from the request + the
+   repo, treat the request's components as the design, record the assumptions and the missing
+   artifact in `plan.md`'s body, and proceed. Never stop to ask when running headless — there is
+   no user to answer; ask only when interactive and the gap blocks the plan.
 2. **Decompose.** Break the design's components into discrete, individually shippable tasks.
 3. **Sequence.** Delegate ordering to the built-in `Plan` agent (fork via `Task`): establish
    dependencies between tasks (a DAG — no cycles) and the build order.
