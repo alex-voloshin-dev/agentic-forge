@@ -21,7 +21,11 @@ one-liner").
   Python repo with a git history, the SDLC docs, a feature branch with a committed change and an
   unstaged edit — so a diff, a PR-shaped branch, the plan and a module all exist. Nothing carries
   over between prompts. `--empty-workdir` reproduces the old condition only.
-- The four placeholder prompts are concrete now; Tier-1 re-run for `plan`, `product`, `research`.
+- The four placeholder prompts are concrete now. Tier-1 re-run: `plan` 1.000, `product` 1.000,
+  `research` **0.800** on the first wording — "options for *storing* task priorities" read as a
+  storage-design question and one prompt went to `architecture` 5/5 — then 1.000 once re-worded as
+  prior-art investigation. A trigger prompt is a contract: a concrete topic must not smuggle in
+  a neighbour's domain.
 - The why-buckets gain `nothing-to-work-on` (first) and lose `directly`, which echoed the question.
 - **Retracted in place:** ADR 0089's "the model knows and declines" (uninterpretable on that stand)
   and ADR 0088's activation *shape* (the zeros were the artifact-dependent skills). The note's
