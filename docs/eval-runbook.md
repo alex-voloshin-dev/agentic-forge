@@ -275,9 +275,12 @@ a timed-out attempt.
   `parse_grading` takes the first object carrying `assertion_results`, and `passed` accepts
   `true` / `"true"` / `"pass"` / `"passed"`. `tier2_quality.runs` is required (≥ 5) in the schema.
 - **Tier-1**: an undetermined call is `INVALID` with reason `session-never-ran` / `turn-cap` /
-  `timeout`; the skill fails when the pooled share of no-decision calls exceeds 10 % or a prompt
-  has *no* valid call — the per-prompt "fewer than half valid" rule is gone (it failed 7 of 17
-  skills at recall 1.000 in ADR 0084). A namespaced spelling of our skill (`agentic-forge:plan`)
+  `timeout`; the skill fails when the pooled share of calls that **never ran** (a limit, a dead
+  API, a timeout) exceeds 10 %, or a prompt has *no* valid call — the per-prompt "fewer than half
+  valid" rule is gone (it failed 7 of 17 skills at recall 1.000 in ADR 0084). The router's own
+  non-answers (a reply that did the task, a classify call capped while acting, prose without a
+  name) stay ADR 0064's discard: reported on every line, never capped — a 10 % cap on them failed
+  `deep-review` at 7/55 with recall 1.000 on this change set's first run. A namespaced spelling of our skill (`agentic-forge:plan`)
   is ours on the bare-listing gate run. `n=` is printed on every line; a contract may set a
   `runs` floor.
 - **Tier-3**: the phase fails a named checkpoint `session undetermined (<subtype>)` and the later

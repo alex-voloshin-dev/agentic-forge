@@ -309,6 +309,13 @@ INVALID_REASONS = (
     "timeout",
 )
 
+# The reasons that mean the call NEVER RAN — a usage limit, a dead API, a timeout — as opposed to
+# the router's own non-answers (a reply that did the task instead of naming a skill, a classify
+# call that hit its turn cap while acting, prose without a name). Only the first kind is a
+# failure of the RUN; the second is ADR 0064's discard, normal at a few per cent and reported on
+# every line. Capping both at 10% failed `deep-review` at 7/55 with recall 1.000 (ADR 0094).
+_NEVER_RAN_REASONS = frozenset({"session-never-ran", "timeout"})
+
 
 def _undetermined_reason(exc: SessionUndetermined) -> str:
     if isinstance(exc, TurnCapHit):
@@ -584,7 +591,9 @@ def eval_skill(
     as it failing either — so the report says exactly that (ADR 0064).
 
     Thin evidence is judged POOLED, the way ADR 0093 judges Tier-1b: the skill fails when more than
-    :data:`gate.MAX_UNDETERMINED` of its calls returned no decision, whatever prompt they fell on.
+    :data:`gate.MAX_UNDETERMINED` of its calls NEVER RAN (a limit, a dead API, a timeout —
+    :data:`_NEVER_RAN_REASONS`), whatever prompt they fell on; the router's own non-answers are the
+    ADR 0064 discard — reported, never capped — and fatal only when a prompt has no valid call.
     A per-prompt floor at n = 5 (ADR 0067's "unmeasured below half the samples") failed 7 of 17
     skills at recall 1.000 (ADR 0084) — a healthy router losing two calls on one prompt is noise,
     while a router losing a tenth of ALL its calls is a run that measured less than it claims. The
@@ -632,10 +641,11 @@ def eval_skill(
         )
     invalid_calls = sum(r.invalid for r in [*st, *sn])
     total_calls = sum(r.runs for r in [*st, *sn])
-    too_thin = bool(total_calls) and invalid_calls / total_calls > MAX_UNDETERMINED
+    never_ran = sum(n for why, n in tally.items() if why in _NEVER_RAN_REASONS)
+    too_thin = bool(total_calls) and never_ran / total_calls > MAX_UNDETERMINED
     if too_thin:
         reasons.append(
-            f"{invalid_calls} of {total_calls} calls returned no decision "
+            f"{never_ran} of {total_calls} calls never ran "
             f"(> {MAX_UNDETERMINED:.0%}): the run failed, not the router"
         )
     return Tier1Report(

@@ -30,8 +30,9 @@ ones executed); ~50 findings, 9 high, fixed as one change set:
 - **A session that never ran is undetermined, in every tier** (ADR 0093 generalised): the runner
   reads the envelope and raises `SessionUndetermined`/`TurnCapHit`/`SessionTimedOut` at once —
   no retry for an answer, one for a timeout, backoff only for transport; Tier-2 counts and caps
-  unmeasured runs (`gate.MAX_UNDETERMINED`), Tier-1 gates on the pooled no-decision share instead
-  of the per-prompt half-rule, Tier-3 fails a named checkpoint and continues; grading is
+  unmeasured runs (`gate.MAX_UNDETERMINED`), Tier-1 gates on the pooled share of calls that never
+  ran (the router's own non-answers stay ADR 0064's reported discard) instead of the per-prompt
+  half-rule, Tier-3 fails a named checkpoint and continues; grading is
   shape-aware and an unparseable grading is *ungraded*; `tier2_quality.runs` is required (≥ 5);
   a namespaced answer is ours; Tier-1b scores a bare built-in-named `Skill` call as *collided*;
   the spine's fixture tests are bounded; `ralph` aborts on an unlaunchable done-cmd; `api_runner`

@@ -783,20 +783,40 @@ def test_a_prompt_with_fewer_than_half_valid_calls_is_measured_from_the_valid_on
     assert rate.rate == 1.0 and rate.invalid == 3  # measured — thin, and it says so
 
 
-def test_pooled_no_decision_share_over_the_cap_fails_the_skill(tmp_path: Path) -> None:
+def test_pooled_never_ran_share_over_the_cap_fails_the_skill(tmp_path: Path) -> None:
+    from agentic_forge.agent_eval import SessionUndetermined
+
     trig = SkillTrigger("research", _THRESH, ["a"], ["c"])
     seen: dict[str, int] = {}
 
     def run(system: str, prompt: str, workdir: Path) -> str:
         seen[prompt] = seen.get(prompt, 0) + 1
-        if prompt == "a" and seen[prompt] <= 3:  # 3 of the skill's 10 calls: 30%
-            return ""
+        if prompt == "a" and seen[prompt] <= 3:  # 3 of the skill's 10 calls never ran: 30%
+            raise SessionUndetermined("error", "You've hit your session limit")
         return "research" if prompt == "a" else "none"
 
     rep = eval_skill(trig, ["research", "product"], run, "sys", 5, tmp_path)
     assert rep.recall == 1.0 and rep.specificity == 1.0  # the rates over the valid calls are fine
     assert not rep.passed and not rep.unmeasured  # …but the run measured less than it claims
-    assert any("3 of 10 calls returned no decision (> 10%)" in r for r in rep.reasons)
+    assert any("3 of 10 calls never ran (> 10%)" in r for r in rep.reasons)
+
+
+def test_router_non_answers_are_reported_not_capped(tmp_path: Path) -> None:
+    """A router that does the task instead of naming a skill is ADR 0064's discard — normal at a
+    few per cent, on every line, never a run failure: capping it at 10% failed `deep-review` at
+    7/55 with recall 1.000 on the first run (ADR 0094)."""
+    trig = SkillTrigger("research", _THRESH, ["a"], ["c"])
+    seen: dict[str, int] = {}
+
+    def run(system: str, prompt: str, workdir: Path) -> str:
+        seen[prompt] = seen.get(prompt, 0) + 1
+        if prompt == "a" and seen[prompt] <= 3:  # 3 of 10 calls: prose, no decision
+            return "The working directory is empty, so there is nothing here to investigate yet."
+        return "research" if prompt == "a" else "none"
+
+    rep = eval_skill(trig, ["research", "product"], run, "sys", 5, tmp_path)
+    assert rep.passed and rep.recall == 1.0 and rep.invalid_calls == 3
+    assert "3/10 no decision" in rep.summary_line() and not rep.reasons
 
 
 def test_every_call_invalid_on_one_prompt_is_still_unmeasured_and_fails(tmp_path: Path) -> None:
