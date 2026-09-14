@@ -25,6 +25,7 @@ import shutil
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from .ops import (
@@ -35,12 +36,15 @@ from .ops import (
     InMemoryPipeline,
     PipelineSource,
     SourceUnavailable,
+    UnavailablePipeline,
 )
 
 __all__ = [
     "parse_gh_runs",
     "GhPipelineSource",
     "gh_available",
+    "slug_from_remote_url",
+    "remote_slug",
     "pipeline_source",
     "parse_grafana_alerts",
     "GrafanaAlertSource",
@@ -176,12 +180,74 @@ def gh_available() -> bool:  # pragma: no cover
     return shutil.which("gh") is not None
 
 
-def pipeline_source(repo: str, *, available: Callable[[], bool] = gh_available) -> PipelineSource:
-    """Select a PipelineSource: :class:`GhPipelineSource` when ``gh`` is available, else an empty
-    in-memory source (graceful fallback). ``available`` is injectable for testing."""
-    if available():
-        return GhPipelineSource(repo)
-    return InMemoryPipeline({})
+def slug_from_remote_url(url: str) -> str | None:
+    """``owner/name`` from a GitHub remote URL, or None when it is not one.
+
+    Handles the three spellings a checkout can carry — ``git@github.com:owner/name.git``,
+    ``https://github.com/owner/name(.git)``, ``ssh://git@github.com/owner/name.git`` — and is
+    deliberately strict about the host: a GitLab or Bitbucket remote is *not* a slug ``gh`` can
+    read, and guessing one would send the digest to a repository that is not ours."""
+    text = url.strip()
+    if not text:
+        return None
+    for prefix in ("git@github.com:", "ssh://git@github.com/", "git://github.com/"):
+        if text.startswith(prefix):
+            text = text[len(prefix):]
+            break
+    else:
+        for prefix in ("https://github.com/", "http://github.com/"):
+            if text.startswith(prefix):
+                text = text[len(prefix):]
+                break
+        else:
+            return None
+    text = text[: -len(".git")] if text.endswith(".git") else text
+    parts = [p for p in text.strip("/").split("/") if p]
+    if len(parts) != 2:
+        return None
+    return f"{parts[0]}/{parts[1]}"
+
+
+def _git_remote_url(repo: Path | str) -> str:  # pragma: no cover -- thin seam
+    result = subprocess.run(
+        ["git", "-C", str(repo), "remote", "get-url", "origin"],
+        capture_output=True, text=True, timeout=GH_TIMEOUT_SECONDS,
+    )
+    return result.stdout if result.returncode == 0 else ""
+
+
+def remote_slug(
+    repo: Path | str, *, read_url: Callable[[Path | str], str] = _git_remote_url
+) -> str | None:
+    """The ``owner/name`` of ``repo``'s ``origin`` remote, or None (no remote, not GitHub, no git).
+
+    The daily digest used to hand `gh --repo` the repository *path*, which `gh` rejects — so the
+    scheduled job could not read the pipeline at all (ADR 0095)."""
+    try:
+        return slug_from_remote_url(read_url(repo))
+    except (subprocess.SubprocessError, OSError):
+        return None
+
+
+def pipeline_source(
+    repo: Path | str,
+    *,
+    available: Callable[[], bool] = gh_available,
+    slug: Callable[[Path | str], str | None] = remote_slug,
+) -> PipelineSource:
+    """Select a PipelineSource for ``repo`` — a local checkout path *or* an ``owner/name`` slug.
+
+    :class:`GhPipelineSource` when ``gh`` is available and a slug is known; an
+    :class:`~agentic_forge.ops.UnavailablePipeline` when ``gh`` is there but the checkout has no
+    GitHub remote (a *configured* source that cannot answer — never silently empty); otherwise an
+    empty in-memory source, the graceful no-provider fallback. ``available`` and ``slug`` are
+    injectable for testing."""
+    if not available():
+        return InMemoryPipeline({})
+    name = slug(repo) if Path(repo).is_dir() else str(repo)
+    if not name:
+        return UnavailablePipeline(f"no GitHub 'origin' remote in {repo}")
+    return GhPipelineSource(name)
 
 
 # --- Grafana alerts (AlertSource) --------------------------------------------

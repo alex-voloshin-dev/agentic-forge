@@ -98,6 +98,21 @@ class InMemoryPipeline:
 
 
 @dataclass
+class UnavailablePipeline:
+    """A :class:`PipelineSource` that is configured but cannot answer, and says why.
+
+    The gap between "no provider configured" (an empty in-memory source — nothing to report) and
+    "a provider that cannot be reached" (this — unknown). `gh` on PATH in a checkout with no
+    GitHub remote is the second, and returning the first made the digest read *healthy* from no
+    data (ADR 0095)."""
+
+    reason: str
+
+    def recent_deploys(self, environment: str) -> list[Deploy]:
+        raise SourceUnavailable(self.reason)
+
+
+@dataclass
 class InMemoryAlerts:
     """An :class:`AlertSource` fake (tests + eval fixtures), keyed by environment."""
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 import types
+from pathlib import Path
 
 import pytest
 
@@ -282,3 +283,58 @@ def test_alert_source_falls_back_without_url() -> None:
     src = alert_source(env=lambda _: None)
     assert isinstance(src, ops.InMemoryAlerts)
     assert src.active_alerts("prod") == []
+
+
+# --- the repo slug: a path is not `owner/name` (ADR 0095) ------------------------------
+
+
+@pytest.mark.parametrize(
+    ("url", "slug"),
+    [
+        ("git@github.com:alex/agentic-forge.git", "alex/agentic-forge"),
+        ("https://github.com/alex/agentic-forge.git", "alex/agentic-forge"),
+        ("https://github.com/alex/agentic-forge", "alex/agentic-forge"),
+        ("ssh://git@github.com/alex/agentic-forge.git", "alex/agentic-forge"),
+        ("https://github.com/alex/agentic-forge/\n", "alex/agentic-forge"),
+        # not a GitHub remote, so not a slug `gh` could read — guessing one would query a
+        # repository that is not ours
+        ("git@gitlab.com:alex/forge.git", None),
+        ("https://bitbucket.org/alex/forge.git", None),
+        ("/Users/alex/code/agentic-forge", None),  # the path the digest used to pass
+        ("https://github.com/alex", None),
+        ("", None),
+    ],
+)
+def test_slug_from_remote_url(url: str, slug: str | None) -> None:
+    assert connectors.slug_from_remote_url(url) == slug
+
+
+def test_remote_slug_reads_origin_and_survives_a_failure(tmp_path: Path) -> None:
+    assert connectors.remote_slug(
+        tmp_path, read_url=lambda _: "git@github.com:alex/forge.git\n"
+    ) == "alex/forge"
+    assert connectors.remote_slug(tmp_path, read_url=lambda _: "") is None  # no remote
+
+    def boom(_: object) -> str:
+        raise OSError("git missing")
+
+    assert connectors.remote_slug(tmp_path, read_url=boom) is None
+
+
+def test_pipeline_source_resolves_a_checkout_path_to_its_slug(tmp_path: Path) -> None:
+    """The daily digest hands it the repository PATH; `gh --repo` wants `owner/name`. It used to
+    get the path, so the job could never read the pipeline (ADR 0095)."""
+    src = pipeline_source(tmp_path, available=lambda: True, slug=lambda _: "alex/forge")
+    assert isinstance(src, GhPipelineSource) and src.repo == "alex/forge"
+
+
+def test_pipeline_source_without_a_github_remote_is_unavailable_not_empty(tmp_path: Path) -> None:
+    src = pipeline_source(tmp_path, available=lambda: True, slug=lambda _: None)
+    assert isinstance(src, ops.UnavailablePipeline)
+    with pytest.raises(ops.SourceUnavailable, match="no GitHub 'origin' remote"):
+        src.recent_deploys("prod")  # never [] — that is how zero data read as healthy
+
+
+def test_pipeline_source_still_takes_a_bare_slug() -> None:
+    src = pipeline_source("owner/repo", available=lambda: True)
+    assert isinstance(src, GhPipelineSource) and src.repo == "owner/repo"

@@ -7,6 +7,25 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Fixed — the two ADR 0094 left: a budget nothing measured, a slug nobody resolved (ADR 0095)
+
+- **The daily deploy digest could never read the pipeline.** It passed the repository *path* where
+  `gh --repo` wants `owner/name`. Before 2026.9.4 that read as "healthy — 0 recent runs"; 0094 made
+  it honestly "unknown", which was the right answer to the wrong question. `connectors.remote_slug`
+  now resolves `owner/name` from the checkout's `origin` (strict about the host — a GitLab remote
+  is not a slug `gh` can read), `pipeline_source` takes a path *or* a slug, and `gh` on PATH with no
+  GitHub remote returns the new `ops.UnavailablePipeline` rather than an empty source: "no provider
+  configured" and "a provider that cannot answer" must not share a return value.
+- **The always-on listing budget is a Tier-0 ratchet.** Every model-invocable skill's name and
+  description sits in every session's context, and the rule that adding one "requires a budget
+  review" (ADR 0056) was enforced by memory — the figure in CLAUDE.md had drifted from the tree by
+  the time this audit measured it. `validate_listing_budget` renders what a live session is shown
+  and fails above `LISTING_BUDGET_CHARS`; `dev/validate.py` prints
+  `listing budget: 10257/10400 chars (~2564 tokens, 17 on-listing skills)` on **every** run, pass
+  or fail. A ratchet, not a ceiling: the listing is already at the ~1% guidance, so a "too big"
+  gate would fail on day one and be switched off — this one fails *growth* (a new skill is ~600
+  chars), and raising the constant is the budget review, visible in the diff.
+
 ## [2026.9.4] - 2026-09-14
 
 ### Changed — the audit: the same three shapes, everywhere else (ADR 0094)

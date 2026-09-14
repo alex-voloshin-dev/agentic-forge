@@ -16,6 +16,7 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO_ROOT / "plugin" / "lib"))
 
+from agentic_forge import validation  # noqa: E402
 from agentic_forge.validation import validate_docs, validate_plugin  # noqa: E402
 
 
@@ -31,6 +32,7 @@ def main(argv: list[str]) -> int:
     if (repo_root / "docs" / "architecture" / "meta-core.md").is_file():
         report.extend(validate_docs(repo_root))
     print(report.render())
+    print(validation.budget_line(plugin_dir))  # printed pass or fail: a measured guard is visible
     return 0 if report.ok else 1
 
 

@@ -322,7 +322,10 @@ def _pr_finished(repo: Path, entry: pr_watch.WatchEntry) -> bool:  # pragma: no 
 def _deploy_digest(repo: Path) -> str:
     # Connectors auto-detect: GhPipelineSource (gh on PATH) + GrafanaAlertSource (GRAFANA_URL set).
     # Both degrade to empty in-memory sources, so this stays graceful when nothing is configured.
-    pipeline = connectors.pipeline_source(str(repo))
+    # The repo PATH, not a slug: `pipeline_source` resolves `owner/name` from the checkout's
+    # `origin` remote. Handing `gh --repo` a path meant the job could never read the pipeline, and
+    # before ADR 0094 that surfaced as "healthy — 0 recent runs" (ADR 0095).
+    pipeline = connectors.pipeline_source(repo)
     alerts = connectors.alert_source()
     if isinstance(pipeline, ops.InMemoryPipeline) and isinstance(alerts, ops.InMemoryAlerts):
         return "deploy-digest: no pipeline/alert source configured — see references/connectors.md."

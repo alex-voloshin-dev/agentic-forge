@@ -4,14 +4,20 @@ import json
 from pathlib import Path
 
 from agentic_forge.validation import (
+    LISTING_BUDGET_CHARS,
     Issue,
     Report,
+    budget_line,
+    listing_budget,
     validate_agent,
+    validate_listing_budget,
     validate_manifest,
     validate_plugin,
     validate_python_compat,
     validate_skill,
 )
+
+PLUGIN = Path(__file__).resolve().parents[1] / "plugin"
 
 AGENT_EVALS = {
     "skill_name": "foo",
@@ -234,3 +240,57 @@ def test_real_plugin_is_python_compat_clean() -> None:
     plugin = Path(__file__).resolve().parents[1] / "plugin"
     report = validate_python_compat(plugin)
     assert report.ok, report.render()
+
+
+# --- the always-on listing budget (ADR 0095) --------------------------------------------
+
+
+def _plugin_with_listing(root: Path, skills: dict[str, tuple[str, bool]]) -> Path:
+    """A plugin dir whose skills are {name: (description, off_listing)}."""
+    for name, (description, off_listing) in skills.items():
+        skill = root / "skills" / name
+        skill.mkdir(parents=True, exist_ok=True)
+        extra = "\ndisable-model-invocation: true" if off_listing else ""
+        (skill / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: {description}{extra}\n---\nBody\n",
+            encoding="utf-8",
+        )
+    return root
+
+
+def test_listing_budget_measures_the_rendered_listing_and_skips_off_listing(
+    tmp_path: Path,
+) -> None:
+    plugin = _plugin_with_listing(
+        tmp_path,
+        {"plan": ("Plan the work.", False), "python-patterns": ("Python conventions.", True)},
+    )
+    total, rows = listing_budget(plugin)
+    assert [name for name, _ in rows] == ["plan"]  # the off-listing pack costs no context
+    assert total == len("- agentic-forge:plan: Plan the work.") == rows[0][1]
+
+
+def test_listing_budget_is_a_ratchet_that_fails_growth(tmp_path: Path) -> None:
+    """A new on-listing skill (~600 chars) trips it; the message says where to trim and that the
+    constant itself is the budget review."""
+    fat = "x" * (LISTING_BUDGET_CHARS // 2)
+    plugin = _plugin_with_listing(tmp_path, {"a": (fat, False), "b": (fat, False)})
+    report = validate_listing_budget(plugin)
+    assert not report.ok
+    (issue,) = report.errors
+    assert "over a budget of" in issue.message and "LISTING_BUDGET_CHARS" in issue.message
+    assert "a (" in issue.message  # the longest descriptions are named
+    assert validate_listing_budget(_plugin_with_listing(tmp_path / "small", {})).ok
+
+
+def test_the_shipped_listing_is_within_its_recorded_budget() -> None:
+    """The ratchet's own self-test: this is the number CLAUDE.md carried by hand for two years."""
+    total, rows = listing_budget(PLUGIN)
+    assert 0 < total <= LISTING_BUDGET_CHARS, f"{total} chars over {LISTING_BUDGET_CHARS}"
+    assert len(rows) == 17  # the on-listing set; growing it is a deliberate budget review
+    assert validate_plugin(PLUGIN).ok
+
+
+def test_budget_line_is_printed_pass_or_fail() -> None:
+    line = budget_line(PLUGIN)
+    assert line.startswith("listing budget: ") and "on-listing skills)" in line

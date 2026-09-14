@@ -91,7 +91,8 @@ These are Claude Code capabilities we use directly rather than reimplement:
 Quality is enforced the same way at every layer:
 
 - **Tier 0 — static** (always blocks, no LLM): standard validation, frontmatter lint, body
-  length, reference resolution, `pytest`, `ruff`, `mypy`, script coverage ≥ 80%.
+  length, reference resolution, the always-on listing budget (a ratchet — ADR 0095), `pytest`,
+  `ruff`, `mypy`, script coverage ≥ 80%.
 - **Tier 1 — trigger**: should-trigger recall ≥ 0.9, should-not-trigger specificity ≥ 0.9.
 - **Tier 1b — activation** (on demand): a live session with the plugin loaded invokes the skill
   unprompted; the rate pooled over the run ≥ 0.80 (ADR 0088/0093).

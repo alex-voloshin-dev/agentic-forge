@@ -29,7 +29,10 @@ This file is the project constitution. Every contributor (human or agent) MUST f
    it model-invocable with its description still in the listing; `disable-model-invocation:
    true` is what drops a skill from the listing (manual `/name` only).
    The on-listing set today is ~2,530 tokens (17 skills) — at/over the ~1% ceiling with no headroom,
-   so **adding an on-listing skill (or growing a description) requires a budget review**: tighten
+   so **adding an on-listing skill (or growing a description) requires a budget review** —
+   enforced by Tier-0 since ADR 0095, as a *ratchet*: `validation.LISTING_BUDGET_CHARS` is today's
+   size, `dev/validate.py` prints the figure on every run and fails on growth, and raising that
+   constant **is** the budget review. To make room: tighten
    the longest descriptions or move a router off-listing. A weekly CI cron re-runs **Tier-1** so a
    routing regression surfaces — **but only while `CLAUDE_CODE_OAUTH_TOKEN` is set in the repo
    secrets**: without it the model-backed step is skipped and the run goes green having measured
@@ -46,7 +49,8 @@ This file is the project constitution. Every contributor (human or agent) MUST f
 4. **The eval pyramid** (ADR 0003)**.**
    - Tier 0 (static, always blocks): `dev/validate.py` (skills-ref-style validation), frontmatter
      lint, body <= 500 lines, references resolve, doc-sync (the meta-core lib table + the ADR index
-     match the tree), `pytest` green, `ruff` + `mypy` clean, script coverage >= 80%. (`validate.py`
+     match the tree), the always-on listing budget (ADR 0095), `pytest` green, `ruff` + `mypy`
+     clean, script coverage >= 80%. (`validate.py`
      covers the structural + doc-sync checks; `pytest`/`ruff`/`mypy`/`--cov-fail-under=80` are
      enforced via the CI Tier-0 job in `ci.yml`, not by `validate.py` itself.)
    - Tier 1 (trigger): should-trigger recall >= 0.9, should-not-trigger specificity >= 0.9.
