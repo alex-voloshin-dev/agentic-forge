@@ -84,8 +84,10 @@ notes with no vault seeded. Two `X` placeholders were still in `should_not_trigg
    `SessionUndetermined` / `TurnCapHit` / `SessionTimedOut` at once — no retry for an answer, one
    retry with a `T` for a timeout, backoff only for a transport failure. Tier-2 records the case
    as unmeasured and fails the component above `gate.MAX_UNDETERMINED` (0.10); Tier-1 records an
-   `INVALID` call with the reason and gates on the pooled no-decision share instead of the
-   per-prompt half-rule; Tier-3 fails a named checkpoint and still runs the later phases. Grading
+   `INVALID` call with the reason and gates on the pooled share of calls that never ran — the
+   router's own non-answers stay ADR 0064's reported discard; capping those too failed
+   `deep-review` at 7/55 with recall 1.000 on the first run — instead of the per-prompt
+   half-rule; Tier-3 fails a named checkpoint and still runs the later phases. Grading
    is shape-aware (`assertion_results`, `"passed"` spellings) and an unparseable grading is
    *ungraded*, never a silent zero. Tier-1b scores a bare `Skill` call on a built-in's name
    (`code-review`, `security-review`) as *collided*, not a hit — a live probe showed the model
