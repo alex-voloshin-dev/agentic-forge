@@ -7,6 +7,8 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.9.4] - 2026-09-14
+
 ### Changed — the audit: the same three shapes, everywhere else (ADR 0094)
 
 ADRs 0081–0093 fixed thirteen defects that were three shapes — a verdict from nothing, a message
@@ -77,6 +79,12 @@ ones executed); ~50 findings, 9 high, fixed as one change set:
   calls; 16 skills in one pass, `deploy-watch` re-run after the re-wording, 0 no-decision calls).
   The first pass hit the account's usage limit after ~90 calls and the new instrument said so —
   14 skills "session-never-ran", "the run failed, not the router" — instead of scoring zeros.
+  **Tier-1b activation re-baselined on the released stand: 83/84 = 0.988 pooled** (0.929 → 0.940 →
+  0.988 across the three stands), sixteen of seventeen skills at 1.000; the one miss reads "what
+  *are* the accessibility requirements?" as a lookup rather than a design request. Prompts,
+  descriptions, absence branches and the collided scorer all moved, so it is a new baseline of
+  record, not a lift attributable to one of them; the 0.80 floor stays, having been calibrated
+  against model drift rather than the current value.
 - **CI and docs.** The Tier-1 step and both model-backed jobs select by positive list; the
   summary names the step that ran; retracted ADR 0089 claims marked retracted wherever they still
   stood as fact; Tier-1b in the pyramid definitions; the ADR amendment convention stated.

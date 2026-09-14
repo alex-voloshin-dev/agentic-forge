@@ -101,6 +101,12 @@ skill, then ran the skill's own fan-out until the runner killed it — and the r
 away with the transcript. Read with that, the polished stand is **81/84 = 0.964**; 79/84 stays the
 number of record for the run as it was reported, and the floor holds under either.
 
+*(Amended 2026-09-14, ADR 0094: the audit changed the stand again — eight skills' prompts carry
+their referent, the fixture seeds a knowledge vault, every phase skill has an absence branch — so
+79/84 no longer describes it. The re-baseline on the released tree reads **83/84 = 0.988**, sixteen
+skills at 1.000, one `ux-design` miss that reads its prompt as a lookup. The floor stays 0.80: it
+was calibrated against model drift, not against the current value.)*
+
 ## Consequences
 
 - The activation gate is live and cheap to trust: one binomial with a known flake rate, run on

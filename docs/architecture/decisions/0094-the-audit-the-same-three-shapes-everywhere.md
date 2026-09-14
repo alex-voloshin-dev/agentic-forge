@@ -151,8 +151,12 @@ notes with no vault seeded. Two `X` placeholders were still in `should_not_trigg
   router go and look for a YAML that was not there on ten calls out of ten — a stand that
   presupposes, in the router's own lane — so it now carries the snippet and measures. The Tier-1b
   stand changed materially (referents, a vault, the absence branches), so its baseline of record
-  (ADR 0093, 79/84) no longer describes this stand; the next `tiers: activation` dispatch is the
-  re-baseline, and the 0.80 floor stands until it says otherwise.
+  (ADR 0093, 79/84) no longer describes this stand. The re-baseline, run on the released tree,
+  reads **83/84 = 0.988** — sixteen of seventeen skills at 1.000, the one miss a `ux-design`
+  session reading "what *are* the accessibility requirements?" as a lookup rather than a design
+  request. Four things moved at once (prompts, descriptions, absence branches, the collided
+  scorer), so it is a new baseline of record rather than a lift attributable to any one of them.
+  The 0.80 floor stays: it was calibrated against model drift, not against the current value.
 - Known and deliberately left: the daily deploy digest passes the repository *path* as the `gh`
   `--repo` slug, so with `gh` on PATH it now reports "unknown — source unavailable" honestly where
   it used to say "healthy"; the slug should come from the remote (a follow-up, not a shape).
