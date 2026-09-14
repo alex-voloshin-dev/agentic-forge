@@ -6,14 +6,17 @@ seams. In a live repo, use a real connector instead of a recorded snapshot (ADR 
 ```
 python -c "
 from agentic_forge import connectors, ops
-pipeline = connectors.pipeline_source('OWNER/REPO')   # GhPipelineSource if gh is on PATH, else empty
+pipeline = connectors.pipeline_source('.')            # a checkout path or 'OWNER/REPO'; gh on PATH -> GhPipelineSource
 alerts   = connectors.alert_source()                  # GrafanaAlertSource if GRAFANA_URL set, else empty
 print(ops.deploy_status(pipeline, alerts, 'production'))
 "
 ```
 
-- **`connectors.pipeline_source(repo)`** auto-detects the **`gh` CLI** (GitHub Actions) and returns
-  a `GhPipelineSource`; absent `gh` → an empty source so the skill degrades gracefully.
+- **`connectors.pipeline_source(repo)`** takes a checkout **path** or an `owner/name` slug (a path
+  is resolved through its `origin` remote) and auto-detects the **`gh` CLI** (GitHub Actions),
+  returning a `GhPipelineSource`; absent `gh` → an empty source so the skill degrades gracefully.
+  With `gh` present but no GitHub remote it returns an `ops.UnavailablePipeline`, which **raises**
+  `ops.SourceUnavailable` — report *unknown*, never "no deploys" (ADR 0095).
 - **`connectors.alert_source()`** returns a **`GrafanaAlertSource`** when `GRAFANA_URL` is set
   (token via `GRAFANA_TOKEN`), else an empty source. **MCP-first:** if a Grafana MCP tool is
   available (find it with `ToolSearch`), prefer it and map its alerts onto `ops.Alert`; the REST

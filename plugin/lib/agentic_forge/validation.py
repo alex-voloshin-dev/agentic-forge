@@ -17,6 +17,9 @@ from . import models, naming, skill_contract
 from .frontmatter import FrontmatterError, parse
 
 __all__ = [
+    "LISTING_BUDGET_CHARS",
+    "listing_budget",
+    "validate_listing_budget",
     "DESCRIPTION_MAX_LEN",
     "COMPATIBILITY_MAX_LEN",
     "BODY_MAX_LINES",
@@ -132,6 +135,74 @@ class Report:
         lines = [str(i) for i in self.issues]
         lines.append(f"\n{len(self.errors)} error(s), {len(self.warnings)} warning(s)")
         return "\n".join(lines)
+
+
+# --- the always-on listing budget (ADR 0095) ---------------------------------------------
+#
+# Every model-invocable skill's name + description sits in EVERY session's context. CLAUDE.md has
+# carried a budget for it since ADR 0056 ("~1% of the model window ... adding an on-listing skill
+# requires a budget review") and nothing measured it: the figure was recounted by hand, twice, in
+# two years. This is that rule as a gate, and it is a RATCHET, not a ceiling — the listing is
+# already at/over the ~1% guidance, so a number that failed "too big" would fail today and teach
+# nothing. It fails GROWTH instead: a new on-listing skill (~600 chars) or a description that puts
+# on weight trips it, an equal-length rewording does not. Raising the constant is the budget
+# review, visible in the diff.
+LISTING_BUDGET_CHARS = 10_400
+_LISTING_NAMESPACE = "agentic-forge:"
+_CHARS_PER_TOKEN = 4  # the usual English estimate; tiktoken is not a dependency of Tier-0
+
+
+def listing_budget(plugin_dir: Path) -> tuple[int, list[tuple[str, int]]]:
+    """Rendered size of the always-on skill listing: total chars, and per-skill, biggest first.
+
+    Measures what a live session is shown — ``- agentic-forge:<name>: <description>`` per
+    model-invocable skill — so the number is the listing's real context cost, not a proxy."""
+    rows: list[tuple[str, int]] = []
+    skills_dir = plugin_dir / "skills"
+    if not skills_dir.is_dir():
+        return 0, rows
+    for skill_dir in sorted(p for p in skills_dir.iterdir() if p.is_dir()):
+        md = skill_dir / "SKILL.md"
+        if not md.is_file():
+            continue
+        try:
+            fm, _ = parse(md.read_text(encoding="utf-8"))
+        except (FrontmatterError, OSError):
+            continue
+        if str(fm.get("disable-model-invocation", "")).strip().lower() == "true":
+            continue  # off-listing: manual /name only, not in the model's listing
+        name = str(fm.get("name") or skill_dir.name)
+        description = str(fm.get("description") or "").strip()
+        rows.append((name, len(f"- {_LISTING_NAMESPACE}{name}: {description}")))
+    rows.sort(key=lambda row: (-row[1], row[0]))
+    return sum(n for _, n in rows), rows
+
+
+def budget_line(plugin_dir: Path) -> str:
+    """One line for every validate run — the budget is only a guard if it is visible when it
+    passes (ADR 0082's lesson: a gate nobody reads reports nothing)."""
+    total, rows = listing_budget(plugin_dir)
+    return (
+        f"listing budget: {total}/{LISTING_BUDGET_CHARS} chars "
+        f"(~{total // _CHARS_PER_TOKEN} tokens, {len(rows)} on-listing skills)"
+    )
+
+
+def validate_listing_budget(plugin_dir: Path) -> Report:
+    """Fail when the always-on listing grew past the recorded budget."""
+    report = Report()
+    total, rows = listing_budget(plugin_dir)
+    if total > LISTING_BUDGET_CHARS:
+        worst = ", ".join(f"{name} ({n})" for name, n in rows[:3])
+        report.error(
+            "listing-budget",
+            f"the always-on skill listing is {total} chars (~{total // _CHARS_PER_TOKEN} tokens) "
+            f"over a budget of {LISTING_BUDGET_CHARS}: it sits in EVERY session's context. "
+            f"Tighten the longest descriptions ({worst}), move a router off-listing "
+            "(disable-model-invocation: true), or raise validation.LISTING_BUDGET_CHARS "
+            "deliberately — that constant IS the budget review (ADR 0095).",
+        )
+    return report
 
 
 def validate_skill(skill_dir: Path) -> Report:
@@ -428,6 +499,7 @@ def validate_plugin(plugin_dir: Path) -> Report:
     report = Report()
     report.extend(validate_manifest(plugin_dir))
     report.extend(validate_python_compat(plugin_dir))
+    report.extend(validate_listing_budget(plugin_dir))
 
     skills_dir = plugin_dir / "skills"
     if skills_dir.is_dir():

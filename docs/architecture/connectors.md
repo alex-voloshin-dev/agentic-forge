@@ -61,8 +61,11 @@ A connector is chosen by a small config plus auto-detect:
 
 1. **`GhPipelineSource`** (Python adapter, tested) — **✅ shipped** (`connectors.py`): GitHub
    Actions `gh run list --json` → `Deploy` (`success→passing`, `failure→failing`,
-   `in_progress→running`, `queued→queued`); `pipeline_source(repo)` auto-detects `gh`. Wired into
-   `deploy-watch` (references/connectors.md) + the scheduled `deploy-digest`.
+   `in_progress→running`, `queued→queued`); `pipeline_source(repo)` auto-detects `gh` and takes a
+   checkout **path** or an `owner/name` slug, resolving a path through the `origin` remote — with
+   `gh` present but no GitHub remote it is an `UnavailablePipeline`, never an empty source
+   (ADR 0095). Wired into `deploy-watch` (references/connectors.md) + the scheduled
+   `deploy-digest`.
 2. **`AlertSource`** — **✅ Grafana shipped** (`GrafanaAlertSource`): `parse_grafana_alerts` (pure,
    tested) maps Grafana Alertmanager alerts → `Alert`; `alert_source()` reads `GRAFANA_URL` /
    `GRAFANA_TOKEN`. MCP-first per policy (prefer the Grafana MCP tool; REST is the fallback). Wired

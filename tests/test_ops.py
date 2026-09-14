@@ -210,3 +210,17 @@ def test_unknown_health_is_outside_the_assessed_levels() -> None:
     assert ops.HEALTH_UNKNOWN not in ops.HEALTH  # not a rung on the healthy..failing ladder
     assert "investigate" in recommended_action(ops.HEALTH_UNKNOWN)
     assert issubclass(ops.SourceUnavailable, RuntimeError)
+
+
+# --- a configured source that cannot answer (ADR 0095) ---------------------------------
+
+
+def test_unavailable_pipeline_raises_instead_of_reading_empty() -> None:
+    """`gh` on PATH in a checkout with no GitHub remote is not "no provider configured" — it is a
+    provider that cannot answer. Returning `[]` made the digest read healthy from no data."""
+    src = ops.UnavailablePipeline("no GitHub 'origin' remote in /tmp/x")
+    assert isinstance(src, ops.PipelineSource)
+    with pytest.raises(ops.SourceUnavailable, match="origin"):
+        src.recent_deploys("prod")
+    status = deploy_status(src, InMemoryAlerts({}), "prod")
+    assert status["pipeline"] == "unknown" and "origin" in status["unavailable"]["pipeline"]
