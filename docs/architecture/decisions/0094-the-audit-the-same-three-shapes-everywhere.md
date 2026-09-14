@@ -144,7 +144,12 @@ notes with no vault seeded. Two `X` placeholders were still in `should_not_trigg
   primitives everywhere — `hook_notice`/`hook_crash`, `SessionUndetermined`/`MAX_UNDETERMINED`,
   `SourceUnavailable`, the fixture `tree/` layout — instead of one fix per sighting.
 - Trigger prompts changed for seven skills and descriptions for four, so Tier-1 re-ran on the
-  merged tree with the new scorer; the result is recorded in the CHANGELOG entry. The Tier-1b
+  merged tree with the new scorer: **17/17 at recall 1.000 / specificity 1.000**, 814 router
+  calls. Two things the run itself taught: the first pass hit the usage limit after ~90 calls and
+  the instrument reported fourteen skills as "never ran" rather than as zeros — the shape this ADR
+  is about, seen working; and one `deploy-watch` should-not prompt ("fix the manifest") made the
+  router go and look for a YAML that was not there on ten calls out of ten — a stand that
+  presupposes, in the router's own lane — so it now carries the snippet and measures. The Tier-1b
   stand changed materially (referents, a vault, the absence branches), so its baseline of record
   (ADR 0093, 79/84) no longer describes this stand; the next `tiers: activation` dispatch is the
   re-baseline, and the 0.80 floor stands until it says otherwise.

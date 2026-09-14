@@ -70,7 +70,13 @@ ones executed); ~50 findings, 9 high, fixed as one change set:
   incident; the Tier-1b stand seeds a `docs/knowledge/` vault; six Tier-2 prompts that dictated
   their finding now leave it to the fixture; the two `X` placeholders are gone; a test checks that
   every `files` entry resolves. Trigger prompts changed for `incident-response`, `ux-design`,
-  `develop`, `security-review`, `marketing`, `plan`, `product`.
+  `develop`, `security-review`, `marketing`, `plan`, `product` — and one `deploy-watch`
+  should-not prompt ("Why is this pod's YAML invalid? Fix the manifest"), which made the router go
+  and look for the YAML on ten calls out of ten across two runs; it now carries the snippet.
+  **Tier-1 on the merged tree, live: 17/17 at recall 1.000 / specificity 1.000** (814 router
+  calls; 16 skills in one pass, `deploy-watch` re-run after the re-wording, 0 no-decision calls).
+  The first pass hit the account's usage limit after ~90 calls and the new instrument said so —
+  14 skills "session-never-ran", "the run failed, not the router" — instead of scoring zeros.
 - **CI and docs.** The Tier-1 step and both model-backed jobs select by positive list; the
   summary names the step that ran; retracted ADR 0089 claims marked retracted wherever they still
   stood as fact; Tier-1b in the pyramid definitions; the ADR amendment convention stated.

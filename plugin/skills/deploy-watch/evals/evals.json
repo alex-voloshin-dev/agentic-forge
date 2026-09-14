@@ -61,7 +61,7 @@
       "We have an outage — start the incident response",
       "Cut a release and write the changelog",
       "Implement the feature in this branch",
-      "Why is this pod's YAML invalid? Fix the manifest"
+      "Why is this pod YAML invalid? `spec.containers[0].ports: 80` \u2014 kubectl says it expects a list; fix the manifest"
     ]
   }
 }
