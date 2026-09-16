@@ -47,6 +47,10 @@ the product requirements (`product`).
    not prose; quote any value containing a colon) — as `ux-spec.md` under
    `docs/sdlc/<feature-slug>/`, then validate it
    (`handoff.validate_header(header, expected_type="ux-spec")`) — the input `develop` builds from.
+   Then **read the file back** — `handoff.load_artifact(<path>, expected_type="ux-spec")` — and fix
+   whatever it raises: `validate_header` checks a dict, not the YAML you typed, so a single
+   malformed value (a flow sequence with prose after it, an unquoted `:`) leaves an artifact the
+   next phase cannot read (ADR 0096).
 7. **Adversarial review (bounded).** Fork fresh `reviewer`s (via `Task`) on two lenses —
    **accessibility** (keyboard/focus order, contrast, ARIA/live-regions present and correct) and
    **flow/state completeness** (every screen has empty/loading/error/success; no dead-end flow) —

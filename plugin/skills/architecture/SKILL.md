@@ -51,6 +51,10 @@ task breakdown (`plan`), or implementation (`develop`).
 5. **Validate the handoff.** Confirm `tech-design.md` validates against its schema
    (`handoff.validate_header(..., expected_type="tech-design")`), every PRD goal traces to a
    component or an explicit decision, and each ADR records a genuinely rejected alternative.
+   Then **read the file back** — `handoff.load_artifact(<path>, expected_type="tech-design")` — and
+   fix whatever it raises: `validate_header` checks a dict, not the YAML you typed, so a single
+   malformed value (a flow sequence with prose after it, an unquoted `:`) leaves an artifact the
+   next phase cannot read (ADR 0096).
 6. **Skeptic pass (bounded).** Before handing off, fork a fresh `reviewer` (via `Task`) to attack
    the design adversarially — each ADR alternative **genuinely weighed** (not a strawman), every PRD
    goal **traced** to a component or decision, every risk carrying a **mitigation**, and the

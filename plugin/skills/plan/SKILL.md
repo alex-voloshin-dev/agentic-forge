@@ -49,6 +49,10 @@ requirements (`product`), or implementation (`develop`).
    `develop` batches with) raises on a duplicate id, an unknown dependency, or a cycle, so a clean
    run is the deterministic proof of a cycle-free order. Every design component
    must be covered by a task.
+   Then **read the file back** — `handoff.load_artifact(<path>, expected_type="plan")` — and fix
+   whatever it raises: `validate_header` checks a dict, not the YAML you typed, so a single
+   malformed value (a flow sequence with prose after it, an unquoted `:`) leaves an artifact the
+   next phase cannot read (ADR 0096).
 6. **Skeptic pass (bounded).** Before handing off, fork a fresh `reviewer` (via `Task`) to attack
    the plan adversarially — every design component **covered** by a task, the dependency graph
    **complete** (no missing edge that would break the build order) as well as acyclic, each task

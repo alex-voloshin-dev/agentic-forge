@@ -39,6 +39,10 @@ python -c "from agentic_forge import vault; print(vault.validate_vault('.'))"
    `conventions`, `risks`), then validate it
    (`handoff.validate_header(header, expected_type="onboarding")`; see
    [handoff.md](../../patterns/handoff.md)) — the quick-start summary that points into the seeded vault.
+   Then **read the file back** — `handoff.load_artifact(<path>, expected_type="onboarding")` — and
+   fix whatever it raises: `validate_header` checks a dict, not the YAML you typed, so a single
+   malformed value (a flow sequence with prose after it, an unquoted `:`) leaves an artifact the
+   next phase cannot read (ADR 0096).
 
 ## Output
 

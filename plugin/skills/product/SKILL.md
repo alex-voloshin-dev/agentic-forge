@@ -52,6 +52,10 @@ acceptance criteria, user stories. Not for *what exists* (`research`), *how to b
    downstream phase) under `docs/sdlc/<feature-slug>/`; validate it
    (`handoff.validate_header(..., expected_type="prd")`). Keep every requirement traceable to
    the brief.
+   Then **read the file back** — `handoff.load_artifact(<path>, expected_type="prd")` — and fix
+   whatever it raises: `validate_header` checks a dict, not the YAML you typed, so a single
+   malformed value (a flow sequence with prose after it, an unquoted `:`) leaves an artifact the
+   next phase cannot read (ADR 0096).
 6. **Skeptic pass (bounded).** Before handing off, fork a fresh `reviewer` (via `Task`) to
    challenge the draft adversarially — every acceptance criterion **testable**, every success
    metric **measurable**, the **non-goals complete**, and each requirement **traceable to the

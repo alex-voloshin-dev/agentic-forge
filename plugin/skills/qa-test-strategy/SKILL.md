@@ -33,6 +33,10 @@ reviewing already-written code (`code-review`), or assembling a release (`releas
    validate it (`handoff.validate_header(header, expected_type="test-strategy")`; see
    [handoff.md](../../patterns/handoff.md)). Cover the real risk areas (boundaries, invalid/abusive
    input, concurrency, rounding/precision, failure modes).
+   Then **read the file back** — `handoff.load_artifact(<path>, expected_type="test-strategy")` —
+   and fix whatever it raises: `validate_header` checks a dict, not the YAML you typed, so a single
+   malformed value (a flow sequence with prose after it, an unquoted `:`) leaves an artifact the
+   next phase cannot read (ADR 0096).
 4. **Prioritize.** Order cases so boundaries and error/abuse paths come first; call out the levels
    (unit / integration / e2e / perf / security) the change actually warrants — not a blanket list.
 5. **Defects & exploration (in-flow).** When a defect surfaces while planning the strategy, or
