@@ -53,6 +53,19 @@ named built-in agent (`Explore`/`Plan`) or engine role(s).
 Write the header first, then the body. Set `type` to the exact id above and `feature` to the
 slug — the file itself is named `<type>.md` (e.g. `incident.md`, `deploy-status.md`), so any
 artifact's on-disk name follows from its type. Use list fields for anything the next phase iterates over; keep prose in the body.
+**Frontmatter is data, not prose.** Every value is a scalar, a list or a mapping — and nothing
+else. The failure this rule exists for, seen twice in two Tier-3 runs, is a list with a gloss
+after it:
+
+```yaml
+    expect: [h1, h2, n1] — priority buckets ordered, insertion order kept within one   # NOT YAML
+```
+
+A flow sequence followed by text is a syntax error, and it makes the whole artifact unreadable to
+the next phase. Put the ordering in the list and the reason in the body, or give the reason its own
+quoted string field. Same for a `:` inside an unquoted value, and for `#` after a scalar (it starts
+a comment). If a value needs explaining, that explanation belongs in the body (ADR 0096).
+
 Validate before committing — a malformed header breaks the consumer. Validate the **file**,
 not just the header dict you built: `load_artifact(path, expected_type=...)` after writing is
 the only check that sees the YAML you actually typed. A Tier-3 phase once wrote a complete,

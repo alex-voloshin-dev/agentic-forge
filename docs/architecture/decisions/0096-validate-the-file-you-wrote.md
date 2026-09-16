@@ -45,6 +45,19 @@ phase later, in the consumer, against the wrong skill.
    validated would be the stronger fix, but the skills compose their frontmatter in prose as they
    draft — there is no writer to hook — so the round-trip is the change that fits how they work.
 
+## Amendment, same day: the round-trip alone did not take
+
+The re-run produced the **identical** malformed shape at a different case id —
+`expect: [h1, h2, n1, n2, l1] — priority buckets ordered, insertion order kept`. Bash is in both
+the phase runner's tools and the skill's, so the check was actionable; the model simply did not
+run it, and an instruction to verify *afterwards* is weaker than one that prevents the mistake
+*while typing*. So the trap goes too: **frontmatter is data, not prose** — every value is a scalar,
+a list or a mapping, and an explanation belongs in the body. Stated in `patterns/handoff.md` with
+this exact failure as the example, and at the one step that writes it (a test case's `expect`).
+
+The round-trip stays: it is what catches everything this rule does not anticipate. Two layers, and
+the cheaper one runs first.
+
 ## Consequences
 
 - The `quality-gate` scenario re-runs on this change; the other four Tier-3 scenarios passed and
