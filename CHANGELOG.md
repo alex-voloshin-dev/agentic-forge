@@ -29,7 +29,8 @@ pattern says which validation counts. That alone did not take — the re-run wro
 shape at a different case id — so the trap goes too: **frontmatter is data, not prose**, every
 value a scalar, a list or a mapping, with any explanation in the body. An instruction to check
 afterwards is weaker than one that prevents the mistake while typing; the round-trip stays as the
-layer that catches what the rule does not anticipate. In the field the old shape was worse than in the eval: the
+layer that catches what the rule does not anticipate. With both in place `quality-gate` passes all
+five phases, so **Tier-3 is 5/5 on the post-audit fixtures**. In the field the old shape was worse than in the eval: the
 writing phase reports success and the consumer fails one phase later, against the wrong skill.
 
 ### Measured — Tier-2 on the content the audit changed, and the two defects it found
