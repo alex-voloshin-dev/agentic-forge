@@ -53,7 +53,12 @@ named built-in agent (`Explore`/`Plan`) or engine role(s).
 Write the header first, then the body. Set `type` to the exact id above and `feature` to the
 slug — the file itself is named `<type>.md` (e.g. `incident.md`, `deploy-status.md`), so any
 artifact's on-disk name follows from its type. Use list fields for anything the next phase iterates over; keep prose in the body.
-Validate before committing — a malformed header breaks the consumer.
+Validate before committing — a malformed header breaks the consumer. Validate the **file**,
+not just the header dict you built: `load_artifact(path, expected_type=...)` after writing is
+the only check that sees the YAML you actually typed. A Tier-3 phase once wrote a complete,
+correct strategy whose one bad frontmatter value (`then: [a, b] — prose after the list`) made
+the whole artifact unreadable; `validate_header` on the dict had passed, and the failure
+surfaced in the NEXT phase, against the wrong skill (ADR 0096).
 
 ## Consuming an artifact
 

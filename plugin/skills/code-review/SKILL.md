@@ -53,6 +53,10 @@ Follow [multi-aspect-review.md](../../patterns/multi-aspect-review.md):
 5. **Write the handoff.** Emit `review.md` (`type, target, iteration, verdict, findings[]` —
    see [patterns/handoff.md](../../patterns/handoff.md)); validate it
    (`handoff.validate_header(..., expected_type="review")`).
+   Then **read the file back** — `handoff.load_artifact(<path>, expected_type="review")` — and fix
+   whatever it raises: `validate_header` checks a dict, not the YAML you typed, so a single
+   malformed value (a flow sequence with prose after it, an unquoted `:`) leaves an artifact the
+   next phase cannot read (ADR 0096).
 6. **In the develop loop:** a `changes` verdict loops back to implementation (bounded — see
    [patterns/review-loop.md](../../patterns/review-loop.md)); `approve` proceeds.
 

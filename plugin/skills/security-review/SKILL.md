@@ -31,6 +31,10 @@ change review (`code-review` already runs `security-engineer` per diff), impleme
    then validate it (`handoff.validate_header(header, expected_type="review")`; see
    [handoff.md](../../patterns/handoff.md)). Any `blocker`/`major` finding makes the verdict
    `changes`; otherwise `approve`.
+   Then **read the file back** — `handoff.load_artifact(<path>, expected_type="review")` — and fix
+   whatever it raises: `validate_header` checks a dict, not the YAML you typed, so a single
+   malformed value (a flow sequence with prose after it, an unquoted `:`) leaves an artifact the
+   next phase cannot read (ADR 0096).
 4. **Report, don't fix.** Surface findings with concrete locations and remediations; do not modify
    code. Do not invent vulnerabilities on safe code — an approve with at most nits is a valid result.
 

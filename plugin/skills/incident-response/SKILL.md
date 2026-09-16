@@ -42,6 +42,10 @@ python -c "from agentic_forge import ops; print(ops.classify_incident(outage=Tru
    `severity`, `status`, `impact`, `timeline` — at least the detection event — `remediation`,
    `action_items`), then validate it (`handoff.validate_header(header, expected_type="incident")`;
    see [handoff.md](../../patterns/handoff.md)).
+   Then **read the file back** — `handoff.load_artifact(<path>, expected_type="incident")` — and
+   fix whatever it raises: `validate_header` checks a dict, not the YAML you typed, so a single
+   malformed value (a flow sequence with prose after it, an unquoted `:`) leaves an artifact the
+   next phase cannot read (ADR 0096).
 4. **Mitigate first, then root-cause.** Prioritize the fastest safe mitigation (a workaround or a
    rollback) over a root-cause fix. For an actual code fix or a security angle, fork the relevant
    role (`software-engineer` / `security-engineer`) via `Task`; keep the incident record updated.

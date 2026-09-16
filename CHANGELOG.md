@@ -7,6 +7,27 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Fixed — validate the file you wrote, not the header you built (ADR 0096)
+
+Tier-3 on the post-audit fixtures: four of five scenarios PASS (`spine`, `ops-incident`,
+`product-inception`, `market-brief`), and the fifth failed in a way worth more than the failure.
+`quality-gate`'s `test-strategy.md valid` checkpoint went red on an artifact that was *there and
+good* — scope, five risk areas, a prioritized case list — with one malformed frontmatter value:
+
+```yaml
+    then: [h1, h2, h3, n1] — same-priority ties keep insertion order, not id-desc or reverse
+```
+
+A flow sequence with prose after it is not YAML, so `load_artifact` raised and a phase that had
+done its job was scored a failure. The skill had followed its instructions: validate with
+`handoff.validate_header(header, ...)` — which takes a **dict**. A model that assembles a header,
+validates that, then *types* the frontmatter has validated something other than what it wrote.
+
+Thirteen skills write a handoff and **all thirteen** said `validate_header`; **none** re-read the
+file. Each writing step now ends with `load_artifact(<path>, expected_type=...)` and the handoff
+pattern says which validation counts. In the field the old shape was worse than in the eval: the
+writing phase reports success and the consumer fails one phase later, against the wrong skill.
+
 ### Measured — Tier-2 on the content the audit changed, and the two defects it found
 
 ADR 0094 rewrote gated eval content — fixtures for ten knowledge packs and `skill-factory`, a
