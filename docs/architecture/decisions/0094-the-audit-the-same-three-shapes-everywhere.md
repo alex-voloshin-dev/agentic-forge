@@ -87,7 +87,14 @@ notes with no vault seeded. Two `X` placeholders were still in `should_not_trigg
    `INVALID` call with the reason and gates on the pooled share of calls that never ran — the
    router's own non-answers stay ADR 0064's reported discard; capping those too failed
    `deep-review` at 7/55 with recall 1.000 on the first run — instead of the per-prompt
-   half-rule; Tier-3 fails a named checkpoint and still runs the later phases. Grading
+   half-rule; Tier-3 fails a named checkpoint and still runs the later phases. *(Amended
+   2026-09-16, after the first Tier-2 run on this content: "Tier-2 records the case" covered the
+   component call and the grading PARSE but not the GRADER's own session, so a grader that hit its
+   20-turn cap still aborted the whole skill — `diagnostics-bundle` ended as ERROR with every
+   finished case discarded. A `SessionUndetermined` from the grader is now `ungraded` like any
+   other. The same run also found this ADR's own `diagnostics-bundle` assertions asking a
+   Read/Grep/Glob grader to look inside a zip: shape 3, introduced here; the session now unpacks
+   the bundle for it.)* Grading
    is shape-aware (`assertion_results`, `"passed"` spellings) and an unparseable grading is
    *ungraded*, never a silent zero. Tier-1b scores a bare `Skill` call on a built-in's name
    (`code-review`, `security-review`) as *collided*, not a hit — a live probe showed the model

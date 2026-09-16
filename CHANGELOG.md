@@ -7,6 +7,46 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Measured — Tier-2 on the content the audit changed, and the two defects it found
+
+ADR 0094 rewrote gated eval content — fixtures for ten knowledge packs and `skill-factory`, a
+design system for `ux-design`, the `deep-review` Gatekeeper fixture, a hermetic `diagnostics-bundle`
+stand — and six Tier-2 prompts stopped naming the defect the model was supposed to find. None of it
+had been executed: `--runner dry` proves files resolve, not that `mean − σ ≥ 0.8` still holds. It
+was run in three waves, weakest-first, and it held:
+
+```
+roles      reviewer 1.000   grader 0.969 (lb 0.900)   software-engineer 1.000
+packs      python 1.000  dotnet 1.000  ruby 0.978  typescript 0.978  go 0.956  php 0.956
+           rust 0.911  jvm 0.911  javascript 0.933  engineering-standards 0.857   (all PASS)
+rest       skill-factory 1.000  deep-review 0.988  ux-design 0.986  marketing 0.977
+           knowledge 1.000  incident-response 1.000                                (all PASS)
+```
+
+The neutralized prompts cost nothing: the roles still find a planted bug without being told what
+it is, which is the difference between measuring detection and measuring formatting. And the ten
+packs whose assertions used to pass over an empty `files: []` now have a manifest, a source file
+and a test to hold them to — and still clear the bar.
+
+Two real defects surfaced, both of them in ADR 0094's own work:
+
+- **A grader session that never ran aborted the whole skill.** 0094 recorded a dead session on the
+  *component* call and an unparseable *grading*, but not the grader's own session — so
+  `diagnostics-bundle` ended as `ERROR — session undetermined (error_max_turns, num_turns=21)`
+  with every finished case discarded, exactly the behaviour that fix existed to remove. A
+  `SessionUndetermined` from the grader is now `ungraded` like any other ungraded case.
+- **Assertions a Read/Grep/Glob grader cannot check.** The rewritten `diagnostics-bundle` case
+  asks about files *inside* a zip; the grader has no way to open one and burned its 20 turns
+  trying — ADR 0094's own "a stand that presupposes what it does not carry", introduced by ADR
+  0094. The session now unpacks the bundle into `bundle-check/` and the assertions read that, so
+  the redaction claim (no seeded token ships) is verified rather than asserted.
+
+`deploy-watch` is **unmeasured**: the account hit its weekly limit mid-run (resets Sep 18). The
+instrument said so — `10 of 15 sessions unmeasured (> 10%) … the run failed, not the component` —
+instead of scoring zeros, which is the whole of ADR 0093/0094 working on live quota. `deploy-watch`
+and the re-run of `diagnostics-bundle` are the only two contracts of the change set still to be
+measured.
+
 ### Fixed — the two ADR 0094 left: a budget nothing measured, a slug nobody resolved (ADR 0095)
 
 - **The daily deploy digest could never read the pipeline.** It passed the repository *path* where
