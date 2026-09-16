@@ -978,3 +978,27 @@ def test_agent_eval_stays_python_39_compatible() -> None:
     ast.parse(src, feature_version=(3, 9))
     assert "from __future__ import annotations" in src
     assert "strict=" not in src and "datetime.UTC" not in src
+
+
+def test_a_grader_that_never_ran_is_ungraded_not_fatal() -> None:
+    """The gap the first real Tier-2 run on the audited content found: ADR 0094 caught a dead
+    session on the component call and an unparseable grading, but NOT the GRADER's own session —
+    so a grader that hit its 20-turn cap aborted the whole skill with every finished case
+    discarded, the behaviour that fix set out to remove."""
+    calls = {"n": 0}
+    good = make_grader(True)
+
+    def grader(system: str, prompt: str, workdir: Path) -> str:
+        calls["n"] += 1
+        if calls["n"] == 1:  # the first case's grader burns its turns; the rest grade fine
+            raise TurnCapHit("error_max_turns", "", num_turns=20)
+        return good(system, prompt, workdir)
+
+    bench, result, gradings = _eval(lambda s, p, w: "GOOD", grader=grader)
+    ws = bench["run_summary"]["with_skill"]
+    assert ws["sessions"]["ungraded"] == 1 and ws["sessions"]["undetermined"] == 0
+    assert ws["sessions"]["total"] == 10 and ws["n"] == 5  # the other 9 sessions still count
+    (event,) = ws["sessions"]["events"]
+    assert (event["run"], event["case"], event["kind"]) == (1, 1, "ungraded")
+    assert event["subtype"] == "error_max_turns" and event["num_turns"] == 20
+    assert result.passed  # 1 of 10 = 10%: not over the cap, and never an ERROR

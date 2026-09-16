@@ -452,7 +452,8 @@ def _record_unmeasured(
 ) -> None:
     """Tally a session that produced no measurement: ``kind`` is ``undetermined`` (the component
     never answered — :class:`SessionUndetermined`) or ``ungraded`` (the grader never graded —
-    :class:`GradingUnparseable`). The event keeps run/case, the subtype, ``num_turns`` and what
+    :class:`GradingUnparseable`, or a :class:`SessionUndetermined` raised by the grader's own
+    session). The event keeps run/case, the subtype, ``num_turns`` and what
     was said, so the CLI can print WHY under the summary line (ADR 0084's rule)."""
     sessions[kind] += 1
     dead = exc if isinstance(exc, SessionUndetermined) else None
@@ -530,7 +531,13 @@ def _run_passes(
                     graded = grade_output(
                         case.get("assertions") or [], output, grader_body, grader_fn, work
                     )
-                except GradingUnparseable as exc:
+                except (GradingUnparseable, SessionUndetermined) as exc:
+                    # Either way the case was never graded. SessionUndetermined here is the
+                    # GRADER's session — a usage limit, or its own turn cap. ADR 0094 caught it
+                    # for the component call and for the grading PARSE but not for this one, so a
+                    # grader that hit its cap still aborted the whole skill with every finished
+                    # session discarded — the exact behaviour that fix set out to remove. Found by
+                    # running the gate on the content that fix changed (ADR 0094, amended).
                     _record_unmeasured(sessions, "ungraded", run_no, case_no, exc)
                     continue
             finally:
