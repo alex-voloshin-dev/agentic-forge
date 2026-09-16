@@ -56,7 +56,8 @@ a list or a mapping, and an explanation belongs in the body. Stated in `patterns
 this exact failure as the example, and at the one step that writes it (a test case's `expect`).
 
 The round-trip stays: it is what catches everything this rule does not anticipate. Two layers, and
-the cheaper one runs first.
+the cheaper one runs first. **Verified:** the third `quality-gate` run is PASS on all five phases —
+`test-strategy.md valid`, `test_levels non-empty` (3), `risk area referenced` — so Tier-3 is 5/5.
 
 ## Consequences
 
