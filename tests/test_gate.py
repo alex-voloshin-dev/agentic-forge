@@ -301,3 +301,12 @@ def test_tier2_evidence_names_the_failing_assertion() -> None:
     assert lines == ["    failed 1/2: no secret ships"]
     assert gate.tier2_evidence_lines({}) == []  # nothing recorded, nothing claimed
 
+
+def test_tier2_evidence_prints_the_failing_case_sample() -> None:
+    bench = {"run_summary": {"with_skill": {"sessions": {
+        "events": [], "failed_sample": {"run": 2, "case": 1, "text": "it ran the installed one"},
+    }}}}
+    assert gate.tier2_evidence_lines(bench) == [
+        "    sample (run 2 case 1 said): it ran the installed one"
+    ]
+

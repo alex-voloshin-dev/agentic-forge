@@ -445,7 +445,20 @@ def check_wiring(role: str, plugin_dir: Path) -> list[str]:
 
 
 def _new_sessions() -> dict[str, Any]:
-    return {"total": 0, "undetermined": 0, "ungraded": 0, "subtypes": {}, "events": []}
+    return {
+        "total": 0,
+        "undetermined": 0,
+        "ungraded": 0,
+        "subtypes": {},
+        "events": [],
+        # The first case that failed an assertion, in its own words (run, case, the reply's
+        # tail): a FAIL that names the assertion still leaves WHY to a paid re-run, and one
+        # transcript is what cracked ADR 0097 (ADR 0098).
+        "failed_sample": None,
+    }
+
+
+_SAMPLE_CAP = 600  # of a failing case's reply kept beside the summary
 
 
 def _record_unmeasured(
@@ -549,6 +562,16 @@ def _run_passes(
                 saw_usage = True
                 run_tokens += tokens
             graded_cases += 1
+            if sessions.get("failed_sample") is None and any(
+                not benchmark.passed_value(r.get("passed"))
+                for r in graded["assertion_results"]
+                if isinstance(r, dict)
+            ):
+                sessions["failed_sample"] = {
+                    "run": run_no,
+                    "case": case_no,
+                    "text": _flat(output, _SAMPLE_CAP),
+                }
             run_results.extend(graded["assertion_results"])
             # Aggregate over EXPECTED assertion counts (grade_output's summary), not len(results)
             # — so a grader that omits or duplicates results can't skew the run's pass-rate.

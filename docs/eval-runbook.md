@@ -243,7 +243,24 @@ installed on the machine — so those cases graded the installed release's scrip
 tree's bodies, and in CI, where nothing is installed, the script was simply not found. The rule
 behind it: an eval that runs the product through a path the product resolves at runtime must pin
 that path — the plugin root, `$HOME` (`--home` / `AGENTIC_FORGE_HOME`, ADR 0094), and the working
-directory (a fresh sandbox, ADR 0090). Grading is robust to prose/fenced
+directory (a fresh sandbox, ADR 0090).
+
+**The run says what it measured (ADR 0098).** Every runner prints one provenance line first —
+`measuring: plugin=<root> version=<manifest> git=<sha[+dirty]> model=<m> home=<HOME> python=<v>` —
+and both Tier-2 CLIs store that dict on the benchmark under `provenance`, so a recorded history
+says which tree each number came from. A Tier-2 FAIL prints, under the summary, the assertions
+that failed (`failed N/M: …`, ADR 0096) and then **one failing case in its own words**
+(`sample (run R case C said): …`, the reply's first 600 chars): what failed and why, without a
+paid re-run. The variables a skill body may reference as `${VAR}` are a contract:
+`_eval_cli.SESSION_VARS_PINNED` is what every Tier-2/Tier-3 session gets (`CLAUDE_PLUGIN_ROOT`,
+`CLAUDE_SKILL_DIR`), `SESSION_VARS_INHERITED` is what is deliberately left to the real environment
+(none today), and a test holds every `${VAR}` in every SKILL.md and agent body to the union — a
+new variable fails Tier-0 until the harness says what it does with it.
+
+**A transcript before a second fix.** When a gate fails the same assertion N of N twice, the next
+action is to read one session — the `sample` line, or one hand-run case — not to change code
+again. Seven of the instrument's defects in four days were found that way and none by guessing;
+ADR 0097's session had named its own cause in the first run's final message. Grading is robust to prose/fenced
 grader replies and retries once on an unparseable response.
 
 ## Run it

@@ -49,6 +49,7 @@ def _build_runners(
         allowed_tools=skill_eval.skill_tools(plugin_dir, skill),
         model=model,
         plugin_dir=plugin_dir,
+        skill_dir=plugin_dir / "skills" / skill,
     )
 
 
@@ -113,6 +114,8 @@ def main(argv: list[str]) -> int:
 
     models_cfg = settings.resolve(plugin_dir.parent).models  # per-component tiers (ADR 0043)
     all_passed = True
+    prov = _eval_cli.provenance(plugin_dir, args.model)
+    print(_eval_cli.provenance_line(prov), flush=True)  # which tree this run is about (ADR 0098)
     for skill in skills:
         model = models.model_for(skill, models_cfg, default=args.model)
         print(f"[{skill}] running via {args.runner} (model={model})...", flush=True)
@@ -132,6 +135,7 @@ def main(argv: list[str]) -> int:
             _eval_cli.record_failure(f"skill-eval:{skill}", f"{type(exc).__name__}: {exc}")
             all_passed = False
             continue
+        report.benchmark["provenance"] = prov  # the benchmark says which tree it measured
         print(report.summary_line(), flush=True)
         for line in report.evidence_lines():  # which run/case, subtype, num_turns (ADR 0084)
             print(line, flush=True)

@@ -157,6 +157,7 @@ def main(argv: list[str]) -> int:
         f"running Tier-1b activation via claude (model={args.model}, {gate}{cond})...",
         flush=True,
     )
+    print(_eval_cli.provenance_line(_eval_cli.provenance(plugin_dir, args.model)), flush=True)
     try:
         with tempfile.TemporaryDirectory() as tmp:
             counter = [0]
