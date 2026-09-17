@@ -15,6 +15,7 @@ are excluded from coverage. See docs/eval-runbook.md and ADR 0011.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import tempfile
@@ -739,6 +740,7 @@ def claude_cli_runner(
     call_timeout: int = 900,
     replace_system: bool = False,
     timeout_retries: int = 1,
+    env: dict[str, str] | None = None,
 ) -> Runner:
     """Level-2 seam: run the role headlessly via `claude -p` (Claude Code auth).
 
@@ -812,6 +814,7 @@ def claude_cli_runner(
                     text=True,
                     check=True,
                     timeout=call_timeout,
+                    env={**os.environ, **(env or {})},
                 )
             except subprocess.CalledProcessError as exc:
                 dead = session_outcome(_decoded(exc.stdout))

@@ -23,14 +23,20 @@ def warn_if_api_key_set(runner: str) -> None:
 
 
 def build_runners(
-    runner: str, *, allowed_tools: str, model: str
+    runner: str, *, allowed_tools: str, model: str, plugin_dir: Path | None = None
 ) -> tuple[agent_eval.Runner, agent_eval.Runner]:
     """Build (component_runner, grader_runner) for the chosen transport — the one construction
     site shared by the agent and skill Tier-2 CLIs. `claude` keeps the component run and the
     grading on the `claude` CLI (subscription auth, no API key), giving the grader read-only tools
     and a generous turn cap so it can verify on-disk artifacts (level-2) without ever modifying
     them; `api` uses the Anthropic Messages SDK for both (per-token billing). The caller resolves
-    `allowed_tools` (a role's or skill's tools) before delegating here."""
+    `allowed_tools` (a role's or skill's tools) before delegating here.
+
+    `plugin_dir` becomes `CLAUDE_PLUGIN_ROOT` for the session. Ten skill bodies invoke their
+    scripts as `${CLAUDE_PLUGIN_ROOT}/skills/<name>/scripts/...`, and until ADR 0097 nothing set it:
+    a probe session resolved it to the *installed* plugin instead and graded a build four versions
+    behind the tree under test, which makes every such Tier-2 number a statement about someone
+    else's code (ADR 0097)."""
     if runner == "api":
         api = agent_eval.api_runner(model)
         return api, api
@@ -39,11 +45,12 @@ def build_runners(
         # `error_max_turns` in the CLI envelope: raised as `TurnCapHit`, never re-run, recorded by
         # the Tier-2 loop as an undetermined case with its `num_turns` on the evidence line — so a
         # cap hit is no longer indistinguishable from a failed case (eval audit, C13).
+        env = {"CLAUDE_PLUGIN_ROOT": str(plugin_dir.resolve())} if plugin_dir else None
         component_fn = agent_eval.claude_cli_runner(
-            allowed_tools=allowed_tools, model=model, max_turns=40
+            allowed_tools=allowed_tools, model=model, max_turns=40, env=env
         )
         grader_fn = agent_eval.claude_cli_runner(
-            allowed_tools="Read,Grep,Glob", model=model, max_turns=20
+            allowed_tools="Read,Grep,Glob", model=model, max_turns=20, env=env
         )
         return component_fn, grader_fn
     raise ValueError(f"unknown runner {runner!r}")

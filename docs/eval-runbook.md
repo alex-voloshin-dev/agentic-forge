@@ -233,7 +233,17 @@ by basename — or, for a `files` entry with a `tree/` segment, at its path belo
 a source file and an existing test so "no existing test is weakened" has a test to weaken
 (ADR 0094); a `files` entry may also name a real plugin file such as `schemas/evals.schema.json`.
 A write role can never reach or mutate the real repo.
-`--isolate` opts read roles into the same sandboxing. Grading is robust to prose/fenced
+`--isolate` opts read roles into the same sandboxing.
+
+**The session runs the plugin under test.** Both Tier-2 runners set `CLAUDE_PLUGIN_ROOT` to the
+`--plugin` directory, so a skill body that invokes its script as
+`${CLAUDE_PLUGIN_ROOT}/skills/<name>/scripts/...` (ten of them do) runs *this* tree's script. Until
+ADR 0097 nothing set it and a session resolved it the way a live one would — to whatever plugin is
+installed on the machine — so those cases graded the installed release's scripts against this
+tree's bodies, and in CI, where nothing is installed, the script was simply not found. The rule
+behind it: an eval that runs the product through a path the product resolves at runtime must pin
+that path — the plugin root, `$HOME` (`--home` / `AGENTIC_FORGE_HOME`, ADR 0094), and the working
+directory (a fresh sandbox, ADR 0090). Grading is robust to prose/fenced
 grader replies and retries once on an unparseable response.
 
 ## Run it

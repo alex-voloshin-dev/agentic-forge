@@ -45,7 +45,7 @@ def _build_runners(
     """Build (role_runner, grader_runner): resolve the role's tools, then delegate to the shared
     transport core in `_eval_cli` (one construction site for both the agent and skill runners)."""
     return _eval_cli.build_runners(
-        runner, allowed_tools=_role_tools(plugin_dir, role), model=model
+        runner, allowed_tools=_role_tools(plugin_dir, role), model=model, plugin_dir=plugin_dir
     )
 
 

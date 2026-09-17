@@ -45,7 +45,10 @@ def _build_runners(
     software-engineer's for a knowledge skill, the skill's own otherwise), then delegate to the
     shared transport core in `_eval_cli` (one construction site for both runners)."""
     return _eval_cli.build_runners(
-        runner, allowed_tools=skill_eval.skill_tools(plugin_dir, skill), model=model
+        runner,
+        allowed_tools=skill_eval.skill_tools(plugin_dir, skill),
+        model=model,
+        plugin_dir=plugin_dir,
     )
 
 

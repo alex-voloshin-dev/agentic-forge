@@ -7,6 +7,34 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Fixed — Tier-2 measured the installed plugin, not the tree under test (ADR 0097)
+
+`diagnostics-bundle`'s "the final message reports the absolute output path and the
+audit/diagnostics counts" failed **5 runs out of 5** — twice, before and after a fix aimed squarely
+at it. Rather than guess a third time, one session was run by hand and its final message read. It
+had already diagnosed itself:
+
+> *"Resolved the active plugin (`CLAUDE_PLUGIN_ROOT` was unset) to the installed version
+> agentic-forge 2026.9.3 and ran its `build_bundle.py` … The command printed the path and window
+> but no `Records:` line — this 2026.9.3 build predates the ADR 0096 change."*
+
+Ten skill bodies invoke their scripts as `${CLAUDE_PLUGIN_ROOT}/skills/<name>/scripts/…` and the
+harness set that variable **nowhere**, so a Tier-2 session resolved it the way a live session
+would: to whatever plugin is installed on the machine. Every Tier-2 result for those ten skills was
+a mixture — this tree's skill bodies driving the *installed* release's scripts. In CI, where
+nothing is installed, the script could not be found at all; Tier-2 being on-demand (ADR 0083) is
+why that never surfaced.
+
+`claude_cli_runner` now takes an `env` merged over `os.environ`, and `build_runners` — the one
+construction site both Tier-2 CLIs share — sets `CLAUDE_PLUGIN_ROOT` to the plugin under test for
+the component *and* the grader. Both CLI wrappers already had `plugin_dir` in hand and were simply
+not passing it.
+
+The rule this generalizes: **an eval that runs the product through a path the product resolves at
+runtime must pin that path** — the plugin root here, `$HOME` in ADR 0094 (a Tier-2 run wrote into
+the operator's real `~/Downloads`), the working directory in ADR 0090 (an empty temp dir). Three
+variables, one rule; the harness now pins all three.
+
 ### Fixed — the bundler prints the counts the skill is told to report (ADR 0096)
 
 `diagnostics-bundle`'s "the final message reports the absolute output path and the
