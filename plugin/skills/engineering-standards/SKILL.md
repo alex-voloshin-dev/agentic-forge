@@ -22,8 +22,15 @@ model already has. Read the matching **stack pack** (`${CLAUDE_PLUGIN_ROOT}/skil
   code.
 - **Fail loudly.** Handle errors or propagate them with context; no silent excepts, no
   swallowed failures.
-- **Security baseline.** Validate input at trust boundaries; parameterised queries (never
-  string-built SQL/commands); no secrets in code or logs; safe defaults; least privilege.
+- **Security baseline.** Two separate duties at a trust boundary, and one does not discharge
+  the other. *Validate*: a value that arrives from a user, a request, a file or the network gets
+  an explicit check where it enters — type, emptiness, length or range, allowed shape — and a
+  bad value is rejected with a clear error before it reaches a query, a command, a path or a
+  template. *Parameterise*: queries and commands take that value as a bound parameter, never
+  string-built. A parameterised query prevents injection; it still accepts an empty name, a
+  10 MB string or the wrong type, so it is not validation — a delegated engineer once wrote
+  "the name crosses a trust boundary, so it is bound as a parameter" and stopped there, five
+  runs out of five (ADR 0099). No secrets in code or logs; safe defaults; least privilege.
 - **Dependencies are a cost.** Prefer the standard library and what the repo already uses;
   justify any new dependency.
 - **Leave the gate green.** Match the repo's lint/type/test gate before handing off.
