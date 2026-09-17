@@ -267,3 +267,37 @@ def test_tier1_runs_floor_from_the_contract() -> None:
     assert not unknown.passed and "only 0 sample(s)" in unknown.reasons[0]
     # no `runs` in the contract: the count is not gated (the CLI's default 5 still applies)
     assert gate.tier1_trigger({**good, "runs": 1}, {"tier1_trigger": {"recall": 0.9}}).passed
+
+
+# --- a Tier-2 FAIL says WHICH assertion failed (ADR 0096) --------------------------------
+
+
+def _graded(*rows: tuple[str, bool]) -> dict:
+    return {"assertion_results": [{"text": t, "passed": p} for t, p in rows]}
+
+
+def test_failed_assertions_are_tallied_worst_first() -> None:
+    from agentic_forge.benchmark import failed_assertions
+
+    gradings = [
+        _graded(("no secret ships", False), ("zip lands under Downloads", True)),
+        _graded(("no secret ships", False), ("zip lands under Downloads", False)),
+        _graded(("no secret ships", "true"), ("zip lands under Downloads", True)),
+    ]
+    assert failed_assertions(gradings) == [
+        {"text": "no secret ships", "failed": 2, "total": 3},
+        {"text": "zip lands under Downloads", "failed": 1, "total": 3},
+    ]
+    assert failed_assertions([_graded(("all good", True))]) == []  # nothing failed, nothing said
+
+
+def test_tier2_evidence_names_the_failing_assertion() -> None:
+    """A pass-rate below the bar used to print the number and nothing else, so finding out which
+    assertion slipped cost a second paid run — ADR 0084's rule, applied to the priciest tier."""
+    from agentic_forge.benchmark import summarize
+
+    bench = summarize([_graded(("no secret ships", False)), _graded(("no secret ships", True))])
+    lines = gate.tier2_evidence_lines(bench)
+    assert lines == ["    failed 1/2: no secret ships"]
+    assert gate.tier2_evidence_lines({}) == []  # nothing recorded, nothing claimed
+

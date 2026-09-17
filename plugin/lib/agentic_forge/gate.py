@@ -239,9 +239,10 @@ def format_tier2_summary(
 
 
 def tier2_evidence_lines(benchmark: dict[str, Any]) -> list[str]:
-    """One line per session that produced no measurement — which run and case, what the CLI said
-    (``subtype``, ``num_turns``) — printed under the summary so the log can tell a turn-cap hit
-    from a dead API without paying for the run again (ADR 0084's rule, applied to Tier-2)."""
+    """What the summary line cannot fit: one line per session that produced no measurement (which
+    run and case, the CLI's ``subtype`` and ``num_turns``), then the assertions that actually
+    failed, worst first. Both exist so a log can be diagnosed without paying for the run again —
+    ADR 0084's rule for discarded calls, applied to the tier that costs the most to repeat."""
     ws = (benchmark.get("run_summary") or {}).get("with_skill") or {}
     events = (ws.get("sessions") or {}).get("events") or []
     lines: list[str] = []
@@ -252,6 +253,9 @@ def tier2_evidence_lines(benchmark: dict[str, Any]) -> list[str]:
             f"    unmeasured: run {ev.get('run')} case {ev.get('case')} "
             f"{ev.get('kind')} ({ev.get('subtype')}{turns}){text}"
         )
+    for row in ws.get("failed_assertions") or []:
+        claim = " ".join(str(row.get("text", "")).split())[:120]
+        lines.append(f"    failed {row.get('failed')}/{row.get('total')}: {claim}")
     return lines
 
 

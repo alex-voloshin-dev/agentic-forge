@@ -82,6 +82,38 @@ def _mean_seconds(timing: list[dict[str, Any]]) -> float:
     return statistics.fmean(values) if values else 0.0
 
 
+# How many failing assertions the benchmark keeps. Enough to see the pattern, not the whole
+# grading: the point is to say WHICH assertion to look at without paying for another run.
+MAX_FAILED_ASSERTIONS = 5
+
+
+def failed_assertions(gradings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Assertions that failed at least once, worst first: ``{text, failed, total}``.
+
+    A Tier-2 FAIL used to print a pass-rate and nothing else, so finding out *which* assertion
+    slipped cost a second paid run — the rule ADR 0084 set for discarded router calls ("every
+    discarded call is reported, pass or fail") applied to the tier that costs the most to repeat.
+    """
+    tally: dict[str, list[int]] = {}
+    for grading in gradings:
+        for result in grading.get("assertion_results") or []:
+            if not isinstance(result, dict):
+                continue
+            text = str(result.get("text") or "").strip()
+            if not text:
+                continue
+            counts = tally.setdefault(text, [0, 0])
+            counts[1] += 1
+            if not passed_value(result.get("passed")):
+                counts[0] += 1
+    worst = [(failed, text, total) for text, (failed, total) in tally.items() if failed]
+    worst.sort(key=lambda row: (-row[0], row[1]))
+    return [
+        {"text": text, "failed": failed, "total": total}
+        for failed, text, total in worst[:MAX_FAILED_ASSERTIONS]
+    ]
+
+
 def summarize(
     with_skill: list[dict[str, Any]],
     without_skill: list[dict[str, Any]] | None = None,
@@ -106,6 +138,9 @@ def summarize(
         "pass_rate": {"mean": ws["mean"], "stddev": ws["stddev"]},
         "n": ws["n"],
     }
+    failed = failed_assertions(with_skill)
+    if failed:
+        ws_summary["failed_assertions"] = failed
     if with_skill_timing is not None:
         ws_summary["time_seconds"] = _mean_seconds(with_skill_timing)
         if _has_tokens(with_skill_timing):
