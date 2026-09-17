@@ -1416,3 +1416,53 @@ def test_ralph_apply_aborts_on_a_non_git_repo(
         run_iteration=lambda n: None, is_done=lambda: False,
     )
     assert rc == 1 and "ralph: error: git rev-parse HEAD failed" in capsys.readouterr().err
+
+
+def test_tier2_runners_point_the_session_at_the_plugin_under_test(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Ten skill bodies invoke their scripts as `${CLAUDE_PLUGIN_ROOT}/skills/.../scripts/...` and
+    the harness never set it, so a session resolved it to the INSTALLED plugin and graded a build
+    four versions behind the tree under test (ADR 0097). Both runners now carry it."""
+    import _eval_cli
+
+    seen: list[dict] = []
+
+    def fake_runner(**kwargs: object):
+        seen.append(dict(kwargs))
+        return lambda s, p, w: "out"
+
+    monkeypatch.setattr(_eval_cli.agent_eval, "claude_cli_runner", fake_runner)
+    _eval_cli.build_runners("claude", allowed_tools="Bash", model="m", plugin_dir=tmp_path)
+    assert len(seen) == 2  # component and grader
+    assert all(kw["env"] == {"CLAUDE_PLUGIN_ROOT": str(tmp_path.resolve())} for kw in seen)
+
+    seen.clear()  # no plugin dir given -> no env override, the old behaviour
+    _eval_cli.build_runners("claude", allowed_tools="Bash", model="m")
+    assert all(kw["env"] is None for kw in seen)
+
+
+def test_claude_cli_runner_passes_the_env_to_the_session(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from agentic_forge import agent_eval
+
+    captured: dict[str, object] = {}
+
+    class _Done:
+        returncode = 0
+        stdout = '{"result": "ok", "num_turns": 2}'
+
+    def fake_run(cmd, **kwargs):
+        captured.update(kwargs)
+        return _Done()
+
+    import subprocess as _sp
+
+    monkeypatch.setattr(_sp, "run", fake_run)
+    runner = agent_eval.claude_cli_runner(env={"CLAUDE_PLUGIN_ROOT": "/plug"})
+    runner("sys", "prompt", tmp_path)
+    env = captured["env"]
+    assert isinstance(env, dict) and env["CLAUDE_PLUGIN_ROOT"] == "/plug"
+    assert "PATH" in env  # the real environment is inherited, not replaced
+
