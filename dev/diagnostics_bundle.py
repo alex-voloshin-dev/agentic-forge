@@ -39,10 +39,12 @@ def main(argv: list[str]) -> int:
 
     now = datetime.now(timezone.utc).isoformat()
     days = None if args.days <= 0 else args.days
+    counts: dict[str, int] = {}
     written = diag_bundle.build_bundle(
-        args.repo.resolve(), args.out, home=args.home, days=days, now=now
+        args.repo.resolve(), args.out, home=args.home, days=days, now=now, counts=counts
     )
     print(f"Wrote diagnostics bundle: {written}")
+    print(f"Records: audit {counts['audit']}, diagnostics {counts['diagnostics']}")
     return 0
 
 

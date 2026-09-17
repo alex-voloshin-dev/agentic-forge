@@ -32,8 +32,10 @@ and not for the plugin's own SDLC work.
    `~/Downloads/agentic-forge-diagnostics-<YYYYMMDD-HHMMSS>.zip` (UTC stamp) and prints the path.
    `--home /path` (or `AGENTIC_FORGE_HOME`) points it at another home — the eval stand uses a
    seeded `./fake-home` so a run never reads the operator's `~/.claude` or writes their Downloads.
-3. Report the absolute output path, the covered window, and the audit/diagnostics counts from the
-   command output. The bundle is already redacted — logs are hook-redacted at write time and the
+3. Report the absolute output path, the covered window, and the audit/diagnostics record counts —
+   the command prints all three (`Diagnostics bundle written to:`, `Window:`, `Records:`; the
+   counts were never printed before ADR 0096, so the answer had to come from opening the zip).
+   The bundle is already redacted — logs are hook-redacted at write time and the
    config/settings slices are re-redacted (the settings slice keeps only enablement + hooks, never
    tokens), so it is safe to share.
 

@@ -59,6 +59,34 @@ The round-trip stays: it is what catches everything this rule does not anticipat
 the cheaper one runs first. **Verified:** the third `quality-gate` run is PASS on all five phases —
 `test-strategy.md valid`, `test_levels non-empty` (3), `risk area referenced` — so Tier-3 is 5/5.
 
+## What the same run found next
+
+With `quality-gate` green, the last two Tier-2 contracts ran. `deploy-watch` is 1.000 — yesterday's
+"failure" really was the weekly limit, as the instrument had said. `diagnostics-bundle` came back
+at a lower bound of 0.791 against a 0.800 bar, and the report said only that: **which** assertion
+slipped cost another paid run to find out. That is ADR 0084's rule ("every discarded call is
+reported, pass or fail") applied to the router and to dead sessions but not to the tier that is
+most expensive to repeat. `benchmark.summarize` now tallies the failing assertions into the
+benchmark and `gate.tier2_evidence_lines` prints them:
+
+```
+diagnostics-bundle: PASS (mean=0.891, stddev=0.041, lower_bound=0.850, n=5)
+    failed 5/5: The final message reports the absolute output path and the audit/diagnostics counts
+    failed 1/5: In bundle-check/repo-logs/, the seeded 2024-dated records are absent …
+```
+
+Five of five is not variance, and the cause is a product gap the eval had been reporting as noise:
+`build_bundle.py` prints the path and the window and **not the counts**, while step 3 of the skill
+tells the operator to report "the audit/diagnostics counts *from the command output*". The only way
+to answer was to open the zip. `build_bundle` already computes both numbers from the
+window-filtered lines and threw them away; it now hands them back through a `counts` out-parameter
+(the return stays a `Path` — eleven call sites read it as one) and both CLIs print
+`Records: audit N, diagnostics N`.
+
+The contract passed either way, at 0.850 and 0.791 on the same content, which is what a systematic
+one-assertion failure looks like from behind a single number: the gate flapping around the bar
+while the same claim fails every time.
+
 ## Consequences
 
 - The `quality-gate` scenario re-runs on this change; the other four Tier-3 scenarios passed and
