@@ -26,6 +26,7 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO_ROOT / "plugin" / "lib"))
 
+import _eval_cli  # noqa: E402
 from agentic_forge import agent_eval, spine_e2e  # noqa: E402
 
 
@@ -75,9 +76,16 @@ def main(argv: list[str]) -> int:
     # indistinguishable from a failed phase (eval audit, C13). One runner serves every phase; the
     # artifact phases finish well inside either cap, and a cap hit is now a named `session
     # undetermined (error_max_turns)` checkpoint rather than a silent miss.
+    # Built here rather than through `build_runners`, which is how Tier-3 missed ADR 0097's fix:
+    # its phases invoke skills whose bodies call `${CLAUDE_PLUGIN_ROOT}/skills/.../scripts/...`,
+    # and without the pin those resolved to the installed plugin too (ADR 0098).
     run_phase = agent_eval.claude_cli_runner(
-        allowed_tools="Read,Write,Edit,Bash,Grep,Glob", model=args.model, max_turns=60
+        allowed_tools="Read,Write,Edit,Bash,Grep,Glob",
+        model=args.model,
+        max_turns=60,
+        env=_eval_cli.session_env(plugin_dir),
     )
+    print(_eval_cli.provenance_line(_eval_cli.provenance(plugin_dir, args.model)), flush=True)
     base = args.workspace or Path(tempfile.mkdtemp(prefix="tier3-e2e-"))
     ok = True
     for name in names:

@@ -56,5 +56,9 @@ installed, the script cannot be found at all. The number was never about the tre
   at runtime must pin that path.** The plugin root here; `$HOME` in ADR 0094 (a Tier-2 run wrote
   into the operator's real `~/Downloads`); the working directory in ADR 0090 (an empty temp dir).
   Three variables, one rule, and the harness now pins all three.
+- *(Amended the same day, ADR 0098: Tier-3's phase runner built its transport outside
+  `build_runners` and was not pinned by this change — its phases invoke the same script-calling
+  skills, so ADR 0096's 5/5 was the same mixture. Pinned in 0098, with a provenance line on every
+  run so the next such gap is visible on its first run.)*
 - CI never had a plugin installed, so the script-invoking Tier-2 cases could only ever have failed
   there. That they were never run in CI (Tier-2 is on demand, ADR 0083) is why this survived.

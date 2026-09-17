@@ -7,6 +7,30 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Added — the harness says what it measured (ADR 0098)
+
+Seven times in four days a check measured something adjacent to its claim, and each was found by a
+person reading one transcript. The instrument now asks that question itself, in four places:
+
+- **Provenance on every run.** `measuring: plugin=… version=… git=…[+dirty] model=… home=…
+  python=…` is the first line of Tier-1, Tier-1b, both Tier-2 CLIs and Tier-3, and both Tier-2
+  CLIs store the dict on the benchmark (`provenance`). ADR 0097 would have read
+  `plugin=~/.claude/plugins/cache/…/2026.9.3` on its first run instead of its third.
+- **A Tier-2 FAIL keeps one failing case in its own words.** After the failing assertions the
+  evidence prints `sample (run R case C said): …` — the first failing case's reply, 600 chars — so
+  *why* no longer costs a paid re-run. It is the transcript that cracked ADR 0097, kept by default.
+- **Session variables are a contract.** `_eval_cli.SESSION_VARS_PINNED` (`CLAUDE_PLUGIN_ROOT`,
+  `CLAUDE_SKILL_DIR`) is what `session_env` sets for every Tier-2/Tier-3 session, to the tree under
+  test and the skill's own directory; `SESSION_VARS_INHERITED` lists what is left to the real
+  environment (none). A test holds every `${VAR}` in every SKILL.md and agent body to the union,
+  and another holds `session_env` to the pinned set — the next variable fails Tier-0 until the
+  harness says what it does with it.
+- **Tier-3 is pinned too.** Its phase runner built its transport outside `build_runners` and so
+  missed ADR 0097 the same day; its phases invoke the very skills that call
+  `${CLAUDE_PLUGIN_ROOT}/…`, so ADR 0096's 5/5 ran this tree's bodies against the installed
+  release's scripts. It now passes `session_env` and prints its provenance.
+- **The rule, in the runbook:** a transcript before a second fix.
+
 ### Fixed — Tier-2 measured the installed plugin, not the tree under test (ADR 0097)
 
 `diagnostics-bundle`'s "the final message reports the absolute output path and the

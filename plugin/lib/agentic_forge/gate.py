@@ -256,6 +256,12 @@ def tier2_evidence_lines(benchmark: dict[str, Any]) -> list[str]:
     for row in ws.get("failed_assertions") or []:
         claim = " ".join(str(row.get("text", "")).split())[:120]
         lines.append(f"    failed {row.get('failed')}/{row.get('total')}: {claim}")
+    sample = (ws.get("sessions") or {}).get("failed_sample")
+    if isinstance(sample, dict) and sample.get("text"):
+        lines.append(
+            f"    sample (run {sample.get('run')} case {sample.get('case')} said): "
+            f"{sample['text']}"
+        )
     return lines
 
 

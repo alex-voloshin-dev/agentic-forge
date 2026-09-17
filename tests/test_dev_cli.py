@@ -1435,7 +1435,8 @@ def test_tier2_runners_point_the_session_at_the_plugin_under_test(
     monkeypatch.setattr(_eval_cli.agent_eval, "claude_cli_runner", fake_runner)
     _eval_cli.build_runners("claude", allowed_tools="Bash", model="m", plugin_dir=tmp_path)
     assert len(seen) == 2  # component and grader
-    assert all(kw["env"] == {"CLAUDE_PLUGIN_ROOT": str(tmp_path.resolve())} for kw in seen)
+    assert all(kw["env"]["CLAUDE_PLUGIN_ROOT"] == str(tmp_path.resolve()) for kw in seen)
+    assert all("CLAUDE_SKILL_DIR" in kw["env"] for kw in seen)  # the whole contract, ADR 0098
 
     seen.clear()  # no plugin dir given -> no env override, the old behaviour
     _eval_cli.build_runners("claude", allowed_tools="Bash", model="m")

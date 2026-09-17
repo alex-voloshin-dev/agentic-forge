@@ -95,6 +95,7 @@ def main(argv: list[str]) -> int:
     model = models.model_for("router", models_cfg, default=args.model)
     run_fn = _build_router(args.runner, model)
     print(f"running Tier-1 via {args.runner} (model={model}, runs={args.runs})...", flush=True)
+    print(_eval_cli.provenance_line(_eval_cli.provenance(plugin_dir, model)), flush=True)
     extra = namespace = None
     component = "tier1-eval"
     if args.with_builtins:

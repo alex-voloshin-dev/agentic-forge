@@ -1002,3 +1002,25 @@ def test_a_grader_that_never_ran_is_ungraded_not_fatal() -> None:
     assert (event["run"], event["case"], event["kind"]) == (1, 1, "ungraded")
     assert event["subtype"] == "error_max_turns" and event["num_turns"] == 20
     assert result.passed  # 1 of 10 = 10%: not over the cap, and never an ERROR
+
+
+def test_the_first_failing_case_is_kept_in_its_own_words() -> None:
+    """A FAIL that names the assertion still leaves WHY to a paid re-run; one transcript is what
+    cracked ADR 0097. The first case that fails an assertion keeps its reply's tail (ADR 0098)."""
+    calls = {"n": 0}
+
+    def grader(system: str, prompt: str, workdir: Path) -> str:
+        calls["n"] += 1
+        passed = calls["n"] != 2  # the second graded case (run 1, case 2) fails
+        return json.dumps({"assertion_results": [{"text": "a", "passed": passed}]})
+
+    def component(system: str, prompt: str, workdir: Path) -> str:
+        return "I resolved the plugin root to the installed version and ran its script"
+
+    bench, _, _ = _eval(component, grader=grader)
+    sample = bench["run_summary"]["with_skill"]["sessions"]["failed_sample"]
+    assert (sample["run"], sample["case"]) == (1, 2)
+    assert sample["text"].startswith("I resolved the plugin root")
+    ok, _, _ = _eval(lambda s, p, w: "GOOD")  # nothing failed: nothing kept
+    assert ok["run_summary"]["with_skill"]["sessions"]["failed_sample"] is None
+
