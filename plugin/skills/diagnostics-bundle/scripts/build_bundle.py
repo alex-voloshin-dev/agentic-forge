@@ -44,9 +44,15 @@ def main(argv: list[str]) -> int:
     now = datetime.now(timezone.utc).isoformat()
     days = None if args.days <= 0 else args.days
     home = diag_bundle.resolve_home(args.home).resolve()  # absolute, so the printed path is too
-    out = diag_bundle.build_bundle(args.repo.resolve(), None, home=home, days=days, now=now)
+    counts: dict[str, int] = {}
+    out = diag_bundle.build_bundle(
+        args.repo.resolve(), None, home=home, days=days, now=now, counts=counts
+    )
     print(f"Diagnostics bundle written to: {out}")
     print(f"Window: {diag_bundle.window_text(days=days, now=now)}")
+    # The counts the skill is told to report. They were never printed, so the only way to answer
+    # was to open the zip — which a read-only reviewer cannot do (ADR 0096).
+    print(f"Records: audit {counts['audit']}, diagnostics {counts['diagnostics']}")
     return 0
 
 

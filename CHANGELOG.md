@@ -7,6 +7,23 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Fixed — the bundler prints the counts the skill is told to report (ADR 0096)
+
+`diagnostics-bundle`'s "the final message reports the absolute output path and the
+audit/diagnostics counts" assertion failed **5 runs out of 5**, and the reason was a product gap,
+not the eval: `build_bundle.py` printed the path and the window and never the counts, while the
+skill's step 3 said to report them *from the command output*. The only way to answer was to open
+the zip. `build_bundle` already computes both from the window-filtered lines — it now returns them
+through a `counts` out-parameter (the return stays a `Path`, so no call site changes) and both CLIs
+print `Records: audit N, diagnostics N`.
+
+That was only visible because a Tier-2 FAIL now says **which** assertion failed: the report used to
+print a pass-rate and nothing else, so diagnosing one cost a second paid run — ADR 0084's rule
+applied to the router and to dead sessions, but not to the priciest tier. `benchmark.summarize`
+tallies failing assertions (worst first, capped) and `gate.tier2_evidence_lines` prints
+`failed N/M: <assertion>`. The contract read 0.791 and then 0.850 on identical content, which is
+what a systematic one-assertion failure looks like from behind a single number.
+
 ### Fixed — validate the file you wrote, not the header you built (ADR 0096)
 
 Tier-3 on the post-audit fixtures: four of five scenarios PASS (`spine`, `ops-incident`,

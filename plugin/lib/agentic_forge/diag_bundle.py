@@ -531,6 +531,7 @@ def build_bundle(
     home: Path | str | None = None,
     days: int | None = DEFAULT_WINDOW_DAYS,
     now: str | None = None,
+    counts: dict[str, int] | None = None,
 ) -> Path:
     """Package ``repo``'s diagnostics into a zip and return its path. Reads the two logs from the
     repo's state root (ADR 0072), keeps only records within the last ``days`` (default 7; ``None``
@@ -538,7 +539,12 @@ def build_bundle(
     :func:`resolve_home` — ``$AGENTIC_FORGE_HOME``, else ``Path.home()``), snapshots the
     environment, then writes the redacted manifest under a ``<prefix>-<ts>/`` root.
     ``out_path`` defaults to the strict ``<home>/Downloads/<prefix>-<ts>.zip`` (ADR 0053).
-    Best-effort: missing metadata is omitted, never fatal."""
+    Best-effort: missing metadata is omitted, never fatal.
+
+    Pass a dict as ``counts`` to receive ``{"audit": n, "diagnostics": n}`` for the records that
+    actually shipped — the same window-filtered lines, so the report cannot drift from the bundle.
+    The skill has always been told to report these; until ADR 0096 the command never printed them,
+    and the assertion that asks for them failed 5 runs out of 5."""
     # Normalise to the main working-tree root: hooks WRITE the logs there (worktree-aware), so a
     # bundle built from inside a worktree must read — and be labelled with — the same root.
     repo = diagnostics.main_repo_root(repo)
@@ -561,6 +567,9 @@ def build_bundle(
     retained = sorted(
         str(r["ts"]) for r in observability.parse_lines(audit_lines) if r.get("ts")
     )
+    if counts is not None:
+        counts["audit"] = len(audit_lines)
+        counts["diagnostics"] = len(diag_lines)
     transcripts = _read_transcript_sessions(home, repo)
     coverage = (
         session_coverage(audit_ids, transcripts, retained_since=retained[0] if retained else None)
