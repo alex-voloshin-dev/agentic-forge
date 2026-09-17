@@ -7,6 +7,28 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Fixed — rules that act at writing time (ADR 0099)
+
+The first pinned Tier-2 run passed all five script-invoking contracts, and its new evidence lines
+showed two assertions failing systematically behind the PASS — both of them rules the skills
+themselves state:
+
+- `engineering-standards` — *"User input is validated at the trust boundary"* failed **5/5**. One
+  session: the engineer parameterised the query, added an injection test, and wrote *"the name
+  crosses a trust boundary, so it is bound as a parameter"* — and stopped. The pack's bullet named
+  the two duties in one breath ("Validate input at trust boundaries; parameterised queries …") and
+  the model read them as one. The bullet now separates them and says what *validate* means (type,
+  emptiness, length or range, shape — rejected where the value enters), and that a parameterised
+  query is not validation.
+- `marketing` — *"the X post fits in 280 characters and the LinkedIn post is in the 1,300–1,900
+  band"* failed **4/5**. One session: 806 characters for LinkedIn, ~292 for X. The limits were
+  stated; the model estimated. The content reference now says to count each post's body and
+  state the counts before handing off — a post outside its band is not finished.
+
+No assertion was relaxed: both were right. The change goes where the model reads at writing time,
+which is ADR 0096's lesson a third time in one day — a rule stated in passing is followed in
+passing; the ones that hold are phrased as an action at the moment of writing.
+
 ### Added — the harness says what it measured (ADR 0098)
 
 Seven times in four days a check measured something adjacent to its claim, and each was found by a
