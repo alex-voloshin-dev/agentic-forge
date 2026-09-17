@@ -27,7 +27,11 @@ proof points. Content is delivered as files (no typed handoff).
   in the body — personal profiles measurably outperform company pages.
 - **Limits (cut content, never quality):** X — 280 chars per tweet/reply; LinkedIn — the
   1,300–1,900-char band (below reads thin, above loses dwell); short-form platforms — under
-  ~1,000 chars. Trim the middle (method/explanation), never the hook or the CTA.
+  ~1,000 chars. Trim the middle (method/explanation), never the hook or the CTA. **Measure, do
+  not estimate:** before handing off, count each post's body (`wc -m` on the file, or
+  `len()` — headings and file names excluded) and state the counts in the report; a post
+  outside its band is not finished, so cut or extend it and count again. Eyeballed drafts landed
+  at 806 chars for LinkedIn and ~292 for X, four runs out of five (ADR 0099).
 - **End with a specific engagement question**, not a generic one.
 
 ## The anti-AI writing gate
