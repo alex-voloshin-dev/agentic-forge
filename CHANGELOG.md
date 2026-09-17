@@ -28,7 +28,16 @@ person reading one transcript. The instrument now asks that question itself, in 
 - **Tier-3 is pinned too.** Its phase runner built its transport outside `build_runners` and so
   missed ADR 0097 the same day; its phases invoke the very skills that call
   `${CLAUDE_PLUGIN_ROOT}/…`, so ADR 0096's 5/5 ran this tree's bodies against the installed
-  release's scripts. It now passes `session_env` and prints its provenance.
+  release's scripts. It now passes `session_env` and prints its provenance — and re-run pinned,
+  **Tier-3 is 5/5** again (`measuring: … version=2026.9.4 git=c9603dc …` as the log's first line),
+  so the number stands, this time about the tree it claims. The five script-invoking Tier-2
+  contracts re-run pinned: `diagnostics-bundle` **0.945** (lower bound 0.864 — the assertion that
+  failed 5/5 under the installed plugin fails 1/5 under this one), `engineering-standards` 0.857,
+  `marketing` 0.969, `ux-design` 0.971, `pr-watch` 0.986 — all PASS. And the evidence lines paid
+  for themselves on the first run: two assertions fail systematically behind passing numbers —
+  `engineering-standards` "User input is validated at the trust boundary" **5/5**, `marketing`
+  "the X post fits 280 characters and the LinkedIn post is substantially longer" **4/5** — with
+  the failing case's own words under each. They are the next two items.
 - **The rule, in the runbook:** a transcript before a second fix. Applied at once: with the plugin
   root pinned, `diagnostics-bundle`'s "reports the absolute path and the counts" still failed 4/5,
   and one hand-run session showed why — the counts were there now, but the model had shortened
