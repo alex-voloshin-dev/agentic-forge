@@ -29,7 +29,11 @@ person reading one transcript. The instrument now asks that question itself, in 
   missed ADR 0097 the same day; its phases invoke the very skills that call
   `${CLAUDE_PLUGIN_ROOT}/…`, so ADR 0096's 5/5 ran this tree's bodies against the installed
   release's scripts. It now passes `session_env` and prints its provenance.
-- **The rule, in the runbook:** a transcript before a second fix.
+- **The rule, in the runbook:** a transcript before a second fix. Applied at once: with the plugin
+  root pinned, `diagnostics-bundle`'s "reports the absolute path and the counts" still failed 4/5,
+  and one hand-run session showed why — the counts were there now, but the model had shortened
+  the absolute path the command printed to a relative one for readability. Step 3 of the skill
+  now says to quote the command's three lines verbatim; the next probe reported all three.
 
 ### Fixed — Tier-2 measured the installed plugin, not the tree under test (ADR 0097)
 
