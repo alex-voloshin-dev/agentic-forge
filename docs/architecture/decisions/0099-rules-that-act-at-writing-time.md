@@ -54,6 +54,29 @@ while the model writes — applied to two rules the skills already had.
    change goes where the model reads at writing time — the pack bullet, the reference step — not
    into the eval.
 
+## What the re-runs said
+
+`engineering-standards` went **0.857 → 1.000**: the 5/5 assertion is gone, first time. Separating
+the two duties was the whole fix.
+
+`marketing` took two more passes, and both are the same lesson again.
+
+*Pass one.* The rule worked — the session counted and reported 1,349 and 280 characters, both in
+band — and the assertion still failed 5/5, because the **files** were 1,453 and 347: a title
+heading, an editorial note and a separator sat on top of each post. My own wording ("headings and
+file names excluded") had *accommodated* the ambiguity instead of removing it. So: **a post file
+is the post** — its whole contents are what gets published, no heading, no note, and `wc -m`
+counts the file. Publishing guidance goes in the report and the calendar, never in the file
+someone copies into the box. The next probe wrote 1,336 and 253 characters, clean.
+
+*Pass two.* Still 5/5 — and this time the product was right and the **assertion** was not. It
+reads "the X post fits in 280 characters"; the grader has `Read`, `Grep` and `Glob` and **cannot
+count characters**. It was being asked to eyeball a measurement, which is ADR 0094's own C6d class
+(an assertion no grader tool can check) sitting unnoticed in a contract this series had already
+read twice. Split in two, both verifiable: the report *states* each count and each is in band (the
+skill now produces those numbers, so they are evidence, not a promise), and each file *is* the
+post, the two not duplicates.
+
 ## Consequences
 
 - Both contracts re-run on this change; the CHANGELOG entry records what the two assertions
@@ -64,3 +87,7 @@ while the model writes — applied to two rules the skills already had.
   *check the value where it enters* — with the failure they exist for as the example.
 - A passing Tier-2 number is no longer the end of a reading. The evidence lines under it are; a
   `failed 5/5` under a PASS is a product finding with the transcript already attached.
+- Three passes over one assertion, and each found a different layer: the model's behaviour, then
+  the artifact's shape, then the assertion's own verifiability. The rule that kept them honest was
+  reading one session before each change — without it, the first fix would have been called a
+  failure and the eval relaxed.
