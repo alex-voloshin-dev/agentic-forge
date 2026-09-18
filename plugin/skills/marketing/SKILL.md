@@ -65,10 +65,13 @@ The failure mode of generated marketing is confident, low-signal fluff. So every
    content files, the offer doc, or the audit report — grounded in the evidence and the upstream
    `prd.md` where relevant. **A content file is the thing that gets published**: its whole
    contents are the post or the copy, with no title heading and no editorial note (publishing
-   guidance goes in your report and the calendar), and for anything with a platform limit —
-   `wc -m` each file and state the counts in your report before you finish. A file outside its
-   band is unfinished, not a draft to explain away. This lives in the body because the limits in
-   `references/content.md` only bind the sessions that open it (ADR 0099).
+   guidance goes in your report and the calendar), and it has a size to hit:
+   **X at most 280 characters; LinkedIn 1,300-1,900** (below reads thin, above loses dwell);
+   short-form elsewhere under ~1,000. `wc -m` each file and state the counts in your report
+   before you finish — a file outside its band is unfinished, not a draft to explain away. The
+   numbers are here and not only in `references/content.md` because a rule binds only the
+   sessions that read it, and a session that never opens the reference wrote 847 characters
+   against LinkedIn's "~3,000-char limit", five runs out of five (ADR 0099).
    Then **read the file back** — `handoff.load_artifact(<path>, expected_type="market-brief")` —
    and fix whatever it raises: `validate_header` checks a dict, not the YAML you typed, so a single
    malformed value (a flow sequence with prose after it, an unquoted `:`) leaves an artifact the
