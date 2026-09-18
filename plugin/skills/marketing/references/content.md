@@ -27,11 +27,14 @@ proof points. Content is delivered as files (no typed handoff).
   in the body — personal profiles measurably outperform company pages.
 - **Limits (cut content, never quality):** X — 280 chars per tweet/reply; LinkedIn — the
   1,300–1,900-char band (below reads thin, above loses dwell); short-form platforms — under
-  ~1,000 chars. Trim the middle (method/explanation), never the hook or the CTA. **Measure, do
-  not estimate:** before handing off, count each post's body (`wc -m` on the file, or
-  `len()` — headings and file names excluded) and state the counts in the report; a post
-  outside its band is not finished, so cut or extend it and count again. Eyeballed drafts landed
-  at 806 chars for LinkedIn and ~292 for X, four runs out of five (ADR 0099).
+  ~1,000 chars. Trim the middle (method/explanation), never the hook or the CTA. **A post file is the post**
+  — its whole contents are what gets published, so no title heading, no editorial note, no
+  separator: publishing guidance (which account, when) belongs in the report and the calendar,
+  never in the file someone copies into the box. **Measure, do not estimate:** before handing
+  off, `wc -m` each post file and state the counts in the report; a file outside its band is not
+  finished, so cut or extend it and count again. Eyeballed drafts landed at 806 chars for
+  LinkedIn and ~292 for X; counted ones with a heading and a note on top came to 347 chars in a
+  280-char file — the count has to be of the thing that ships (ADR 0099).
 - **End with a specific engagement question**, not a generic one.
 
 ## The anti-AI writing gate
