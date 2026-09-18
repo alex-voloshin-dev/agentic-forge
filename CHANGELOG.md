@@ -7,6 +7,8 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.9.5] - 2026-09-18
+
 ### Fixed — rules that act at writing time (ADR 0099)
 
 The first pinned Tier-2 run passed all five script-invoking contracts, and its new evidence lines
