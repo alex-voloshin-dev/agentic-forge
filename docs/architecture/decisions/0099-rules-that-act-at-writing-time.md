@@ -46,13 +46,18 @@ while the model writes — applied to two rules the skills already had.
    type, so it is not validation. The bullet says so, with the sentence the engineer wrote as the
    example of the conflation.
 2. **The content limits become a measurement, not an estimate.** Before handing off, count each
-   post's body (`wc -m`, headings and file names excluded) and state the counts in the report; a
-   post outside its band is not finished. The reference keeps the bands and adds the step, with
-   the eyeballed 806 / ~292 as the example.
-3. **No assertion was relaxed.** Both assertions state the skill's own rule; both were right. The
-   evidence line and the sample under it are what made "PASS with a 5/5 failure" visible, and the
-   change goes where the model reads at writing time — the pack bullet, the reference step — not
-   into the eval.
+   post file (`wc -m`) and state the counts in the report; a file outside its band is not
+   finished. And **a post file is the post**: its whole contents are what gets published, so no
+   title heading and no editorial note — publishing guidance belongs in the report and the
+   calendar. (The first wording said "headings excluded", which accommodated the ambiguity
+   instead of removing it; see below.)
+3. **One assertion was split, and not because it was inconvenient.** "The X post fits in 280
+   characters" asks the grader for a measurement its tools cannot make — `Read`, `Grep`, `Glob`
+   and no way to count. That is ADR 0094's own C6d class, and it sat unnoticed in a contract this
+   series had read twice. It becomes two claims a reader can check: the report *states* each
+   count and each is in band, and each file *is* the post, the two not duplicates. The other
+   assertion — the trust boundary — was right as written and stands untouched; the change went
+   where the model reads at writing time.
 
 ## What the re-runs said
 
