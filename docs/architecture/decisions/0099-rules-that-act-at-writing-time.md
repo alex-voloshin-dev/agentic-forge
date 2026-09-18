@@ -82,6 +82,25 @@ read twice. Split in two, both verifiable: the report *states* each count and ea
 skill now produces those numbers, so they are evidence, not a promise), and each file *is* the
 post, the two not duplicates.
 
+*Pass three.* Still 5/5, and the sample said why in one line: the report named no counts at all.
+The measure-and-state rule lived in `references/content.md`, and `build_skill_system` injects the
+SKILL.md body only — so the rule bound the sessions that happened to open the reference (my probes
+did; the eval's did not). The rule moved into the body.
+
+*Pass four.* The report now named numbers — *"LinkedIn is 847 (well within LinkedIn's ~3,000-char
+limit)"* — against a band it had never seen, because I had moved the action into the body and left
+the numbers in the reference. A half-move. The bands now sit beside the rule that uses them.
+
+*Result:* `marketing` **PASS 0.985** (lower bound 0.965); the length assertion that failed 4/5,
+then 5/5 four times, no longer appears. What remains is a 1/5 claim slip, which is what noise looks
+like beside a systematic failure.
+
+Five passes, five layers: the model's behaviour (estimating), the artifact's shape (a heading on
+the post), the assertion's verifiability (a grader that cannot count), the rule's location (a
+reference nobody opened), and the rule's completeness (an action without its numbers). Each was
+invisible until the one before it was fixed, and each was named by the `sample` line rather than
+guessed.
+
 ## Consequences
 
 - Both contracts re-run on this change; the CHANGELOG entry records what the two assertions

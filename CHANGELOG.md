@@ -29,6 +29,15 @@ No assertion was relaxed: both were right. The change goes where the model reads
 which is ADR 0096's lesson a third time in one day — a rule stated in passing is followed in
 passing; the ones that hold are phrased as an action at the moment of writing.
 
+**Result.** `engineering-standards` **0.857 → 1.000**, first pass. `marketing` took five, each
+peeling one layer the `sample` line named: the model estimated length; then counted, but a heading
+sat on top of the post file (*a post file is the post*); then the assertion asked a
+Read/Grep/Glob grader to count characters (split into two it can check: the report states the
+counts, the file is the post); then the rule lived in `references/content.md`, which
+`build_skill_system` never injects (moved into the body); then the body had the action but not
+the bands, and the session invented "LinkedIn's ~3,000-char limit" (the bands moved too). Final:
+**PASS 0.985**, the length assertion gone.
+
 ### Added — the harness says what it measured (ADR 0098)
 
 Seven times in four days a check measured something adjacent to its claim, and each was found by a
