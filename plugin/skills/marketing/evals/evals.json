@@ -68,7 +68,8 @@
       "expected_output": "Two platform-sized posts (X within 280 chars; LinkedIn in the 1,300-1,900 char band) that lead with a concrete insight from the brief, deliver value without requiring a click (zero-click), and pass the anti-AI writing gate: no 'groundbreaking/game-changing/revolutionary' vocabulary, no forced rule-of-three, no 'It's not just X, it's Y' parallelism, no generic 'exciting times ahead' close, varied sentence lengths, specific facts from the brief only.",
       "files": ["eval/fixtures/marketing/positioning.md"],
       "assertions": [
-        "The X post fits in 280 characters and the LinkedIn post is substantially longer (aiming for the 1,300-1,900 character band) — the two are not the same text duplicated",
+        "The report states each post file's character count and each is inside its platform's band (X at most 280, LinkedIn 1,300-1,900)",
+        "Each post file contains the post and nothing else — no title heading, no editorial note — and the two posts are not the same text duplicated",
         "Both posts deliver the core value inside the post (zero-click): a reader who never clicks still gets the insight",
         "The anti-AI writing patterns are respected: no promotional vocabulary (groundbreaking/game-changing/revolutionary/leverage/delve), no 'not just X, it's Y' negative parallelism, no generic hype closing",
         "The posts lead with a specific, concrete hook from the brief rather than a generic topic introduction",
