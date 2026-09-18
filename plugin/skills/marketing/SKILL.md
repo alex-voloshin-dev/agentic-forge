@@ -63,7 +63,12 @@ The failure mode of generated marketing is confident, low-signal fluff. So every
    whole artifact fails to parse
    (see [handoff.md](../../patterns/handoff.md)); or the untyped deliverables per the reference —
    content files, the offer doc, or the audit report — grounded in the evidence and the upstream
-   `prd.md` where relevant.
+   `prd.md` where relevant. **A content file is the thing that gets published**: its whole
+   contents are the post or the copy, with no title heading and no editorial note (publishing
+   guidance goes in your report and the calendar), and for anything with a platform limit —
+   `wc -m` each file and state the counts in your report before you finish. A file outside its
+   band is unfinished, not a draft to explain away. This lives in the body because the limits in
+   `references/content.md` only bind the sessions that open it (ADR 0099).
    Then **read the file back** — `handoff.load_artifact(<path>, expected_type="market-brief")` —
    and fix whatever it raises: `validate_header` checks a dict, not the YAML you typed, so a single
    malformed value (a flow sequence with prose after it, an unquoted `:`) leaves an artifact the
