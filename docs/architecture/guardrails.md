@@ -36,8 +36,9 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
   `curl https://…/install.sh | sh` blocks. A segment `shlex` cannot tokenize (unbalanced quotes)
   degrades to the pre-0054 text checks — block-leaning, never silently passing.
 - **test-gate** (`PreToolUse` / Bash, `commit_gate.py`) — on `git commit`/`git push`, runs the
-  **fast** gate (`dev/validate.py` if present, else the detected stack's lint via `stacks.py`) and
-  blocks on failure, so broken code isn't committed. Skippable via `AGENTIC_FORGE_SKIP_TEST_GATE`;
+  **fast** gate (`dev/validate.py` if present, else the detected stack's lint via `stacks.py`) from
+  the session's `cwd` and blocks on failure, so broken code isn't committed. Skippable via
+  `test_gate.skip` or `AGENTIC_FORGE_SKIP_TEST_GATE`;
   fails open on an infrastructure error (missing tool, timeout) **and when the gate can't run** —
   a non-zero exit whose output shows a missing lint script / uninstalled linter
   (`guardrails.gate_unrunnable`, specific signatures only) **or** a shell not-found exit code
@@ -45,13 +46,38 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
   and allowed rather than blocking a commit. The signatures are deliberately narrow — a bare
   `not found` / `no such file` would match genuine failures and wrongly let broken code commit
   (ADR 0058, tightened by ADR 0059).
+  **A simple command narrows that gate, and can only narrow it** (`gate_scope.py`, ADR 0101). The
+  gate is still what `choose_gate(cwd)` picks: a commit from a root with no manifest stays ungated.
+  A small strict matcher accepts an optional single `git add <literal paths>` / `-A` / `.` joined by
+  `&&`, then `git commit` with flags that cannot widen what it takes (a `-m "$(cat <<'EOF' …)"`
+  message or `-F -` included), or `git push`, `git push <r>`, `git push <r> HEAD` or `git push <r>
+  <current branch>`, each optionally `-u`. For those, git says what changes: staged paths, plus
+  tracked changes for `-a`, plus what a `git add` covers including untracked files; for a push that
+  can only send this branch to its own name, the files in commits that its tracking ref lacks, or
+  `--not --remotes=<r>` where there is no such ref, merge diffs included. An empty set skips any
+  gate, so an empty commit passes. `ruff check .` becomes `ruff check ./a.py …` over the lintable
+  changed files under `cwd`, and is skipped when there are none, so old findings in other files do
+  not block. It stays whole when the commit touches a ruff config, a user-level ruff config exists,
+  a config on the path mentions a key that chooses its own inputs, a tracked lintable name is a
+  symlink, or a changed path is a directory, gitlink or symlink. `go vet ./...` is skipped only when
+  nothing under `cwd` changed. Every other gate runs whole. Any non-zero narrowed exit runs the
+  whole gate and applies the classification above to that result, so a block happens only where the
+  gate would have blocked anyway; an explicit path reaches files `ruff check .` does not walk. **Any
+  other shape, any character the matcher does not understand, `GIT_CONFIG_COUNT`,
+  `GIT_CONFIG_PARAMETERS`, a `GIT_DIR`-style variable, or any git failure behaves exactly as
+  before.** A block tells the model what ran on what, with the
+  output redacted, and to fix the findings or ask the user. The operator's `systemMessage` carries
+  the way out: `test_gate.skip: true` in `<cwd>/.agentic-forge/config.json`, in a separate call
+  first. A block on a refused shape adds that running `git commit` or `git push` as its own call
+  gates only what changed.
   **The gate is `PreToolUse`, so it blocks the *whole* Bash command before any of it runs** — a
   prerequisite the gate itself needs cannot be established in the same command. `ln -sfn …/node_modules
   ./node_modules && git commit -m …` fails permanently: the gate runs `npm run lint` first, the
   linker has not run yet, and eslint is missing. Establish prerequisites in a **separate, earlier**
   command (one with no `git commit` substring anywhere in it), verify the tool resolves, then
-  commit. Scoping the gate to the staged diff — so a commit touching no linted path needs no lint
-  toolchain — would remove the sharp edge entirely and is **not built** (field report AF-04).
+  commit. The narrowing above removes this edge only where it applies: a simple commit that changes
+  nothing a ruff or go gate reads needs no lint toolchain. A compound command like the one above, and
+  a whole-package tool such as `npm run lint`, keep it (field report AF-04).
 - **security: no remote environment dumps** — a bare `printenv` / `env` / `set` reaching a remote
   host through `kubectl|oc exec`, `ssh`, `docker|podman exec`, `fly ssh` or `heroku run` is blocked.
   A prefix-filtered dump eventually matches a secret whose name *starts with* a non-secret prefix
@@ -128,7 +154,9 @@ a determined adversary. Known, accepted limits:
   *allow* to avoid friction.
 - **The test-gate runs repo-local code by design.** `commit_gate` executes the project's own
   `dev/validate.py` (or the stack lint) from the session `cwd`; the trust boundary is Claude
-  Code's `cwd`, not the hook. Don't point a session at an untrusted repo and then commit.
+  Code's `cwd`, not the hook. Don't point a session at an untrusted repo and then commit. The git
+  reads that narrow it (ADR 0101) disable `core.fsmonitor`, refuse a directory merely shaped like a
+  repo, compare no file content, and get an allowlisted environment.
 - **Redaction covers common token shapes** (`sk-…`/`sk-ant-…`, `gh*_`/`github_pat_`/`glpat-`,
   AWS/Google/Slack keys, JWTs, `user:pass@` URLs, Bearer/Authorization, `KEY=value`) but is not
   exhaustive — treat `audit.jsonl` as sensitive and keep it out of shared locations.

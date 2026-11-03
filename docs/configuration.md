@@ -35,7 +35,7 @@ repo, those four reviewer keys, `state.in_repo`, `knowledge.allow_external_vault
 | `knowledge.allow_external_vault` | bool | `false` | Read and write a knowledge vault whose directory resolves outside the repo (the nearest directory up holding a `.git` entry), for a vault you keep elsewhere and reach by a link. **User-level only: set it in `~/.agentic-forge/config.json`.** A value in a repo file is ignored with a warning, in both directions, unless it equals the value in effect, because a checkout can commit the link (ADR 0102). Only a real `true` counts. See [Vault notes and symlinks](#vault-notes-and-symlinks). |
 | `subagent_budget.soft` | int ≥ 0 | `25` | Per-session subagent (`Task`) count at which the budget hook warns. |
 | `subagent_budget.hard` | int ≥ 0 | `50` | Count at which the budget hook blocks further `Task` spawns. |
-| `test_gate.skip` | bool | `false` | Skip the pre-commit test gate (the `commit_gate` hook). |
+| `test_gate.skip` | bool | `false` | Skip the pre-commit test gate (the `commit_gate` hook). Read from `.agentic-forge/config.json` at the session's cwd, then the user-level file, as any key is: a file at the repo root does not reach a session standing in a package. **Set it in a separate call before the commit:** the hook runs before the command, so neither a file written nor a variable exported in the same call can reach it. See [What the test gate runs on](#what-the-test-gate-runs-on). |
 | `review.passes` | int ≥ 1 | `3` | Calibrates the **scheduled non-convergence scan** (`diagnostics.scan_reviews`) — the iteration at which a still-`changes` loop is flagged. The in-skill loops use the constant `handoff.REVIEW_LOOP_BUDGET` (3) and do **not** read this; raising it above 3 only moves the detector's threshold (ADR 0067). |
 | `external_reviewer.enabled` | bool | `true` | Enable the external reviewer pass — on by default, auto-invoked as an extra lens in every workflow that writes a reviewable deliverable: `develop` (`--kind code`), `product` (`--kind product`), `architecture` (`--kind technical`), `plan` (`--kind plan`), `research` (`--kind research`), `ux-design` (`--kind ux`), `marketing` (`--kind marketing`) (ADR 0042 / 0057 / 0060 / 0061 / 0062). Degrades gracefully when the CLI is absent; set `false` to opt out (e.g. secret-bearing repos). **This key is an exception to the precedence above:** a user-level `false` holds whatever a repo config says, and that attempt is ignored with a warning, because content goes to a third party (ADR 0100). A repo can turn it off, with a warning if that overrides a user-level `true`, and can turn it on if there is no user-level `false`. A repo's `false` survives its file being dropped when it can still be read there; see below. With it off, the skills' `review()` runs nothing and returns `None` (`disabled`). The operator's `--force` on `plugin/bin/external_review.py` still overrides it. |
 | `external_reviewer.command` | string | `"codex"` | The reviewer executable name on PATH: a bare name, not a path or a shell line. **User-level only: set it in `~/.agentic-forge/config.json`.** A value in a repo file is ignored with a warning, because the operator chooses the program: a repo that chose it could have a program of its choosing run on your machine and forge the verdict (ADR 0100). There is no warning if it equals the value in effect, so copying the example into a repo stays quiet. At user level, anything but a bare name falls back to `codex` with a warning. The `--command` argument of `plugin/bin/external_review.py` is your own, so it may name a path, which is resolved against your current directory. The library's `review()`, which the skills call, runs only this configured value and refuses any other. |
@@ -53,6 +53,30 @@ repo, those four reviewer keys, `state.in_repo`, `knowledge.allow_external_vault
 | `pr_watcher.auto_watch` | bool | `true` | Let the PR-created hook **enqueue** a new PR for the scheduled watch (ADR 0068/0069). On by default — but it requires `enabled` as well, so with the watcher off the queue file is never created and the plugin writes nothing into your repo. Merging still needs `auto_merge` (off). **A 10-minute tick needs a 10-minute external clock** (`*/10 * * * * python plugin/bin/run_scheduled.py`): the plugin has no daemon. |
 | `pr_watcher.max_ticks` | int ≥ 1 | `144` | How many drains one queued PR may consume before it is dropped (24 h at the 10-minute cadence). Nothing is watched forever. |
 | `pr_watcher.poll_seconds` | int ≥ 60 | `600` | Autonomous re-check cadence (10 min). **Also the window an external PR reviewer gets:** a freshly opened PR has `PENDING` checks, so the gate can't open before the first post-CI poll — shortening this shortens that window. Don't substitute the build duration for it (a static gate can finish in seconds). |
+
+### What the test gate runs on
+
+The gate is whatever fits the session's cwd: `dev/validate.py` if there is one, else the detected stack's lint, else nothing.
+A commit from a repo root with no manifest is **not gated**. That has not changed. A simple command then narrows that gate to
+what it changes (ADR 0101):
+
+| Gate | Nothing changed | Something changed |
+|---|---|---|
+| `ruff check .` | skipped | `ruff check` on the changed `.py`, `.pyi`, `.pyw`, `.ipynb` files under cwd, skipped if there are none. Whole if the commit touches a ruff config, you have a user-level ruff config, a config on the path mentions `include`, `extend-include`, `extension` or `extend`, a tracked lintable name under cwd is a symlink, or a changed path is a directory, submodule or symlink |
+| `go vet ./...` | skipped | unchanged, if anything under cwd changed; otherwise skipped |
+| `dev/validate.py`, `npm run lint`, `cargo clippy`, `rubocop` | skipped | unchanged, whole |
+
+*Simple* means an optional single `git add <literal paths>`, `git add -A` or `git add .` joined by `&&`, then `git commit`
+with only `-m`, `-a`, `-am`, `-qm`, `--allow-empty`, `--no-verify`, `-q` or `-s` (and their long forms), a heredoc message as
+`"$(cat <<'EOF' ...)"` or `-F - <<'EOF'`, or `git push`, `git push <remote>`, `git push <remote> HEAD` or `git push <remote> <current
+branch>`, each optionally with `-u`, with `push.default` unset, `simple` or `current`, and no `remote.<remote>.push`. Everything else runs
+the whole gate: `git commit -m x && git push`, `cd x && git commit`, `--amend`, a multi-line message in plain quotes. To get the
+narrowing, run those as separate calls; a block on one of them says so.
+
+Touching a file makes all of its findings count: this is per file, not per line. A narrowed failure is only a reason to look: the
+whole gate then decides, as it always did, and a block shows what the narrowed run found. A block tells the agent to fix the findings
+or ask you, and tells you how to skip it: `{"test_gate": {"skip": true}}` in `<cwd>/.agentic-forge/config.json`, written in a separate
+call first.
 
 ### The PR watcher and the checkout
 
