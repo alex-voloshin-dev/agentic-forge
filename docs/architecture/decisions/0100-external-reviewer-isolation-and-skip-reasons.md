@@ -313,8 +313,9 @@ verdict, so that version accepts both flags. Nothing is known about other versio
 
 Known, and not fixed here:
 
-- **Skills that call the lib inline could be shadowed by repo files on `sys.path`.** Fixing that needs
-  SKILL.md edits and an eval run.
+- ~~**Skills that call the lib inline could be shadowed by repo files on `sys.path`.**~~ Fixed by
+  [ADR 0104](0104-skills-run-a-script-not-inline-python.md) (2026-11-03), with the SKILL.md edits. Which evals to
+  re-run is recorded there.
 - **Pass the prompt on stdin.** That would remove the argv size limit, and the way a NUL byte in the target
   turns a review into a `process-failure` skip.
 - **`review()` from a subdirectory** does not see the repo's config, as the known limit below says.

@@ -67,34 +67,37 @@ quoted string field. Same for a `:` inside an unquoted value, and for `#` after 
 a comment). If a value needs explaining, that explanation belongs in the body (ADR 0096).
 
 Validate before committing — a malformed header breaks the consumer. Validate the **file**,
-not just the header dict you built: `load_artifact(path, expected_type=...)` after writing is
-the only check that sees the YAML you actually typed. A Tier-3 phase once wrote a complete,
+not just the header you meant to write (its message says what is missing, so there is no need to read `handoff.py` or `af.py` first): `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type <type>` after
+writing is the only check that sees the YAML you actually typed. A Tier-3 phase once wrote a complete,
 correct strategy whose one bad frontmatter value (`then: [a, b] — prose after the list`) made
-the whole artifact unreadable; `validate_header` on the dict had passed, and the failure
+the whole artifact unreadable; a check on the header as a dict had passed, and the failure
 surfaced in the NEXT phase, against the wrong skill (ADR 0096).
 
 ## Consuming an artifact
 
-Read the predecessor's **header** for structured fields and its **body** for rationale. The
-shared helper `agentic_forge.handoff` loads and validates headers against per-type schemas:
+Read the predecessor's **header** for structured fields and its **body** for rationale. One
+command loads a file and validates its header against the type's schema:
 
-```python
-from agentic_forge.handoff import load_artifact
-
-prd = load_artifact("docs/sdlc/search/prd.md", expected_type="prd")
-for goal in prd.header["goals"]:
-    ...
-design_body = prd.body  # full markdown after the frontmatter
+```
+python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path docs/sdlc/search/prd.md --type prd
 ```
 
-`load_artifact` / `parse_artifact` raise `HandoffError` on a missing file, malformed
-frontmatter, or a header that fails its schema (wrong `type`, missing required field, bad
-enum). Use `validate_header(header, expected_type=...)` to get the list of problems without
-raising, and `schema_for(type)` to inspect a schema.
+It prints `{"path", "type", "ready", "header"}`; read the body from the file. `ready` is true only
+for a status that means the artifact's review loop reached `proceed`. It exits 1, with the reason on
+stderr, on a missing file, malformed frontmatter, or a header that fails its schema (wrong `type`,
+missing required field, bad enum). `${CLAUDE_PLUGIN_ROOT}` is the plugin's directory, the one holding
+`skills/` and `patterns/`, and is not normally set in a shell: if this file reached you unexpanded,
+use the path your skill's own commands show.
 
-**When the predecessor is absent.** `load_artifact` raising on a missing file is deliberate — a
+**It exits 3 when this `python3` lacks PyYAML or jsonschema** (ADR 0104). That means stop: nothing was
+validated. Keep the artifact's status `in-review`, commit nothing, do not call it valid, and report the
+missing package. In a review loop the gate is then `--gate-green unknown`, which escalates, since `no`
+would revise for ever on a machine that can never turn it green. Installing a package is the user's
+decision.
+
+**When the predecessor is absent.** `handoff-load` failing on a missing file is deliberate — a
 mistyped path must not read as "no upstream" — so a phase that can run without its input checks
-`Path(path).exists()` *before* calling it. Absent means: derive the inputs from the request and the
+that the file exists *before* calling it. Absent means: derive the inputs from the request and the
 repo, record the assumptions and the missing artifact in the artifact the phase produces, and
 proceed. Never stop to ask when running headless — a headless session has no user; ask only when
 interactive and the gap blocks the work.

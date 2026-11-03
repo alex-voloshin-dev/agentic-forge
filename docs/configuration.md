@@ -306,6 +306,10 @@ Two different answers, and conflating them cost a real user a debugging session:
   newer**, with **no third-party packages**. The hook-reachable modules are stdlib-only at import
   time and every shipped file carries `from __future__ import annotations` (Tier-0 enforces this),
   so macOS CommandLineTools' pinned 3.9.6 works as-is — this is the field-verified baseline.
+- **What a skill runs (`bin/af.py`, ADR 0104):** the same `python3`, with `-E`, and nothing installed for most of it.
+  Reading a handoff artifact (`handoff-load`, `plan-batches`) also needs PyYAML and jsonschema: without them it exits 3,
+  names the package and says nothing was checked, and a spine phase then stops at `in-review` and commits nothing. To
+  enable it, `python3 -m pip install pyyaml jsonschema`. `-E` keeps user site-packages, so a `--user` install counts.
 - **Developing the plugin** (running `dev/` CLIs, `pytest`, the eval gates): Python **≥ 3.11** plus
   the dev deps (`pip install -e .`) — that is what `pyproject.toml`'s `requires-python` describes.
 

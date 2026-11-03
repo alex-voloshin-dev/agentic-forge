@@ -1,5 +1,7 @@
 # Pattern: knowledge recall (read the vault to enrich a phase)
 
+`${CLAUDE_PLUGIN_ROOT}` below is the plugin's directory, the one holding `skills/` and `patterns/`, and is not normally set in a shell: if this file reached you unexpanded, use the path your skill's own commands show.
+
 Before a workflow phase produces its artifact, **recall the project's relevant prior decisions**
 from the knowledge vault (`docs/knowledge/`) so it builds on what's already settled instead of
 re-deriving it. This realizes the constitution's "workflows … read [the vault] to enrich their
@@ -13,7 +15,7 @@ Every SDLC spine phase (`research → product → architecture → plan → deve
 
 ## How
 
-1. **Recall.** Query the vault for notes relevant to the feature/topic — `vault.recall(repo, query)`
+1. **Recall.** Query the vault for notes relevant to the feature/topic — `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" vault-recall --repo . --query '<keywords, letters and digits only>'`
    (ranked) or the `knowledge` skill. Use the phase's subject as the query (the feature slug + the
    phase's concern, e.g. "auth", "rate limiting").
 2. **Factor in.** Let recalled decisions shape the output; don't silently contradict a settled
@@ -35,6 +37,6 @@ If the vault is absent or empty (a greenfield repo), recall is a **no-op** — n
 
 ## Composition
 
-- Retrieval is `vault.recall` / the `knowledge` skill; the vault is seeded by `repo-onboarding`.
+- Retrieval is `vault-recall` / the `knowledge` skill; the vault is seeded by `repo-onboarding`.
 - Used by the spine phase skills; it emits nothing of its own — it enriches the phase's existing
   output and handoff artifact.

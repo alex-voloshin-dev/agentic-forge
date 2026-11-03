@@ -149,7 +149,7 @@ def legacy_state_notice(cwd: Path | str) -> str:
     if resolved == legacy:  # state.in_repo is on — this is where it belongs
         return ""
     # The real path, not ${CLAUDE_PLUGIN_ROOT}: hooks get that variable, a shell usually does not.
-    command = f"python3 {shlex.quote(str(_MIGRATE_CLI))} --repo {shlex.quote(str(root))}"
+    command = f"python3 -E {shlex.quote(str(_MIGRATE_CLI))} --repo {shlex.quote(str(root))}"
     moving = [name for name in stale if name not in DROPPED_LEGACY_FILES]
     dropped = [name for name in stale if name in DROPPED_LEGACY_FILES]
     parts = ["agentic-forge:"]

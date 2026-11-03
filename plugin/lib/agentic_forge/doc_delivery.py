@@ -24,6 +24,7 @@ __all__ = [
     "worktree_dir",
     "add_worktree_argv",
     "remove_worktree_argv",
+    "stage_argv",
     "commit_argv",
     "commit_message",
     "push_argv",
@@ -42,7 +43,7 @@ SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 
 
 def _check(slug: str) -> str:
-    if not SLUG_RE.match(slug):
+    if not SLUG_RE.fullmatch(slug):
         raise ValueError(f"invalid feature slug {slug!r}: expected {SLUG_RE.pattern}")
     return slug
 
@@ -77,9 +78,13 @@ def commit_message(phase: str, slug: str) -> str:
     return f"docs({phase}): {slug}"
 
 
+def stage_argv(worktree: str, paths: list[str]) -> list[str]:
+    """argv staging the phase's artifact(s): a commit takes only what is staged."""
+    return ["git", "-C", worktree, "add", "--", *paths]
+
+
 def commit_argv(worktree: str, phase: str, slug: str) -> list[str]:
-    """argv committing the phase's artifacts. ``-A`` is scoped to the worktree, which contains only
-    this feature's documents."""
+    """argv committing what :func:`stage_argv` staged."""
     return ["git", "-C", worktree, "commit", "-m", commit_message(phase, slug)]
 
 
@@ -89,14 +94,17 @@ def push_argv(worktree: str, slug: str) -> list[str]:
     return ["git", "-C", worktree, "push", "-u", "origin", branch_name(slug)]
 
 
-def pr_create_argv(repo_slug: str, slug: str, title: str, body: str, *, draft: bool) -> list[str]:
-    """argv opening the feature's documentation PR.
+def pr_create_argv(
+    repo_slug: str, slug: str, title: str, body_file: str, *, draft: bool
+) -> list[str]:
+    """argv opening the feature's documentation PR. The body stays in a file, so no text of it is
+    on a command line a session will run.
 
     ``draft`` is how an escalated phase stops delivery **through an existing rail**: the merge gate
     already refuses a draft PR (ADR 0063), so no new blocking mechanism is introduced."""
     argv = [
         "gh", "pr", "create", "-R", repo_slug, "--head", branch_name(slug),
-        "--title", title, "--body", body,
+        "--title", title, "--body-file", body_file,
     ]
     if draft:
         argv.append("--draft")

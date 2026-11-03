@@ -26,7 +26,7 @@ Follow [multi-aspect-review.md](../../patterns/multi-aspect-review.md):
 
 1. **Scope** the change — `git diff` for the branch/PR, or the diff under review (when invoked
    by `develop`, the worktree diff is supplied to you) — and pick the aspects that apply. Detect
-   the stack (`stacks.primary`) so the lint aspect runs the right tools.
+   the stack (`python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" stack-detect --repo <repo>`) so the lint aspect runs the right tools.
 2. **Fan out** one reviewer per aspect (independent, structured findings —
    `severity`, `location`, `issue`, `suggestion`, `evidence`; see
    [patterns/fan-out-fan-in.md](../../patterns/fan-out-fan-in.md)):
@@ -51,10 +51,8 @@ Follow [multi-aspect-review.md](../../patterns/multi-aspect-review.md):
 4. **Synthesize one verdict.** Aggregate across aspects: **any `blocker`/`major` → `changes`**,
    else `approve`; dedupe, and on a severity conflict keep the highest.
 5. **Write the handoff.** Emit `review.md` (`type, target, iteration, verdict, findings[]` —
-   see [patterns/handoff.md](../../patterns/handoff.md)); validate it
-   (`handoff.validate_header(..., expected_type="review")`).
-   Then **read the file back** — `handoff.load_artifact(<path>, expected_type="review")` — and fix
-   whatever it raises: `validate_header` checks a dict, not the YAML you typed, so a single
+   see [patterns/handoff.md](../../patterns/handoff.md)); validate it by reading it back.
+   Then **read the file back** — `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type review` — and fix whatever it reports: this reads the file, so it sees the YAML you typed, and a single
    malformed value (a flow sequence with prose after it, an unquoted `:`) leaves an artifact the
    next phase cannot read (ADR 0096).
 6. **In the develop loop:** a `changes` verdict loops back to implementation (bounded — see

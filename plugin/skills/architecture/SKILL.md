@@ -30,9 +30,9 @@ task breakdown (`plan`), or implementation (`develop`).
 > no `gh`) still commits — on `docs/<slug>`, reported as not pushed / no PR — never a failed phase.
 
 1. **Read the inputs.** Load the `prd.md` handoff (`docs/sdlc/<feature-slug>/prd.md`) — use
-   `agentic_forge.handoff.load_artifact(..., expected_type="prd")` and **refuse to design from it unless `handoff.is_handoff_ready(header)`** — and study how the current
-   system is built so the design fits reality. **If `prd.md` is absent** (check `Path.exists()`
-   first — `load_artifact` raises on a missing file): design from the request + the repo instead,
+   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type prd` and **refuse to design from it unless its `ready` is true** — and study how the current
+   system is built so the design fits reality. **If `prd.md` is absent** (check that the file exists
+   first — `handoff-load` fails on a missing file): design from the request + the repo instead,
    record the goals you assumed and the fact that no PRD existed in the design's body, and
    proceed. Never stop to ask when running headless — there is no user to answer; ask only when
    interactive and the gap blocks the design.
@@ -49,10 +49,10 @@ task breakdown (`plan`), or implementation (`develop`).
    decision (Context, Decision, Alternatives considered, Consequences), under
    `docs/sdlc/<feature-slug>/`.
 5. **Validate the handoff.** Confirm `tech-design.md` validates against its schema
-   (`handoff.validate_header(..., expected_type="tech-design")`), every PRD goal traces to a
+   (the read-back below), every PRD goal traces to a
    component or an explicit decision, and each ADR records a genuinely rejected alternative.
-   Then **read the file back** — `handoff.load_artifact(<path>, expected_type="tech-design")` — and
-   fix whatever it raises: `validate_header` checks a dict, not the YAML you typed, so a single
+   Then **read the file back** — `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type tech-design` — and
+   fix whatever it reports: this reads the file, so it sees the YAML you typed, and a single
    malformed value (a flow sequence with prose after it, an unquoted `:`) leaves an artifact the
    next phase cannot read (ADR 0096).
 6. **Skeptic pass (bounded).** Before handing off, fork a fresh `reviewer` (via `Task`) to attack
@@ -61,14 +61,13 @@ task breakdown (`plan`), or implementation (`develop`).
    component boundaries / failure modes **sound** — then revise worst-first. For a large or
    high-stakes design, fan the lenses out (`deep-review`) instead of a single pass. **External
    reviewer lens (on by default, ADR 0057/0060):** when `external_reviewer.enabled` (settings), also
-   run the external reviewer over `tech-design.md` — call `external_review.review(design_text,
-   "technical", command=<cfg>)` from `${CLAUDE_PLUGIN_ROOT}/lib` (repo-side equivalent:
-   `${CLAUDE_PLUGIN_ROOT}/bin/external_review.py --target docs/sdlc/<feature-slug>/tech-design.md --kind technical`);
+   run the external reviewer over `tech-design.md` —
+   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/external_review.py" --target <worktree>/docs/sdlc/<feature-slug>/tech-design.md --repo <worktree> --kind technical`;
    codex critiques the design as an independent-model lens (soundness, rejected alternatives, risks)
    and its `findings` fold into the same worst-first revision. It **degrades gracefully** (absent/
    disabled codex is skipped, not a failure) and its findings are **advisory** (prompt-injectable) —
    verify before acting. **Persist each round** — one `review-<artifact>-<iteration>.md` per round under `docs/sdlc/<feature-slug>/`, aggregating **both** lenses; on `proceed` keep only the final round, on `escalate` keep them all (naming + lifecycle: [review-loop.md](../../patterns/review-loop.md)). **Exit criterion (the shared, tested rule):** each round, compute
-   `handoff.review_loop_decision(verdict, iteration, cap=3, gate_green=<step 5 passes>)` (see
+   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" review-decision --verdict <verdict> --iteration <n> --gate-green <yes if step 5 passes, else no>` (see
    [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
    [review-loop.md](../../patterns/review-loop.md)) — `revise` (loop back and fix worst-first),
    `escalate` (still `changes` at N = 3 → **commit nothing; mark the feature PR a draft** (the merge gate already refuses a draft), set the artifact's `status` to `in-review`, surface the unresolved gaps and stop; the status is what makes "don't hand off" enforceable — the file is already on disk), or
@@ -85,7 +84,7 @@ surfaces them and stops; it does **not** hand off an unsound design.
 
 ## Definition of done
 
-- The skeptic loop exited on `proceed` (`review_loop_decision`): `approve` **and** the step-5
+- The skeptic loop exited on `proceed` (`review-decision`): `approve` **and** the step-5
   validation green — not `escalate`.
 - `tech-design.md` validates against the `tech-design` handoff schema (decisions, components,
   risks present).

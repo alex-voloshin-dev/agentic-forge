@@ -47,9 +47,9 @@ art, market/competitors, user needs, technical feasibility. Not for deciding req
    sources[]`; body = findings, conclusions, recommendations; **valid YAML — quote any value
    containing a colon**, which a source URL always has, or the whole artifact fails to parse for
    `product`) under `docs/sdlc/<feature-slug>/`;
-   validate it (`handoff.validate_header(..., expected_type="research-brief")`).
-   Then **read the file back** — `handoff.load_artifact(<path>, expected_type="research-brief")` —
-   and fix whatever it raises: `validate_header` checks a dict, not the YAML you typed, so a single
+   validate it by reading it back.
+   Then **read the file back** — `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type research-brief` —
+   and fix whatever it reports: this reads the file, so it sees the YAML you typed, and a single
    malformed value (a flow sequence with prose after it, an unquoted `:`) leaves an artifact the
    next phase cannot read (ADR 0096).
 7. **Skeptic pass (bounded).** Step 4 is your *own* verification; this is an **independent** one.
@@ -58,15 +58,13 @@ art, market/competitors, user needs, technical feasibility. Not for deciding req
    reconciled** rather than averaged away, and the recommendation actually **following from the
    findings** (not from the question's framing) — then revise worst-first. **External reviewer lens
    (on by default, ADR 0057/0061):** when `external_reviewer.enabled` (settings), also run the
-   external reviewer over `research-brief.md` — call `external_review.review(brief_text,
-   "research", command=<cfg>)` from `${CLAUDE_PLUGIN_ROOT}/lib` (repo-side equivalent:
-   `${CLAUDE_PLUGIN_ROOT}/bin/external_review.py --target docs/sdlc/<feature-slug>/research-brief.md --kind research`);
+   external reviewer over `research-brief.md` —
+   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/external_review.py" --target <worktree>/docs/sdlc/<feature-slug>/research-brief.md --repo <worktree> --kind research`;
    codex critiques the brief as an independent-model lens (citation support, reconciled
    disagreements, a recommendation that follows) and its `findings` fold into the same worst-first
    revision. It **degrades gracefully** (absent/disabled codex is skipped, not a failure) and its
    findings are **advisory** (prompt-injectable) — verify before acting. **Persist each round** — one `review-<artifact>-<iteration>.md` per round under `docs/sdlc/<feature-slug>/`, aggregating **both** lenses; on `proceed` keep only the final round, on `escalate` keep them all (naming + lifecycle: [review-loop.md](../../patterns/review-loop.md)). **Exit criterion (the
-   shared, tested rule):** each round, compute `handoff.review_loop_decision(verdict, iteration,
-   cap=3, gate_green=<research-brief.md validates>)` (see
+   shared, tested rule):** each round, compute `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" review-decision --verdict <verdict> --iteration <n> --gate-green <yes if research-brief.md validates, else no>` (see
    [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
    [review-loop.md](../../patterns/review-loop.md)) — `revise` (loop back and fix worst-first),
    `escalate` (still `changes` at N = 3 → **commit nothing; mark the feature PR a draft** (the merge gate already refuses a draft), set the artifact's `status` to `in-review`, surface the unresolved gaps and stop; the status is what makes "don't hand off" enforceable — the file is already on disk), or
@@ -83,7 +81,7 @@ recommendation — that survived the bounded skeptic loop to `proceed`, ready as
 
 ## Definition of done
 
-- The skeptic loop exited on `proceed` (`review_loop_decision`): `approve` **and**
+- The skeptic loop exited on `proceed` (`review-decision`): `approve` **and**
   `research-brief.md` validates — not `escalate`.
 - `research-brief.md` validates against the research-brief handoff schema (sources listed).
 - Findings are synthesized across the tracks (not concatenated) and load-bearing claims are

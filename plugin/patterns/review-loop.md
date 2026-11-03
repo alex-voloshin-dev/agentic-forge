@@ -1,5 +1,7 @@
 # Pattern: bounded review loop
 
+`${CLAUDE_PLUGIN_ROOT}` below is the plugin's directory, the one holding `skills/` and `patterns/`, and is not normally set in a shell: if this file reached you unexpanded, use the path your skill's own commands show.
+
 A writer produces work; the `reviewer` critiques it; the writer revises. Repeat until the
 reviewer approves or a budget is exhausted. The loop is **bounded** so it always terminates,
 and it **exits early** on approval so it does not waste iterations.
@@ -60,20 +62,24 @@ Three rules, because getting any of them wrong litters the user's repository:
 ## Convergence and exit
 
 The exit criterion is one **pure, tested function** so every orchestrator decides identically:
-`handoff.review_loop_decision(verdict, iteration, cap=handoff.REVIEW_LOOP_BUDGET, gate_green=…)` →
-`proceed` | `revise` | `escalate` (and `handoff.blocks_approve(findings)` is the severity half — a
-`blocker`/`major` must force `changes`). `gate_green` is the workflow's downstream gate: QA green for
+`python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" review-decision --verdict <verdict> --iteration <n> --gate-green <yes, no or unknown>` →
+`proceed` | `revise` | `escalate` (and `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" review-blocks --findings-json <file>` is the severity half — a
+`blocker`/`major` must force `changes`). `unknown` is a gate that could not be run (`handoff-load` exited 3) and always escalates. The gate is the workflow's downstream gate: QA green for
 `develop`; the artifact validating for `product`, `research`, `ux-design` and `architecture` (goals
-trace, ADRs weigh real alternatives), and for `plan` also `planning.plan_batches` resolving — no
+trace, ADRs weigh real alternatives), and for `plan` also `plan-batches` resolving — no
 cycle. It is not always a schema check: `marketing`'s gate is schema validation for a typed handoff
 but, for its untyped deliverables (content, offer doc, audit report), the evidence discipline itself
 — so there the loop reduces to exit-on-`approve` / `escalate` at N (ADR 0062).
 
 - **Approve → `proceed`** is the success signal (and the loop's *only* exit that hands off) — but
-  only when `gate_green`. The reviewer returns `approve` only when no `blocker` or `major` findings
+  only when the gate is `yes`. The reviewer returns `approve` only when no `blocker` or `major` findings
   remain; `minor`/`nit` findings may be left as follow-ups. `approve` with the gate not yet green
-  (e.g. QA surfaced a defect) is `revise`, not an exit.
-- **Budget exhausted → `escalate`** (still `changes` after N): do **not** silently ship. Escalate =
+  (e.g. QA surfaced a defect) is `revise`, not an exit, until the budget runs out.
+- **On `proceed`, set the artifact's `status` to `approved` and run `handoff-load` again before
+  staging it.** Its `status` may still say `draft`, which `ready` refuses, so the next phase would
+  reject the artifact this loop just passed.
+- **Budget exhausted → `escalate`** (still `changes` after N, or a gate still red after N): do **not**
+  silently ship. Escalate =
   persist the final `review.md` (verdict `changes`) and return it to the orchestrating skill,
   which surfaces the unresolved findings to the user and stops — it never auto-merges.
 - Address findings worst-first (blocker → major → minor → nit). A revision that only fixes

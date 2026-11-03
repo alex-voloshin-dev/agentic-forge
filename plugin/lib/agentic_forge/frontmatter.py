@@ -31,8 +31,17 @@ def parse(text: str) -> tuple[dict[str, Any], str]:
     except ImportError as exc:
         raise FrontmatterError("PyYAML is not installed; cannot parse frontmatter") from exc
 
+    class _NoAliases(yaml.SafeLoader):
+        """Refuses a YAML alias. Frontmatter has no need of one, and a few lines of them expand to
+        more than memory holds (ADR 0104)."""
+
+        def compose_node(self, parent: Any, index: Any) -> Any:
+            if self.check_event(yaml.events.AliasEvent):
+                raise yaml.YAMLError("an alias is not allowed in frontmatter")
+            return super().compose_node(parent, index)
+
     try:
-        data = yaml.safe_load(match.group(1))
+        data = yaml.load(match.group(1), Loader=_NoAliases)
     except yaml.YAMLError as exc:
         raise FrontmatterError(f"invalid YAML in frontmatter: {exc}") from exc
     # PyYAML raises others on some input: KeyError on a bad `!!bool`, ValueError on an impossible

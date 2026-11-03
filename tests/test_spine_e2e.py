@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from agentic_forge import spine_e2e, stacks
 from agentic_forge.spine_e2e import (
     PHASES,
@@ -324,7 +326,7 @@ def test_expected_release_version_from_real_git_history(tmp_path: Path) -> None:
 
 def test_commits_since_real_git_history(tmp_path: Path) -> None:
     # covers release.commits_since (pragma dropped): explicit tag range, tag=None auto-describe,
-    # and the non-git/error arm -> [].
+    # and the non-git/error arm, which raises: a failure is not "nothing to release" (ADR 0104).
     from agentic_forge import release
 
     repo = tmp_path / "repo"
@@ -339,7 +341,8 @@ def test_commits_since_real_git_history(tmp_path: Path) -> None:
     msgs = release.commits_since(repo, "v1.0.0")
     assert [m.splitlines()[0] for m in msgs] == ["fix: b", "feat: a"]  # newest first
     assert release.commits_since(repo) == msgs  # tag=None -> auto-describe to the latest tag
-    assert release.commits_since(tmp_path / "nope") == []  # non-git dir -> [] (except arm)
+    with pytest.raises(ValueError, match="git log exited"):
+        release.commits_since(tmp_path / "nope")
 
 
 def test_check_develop_rejects_comment_only_marker(tmp_path: Path) -> None:

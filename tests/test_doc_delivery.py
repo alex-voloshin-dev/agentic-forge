@@ -43,6 +43,7 @@ def test_pr_create_draft_flag() -> None:
     draft = dd.pr_create_argv("o/n", "x", "T", "B", draft=True)
     assert "--draft" not in plain and "--draft" in draft
     assert "--head" in plain and "docs/x" in plain
+    assert plain[plain.index("--body-file") + 1] == "B"  # a path: no text on the command line
 
 
 def test_escalate_uses_the_existing_draft_rail() -> None:

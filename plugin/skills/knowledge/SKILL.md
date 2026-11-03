@@ -8,29 +8,31 @@ allowed-tools: Read, Grep, Glob, Bash, Write, Edit
 
 Maintain and read the project's durable knowledge — the Obsidian vault at `docs/knowledge/`
 (atomic notes + `[[wikilinks]]` + maps-of-content). The deterministic vault operations are the
-**installed `agentic_forge.vault` module**; this skill adds the judgement: what's worth recalling,
+plugin's `bin/af.py`; this skill adds the judgement: what's worth recalling,
 what's worth capturing, and how to keep notes atomic and linked. (Mechanism: ADR 0018.)
 
 ## Vault operations (deterministic core)
 
-Invoke the helpers as an **installed module** — never look for a file by path:
+Run these exactly as written; each prints one JSON object. They need nothing installed.
 
 ```
-python -c "from agentic_forge import vault; print(vault.validate_vault('.'))"
+python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" vault-validate --repo .
+python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" vault-scaffold --repo .
+python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" vault-recall --repo . --query '<keywords, letters and digits only>'
+python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" vault-add-note --repo . --json - <<'NOTE'
+{"name": "<kebab-case-name>", "title": "<human title>", "body": "<markdown>",
+ "tags": ["tag-a", "tag-b"], "moc": "<themed-moc, or leave this key out for the root MOC>"}
+NOTE
 ```
 
-Use `vault.add_note(repo, name, title, body, tags=..., moc=...)` to write a note (it emits the
-canonical frontmatter and links it from a MOC) and `vault.validate_vault(repo)` to check the graph
-before finishing. If the module is genuinely unavailable and you must write a note by hand, its
-YAML frontmatter MUST be exactly these keys:
+`vault-add-note` writes the note with its canonical frontmatter and links it from a MOC; the same
+`name` replaces that note, and the result's `replaced` says so. `vault-validate` checks the graph
+before finishing. It exits 1 with the `problems`, and `exists` is false if there is no vault yet.
 
-```
----
-title: <human title>
-type: note        # "note" for an atomic note, "moc" for a map-of-content
-tags: [tag-a, tag-b]
----
-```
+**A refusal is the answer, not an obstacle.** If `vault-add-note` exits non-zero the note was NOT
+saved: report its error to the user as it stands. Do not write the note by hand, or anywhere else,
+to get round it. The vault's rules on where a note may go are in that command, so a note written
+any other way skips them. Change a note by running `vault-add-note` again, not with `Edit`.
 
 ## When to use
 
@@ -43,10 +45,10 @@ tags: [tag-a, tag-b]
 
 ## Recall
 
-1. Detect the vault — `vault.validate_vault(repo)`; if absent, **scaffold it**
-   (`vault.scaffold(repo)`) and say so — don't stop to offer, a headless run has no one to answer.
+1. Detect the vault — `vault-validate`; if `exists` is false, **scaffold it**
+   (`vault-scaffold`) and say so — don't stop to offer, a headless run has no one to answer.
    Recall on a fresh vault is then simply "nothing yet".
-2. `vault.recall(repo, query)` → ranked candidate notes; read the top few in full.
+2. `vault-recall` → ranked candidate notes, with each one's `path`; read the top few in full.
 3. Answer **grounded in those notes**, citing `[[note]]` links. If the vault has nothing on it,
    say so plainly — never invent knowledge.
 
@@ -58,18 +60,18 @@ tags: [tag-a, tag-b]
    carry — the decision context, the open question, who raised it and when — as a note tagged
    `needs-rationale`, so the next session can fill it in; ask for the rationale only when
    interactive.
-2. `vault.add_note(repo, name, title, body, tags=...)` — writes the note and links it from the
+2. `vault-add-note` — writes the note and links it from the
    root MOC. Use `[[wikilinks]]` in the body to connect related notes; add or extend a themed
-   MOC (`moc=...`) for a cluster.
+   MOC (`"moc"`) for a cluster.
 3. When a note records a decision that changes a **code, config or infrastructure artifact, name
    that artifact in the note** (the file, the manifest, the flag). A reader can then verify the
    decision actually shipped with one grep — a note is an intent, and intents go unimplemented.
-4. `vault.validate_vault(repo)` and fix any broken link or orphan before finishing.
+4. `vault-validate` and fix any broken link or orphan before finishing.
 
 ## Definition of done
 
 - Recall answers are grounded in real notes and cite `[[links]]`, or state the vault is silent.
 - A recalled note asserting a code/config fact was checked against that artifact before being acted
   on, and any disagreement was surfaced rather than resolved silently.
-- Captured notes are atomic, tagged, wikilinked, and reachable from a MOC; `validate_vault` is
+- Captured notes are atomic, tagged, wikilinked, and reachable from a MOC; `vault-validate` is
   clean — no broken links, no orphans.

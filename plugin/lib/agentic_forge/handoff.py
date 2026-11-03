@@ -395,9 +395,9 @@ def review_loop_decision(
     - ``proceed`` — the success exit: ``approve`` **and** ``gate_green``. The loop is done and the
       artifact is complete (for ``develop`` ``gate_green`` = suite green + QA passed; for
       ``product`` = the PRD validates). This is the only path that lets the workflow hand off.
-    - ``revise`` — loop back to the writer: still ``changes`` while ``iteration < cap``, **or**
+    - ``revise`` — loop back to the writer, while ``iteration < cap``: still ``changes``, **or**
       ``approve`` but a downstream gate is not yet green (e.g. QA surfaced a defect).
-    - ``escalate`` — the budget-exhausted exit: still ``changes`` at ``iteration >= cap``. Surface
+    - ``escalate`` — the budget-exhausted exit: either of those at ``iteration >= cap``. Surface
       the unresolved findings and stop; never auto-ship (review-loop.md / ADR 0040).
 
     Pure; ``iteration`` is 1-based. An unknown ``verdict`` is treated as ``changes`` (never a silent
@@ -405,9 +405,8 @@ def review_loop_decision(
     approved = str(verdict).strip().lower() == "approve"
     if approved and gate_green:
         return "proceed"
-    if approved:  # approved on the review, but a downstream gate (QA/schema) is not yet green
-        return "revise"
-    # verdict is `changes` (or unknown → treated as changes): loop while budget remains, else stop
+    # `changes` (or unknown → treated as changes), or approved with a downstream gate (QA/schema)
+    # not yet green: loop while budget remains, else stop. A red gate must not revise for ever.
     return "revise" if iteration < cap else "escalate"
 
 

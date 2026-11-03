@@ -25,7 +25,7 @@ and not for the plugin's own SDLC work.
 2. Run the shipped packager from the repo you want to bundle (default: current directory):
 
    ```bash
-   python3 "${CLAUDE_PLUGIN_ROOT}/skills/diagnostics-bundle/scripts/build_bundle.py" --days 7
+   python3 -E "${CLAUDE_PLUGIN_ROOT}/skills/diagnostics-bundle/scripts/build_bundle.py" --days 7
    ```
 
    Add `--repo /path/to/repo` to bundle a different repo. It writes strictly to

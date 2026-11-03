@@ -130,20 +130,10 @@ def _read_permission(  # pragma: no cover -- real `gh api`
 def _author_checker(
     repo: Path, slug: str, trusted_reviewers: tuple[str, ...]
 ) -> Callable[[pr_watch.ReviewThread], bool]:
-    """Whether a thread's author may reach the fixer: :func:`pr_watch.thread_trusted` as the cheap
-    first filter, then, for a person, their permission on the repo, asked once a pass per login."""
-    asked: dict[str, bool] = {}
-
-    def check(thread: pr_watch.ReviewThread) -> bool:
-        if not pr_watch.thread_trusted(thread, trusted_reviewers):
-            return False
-        if thread.author_type == "Bot":
-            return True
-        if thread.author not in asked:
-            asked[thread.author] = _read_permission(repo, slug, thread.author)
-        return asked[thread.author]
-
-    return check
+    """:func:`pr_watch.author_checker`, asking GitHub. One checker per pass."""
+    return pr_watch.author_checker(
+        lambda login: _read_permission(repo, slug, login), trusted_reviewers
+    )
 
 
 def _merger(  # pragma: no cover

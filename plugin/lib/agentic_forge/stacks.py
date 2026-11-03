@@ -198,12 +198,12 @@ _ALIASES: dict[str, str] = {
 }
 
 # Match a `stack:` / `stack =` declaration at the start of a line (allowing markdown bullet /
-# blockquote / bold markers and indentation). The separators around the delimiter are
-# line-local (`[ \t*]`, not `\s`) so a bare `stack:` never bridges a newline to grab the next
-# line's token as the value.
+# blockquote / bold markers and indentation). Matched one line at a time, because `\s` across
+# lines made a file of newlines quadratic, and the commit gate reaches this (ADR 0104).
 _HINT_RE = re.compile(
-    r"(?im)^[\s\-*>]*stack[ \t*]*[:=][ \t*]*[\"'`]?([A-Za-z0-9.#+]+)"
+    r"(?i)[ \t\-*>]*stack[ \t*]*[:=][ \t*]*[\"'`]?([A-Za-z0-9.#+]+)"
 )
+_HINT_MAX_BYTES = 256 * 1024  # a hint is near the top of a file a person wrote
 
 
 def _normalize_hint(raw: str) -> str | None:
@@ -220,7 +220,9 @@ def _read_hint(repo: Path) -> str | None:
         path = repo / name
         if not path.is_file():
             continue
-        match = _HINT_RE.search(path.read_text(encoding="utf-8", errors="ignore"))
+        with path.open("rb") as handle:
+            head = handle.read(_HINT_MAX_BYTES).decode("utf-8", errors="ignore")
+        match = next(filter(None, map(_HINT_RE.match, head.splitlines())), None)
         if match:
             canonical = _normalize_hint(match.group(1))
             if canonical:

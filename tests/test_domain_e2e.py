@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 from agentic_forge import release, vault
@@ -246,6 +247,11 @@ class TaskStore:
 '''
 
 
+def _tags(repo: Path) -> list[str]:
+    done = subprocess.run(["git", "-C", str(repo), "tag"], capture_output=True, text=True)
+    return done.stdout.split()
+
+
 def _sdlc_dir(user: str, repo: Path) -> Path:
     m = re.search(r"docs/sdlc/([\w-]+)/", user)
     assert m, f"no sdlc slug in prompt: {user[:80]}"
@@ -266,7 +272,9 @@ def _good_phase(system: str, user: str, repo: Path) -> str:
         (_sdlc_dir(user, repo) / "review.md").write_text(REVIEW_MD, encoding="utf-8")
     elif "type: release" in user:
         sdlc = _sdlc_dir(user, repo)
-        msgs = release.commits_since(repo, "v1.0.0")
+        # An untagged scenario has no release range, and asking for one now raises (ADR 0104).
+        tagged = "v1.0.0" in _tags(repo)
+        msgs = release.commits_since(repo, "v1.0.0") if tagged else []
         version = release.summarize("1.0.0", msgs).version if msgs else "1.0.1"
         body = (
             "---\ntype: release\nfeature: task-priorities\nstatus: draft\n"

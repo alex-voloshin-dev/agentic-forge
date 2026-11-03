@@ -14,7 +14,7 @@
         "Identifies the real components from the code: the HTTP API (app.py) and the background worker (worker.py)",
         "Names a real entry point (e.g. app.py / running `python app.py`)",
         "Flags a real risk grounded in the code (the worker has no retry/backoff — a failed job is lost)",
-        "Seeds the knowledge vault with notes that validate clean (validate_vault: linked, no orphans)",
+        "Seeds the knowledge vault with notes that validate clean (vault-validate: linked, no orphans)",
         "Produces a valid onboarding artifact (type onboarding, non-empty components); nothing fabricated beyond the code"
       ]
     },

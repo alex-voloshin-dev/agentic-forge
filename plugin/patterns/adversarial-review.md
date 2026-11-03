@@ -1,5 +1,7 @@
 # Pattern: adversarial fan-out review
 
+`${CLAUDE_PLUGIN_ROOT}` below is the plugin's directory, the one holding `skills/` and `patterns/`, and is not normally set in a shell: if this file reached you unexpanded, use the path your skill's own commands show.
+
 *(ADR 0027.)*
 
 A high-fidelity review that resists the blind spots of a single pass (especially an author's
@@ -70,10 +72,13 @@ opinion. For a quick single-file diff lint, a single `reviewer` pass is enough â
   `develop` (`--kind code`), `product` (`--kind product`), `architecture` (`--kind technical`) and
   `plan` (`--kind plan`) since ADR 0060, `research` (`--kind research`) and `ux-design` (`--kind ux`)
   since ADR 0061, and `marketing` (`--kind marketing`) since ADR 0062. Run it via
-  `${CLAUDE_PLUGIN_ROOT}/bin/external_review.py` (`--kind code|marketing|plan|product|research|technical|ux`, `--out
+  `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/external_review.py"` (`--target <file>`, `--kind code|marketing|plan|product|research|technical|ux`, `--out
   review.md`); pick the kind that matches the deliverable â€” an unknown one falls back to the **code**
   criteria, which is wrong for a brief, spec, or design. It degrades
-  gracefully when absent; any skip (`review()` returns `None`, the CLI prints the reason, ADR 0100)
-  means no external verdict was reached, never an approval. It runs **read-only**; it sends the target to a third-party agent, so
+  gracefully when absent; any skip (the CLI prints the reason, ADR 0100)
+  means no external verdict was reached, never an approval. **Exit 1 is not a crash:** it is a
+  `changes` verdict, with the findings on stdout to fold in, or a skip, with no `verdict:` line and
+  the reason on stderr. Exit 0 is an approval, or a reviewer disabled or absent, which the output
+  says. It runs **read-only**; it sends the target to a third-party agent, so
   **set `external_reviewer.enabled: false` on secret-bearing repos**, and treat its findings as
   advisory (prompt-injectable).

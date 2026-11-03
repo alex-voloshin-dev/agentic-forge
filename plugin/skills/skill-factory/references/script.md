@@ -7,7 +7,13 @@ Scripts give skills deterministic, testable capability. No shell scripts — Pyt
 - **Shared / cross-cutting** logic -> `plugin/lib/agentic_forge/<module>.py`, imported by
   skills, hooks, and other scripts.
 - **Skill-specific** executable -> `plugin/skills/<skill>/scripts/<name>.py`, invoked from
-  the skill via `python ${CLAUDE_SKILL_DIR}/scripts/<name>.py ...`.
+  the skill via `python3 -E "${CLAUDE_SKILL_DIR}/scripts/<name>.py" ...`. `-E` keeps `PYTHONPATH`, which
+  a project's settings can set, out of the interpreter; Tier-0 fails without it.
+
+A skill body never tells a model to run inline Python: that form takes the working directory's
+modules before the standard library's, so a checkout could run code as the user (ADR 0104). What a
+skill needs from the library is a narrow command in `plugin/bin/af.py` or a script here, and
+Tier-0 fails on the inline form.
 
 A skill-specific script may import from `agentic_forge` by adding `plugin/lib` to
 `sys.path` (as `dev/validate.py` does) or via the installed package.

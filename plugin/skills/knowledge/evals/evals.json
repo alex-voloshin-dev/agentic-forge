@@ -4,7 +4,7 @@
     {
       "id": 1,
       "prompt": "Capture this decision in the project knowledge base: we chose an ordered priority enum (low/normal/high) over free-text labels because it sorts deterministically and prevents typos.",
-      "expected_output": "An atomic note written under docs/knowledge/ with frontmatter (title, type: note, tags) capturing the decision AND its rationale, linked from a MOC via a [[wikilink]], leaving validate_vault clean.",
+      "expected_output": "An atomic note written under docs/knowledge/ with frontmatter (title, type: note, tags) capturing the decision AND its rationale, linked from a MOC via a [[wikilink]], leaving the vault validating clean (vault-validate).",
       "files": [],
       "assertions": [
         "A new atomic note is created under docs/knowledge/ with YAML frontmatter (title, type, tags)",
@@ -17,13 +17,13 @@
     {
       "id": 2,
       "prompt": "Capture two related learnings in the knowledge base: (a) our test suite must stay deterministic (no real clock/network), and (b) we fake timers in unit tests. Keep them well-organized.",
-      "expected_output": "Two atomic notes (one idea each) under docs/knowledge/, connected to each other or a shared themed MOC via [[wikilinks]], each with frontmatter; validate_vault clean.",
+      "expected_output": "Two atomic notes (one idea each) under docs/knowledge/, connected to each other or a shared themed MOC via [[wikilinks]], each with frontmatter; the vault validates clean (vault-validate).",
       "files": [],
       "assertions": [
         "Two separate atomic notes are created (one idea per note, not one combined note)",
         "The notes are connected to each other or a shared themed MOC via [[wikilinks]]",
         "Each note has frontmatter (title, type, tags) and is reachable from a MOC",
-        "validate_vault reports no broken links and no orphans"
+        "vault-validate reports no broken links and no orphans"
       ]
     },
     {

@@ -31,8 +31,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]  # plugin/ — this ships to users
 sys.path.insert(0, str(_PLUGIN_ROOT / "lib"))
 
@@ -51,6 +49,8 @@ def _render(result: dict[str, Any]) -> str:
 
 
 def _write_review_md(path: Path, target: str, result: dict[str, Any], iteration: int) -> None:
+    import yaml  # here, not at the top: only --out needs it, and a plugin-only install may lack it
+
     header = {
         "type": "review",
         "target": target,
@@ -196,6 +196,9 @@ def main(argv: list[str]) -> int:
             _write_review_md(args.out, str(args.target), result, args.iteration)
         except OSError as exc:  # includes a symlink put there while the review ran
             print(f"could not write {args.out}: {exc}", file=sys.stderr)
+            return 1
+        except ImportError:
+            print(f"could not write {args.out}: PyYAML is not installed", file=sys.stderr)
             return 1
         print(f"wrote {args.out}")
     return 0 if result["verdict"] == "approve" else 1

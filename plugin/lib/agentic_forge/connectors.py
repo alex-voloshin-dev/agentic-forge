@@ -51,13 +51,14 @@ __all__ = [
     "alert_source",
 ]
 
-# A completed run's ``conclusion`` -> Deploy.status. Only success and the failure family are
-# decisive for rollout health; other conclusions (cancelled/skipped/neutral) are *not* failures.
+# A completed run's ``conclusion`` -> Deploy.status. Success and the failure family are decisive for
+# rollout health. A cancelled run is neither (ADR 0104), and skipped/neutral are *not* failures.
 _CONCLUSION: dict[str, str] = {
     "success": "passing",
     "failure": "failing",
     "timed_out": "failing",
     "startup_failure": "failing",
+    "cancelled": "cancelled",
 }
 # An in-flight run's ``status`` -> Deploy.status.
 _INFLIGHT: dict[str, str] = {
@@ -104,6 +105,7 @@ def _deploys_from(runs: list[Any], environment: str) -> list[Deploy]:
                 status=_run_status(run),
                 environment=environment,
                 at=str(run.get("createdAt") or ""),
+                workflow=str(run.get("workflowName") or ""),
             )
         )
     return out

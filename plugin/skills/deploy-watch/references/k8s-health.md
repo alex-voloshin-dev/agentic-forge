@@ -23,7 +23,7 @@ state that is not there.
 
 ## Map observations → the health verdict
 
-Same three-level verdict as `ops.rollout_health` (failing > degraded > healthy); pick the WORST
+Same three-level verdict as `deploy-status` (failing > degraded > healthy); pick the WORST
 level any observation reaches:
 
 | Observation | Level |
