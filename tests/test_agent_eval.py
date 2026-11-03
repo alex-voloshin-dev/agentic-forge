@@ -24,6 +24,7 @@ from agentic_forge.agent_eval import (
     load_fixtures,
     materialize_fixtures,
     parse_grading,
+    permission_denials,
     run_eval_cases,
     run_role,
     session_outcome,
@@ -94,6 +95,7 @@ def test_claude_cli_runner_argv_and_parse(monkeypatch: pytest.MonkeyPatch) -> No
     assert "--allowedTools" in cmd and "Read,Grep" in cmd
     # the operator's user-level settings/CLAUDE.md must NOT reach a graded run (ADR 0077)
     assert cmd[cmd.index("--setting-sources") + 1] == "project"
+    assert "--strict-mcp-config" not in cmd  # an eval's project is the thing under test
     assert "--model" in cmd and "claude-x" in cmd
     assert "--max-turns" in cmd and "7" in cmd
     assert captured["kw"]["cwd"] == "/tmp" and captured["kw"]["timeout"] == 900
@@ -1024,3 +1026,81 @@ def test_the_first_failing_case_is_kept_in_its_own_words() -> None:
     ok, _, _ = _eval(lambda s, p, w: "GOOD")  # nothing failed: nothing kept
     assert ok["run_summary"]["with_skill"]["sessions"]["failed_sample"] is None
 
+
+def test_claude_cli_runner_can_refuse_a_trees_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """For a tree that is not trusted, as `pr_watch._fixer` asks (ADR 0103)."""
+    import subprocess
+
+    captured: dict = {}
+
+    class _Done:
+        stdout = '{"result": "ok"}'
+
+    def fake_run(cmd: list[str], **_kw: object) -> _Done:
+        captured["cmd"] = cmd
+        return _Done()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    claude_cli_runner(setting_sources="user", strict_mcp_config=True)("S", "P", Path("."))
+    cmd = captured["cmd"]
+    assert cmd[cmd.index("--setting-sources") + 1] == "user" and "--strict-mcp-config" in cmd
+
+
+def test_claude_cli_runner_builds_a_confined_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    captured: dict = {}
+
+    class _Done:
+        stdout = '{"result": "ok"}'
+
+    def fake_run(cmd: list[str], **_kw: object) -> _Done:
+        captured["cmd"] = cmd
+        return _Done()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    claude_cli_runner(
+        allowed_tools=None, tools="Read,Edit", permission_mode="acceptEdits", setting_sources="",
+        session_persistence=False, settings='{"a": 1}',
+    )("S", "P", Path("."))
+    cmd = captured["cmd"]
+    assert cmd[cmd.index("--setting-sources") + 1] == ""
+    assert cmd[cmd.index("--tools") + 1] == "Read,Edit" and "--allowedTools" not in cmd
+    assert cmd[cmd.index("--permission-mode") + 1] == "acceptEdits"
+    assert "--no-session-persistence" in cmd
+    assert cmd[cmd.index("--settings") + 1] == '{"a": 1}'
+
+    claude_cli_runner()("S", "P", Path("."))  # an eval's session has none of them
+    cmd = captured["cmd"]
+    assert not {"--tools", "--permission-mode", "--no-session-persistence", "--settings"} & set(cmd)
+
+
+@pytest.mark.parametrize(
+    ("stdout", "denied"),
+    [
+        ('{"result": "x", "permission_denials": [{"tool_name": "Read"}, {}]}', 2),
+        ('{"result": "x", "permission_denials": []}', 0),
+        ('{"result": "x"}', 0),
+        ('{"permission_denials": "many"}', 0),
+        ("[]", 0),
+        ("not json", 0),
+    ],
+)
+def test_permission_denials(stdout: str, denied: int) -> None:
+    assert permission_denials(stdout) == denied
+
+
+def test_claude_cli_runner_treats_a_denial_as_undetermined_only_when_asked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import subprocess
+
+    class _Done:
+        stdout = '{"result": "No change made", "permission_denials": [{"tool_name": "Read"}]}'
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _Done())
+    assert claude_cli_runner()("S", "P", Path(".")) == "No change made"
+    with pytest.raises(SessionUndetermined) as raised:
+        claude_cli_runner(denials_undetermined=True)("S", "P", Path("."))
+    assert raised.value.subtype == "permission_denied"
+    assert "Read" not in str(raised.value)  # how many, never what it asked for

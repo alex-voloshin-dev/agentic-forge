@@ -10,11 +10,12 @@ The plugin reads optional JSON config from two places, both validated against
 The two files deep-merge, so a repo overrides only the keys it sets and inherits the rest. The reviewer
 keys are the exception, for security: `external_reviewer.command`, `isolated`, `model` and `effort` are
 **user-level only**, and a repo cannot turn on a user-level `external_reviewer.enabled: false`.
-`state.in_repo` and `knowledge.allow_external_vault` are **user-level only** as well (ADR 0102). All keys
+`state.in_repo` and `knowledge.allow_external_vault` are **user-level only** as well (ADR 0102), and so is
+all of `pr_watcher`, except that a repo can switch off `enabled`, `auto_merge` and `auto_watch` (ADR 0103). All keys
 are optional. A ready, schema-valid example with **every** key ships at
 [`plugin/config.example.json`](../plugin/config.example.json) — copy it to either location and trim. In a
-repo, those four reviewer keys, `state.in_repo` and `knowledge.allow_external_vault` do nothing, so trim them
-there.
+repo, those four reviewer keys, `state.in_repo`, `knowledge.allow_external_vault` and `pr_watcher` do nothing
+(but for switching off `enabled`, `auto_merge` or `auto_watch`), so trim them there.
 
 > These files are committed / home-local — **never** put secrets (API keys, tokens) in them. Use the
 > env vars for secrets and one-off overrides.
@@ -42,15 +43,67 @@ there.
 | `external_reviewer.model` | string \| null | `null` | Passed as `--model`, isolated or not, only when set. Null leaves the choice to the CLI. **With `isolated` your configured model is not loaded, so set it here if you relied on it.** **User-level only**, like `isolated`: a repo must not choose the model that reviews it. |
 | `external_reviewer.effort` | string \| null | `null` | Passed as `-c model_reasoning_effort="<value>"`, isolated or not, only when set. Whether codex honours this key has **not been verified** against a real run; it does not appear in `codex exec --help`. The same applies: with `isolated`, your configured effort is not loaded. **User-level only**, like `isolated`. |
 | `models` | object | `{}` | Per-role / skill / `router` model tiers (ADR 0043) — each value is a tier (`default` / `simple` / `cheap`) or a model id. **Affects the eval/dev CLIs only** (`dev/run_*_evals.py`, `plugin/bin/pr_watch.py`, `dev/ralph.py`) — live-session role routing is the gate-validated agent frontmatter (ADR 0046), which this key does not change. Empty = the runner's default model everywhere. See the [eval runbook](eval-runbook.md). |
-| `pr_watcher.enabled` | bool | `false` | Enable the PR watcher's outward GitHub writes (ADR 0044/0045). |
-| `pr_watcher.bot` | string | `"github-actions[bot]"` | The bot login whose review threads the watcher skips. |
+| `pr_watcher.enabled` | bool | `false` | Enable the PR watcher's outward GitHub writes (ADR 0044/0045). **User-level only: set it in `~/.agentic-forge/config.json`.** A repo file can only turn it off, with `false`, which wins over your `true` and is reported. See [the PR watcher and the checkout](#the-pr-watcher-and-the-checkout). |
+| `pr_watcher.bot` | string | `"github-actions[bot]"` | The bot login whose review threads the watcher skips. **User-level only**, as is every key below in this section, except that a repo can set `auto_merge` or `auto_watch` to `false`. |
 | `pr_watcher.max_threads` | int ≥ 1 | `10` | Max review threads handled per run. |
-| `pr_watcher.repos` | string[] | `[]` | `owner/name` repos the scheduled hourly job watches. |
-| `pr_watcher.auto_merge` | bool | `false` | Let the watcher **merge** a PR once the merge gate opens (ADR 0063). Off by default — merging is irreversible and outward-facing; turn it on per repo. |
+| `pr_watcher.trusted_reviewers` | string[] | `[]` | Logins of reviewer apps whose review threads may reach the fixer, such as `chatgpt-codex-connector` or `copilot-pull-request-reviewer`. An entry counts only for an author of type Bot (ADR 0103). |
+| `pr_watcher.repos` | string[] | `[]` | `owner/name` repos the scheduled hourly job watches, every open same-repo PR in each. Also what lets a queued PR through when it names a repo other than the checkout's `origin` (ADR 0103). |
+| `pr_watcher.auto_merge` | bool \| string[] | `false` | Let the watcher **merge** a PR once the merge gate opens (ADR 0063). Off by default — merging is irreversible and outward-facing. To turn it on per repo, list them: `["owner/name"]` merges only there and watches without merging elsewhere (ADR 0103). `true` is every repo your scheduler runs on. |
 | `pr_watcher.merge_method` | `rebase`\|`squash`\|`merge` | `"rebase"` | How `auto_merge` merges. Reaches argv as `--<method>`, so it is an enum here **and** clamped in the library. |
 | `pr_watcher.auto_watch` | bool | `true` | Let the PR-created hook **enqueue** a new PR for the scheduled watch (ADR 0068/0069). On by default — but it requires `enabled` as well, so with the watcher off the queue file is never created and the plugin writes nothing into your repo. Merging still needs `auto_merge` (off). **A 10-minute tick needs a 10-minute external clock** (`*/10 * * * * python plugin/bin/run_scheduled.py`): the plugin has no daemon. |
 | `pr_watcher.max_ticks` | int ≥ 1 | `144` | How many drains one queued PR may consume before it is dropped (24 h at the 10-minute cadence). Nothing is watched forever. |
 | `pr_watcher.poll_seconds` | int ≥ 60 | `600` | Autonomous re-check cadence (10 min). **Also the window an external PR reviewer gets:** a freshly opened PR has `PENDING` checks, so the gate can't open before the first post-CI poll — shortening this shortens that window. Don't substitute the build duration for it (a static gate can finish in seconds). |
+
+### The PR watcher and the checkout
+
+The scheduled watcher pushes and merges with your `gh` credentials, and the repository is what it is watching, so
+the repository does not get a say in what it does (ADR 0103).
+
+- **Settings.** A repo file's `pr_watcher` is removed before the merge. A value that differs from the one in effect
+  gets a warning naming the key and not the value, shown once per session. Only `enabled`, `auto_merge` or `auto_watch` set to `false`
+  is kept, each overriding your setting with a warning. That is what the clock's own checkout says now: it covers everything that clock
+  watches, and does not bind a repo merged by slug or a commit not yet pulled. It is kept also from a
+  file that will not parse if it says so clearly. A malformed repo file does not reset your settings.
+- **Your tree is not involved.** Each pass fetches the PR's head into no local branch, works in a detached worktree of
+  its own under `~/.agentic-forge/state/<repo-slug>/pr-watch-passes/`, even under `state.in_repo`, and removes it
+  afterwards, however it ended. A pass never moves HEAD and never reads or changes a file in your checkout, so the clock
+  can run in the checkout you work in, with that branch checked out or from a linked worktree. Settings are read once,
+  before any PR's tree exists, and the watcher does not open the config file in the PR's tree.
+- **Where a queue drains.** The state root is keyed by the checkout's path, with linked worktrees sharing their main
+  checkout's. So a created PR is drained by a clock in the checkout that created it, or a linked worktree of it. A
+  clock in a different clone has its own empty queue, and says so when it can see one waiting elsewhere.
+- **Forks are not fetched.** The watcher does nothing for a fork, so GitHub is asked first and the fork's tree never
+  reaches the disk. If GitHub's answer does not say, nothing starts and the pass fails.
+- **The fixer runs with the tree as its limit.** Its Claude session has `--setting-sources "" --strict-mcp-config --tools
+  Read,Write,Edit,Grep,Glob --permission-mode acceptEdits`. No settings load from the PR's tree or from your home, so
+  your own hooks and plugins do not run in it either; Bash and the web do not exist; and a read or write outside the tree
+  is denied, including the CLI's own memory under `~/.claude` and the temp output of your other sessions, which it would otherwise exempt.
+  A `CLAUDE_CONFIG_DIR` holding a character special to permission rules, such as `[`, gets no session. **It authenticates through the CLI's login or the clock's environment**: an `env` in a `settings.json` is not
+  read, and a session that never runs fails the job. The tree's recent commit subjects still reach the model, through the
+  CLI's own `gitStatus` block, so this limits what it can do and not what it can be told (ADR 0103).
+- **Only threads from people who can already write, or from reviewer apps you list, reach it.** A person needs an association of `OWNER`,
+  `MEMBER` or `COLLABORATOR`, and then write, maintain or admin on the repo by GitHub's permission endpoint, asked once a pass and failing
+  closed. A reviewer app has to be in `pr_watcher.trusted_reviewers`. Any other thread gets no reply, and holds the merge gate until a person
+  resolves it. A dry run says how many are held, and `--health` shows a PR that ran out of ticks that way.
+- **What it may change.** A session that changes anything under `.github/`, `.claude/`, `.husky/` or `.agentic-forge/`, or a `.mcp.json`, a `.gitattributes` or
+  `.gitmodules`, gets no commit. A denied tool call, or a session that never ran, leaves the thread undetermined, posts
+  nothing, and fails the job, as does a `git commit` that fails, for a signer or an identity the clock lacks. A tree where one of those names
+  is itself a symlink gets no session, a change to what a link below one leads to gets no commit, and neither does a manual `--apply` on a dirty checkout. A fix is pushed before it is replied to, so a
+  refused push posts nothing. A PR that is no longer open gets nothing done.
+- **Upgrading from 2026.11.2**: put the clock's checkout back on its branch. The old driver left it on the last PR.
+- **Merges are pinned.** A merge passes `--match-head-commit` with the commit the merge gate read.
+- **One run at a time.** A second run on the same repo says so and exits `0`. It uses `flock` on the main checkout's
+  directory, which a watcher inherits, so a driver killed mid-pass does not free it while its child still works. There is
+  no lock on a platform without `flock`. After 6 polls in a row that found it held, it is an anomaly in the diagnostics
+  log, and `--health` says so, because a stalled watcher otherwise looks like a quiet one.
+- **A failed or refused pass fails its job**, in the sweep as in the drain, so `--health` shows it.
+- **Which PRs.** The queue is read from the state root only. An entry naming a repo that is neither this checkout's
+  `origin` remote nor in your `pr_watcher.repos` is dropped, with the reason recorded in the diagnostics log and shown by
+  `--health` for a week. A renamed repo reads like this: update the `origin` remote. A PR in
+  `repos` that is not this checkout's `origin` can be merged, by slug, but gets no fix and no push, because the fixer can
+  only push to `origin`: if it has an open thread or a conflict, the refusal is recorded and the job fails. Run a clock
+  in a clone of that repo instead. An `origin` that is not a plain `github.com` URL, such as an SSH host alias, names no
+  repo here, so that checkout's queue is dropped and its PRs get no fix pass.
 
 ### Reviewer skip reasons and invalid values
 
@@ -159,7 +212,10 @@ the full command, which on its own is a dry run; add `--apply` to merge the file
 repo. A legacy `archive/` of rotated logs is not moved: the migration names it and it stays. A file that cannot be
 parsed stops the migration with exit `1`, naming the file: it and the ones after it stay, and any reported as
 merged by then have gone from the repo. `plugin/bin/state_migrate.py` deletes a legacy `notices.json`, which holds
-only per-session markers. It
+only per-session markers. It also deletes, without importing and naming each, a legacy `pr-watch-queue.json` and
+`schedule-state.json`, which are not read either: a repo can commit a file at those names, and they decide what the
+scheduler does (ADR 0103). So a PR queued before the upgrade waits for the next `gh pr create` or for `repos`, and
+every job is due once. It
 does not follow a link. One at a legacy name is named and kept, and the exit code stays `0`. One at a target is
 named, the legacy file stays, and the exit code is `1`, because that target was left unmerged. Any other file in
 that directory is left alone and does not raise the notice.

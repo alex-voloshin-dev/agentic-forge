@@ -628,8 +628,16 @@ _PR_PAYLOAD = {
 }
 
 
+def _enable_watcher_for_this_home() -> None:
+    """The operator's file, keeping what the fixture put there: a repo's cannot turn it on."""
+    home = Path.home()
+    config = home / ".agentic-forge" / "config.json"
+    held = json.loads(config.read_text(encoding="utf-8")) if config.is_file() else {}
+    _write_config(home, {**held, "pr_watcher": {"enabled": True}})
+
+
 def _enqueue(repo: Path) -> object:
-    _write_config(repo, {"pr_watcher": {"enabled": True}})
+    _enable_watcher_for_this_home()
     return pr_created.enqueue(str(repo), {**_PR_PAYLOAD, "cwd": str(repo)})
 
 
@@ -678,16 +686,8 @@ def test_every_writer_refuses_a_symlinked_state_directory_quietly(  # type: igno
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     (repo / ".agentic-forge").symlink_to(elsewhere, target_is_directory=True)
-    if name == pr_watch.QUEUE_FILE:
-        # The repo file that switches the watcher on has to stay readable through the link.
-        (elsewhere / "config.json").write_text(
-            '{"pr_watcher": {"enabled": true}}', encoding="utf-8"
-        )
-        result = pr_created.enqueue(str(repo), {**_PR_PAYLOAD, "cwd": str(repo)})
-    else:
-        result = write(repo)
-    assert result == expected
-    assert [p.name for p in elsewhere.iterdir() if p.name != "config.json"] == []
+    assert write(repo) == expected
+    assert list(elsewhere.iterdir()) == []
 
 
 @pytest.mark.parametrize(("name", "write", "expected"), WRITERS, ids=[w[0] for w in WRITERS])
@@ -922,21 +922,22 @@ def test_a_refused_queue_tick_fails_the_job_and_leaves_the_target_alone(
     monkeypatch.setenv("AGENTIC_FORGE_STATE_HOME", str(tmp_path / "home"))
     repo = tmp_path / "repo"
     (repo / ".git").mkdir(parents=True)
-    _write_config(repo, {"pr_watcher": {"enabled": True}})
+    _write_config(Path.home(), {"pr_watcher": {"enabled": True, "repos": ["o/r"]}})
     entries = [{"owner": "o", "name": "r", "number": 1}]
-    (repo / ".agentic-forge" / pr_watch.QUEUE_FILE).write_text(
-        json.dumps(entries), encoding="utf-8"
-    )
     victim = tmp_path / "victim"
     victim.write_text(_ORIGINAL, encoding="utf-8")
     path = diagnostics.state_file(repo, pr_watch.QUEUE_FILE)
     path.parent.mkdir(parents=True)
-    path.symlink_to(victim)
+    path.write_text(json.dumps(entries), encoding="utf-8")
+
+    def link_appears_during_the_pass(*_args: object) -> run_scheduled.WatchOutcome:
+        path.unlink()  # a link there is not read at all, so it has to arrive after the read
+        path.symlink_to(victim)
+        return run_scheduled.WatchOutcome(True, "ok")
+
     with pytest.raises(state_io.StateWriteRefused):
         run_scheduled._pr_watch_queue(
-            repo,
-            watch_one=lambda *_args: run_scheduled.WatchOutcome(True, "ok"),
-            finished=lambda _entry: False,
+            repo, watch_one=link_appears_during_the_pass, finished=lambda _entry: False
         )
     assert victim.read_text(encoding="utf-8") == _ORIGINAL
 
@@ -1200,7 +1201,7 @@ def test_the_queue_is_not_read_through_a_link(plain_repo: Path, tmp_path: Path) 
     victim.write_text(json.dumps([{"owner": "x", "name": "y", "number": 9}]), encoding="utf-8")
     state = plain_repo / ".agentic-forge"
     (state / pr_watch.QUEUE_FILE).symlink_to(victim)
-    _write_config(plain_repo, {"pr_watcher": {"enabled": True}})
+    _write_config(Path.home(), {"pr_watcher": {"enabled": True}})
     assert pr_created.enqueue(str(plain_repo), {**_PR_PAYLOAD, "cwd": str(plain_repo)}) is True
     queue = diagnostics.state_file(plain_repo, pr_watch.QUEUE_FILE).read_text(encoding="utf-8")
     assert '"number": 7' in queue and '"number": 9' not in queue
@@ -1264,10 +1265,8 @@ def _linked_target(plain_repo: Path, tmp_path: Path, name: str, held: str) -> tu
     [
         (observability.AUDIT_FILE, '{"n": 1}\n', "", True),  # would be appended through the link
         (observability.AUDIT_FILE, '{"n": 1}\n', '{"n": 1}\n', True),  # it holds every line
-        (schedule.STATE_FILE, "{}", "{}", False),  # "kept the newer copy"
-        (schedule.STATE_FILE, "{}", "{}", True),  # would be replaced
     ],
-    ids=["log-to-append", "log-all-present", "doc-target-newer", "doc-source-newer"],
+    ids=["log-to-append", "log-all-present"],
 )
 def test_the_migration_skips_a_symlinked_target_names_it_and_keeps_the_source(
     plain_repo: Path,
@@ -1316,15 +1315,13 @@ def test_the_migration_skips_a_directory_at_the_target(
     assert source.is_file()
 
 
-@pytest.mark.parametrize(
-    "name", [observability.AUDIT_FILE, schedule.STATE_FILE], ids=["log", "doc"]
-)
 def test_the_migration_writes_under_the_state_anchor(
-    plain_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
+    plain_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """With the migration's own check blinded, the write it makes must still refuse the link."""
+    name = observability.AUDIT_FILE
     source, victim = _linked_target(plain_repo, tmp_path, name, "")
-    source.write_text('{"n": 1}\n' if name == observability.AUDIT_FILE else "{}", encoding="utf-8")
+    source.write_text('{"n": 1}\n', encoding="utf-8")
     os.utime(source, (2_000_000_000, 2_000_000_000))
     monkeypatch.setattr(state_migrate, "_target_problem", lambda *_args: "")
     assert state_migrate.main(["x", "--repo", str(plain_repo), "--apply"]) == 1  # OSError -> 1
@@ -1352,7 +1349,7 @@ def test_the_migration_passes_the_state_anchor(
         monkeypatch.setattr(state_io, name, spy)
     assert state_migrate.main(["x", "--repo", str(plain_repo), "--apply"]) == 0
     expected = diagnostics.state_anchor(plain_repo)
-    assert seen == {"append_text": expected, "write_text": expected}
+    assert seen == {"append_text": expected}  # a dropped document is not written anywhere
 
 
 def test_the_migration_closes_a_last_line_without_a_newline(plain_repo: Path) -> None:
@@ -1385,7 +1382,7 @@ def test_the_migration_works_through_a_linked_state_directory(
     (legacy / schedule.STATE_FILE).write_text("{}", encoding="utf-8")
     assert state_migrate.main(["x", "--repo", str(repo), "--apply"]) == 0
     assert (relocated / observability.AUDIT_FILE).read_text(encoding="utf-8") == '{"n": 1}\n'
-    assert (relocated / schedule.STATE_FILE).is_file()
+    assert not (relocated / schedule.STATE_FILE).exists()  # dropped, not imported (ADR 0103)
     assert not legacy.exists()
     assert len(observability.load_audit(repo)) == 1  # and the readers agree
 
@@ -1470,7 +1467,7 @@ def test_a_repo_filename_never_reaches_the_notice_or_the_migration_output(
 
 
 def test_the_migration_and_the_notice_agree_on_the_names() -> None:
-    moved = state_migrate._JSONL + state_migrate._JSON_DOC + state_migrate._DISPOSABLE
+    moved = state_migrate._JSONL + state_migrate._DROPPED + state_migrate._DISPOSABLE
     assert sorted(moved) == sorted(diagnostics.LEGACY_STATE_FILES)
     assert {
         observability.AUDIT_FILE,
@@ -2213,12 +2210,28 @@ def test_a_linked_file_does_not_reach_the_vault_or_the_session(linked_vault) -> 
     assert "leak" not in [name for name, _ in vault.recall(repo, "private title")]
 
 
-def test_a_json_document_migrates_through_the_helper(plain_repo: Path) -> None:
-    source = plain_repo / ".agentic-forge" / schedule.STATE_FILE
-    source.write_text('{"digest": {"last_run": 1.0}}', encoding="utf-8")
+@pytest.mark.parametrize("name", [schedule.STATE_FILE, pr_watch.QUEUE_FILE])
+def test_a_json_document_is_dropped_and_named_not_imported(
+    plain_repo: Path, capsys: pytest.CaptureFixture[str], name: str
+) -> None:
+    source = plain_repo / ".agentic-forge" / name
+    source.write_text('{"digest": {"last_run": 9999999999.0}}', encoding="utf-8")
+    assert state_migrate.main(["x", "--repo", str(plain_repo)]) == 0
+    assert f"{name}: not imported" in capsys.readouterr().out
+    assert source.exists()  # a dry run removes nothing
     assert state_migrate.main(["x", "--repo", str(plain_repo), "--apply"]) == 0
-    target = diagnostics.state_file(plain_repo, schedule.STATE_FILE)
-    assert "digest" in target.read_text(encoding="utf-8")
+    assert f"{name}: deleted (not imported" in capsys.readouterr().out
+    assert not diagnostics.state_file(plain_repo, name).exists()
+    assert not source.exists()
+
+
+def test_a_dropped_document_ignores_a_link_at_its_target(
+    plain_repo: Path, tmp_path: Path
+) -> None:
+    source, victim = _linked_target(plain_repo, tmp_path, schedule.STATE_FILE, "held")
+    source.write_text("{}", encoding="utf-8")
+    assert state_migrate.main(["x", "--repo", str(plain_repo), "--apply"]) == 0
+    assert victim.read_text(encoding="utf-8") == "held"  # never written through, nothing to keep
     assert not source.exists()
 
 
@@ -2266,6 +2279,12 @@ def _writes_by_mode(call: ast.Call, position: int) -> bool:
     return True
 
 
+def _opens_read_only(call: ast.Call) -> bool:
+    """``os.open(path, os.O_RDONLY)``, no other flags: how the scheduler locks a directory."""
+    flags = call.args[1] if len(call.args) > 1 else None
+    return isinstance(flags, ast.Attribute) and flags.attr == "O_RDONLY"
+
+
 def _direct_writes(source: str) -> list[str]:
     """The calls in ``source`` that write a file other than through ``state_io``."""
     found = []
@@ -2285,6 +2304,8 @@ def _direct_writes(source: str) -> list[str]:
         if base == "state_io":
             continue
         pair = (base, func.attr)
+        if pair == ("os", "open") and _opens_read_only(node):
+            continue
         if (
             func.attr in _WRITE_METHODS
             or pair in _WRITE_FUNCTIONS
@@ -2333,6 +2354,7 @@ def test_the_scan_sees_each_way_of_writing(line: str) -> None:
     [
         "open(p)",
         'open(p, "rb")',
+        "os.open(p, os.O_RDONLY)",
         "p.open()",
         'p.open("rb")',
         'p.open(encoding="utf-8")',
@@ -2555,10 +2577,9 @@ def test_upgrade_a_repo_that_set_in_repo_follows_the_notice_to_the_end(
     assert (legacy / "config.json").read_bytes() == config
     assert "3 tool uses across 2 session(s)" in up.digest("audit_digest.py")
     assert "1 event(s) across 1 session(s)" in up.digest("diagnostics_digest.py")
-    queue = json.loads((up.state() / pr_watch.QUEUE_FILE).read_text(encoding="utf-8"))
-    assert [entry["number"] for entry in queue] == [7]
-    state = json.loads((up.state() / schedule.STATE_FILE).read_text(encoding="utf-8"))
-    assert state["digest"]["runs"] == 3
+    # Named and removed, not imported: a repo could have committed either one (ADR 0103).
+    assert not (up.state() / pr_watch.QUEUE_FILE).exists()
+    assert not (up.state() / schedule.STATE_FILE).exists()
 
     # It ends: the notice is gone, the config warning stays until the key is removed, the command
     # can be run again, and the next records go where the merged ones are.
@@ -2739,9 +2760,10 @@ def test_hooks_in_parallel_lose_no_record_and_leave_no_temp_file(tmp_path: Path)
     _no_temp_files(up.state())
 
 
-def test_upgrade_a_pr_created_before_the_migration_keeps_the_legacy_queue(tmp_path: Path) -> None:
-    """A watched PR must survive the path: the first enqueue reads the legacy queue, writes both to
-    the state root, and the migration then keeps that copy and removes the old one."""
+def test_upgrade_a_legacy_queue_is_named_and_not_imported(tmp_path: Path) -> None:
+    """A repo can commit a file at the old path, so the first enqueue starts a new queue and says
+    what it left out, and the migration removes the old file without adding to the new one. The cost
+    is that a PR queued before the upgrade is not watched by this path until it is queued again."""
     up = _Upgrade(tmp_path)
     _write_config(up.home, {"pr_watcher": {"enabled": True}})
     legacy = up.repo / ".agentic-forge"
@@ -2756,11 +2778,12 @@ def test_upgrade_a_pr_created_before_the_migration_keeps_the_legacy_queue(tmp_pa
         tool_response={"stdout": "https://github.com/o/n/pull/8\n", "exit_code": 0},
     )
     assert "queued for the scheduled watch" in result.stdout, result.stdout + result.stderr
+    assert f"{pr_watch.QUEUE_FILE} under .agentic-forge/" in result.stdout
     assert (legacy / pr_watch.QUEUE_FILE).read_text(encoding="utf-8") == _OLD_QUEUE
 
     target = up.state() / pr_watch.QUEUE_FILE
     done = up.run([str(_PLUGIN / "bin" / "state_migrate.py"), "--repo", str(up.repo), "--apply"])
     assert done.returncode == 0, done.stdout + done.stderr
     queue = json.loads(target.read_text(encoding="utf-8"))
-    assert [entry["number"] for entry in queue] == [7, 8]
+    assert [entry["number"] for entry in queue] == [8]
     assert not legacy.exists()

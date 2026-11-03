@@ -54,6 +54,12 @@ rewrote `pr_watcher.bot` — making its author's review threads invisible to the
 `auto_merge` additionally demands a real boolean (`is True`), not the widened truthy set that a
 config slipping past an absent `jsonschema` could carry.
 
+> **Amended 2026-11-03 by [ADR 0103](0103-a-checkout-does-not-steer-the-watcher.md).** This did not hold. Nothing
+> restored HEAD after a pass, so the next pass read the previous PR's tree as trusted, and a repo's own config set
+> these values anyway. The driver now reads settings once, each pass runs in a worktree of its own so the operator's
+> tree never holds a PR's, and `pr_watcher` is the operator's alone. `auto_merge` also takes a list of repos, and the
+> `is True` above still applies to anything else.
+
 ### 4. `escalate` now actually stops the handoff
 
 Each writer phase writes its artifact **before** the loop, `status` was inert (`handoff.py` says so

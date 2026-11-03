@@ -35,9 +35,9 @@ Users who don't use GitHub Actions can invoke the same CLI from OS cron.
   `Date.now()`).
 - `record_run(state, name, now, *, ok)` — **pure**: record a job's outcome (advance `last_run`,
   bump `runs`, set `status`, reset/increment consecutive `failures`).
-- State = a small JSON of per-job `JobState` (`last_run`, `status`, `runs`, `failures`) under
-  `${CLAUDE_PROJECT_DIR}/.agentic-forge/`; legacy flat `{name: last_run}` files migrate on load
-  (cadence persistence — ADR 0031).
+- State = a small JSON of per-job `JobState` (`last_run`, `status`, `runs`, `failures`) at the state
+  root and nowhere else, since a repo could commit a file at the old in-repo path (ADR 0103); legacy flat
+  `{name: last_run}` files migrate on load (cadence persistence — ADR 0031).
 - `health(jobs, state)` + `format_health(report)` — **pure**: a per-job health view (status /
   runs / consecutive failures / last-run, or `never-run`) from the persisted state — the
   scheduled-job observability rollup ADR 0031 left open.
@@ -90,7 +90,14 @@ artifacts and emits an anomaly for any whose `verdict` is still `changes` at `it
   *before* reporting; entries carry `failures`, the drop reason is true ("finished (merged or
   closed)" / "tick budget spent: N of M polls failed"), a failed pass fails the job (`--health`
   red), and a checkout failure, non-zero exit, kill or job failure is a forced diagnostics event
-  (`pr-watch-queue` / `pr-watch` / `scheduled-run`). The daily deploy digest prints "unknown —
+  (`pr-watch-queue` / `pr-watch` / `scheduled-run`). Since ADR 0103 a run holds `flock` on the main checkout, which each
+  watcher inherits, and removes what killed runs left. It reads each job's settings once, asks GitHub whether a PR is a
+  fork before any of it reaches the disk, and runs each pass in a temporary detached worktree at user level, so the
+  operator's tree and HEAD are not involved. A failed or refused pass, or a thread left undetermined, fails its job in the sweep as
+  in the drain, and a
+  lock found held for 6 polls in a row is an anomaly and shows in `--health`. The drain reads its queue from the state
+  root only, and drops an entry that names neither the checkout's `origin` nor a repo in the user-level
+  `pr_watcher.repos`, which `--health` shows for a week. A PR outside `origin` gets no fix pass, since the fixer can only push there. The daily deploy digest prints "unknown —
   source unavailable (why)" when a connector raises `ops.SourceUnavailable`, never "healthy" from
   no data.
 - `dev/audit_digest.py` — print `observability.digest` of the audit log (a window flag).

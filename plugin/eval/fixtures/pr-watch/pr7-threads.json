@@ -24,7 +24,8 @@
                 "line": 10,
                 "author": {
                   "login": "reviewer-a"
-                }
+                },
+                "authorAssociation": "MEMBER"
               }
             ]
           }
@@ -40,7 +41,8 @@
                 "line": 1,
                 "author": {
                   "login": "github-actions[bot]"
-                }
+                },
+                "authorAssociation": "MEMBER"
               }
             ]
           }
@@ -56,7 +58,8 @@
                 "line": 42,
                 "author": {
                   "login": "reviewer-a"
-                }
+                },
+                "authorAssociation": "MEMBER"
               }
             ]
           }
@@ -72,7 +75,8 @@
                 "line": 77,
                 "author": {
                   "login": "reviewer-b"
-                }
+                },
+                "authorAssociation": "MEMBER"
               }
             ]
           }
@@ -88,7 +92,8 @@
                 "line": 12,
                 "author": {
                   "login": "reviewer-b"
-                }
+                },
+                "authorAssociation": "MEMBER"
               }
             ]
           }

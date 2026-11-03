@@ -19,8 +19,9 @@ built-in DEFAULTS  <  user-level ~/.agentic-forge/config.json  <  per-repo .agen
 ```
 
 What the checkout must not decide is taken out of the repo file before that merge, not restored after
-it: the reviewer's `command`, `isolated`, `model` and `effort` (ADR 0100), and `state.in_repo` and
-`knowledge.allow_external_vault` (ADR 0102).
+it: the reviewer's `command`, `isolated`, `model` and `effort` (ADR 0100), `state.in_repo` and
+`knowledge.allow_external_vault` (ADR 0102), and everything under `pr_watcher` but `enabled: false`
+(ADR 0103).
 
 So a user sets defaults once in their home, a repo overrides them per-project, and CI / one-off env
 vars still win. Both files are validated against [`config.schema.json`](../../plugin/schemas/config.schema.json).
@@ -104,8 +105,11 @@ once the pure `merge_readiness` gate opens (not draft, checks green — *no CI a
 unresolved threads, `MERGEABLE`). An external reviewer's window is the poll interval, not a separate
 timeout: a fresh PR has `PENDING` checks, so the earliest merge is one `poll_seconds` after opening.
 It is gated by
-`pr_watcher.auto_merge`, **off by default**, and never merges in the same pass that pushed a fix (the
-green checks describe the pre-fix commit). A `PostToolUse` hook notices `gh pr create` and says what
+the user-level `pr_watcher.auto_merge`, **off by default**, and never merges in the same pass that pushed a fix
+(the green checks describe the pre-fix commit). The merge is pinned to the commit the gate read. The scheduled driver
+reads its settings once, never fetches a fork, runs each pass in a temporary detached worktree so the operator's tree and
+HEAD are not involved. Its fixer session has no settings, five tools and the tree as its limit, only threads from people with write access
+or reviewer apps the operator lists reach it, and it pushes before it replies (ADR 0103). A `PostToolUse` hook notices `gh pr create` and says what
 can follow: `/pr-watch` is a manual command for the user, and an agent checks the PR with `gh` itself.
 It only informs — a guardrail must not silently launch an agent that can merge. Two surfaces:
 the scheduled multi-repo driver `plugin/bin/pr_watch.py` (maintainer/CI), and the **`pr-watch` skill**

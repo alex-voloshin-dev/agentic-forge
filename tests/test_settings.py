@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -365,6 +366,27 @@ def test_example_config_is_schema_valid() -> None:
         (root / "plugin" / "schemas" / "config.schema.json").read_text(encoding="utf-8")
     )
     assert list(jsonschema.Draft7Validator(schema).iter_errors(example)) == []
+
+
+def test_the_config_examples_in_the_docs_are_schema_valid() -> None:
+    # An operator told by a warning to move a setting copies these. A fence that stopped parsing, or
+    # a key the schema refuses, would drop their whole user-level file and turn the watcher off.
+    import jsonschema
+
+    root = Path(__file__).resolve().parents[1]
+    schema = json.loads(
+        (root / "plugin" / "schemas" / "config.schema.json").read_text(encoding="utf-8")
+    )
+    validator = jsonschema.Draft7Validator(schema)
+    examples: list[str] = []
+    for doc in ("docs/configuration.md", "docs/eval-runbook.md"):
+        text = (root / doc).read_text(encoding="utf-8")
+        examples += re.findall(r"```json\n(.*?)```", text, re.DOTALL)
+        examples += re.findall(r"`(\{\"[^`]*\})`", text)
+    assert '{"pr_watcher": {"enabled": true}}' in examples  # the runbook's, so this reads something
+    assert [e for e in examples if list(validator.iter_errors(json.loads(e)))] == []
+    # The list form the table gives, in prose.
+    assert list(validator.iter_errors({"pr_watcher": {"auto_merge": ["owner/name"]}})) == []
 
 
 # --- external_reviewer isolation, model and effort (ADR 0100) --------------------------------
@@ -929,7 +951,7 @@ def test_the_malformed_fallback_warning_tells_the_truth_about_what_still_applies
     (warning,) = s.warnings
     assert "ignoring malformed config" in warning
     assert "every setting is at its built-in default" in warning
-    assert "except the user-level external_reviewer settings" in warning
+    assert "except the user-level external_reviewer and pr_watcher settings" in warning
 
 
 def test_the_malformed_fallback_keeps_the_warnings_from_before_it(
@@ -1414,3 +1436,443 @@ def test_non_object_config_without_jsonschema_is_carried(
     (d / "config.json").write_text("[1, 2, 3]", encoding="utf-8")
     s = settings.resolve(tmp_path, env={}, home=tmp_path / "nohome")
     assert s.review_passes == 3 and "not a JSON object" in s.warnings[0]
+
+
+# --- pr_watcher is the operator's; a repo can only turn it off (ADR 0103) ------------------------
+
+_WATCHER_REPO_VALUES = {
+    "bot": "repo-bot",
+    "max_threads": 99,
+    "repos": ["victim/prod"],
+    "auto_merge": True,
+    "auto_watch": False,
+    "max_ticks": 1,
+    "merge_method": "squash",
+    "poll_seconds": 61,
+}
+_NO_JSONSCHEMA = pytest.mark.parametrize("bare", [False, True], ids=["schema", "bare"])
+
+
+def _maybe_bare(monkeypatch: pytest.MonkeyPatch, bare: bool) -> None:
+    if bare:
+        monkeypatch.setitem(sys.modules, "jsonschema", None)
+
+
+def _watcher_values(s: settings.Settings) -> dict[str, object]:
+    return {
+        "bot": s.pr_watcher_bot,
+        "max_threads": s.pr_watcher_max_threads,
+        "repos": s.pr_watcher_repos,
+        "auto_merge": s.pr_watcher_auto_merge,
+        "auto_watch": s.pr_watcher_auto_watch,
+        "max_ticks": s.pr_watcher_max_ticks,
+        "merge_method": s.pr_watcher_merge_method,
+        "poll_seconds": s.pr_watcher_poll_seconds,
+    }
+
+
+# What a repo sets to false counts (below); these are the keys and values that must not.
+_WATCHER_REPO_CANNOT = sorted(set(_WATCHER_REPO_VALUES) - {"auto_watch"})
+
+
+@_NO_JSONSCHEMA
+@pytest.mark.parametrize("key", _WATCHER_REPO_CANNOT)
+def test_a_repo_cannot_set_a_watcher_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bare: bool, key: str
+) -> None:
+    _maybe_bare(monkeypatch, bare)
+    home, repo = tmp_path / "home", tmp_path / "repo"
+    _write_user_config(home, {"pr_watcher": {"enabled": True}})
+    _write_config(repo, {"pr_watcher": {key: _WATCHER_REPO_VALUES[key]}})
+    s = settings.resolve(repo, env={}, home=home)
+    assert _watcher_values(s)[key] != _WATCHER_REPO_VALUES[key]
+    assert s.pr_watcher_enabled is True  # and the operator's other choice stands
+    (warning,) = s.warnings
+    assert f"pr_watcher.{key} in a repo config is ignored" in warning
+
+
+@_NO_JSONSCHEMA
+@pytest.mark.parametrize("key", sorted(_WATCHER_REPO_VALUES))
+def test_the_user_level_file_sets_every_watcher_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bare: bool, key: str
+) -> None:
+    _maybe_bare(monkeypatch, bare)
+    home, repo = tmp_path / "home", tmp_path / "repo"
+    _write_user_config(home, {"pr_watcher": {key: _WATCHER_REPO_VALUES[key]}})
+    s = settings.resolve(repo, env={}, home=home)
+    assert _watcher_values(s)[key] == _WATCHER_REPO_VALUES[key] and s.warnings == ()
+
+
+@_NO_JSONSCHEMA
+@pytest.mark.parametrize(
+    ("user", "repo_says", "enabled", "warned"),
+    [
+        (None, True, False, "a repo can only turn the watcher off"),
+        (False, True, False, "a repo can only turn the watcher off"),
+        (True, True, True, ""),  # equal to the value in effect: nothing to say
+        (True, False, False, "overrides your user-level true"),
+        (False, False, False, ""),
+        (None, False, False, ""),  # the shipped example
+    ],
+)
+def test_a_repo_can_only_turn_the_watcher_off(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    bare: bool,
+    user: bool | None,
+    repo_says: bool,
+    enabled: bool,
+    warned: str,
+) -> None:
+    _maybe_bare(monkeypatch, bare)
+    home, repo = tmp_path / "home", tmp_path / "repo"
+    if user is not None:
+        _write_user_config(home, {"pr_watcher": {"enabled": user}})
+    _write_config(repo, {"pr_watcher": {"enabled": repo_says}})
+    s = settings.resolve(repo, env={}, home=home)
+    assert s.pr_watcher_enabled is enabled
+    if warned:
+        (warning,) = s.warnings
+        assert warned in warning
+    else:
+        assert s.warnings == ()
+
+
+def test_a_value_equal_to_the_one_in_effect_gets_no_warning(tmp_path: Path) -> None:
+    home, repo = tmp_path / "home", tmp_path / "repo"
+    _write_user_config(home, {"pr_watcher": {"enabled": True, "repos": ["me/mine"]}})
+    _write_config(
+        repo,
+        {"pr_watcher": {
+            "enabled": True, "repos": ["me/mine"], "bot": settings.DEFAULTS["pr_watcher"]["bot"],
+            "auto_merge": False,
+        }},
+    )
+    s = settings.resolve(repo, env={}, home=home)
+    assert s.warnings == () and s.pr_watcher_repos == ["me/mine"]
+
+
+@_NO_JSONSCHEMA
+def test_no_watcher_warning_repeats_a_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], bare: bool
+) -> None:
+    _maybe_bare(monkeypatch, bare)
+    _write_config(tmp_path, {"pr_watcher": {
+        "bot": _ECHO_MARK, "repos": ["o/r", "x/y"], "auto_merge": ["o/r"], "enabled": True,
+    }})
+    s = settings.resolve(tmp_path, env={}, home=tmp_path / "nohome")
+    assert len(s.warnings) == 4
+    captured = capsys.readouterr()
+    for text in (*s.warnings, captured.err):
+        assert _ECHO_MARK not in text and "x/y" not in text
+
+
+def test_a_key_the_repo_made_up_is_not_repeated_or_kept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(sys.modules, "jsonschema", None)
+    _write_config(tmp_path, {"pr_watcher": {_ECHO_MARK: True}})
+    s = settings.resolve(tmp_path, env={}, home=tmp_path / "nohome")
+    assert s.warnings == ()
+
+
+def test_pr_watcher_false_in_a_repo_file_is_an_off_without_a_validator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(sys.modules, "jsonschema", None)
+    home, repo = tmp_path / "home", tmp_path / "repo"
+    _write_user_config(home, {"pr_watcher": {"enabled": True}, "review": {"passes": 7}})
+    _write_config(repo, {"pr_watcher": False})
+    s = settings.resolve(repo, env={}, home=home)
+    assert s.pr_watcher_enabled is False
+    assert s.review_passes == 7  # an off, not a malformed file
+    assert "overrides your user-level true" in s.warnings[0]
+
+
+_BROKEN_WITH_OFF = [
+    b'{"pr_watcher": {"enabled": false',  # truncated
+    b'{"pr_watcher": {"repos": ["o/r"], "enabled": false},}',  # trailing comma
+    b'{"pr_watcher": false,}',
+    b'{"pr_watcher": {"enabled": false}, "models": "nope"}',  # refused by the schema alone
+    b'{"pr_watcher": false}',  # the same, with no other key
+]
+
+
+@pytest.mark.parametrize("raw", _BROKEN_WITH_OFF)
+def test_a_dropped_repo_file_keeps_a_clear_watcher_off(tmp_path: Path, raw: bytes) -> None:
+    home, repo = tmp_path / "home", tmp_path / "repo"
+    _write_user_config(home, {"pr_watcher": {"enabled": True}})
+    path = repo / ".agentic-forge" / "config.json"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(raw)
+    s = settings.resolve(repo, env={}, home=home)
+    assert s.pr_watcher_enabled is False
+    assert any("enabled: false it clearly states" in w for w in s.warnings)
+
+
+def test_a_dropped_repo_file_cannot_turn_the_watcher_on(tmp_path: Path) -> None:
+    home, repo = tmp_path / "home", tmp_path / "repo"
+    _write_user_config(home, {"pr_watcher": {"enabled": False}})
+    path = repo / ".agentic-forge" / "config.json"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b'{"pr_watcher": {"enabled": true, "auto_merge": true},}')
+    s = settings.resolve(repo, env={}, home=home)
+    assert s.pr_watcher_enabled is False and s.pr_watcher_auto_merge is False
+
+
+def test_a_dropped_repo_file_leaves_the_operators_watcher_alone(tmp_path: Path) -> None:
+    home, repo = tmp_path / "home", tmp_path / "repo"
+    _write_user_config(home, {"pr_watcher": {"enabled": True, "auto_merge": True}})
+    path = repo / ".agentic-forge" / "config.json"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"{not json")
+    s = settings.resolve(repo, env={}, home=home)
+    assert s.pr_watcher_enabled is True and s.pr_watcher_auto_merge is True
+
+
+@pytest.mark.parametrize("malformed", [{"pr_watcher": "nope"}, {"review": "nope"}])
+def test_the_malformed_fallback_keeps_the_operators_watcher(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, malformed: dict[str, object]
+) -> None:
+    """With no validator a stray type reaches the merge, and the fallback rebuilds from defaults. It
+    must not reset what only the operator may choose, or let the repo's watcher keys through."""
+    monkeypatch.setitem(sys.modules, "jsonschema", None)
+    home, repo = tmp_path / "home", tmp_path / "repo"
+    _write_user_config(
+        home,
+        {"pr_watcher": {
+            "enabled": True, "auto_merge": ["me/mine"], "repos": ["me/mine"], "max_ticks": 5,
+            "trusted_reviewers": ["codex"],
+        }},
+    )
+    _write_config(repo, malformed)
+    s = settings.resolve(repo, env={}, home=home)
+    assert s.pr_watcher_enabled is True and s.pr_watcher_max_ticks == 5
+    assert s.pr_watcher_repos == ["me/mine"] and s.merges_in("me/mine")
+    assert s.pr_watcher_trusted_reviewers == ("codex",)
+    assert any("ignoring malformed config" in w for w in s.warnings)
+
+
+def test_the_malformed_fallback_reports_and_drops_what_the_repo_tried(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(sys.modules, "jsonschema", None)
+    _write_config(
+        tmp_path,
+        {"review": "nope", "pr_watcher": {"enabled": True, "auto_merge": True, "bot": _ECHO_MARK}},
+    )
+    s = settings.resolve(tmp_path, env={}, home=tmp_path / "nohome")
+    assert s.pr_watcher_enabled is False and s.pr_watcher_auto_merge is False
+    assert s.pr_watcher_bot == settings.DEFAULTS["pr_watcher"]["bot"]
+    joined = " ".join(s.warnings)
+    assert "pr_watcher.auto_merge in a repo config is ignored" in joined
+    assert "ignoring malformed config" in joined and _ECHO_MARK not in joined
+
+
+def test_the_malformed_fallback_keeps_a_repos_watcher_off(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(sys.modules, "jsonschema", None)
+    home, repo = tmp_path / "home", tmp_path / "repo"
+    _write_user_config(home, {"pr_watcher": {"enabled": True}})
+    _write_config(repo, {"review": "nope", "pr_watcher": {"enabled": False}})
+    s = settings.resolve(repo, env={}, home=home)
+    assert s.pr_watcher_enabled is False
+    assert any("ignoring malformed config" in w for w in s.warnings)
+
+
+def test_the_malformed_fallback_survives_a_nested_user_watcher_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """What it keeps goes through `str()`, so only what cannot overflow it is kept."""
+    monkeypatch.setitem(sys.modules, "jsonschema", None)
+    home = tmp_path / "home"
+    deep = "[" * 900 + "]" * 900
+    path = home / ".agentic-forge" / "config.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        '{"review": "nope", "pr_watcher": {"enabled": true, '
+        f'"bot": {deep}, "repos": [{deep}]}}}}',
+        encoding="utf-8",
+    )
+    s = settings.resolve(tmp_path / "repo", env={}, home=home)
+    assert s.pr_watcher_enabled is True
+    assert s.pr_watcher_bot == settings.DEFAULTS["pr_watcher"]["bot"]
+    assert s.pr_watcher_repos == []
+
+
+def test_repo_file_false_does_not_open_the_repos_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    home, repo = tmp_path / "home", tmp_path / "repo"
+    _write_user_config(home, {"review": {"passes": 7}})
+    path = repo / ".agentic-forge" / "config.json"
+    path.parent.mkdir(parents=True)
+    path.write_text('{"review": {"passes": 9}, "pr_watcher": {"enabled": false},}', "utf-8")
+    s = settings.resolve(repo, env={}, home=home, repo_file=False)
+    assert s.review_passes == 7 and s.warnings == ()
+    assert capsys.readouterr().err == ""
+
+
+@pytest.mark.parametrize(
+    ("auto_merge", "here", "elsewhere"),
+    [
+        (True, True, True),
+        (False, False, False),
+        (["me/mine"], True, False),
+        (["ME/MINE", "x/y"], True, False),
+        ([], False, False),
+        ("yes", False, False),  # merging demands the documented forms, as ADR 0067 has it
+        (1, False, False),
+    ],
+)
+def test_merges_in(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    auto_merge: object,
+    here: bool,
+    elsewhere: bool,
+) -> None:
+    monkeypatch.setitem(sys.modules, "jsonschema", None)  # the schema also refuses the junk forms
+    home = tmp_path / "home"
+    _write_user_config(home, {"pr_watcher": {"auto_merge": auto_merge}})
+    s = settings.resolve(tmp_path / "repo", env={}, home=home)
+    assert s.merges_in("me/mine") is here and s.merges_in("me/other") is elsewhere
+
+
+def test_a_non_string_in_an_auto_merge_list_names_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(sys.modules, "jsonschema", None)
+    home = tmp_path / "home"
+    _write_user_config(home, {"pr_watcher": {"auto_merge": [1, None, "me/mine"]}})
+    s = settings.resolve(tmp_path / "repo", env={}, home=home)
+    assert s.pr_watcher_auto_merge_repos == ("me/mine",)
+
+
+@pytest.mark.parametrize("value", ["yes", 1, ["not a slug"], ["a/b", "a/b"], [1]])
+def test_the_schema_refuses_other_forms_of_auto_merge(tmp_path: Path, value: object) -> None:
+    home = tmp_path / "home"
+    _write_user_config(home, {"pr_watcher": {"enabled": True, "auto_merge": value}})
+    s = settings.resolve(tmp_path / "repo", env={}, home=home)
+    assert s.pr_watcher_enabled is False  # the whole file is dropped, which leaves the watcher off
+    assert any("auto_merge" in warning for warning in s.warnings)
+
+
+@pytest.mark.parametrize("value", [True, False, [], ["me/mine"]])
+def test_the_schema_accepts_both_forms_of_auto_merge(tmp_path: Path, value: object) -> None:
+    home = tmp_path / "home"
+    _write_user_config(home, {"pr_watcher": {"auto_merge": value}})
+    assert settings.resolve(tmp_path / "repo", env={}, home=home).warnings == ()
+
+
+# --- a repo may switch things off, and nothing else (ADR 0103) ------------------------------------
+
+
+@_NO_JSONSCHEMA
+@pytest.mark.parametrize(
+    ("user", "repo_value", "merges"),
+    [
+        (True, False, False),
+        (["me/mine"], False, False),
+        (True, [], False),
+        (True, True, True),
+        (True, ["other/repo"], True),  # a list from a repo neither turns on nor narrows
+        (False, True, False),
+        (False, ["me/mine"], False),
+    ],
+)
+def test_a_repo_can_switch_auto_merge_off_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    bare: bool,
+    user: object,
+    repo_value: object,
+    merges: bool,
+) -> None:
+    _maybe_bare(monkeypatch, bare)
+    home, repo = tmp_path / "home", tmp_path / "repo"
+    _write_user_config(home, {"pr_watcher": {"enabled": True, "auto_merge": user}})
+    _write_config(repo, {"pr_watcher": {"auto_merge": repo_value}})
+    assert settings.resolve(repo, env={}, home=home).merges_in("me/mine") is merges
+
+
+@_NO_JSONSCHEMA
+def test_a_repo_can_switch_auto_watch_off_but_not_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bare: bool
+) -> None:
+    _maybe_bare(monkeypatch, bare)
+    home, repo = tmp_path / "home", tmp_path / "repo"
+    _write_user_config(home, {"pr_watcher": {"enabled": True}})
+    _write_config(repo, {"pr_watcher": {"auto_watch": False}})
+    s = settings.resolve(repo, env={}, home=home)
+    assert s.pr_watcher_auto_watch is False
+    (warning,) = s.warnings
+    assert "pr_watcher.auto_watch is false in this repo's config" in warning
+
+    _write_user_config(home, {"pr_watcher": {"enabled": True, "auto_watch": False}})
+    _write_config(repo, {"pr_watcher": {"auto_watch": True}})
+    s = settings.resolve(repo, env={}, home=home)
+    assert s.pr_watcher_auto_watch is False
+    assert "pr_watcher.auto_watch in a repo config is ignored" in s.warnings[0]
+
+
+def test_a_repos_off_says_nothing_when_it_overrides_nothing(tmp_path: Path) -> None:
+    home, repo = tmp_path / "home", tmp_path / "repo"
+    _write_config(repo, {"pr_watcher": {"auto_merge": False, "auto_watch": False}})
+    assert settings.resolve(repo, env={}, home=home).warnings == ()  # the watcher is off anyway
+    _write_user_config(home, {"pr_watcher": {"enabled": True}})
+    s = settings.resolve(repo, env={}, home=home)
+    assert [w for w in s.warnings if "auto_merge" in w] == []  # it was off already
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b'{"pr_watcher": {"auto_merge": false',
+        b'{"pr_watcher": {"repos": ["o/r"], "auto_merge": false},}',
+        b'{"pr_watcher": {"auto_merge": false}, "models": "nope"}',
+    ],
+)
+def test_a_dropped_repo_file_keeps_a_clear_auto_merge_off(tmp_path: Path, raw: bytes) -> None:
+    home, repo = tmp_path / "home", tmp_path / "repo"
+    _write_user_config(home, {"pr_watcher": {"enabled": True, "auto_merge": True}})
+    path = repo / ".agentic-forge" / "config.json"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(raw)
+    s = settings.resolve(repo, env={}, home=home)
+    assert s.merges_in("me/mine") is False and s.pr_watcher_enabled is True
+
+
+def test_the_malformed_fallback_keeps_a_repos_auto_merge_off(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(sys.modules, "jsonschema", None)
+    home, repo = tmp_path / "home", tmp_path / "repo"
+    _write_user_config(home, {"pr_watcher": {"enabled": True, "auto_merge": True}})
+    _write_config(repo, {"review": "nope", "pr_watcher": {"auto_merge": False}})
+    s = settings.resolve(repo, env={}, home=home)
+    assert s.merges_in("me/mine") is False and s.pr_watcher_enabled is True
+
+
+@_NO_JSONSCHEMA
+def test_trusted_reviewers_come_from_the_operator_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bare: bool
+) -> None:
+    _maybe_bare(monkeypatch, bare)
+    home, repo = tmp_path / "home", tmp_path / "repo"
+    _write_user_config(home, {"pr_watcher": {"trusted_reviewers": ["codex[bot]", "other"]}})
+    _write_config(repo, {"pr_watcher": {"trusted_reviewers": ["sneaky"]}})
+    s = settings.resolve(repo, env={}, home=home)
+    assert s.pr_watcher_trusted_reviewers == ("codex[bot]", "other")
+    assert "pr_watcher.trusted_reviewers in a repo config is ignored" in s.warnings[0]
+    assert "sneaky" not in s.warnings[0]
+
+
+def test_a_warning_prints_once_a_process_and_is_carried_every_time(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_config(tmp_path, {"pr_watcher": {"bot": "x"}})
+    for _ in range(3):
+        assert len(settings.resolve(tmp_path, env={}, home=tmp_path / "nohome").warnings) == 1
+    assert capsys.readouterr().err.count("pr_watcher.bot") == 1

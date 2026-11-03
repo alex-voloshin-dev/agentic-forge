@@ -114,3 +114,59 @@ def test_drop_reason_is_true_to_what_happened() -> None:
     )
     mixed = pr_watch.WatchEntry("o", "n", 7, "", ticks=143, failures=2)
     assert pr_watch.drop_reason(mixed, finished=False) == "tick budget spent: 2 of 144 polls failed"
+
+
+# --- whose PRs the scheduler may act on (ADR 0103) -----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("origin", "repos", "allowed"),
+    [
+        ("o/r", [], True),
+        ("O/R", [], True),
+        ("x/y", [], False),
+        (None, [], False),
+        ("", [], False),
+        ("x/y", ["o/r"], True),
+        ("x/y", ["O/R"], True),
+        (None, ["o/r"], True),
+        ("x/y", ["o/other"], False),
+    ],
+)
+def test_entry_in_scope(origin: str | None, repos: list[str], allowed: bool) -> None:
+    entry = pr_watch.WatchEntry("o", "r", 1)
+    assert pr_watch.entry_in_scope(entry, origin, repos) is allowed
+
+
+def _answer(**pr: object) -> dict[str, object]:
+    return {"data": {"repository": {"pullRequest": pr}}}
+
+
+def test_parse_head_reads_the_answer() -> None:
+    oid = "a" * 40
+    assert pr_watch.parse_head(_answer(isCrossRepository=False, headRefOid=oid)) == pr_watch.PrHead(
+        False, oid
+    )
+    assert pr_watch.parse_head(_answer(isCrossRepository=True)) == pr_watch.PrHead(True, "")
+
+
+@pytest.mark.parametrize("oid", [None, "", "main", "--upload-pack=x", "A" * 40, "a" * 39, "a" * 41])
+def test_parse_head_wants_a_commit_id(oid: object) -> None:
+    with pytest.raises(ValueError, match="head commit"):
+        pr_watch.parse_head(_answer(isCrossRepository=False, headRefOid=oid))
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"data": None},
+        {"data": {"repository": None}},
+        {"data": {"repository": {"pullRequest": None}}},
+        {"data": {"repository": {"pullRequest": {}}}},
+        {"data": {"repository": {"pullRequest": {"isCrossRepository": "false"}}}},
+    ],
+)
+def test_parse_head_does_not_guess_about_a_fork(payload: dict[str, object]) -> None:
+    with pytest.raises(ValueError, match="does not say"):
+        pr_watch.parse_head(payload)

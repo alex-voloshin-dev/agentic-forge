@@ -296,6 +296,7 @@ def test_alert_source_falls_back_without_url() -> None:
         ("https://github.com/alex/agentic-forge", "alex/agentic-forge"),
         ("ssh://git@github.com/alex/agentic-forge.git", "alex/agentic-forge"),
         ("https://github.com/alex/agentic-forge/\n", "alex/agentic-forge"),
+        ("https://github.com/alex/agentic-forge.git/", "alex/agentic-forge"),
         # not a GitHub remote, so not a slug `gh` could read — guessing one would query a
         # repository that is not ours
         ("git@gitlab.com:alex/forge.git", None),

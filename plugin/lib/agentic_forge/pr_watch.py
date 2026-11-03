@@ -15,6 +15,7 @@ force-pushes" was not.
 
 from __future__ import annotations
 
+import posixpath
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -69,12 +70,13 @@ CHECKS_GREEN = "SUCCESS"
 # Adjust here if the `gh` / API shape changes.
 PR_QUERY = (
     "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name)"
-    "{pullRequest(number:$number){number mergeable isDraft createdAt headRefName baseRefName "
-    "isCrossRepository "
+    "{pullRequest(number:$number){number mergeable isDraft createdAt headRefName headRefOid "
+    "baseRefName isCrossRepository "
     "state "
     "reviewThreads(first:100){pageInfo{hasNextPage} nodes{id isResolved "
-    "comments(first:1){nodes{body path line author{login}}}}} "
+    "comments(first:1){nodes{body path line authorAssociation author{login __typename}}}}} "
     "reviews(first:50){nodes{state author{login}}} "
+    "latestOpinionatedReviews(first:100){pageInfo{hasNextPage} nodes{state author{login}}} "
     "commits(last:1){nodes{commit{statusCheckRollup{state}}}}}}}"
 )
 
@@ -82,6 +84,35 @@ PR_QUERY = (
 # creates NO review thread, so without this the gate would open over an explicit objection
 # (ADR 0067).
 BLOCKING_REVIEW_STATES = ("CHANGES_REQUESTED",)
+
+# Whose review thread reaches the fixer: its author has a standing in the repo. Anyone can comment
+# on a public PR, and what goes to the fixer is instructions in all but name. Any other value, or
+# none, is not trusted (ADR 0103). Such a thread still holds the merge gate; nothing resolves it.
+TRUSTED_ASSOCIATIONS = ("OWNER", "MEMBER", "COLLABORATOR")
+
+# A human author also needs one of these on the repo itself: COLLABORATOR has no role attached and
+# MEMBER is organisation-wide, so an association alone does not mean they may have commits pushed.
+WRITE_PERMISSIONS = ("write", "maintain", "admin")
+_LOGIN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")  # `_`: a managed user is `alice_acme`
+
+# The watcher's exit code for a pass that was fine but left a thread held: the driver has to know,
+# since a PR that runs out of ticks that way never got its answer (ADR 0103).
+EXIT_HELD = 3
+
+# What a fixer session may not change, as a path component anywhere: what these do takes effect on
+# someone else's machine or in CI, not by being read, and no review comment needs them (ADR 0103).
+PROTECTED_PATHS = (
+    ".github",
+    ".gitattributes",
+    ".gitmodules",
+    ".husky",
+    ".agentic-forge",
+    ".claude",
+    ".mcp.json",
+)
+
+# A commit id as GitHub gives it (SHA-1 or SHA-256). It reaches argv, in a worktree and a merge.
+_COMMIT_ID = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
 
 
 @dataclass(frozen=True)
@@ -94,6 +125,12 @@ class ReviewThread:
     body: str
     path: str
     line: int | None
+    author_association: str = ""  # authorAssociation; absent reads as untrusted
+    author_type: str = ""  # the author's __typename: "Bot", "User", ...
+
+    @property
+    def trusted(self) -> bool:
+        return self.author_association in TRUSTED_ASSOCIATIONS
 
 
 @dataclass(frozen=True)
@@ -114,6 +151,8 @@ class PrState:
     review_states: list[str] = field(default_factory=list)  # latest review state per author
     state: str = "OPEN"  # OPEN | CLOSED | MERGED — the loop's terminal signal (ADR 0067)
     threads_truncated: bool = False  # >100 review threads: the thread list is INCOMPLETE
+    head_oid: str = ""  # headRefOid: the commit this state describes, which a merge is pinned to
+    reviews_truncated: bool = False  # past the page, or no answer: one may be requesting changes
 
     @property
     def conflicting(self) -> bool:
@@ -134,6 +173,8 @@ class WatchResult:
     # Threads whose fixer session never ran (a usage limit, an auth error, a crash): NOTHING was
     # posted and the thread is left, untouched, for the next poll. Not "handled" in any sense.
     undetermined: list[str] = field(default_factory=list)
+    untrusted: list[str] = field(default_factory=list)  # held: never given to the fixer (ADR 0103)
+    push_failed: bool = False  # the fixes did not reach GitHub, so nothing was posted for them
     pushed: bool = False
     conflicting: bool = False
     conflict_resolved: bool = False  # a CONFLICTING PR was rebased clean (1b, ADR 0045)
@@ -152,6 +193,40 @@ class MergeDecision:
 
     ready: bool
     reasons: list[str] = field(default_factory=list)
+
+
+def pr_query_argv(owner: str, name: str, number: int) -> list[str]:
+    """argv reading a PR's state (:data:`PR_QUERY`) through ``gh api graphql``."""
+    return [
+        "gh", "api", "graphql", "-F", f"owner={owner}", "-F", f"name={name}",
+        "-F", f"number={number}", "-f", f"query={PR_QUERY}",
+    ]
+
+
+@dataclass(frozen=True)
+class PrHead:
+    """What the scheduler has to know about a PR before any of it is on disk."""
+
+    cross_repo: bool
+    oid: str  # "" for a fork, whose head is never used
+
+
+def parse_head(data: dict[str, Any]) -> PrHead:
+    """Whether the PR in ``gh api graphql`` JSON comes from a fork, and its head commit. Unlike
+    :func:`parse_pr` this is not tolerant: the caller is about to put a PR's tree on disk, so an
+    answer that does not say raises ``ValueError`` rather than reading as "not a fork", and a head
+    that is not a commit id raises too, since it reaches argv (ADR 0103)."""
+    pr = ((data.get("data") or {}).get("repository") or {}).get("pullRequest")
+    cross_repo = pr.get("isCrossRepository") if isinstance(pr, dict) else None
+    if not isinstance(cross_repo, bool):
+        raise ValueError("the answer does not say whether the PR comes from a fork")
+    if cross_repo:
+        return PrHead(True, "")
+    assert isinstance(pr, dict)  # for mypy: cross_repo is a bool only if it is
+    oid = pr.get("headRefOid")
+    if not (isinstance(oid, str) and _COMMIT_ID.fullmatch(oid)):
+        raise ValueError("the answer does not give the PR's head commit")
+    return PrHead(False, oid)
 
 
 def parse_pr(data: dict[str, Any]) -> PrState:
@@ -181,11 +256,14 @@ def parse_pr(data: dict[str, Any]) -> PrState:
                 body=str(first.get("body", "")),
                 path=str(first.get("path", "")),
                 line=line if isinstance(line, int) else None,
+                author_association=str(first.get("authorAssociation") or ""),
+                author_type=str((first.get("author") or {}).get("__typename") or ""),
             )
         )
     return PrState(
         number=int(pr.get("number", 0) or 0),
         branch=str(pr.get("headRefName", "") or ""),
+        head_oid=str(pr.get("headRefOid", "") or ""),
         base=str(pr.get("baseRefName", "") or ""),
         cross_repo=bool(pr.get("isCrossRepository", False)),
         mergeable=str(pr.get("mergeable", "UNKNOWN") or "UNKNOWN"),
@@ -199,14 +277,23 @@ def parse_pr(data: dict[str, Any]) -> PrState:
         threads_truncated=bool(
             ((pr.get("reviewThreads") or {}).get("pageInfo") or {}).get("hasNextPage", False)
         ),
+        reviews_truncated=_reviews_incomplete(pr),
     )
 
 
 def _review_states(pr: dict[str, Any]) -> list[str]:
     """The LATEST review state per author, upper-cased.
 
-    Per author, because a reviewer who requested changes and then approved must not keep blocking;
-    GitHub returns reviews in chronological order, so the last one per login wins."""
+    Per author, because a reviewer who requested changes and then approved must not keep blocking.
+    ``latestOpinionatedReviews`` is GitHub's own answer to that, and an author-less change request
+    in it still counts, as a deleted account's objection was still made (ADR 0103). A payload
+    without it, such as a recorded fixture, is read from ``reviews``: chronological, so the last one
+    per login wins."""
+    latest_opinions = pr.get("latestOpinionatedReviews")
+    if isinstance(latest_opinions, dict):
+        opinions = latest_opinions.get("nodes") or []
+        states = [str(n.get("state") or "") for n in opinions if isinstance(n, dict)]
+        return [state.strip().upper() for state in states if state.strip()]
     nodes = ((pr.get("reviews") or {}).get("nodes")) or []
     latest: dict[str, str] = {}
     for node in nodes:
@@ -242,6 +329,43 @@ def _review_authors(pr: dict[str, Any]) -> list[str]:
         if login and login not in out:
             out.append(login)
     return out
+
+
+def thread_trusted(thread: ReviewThread, trusted_reviewers: tuple[str, ...] = ()) -> bool:
+    """Whether a thread's author may reach the fixer, as far as the PR's own data can say. A Bot is
+    judged by the operator's list alone, and an entry counts only for a Bot: GraphQL drops the
+    `[bot]` suffix, and a person could register the bare login. Anyone else needs an association,
+    and the driver then asks about their permission on the repo too (:func:`permission_argv`)."""
+    if thread.author_type == "Bot":
+        names = {name.casefold().removesuffix("[bot]") for name in trusted_reviewers}
+        return thread.author.casefold().removesuffix("[bot]") in names
+    return thread.trusted
+
+
+def _reviews_incomplete(pr: dict[str, Any]) -> bool:
+    """True if ``latestOpinionatedReviews`` was asked for and does not give a full answer: null,
+    null nodes, a null among them, or more pages. It cannot then say nobody is requesting changes.
+    A payload without the key, such as a recorded fixture, is read from ``reviews`` instead."""
+    if "latestOpinionatedReviews" not in pr:
+        return False
+    latest = pr["latestOpinionatedReviews"]
+    nodes = latest.get("nodes") if isinstance(latest, dict) else None
+    if not isinstance(nodes, list) or not all(isinstance(node, dict) for node in nodes):
+        return True
+    return bool((latest.get("pageInfo") or {}).get("hasNextPage"))
+
+
+def permission_argv(slug: str, login: str) -> list[str]:
+    """argv reading what ``login`` may do on ``slug``. The login reaches a URL, so one that is not a
+    login raises ``ValueError``."""
+    if not _LOGIN.fullmatch(login):
+        raise ValueError("not a login")
+    return ["gh", "api", f"repos/{slug}/collaborators/{login}/permission"]
+
+
+def has_write_permission(payload: Any) -> bool:
+    """True if a ``collaborators/<login>/permission`` answer says write or better. Fails closed."""
+    return isinstance(payload, dict) and payload.get("permission") in WRITE_PERMISSIONS
 
 
 def actionable_threads(state: PrState, *, bot: str) -> list[ReviewThread]:
@@ -280,6 +404,8 @@ def merge_readiness(state: PrState, *, bot: str) -> MergeDecision:
         reasons.append(f"{len(open_threads)} unresolved review thread(s)")
     if state.threads_truncated:
         reasons.append("review threads truncated (>100) — cannot confirm all are resolved")
+    if state.reviews_truncated:
+        reasons.append("reviews truncated or unread — cannot confirm none is requesting changes")
     blocking = [s for s in state.review_states if s in BLOCKING_REVIEW_STATES]
     if blocking:
         reasons.append(f"{len(blocking)} review(s) requesting changes")
@@ -312,12 +438,16 @@ def resolve_argv(thread_id: str) -> list[str]:
 
 
 def push_argv(repo: str, branch: str) -> list[str]:
-    """argv to push the local fixes to the PR branch — ``HEAD:<branch>``, never ``--force``."""
-    return ["git", "-C", repo, "push", "origin", f"HEAD:{branch}"]
+    """argv to push the local fixes to the PR branch, never ``--force``. A full ref: a pass runs on
+    a detached HEAD, where git will not guess what a bare ``<branch>`` means, and a tag of the same
+    name could not take it either."""
+    return ["git", "-C", repo, "push", "origin", f"HEAD:refs/heads/{branch}"]
 
 
-def merge_argv(repo: str, number: int, method: str = "rebase") -> list[str]:
-    """argv to merge the PR and delete its branch (ADR 0063).
+def merge_argv(repo: str, number: int, method: str = "rebase", *, head_commit: str) -> list[str]:
+    """argv to merge the PR and delete its branch (ADR 0063), only if its head is still
+    ``head_commit``, the commit the merge gate read: a push after that read must not ride through
+    on someone else's green checks (ADR 0103). Not a commit id raises, as an unknown method does.
 
     ``method`` is clamped to :data:`MERGE_METHODS` **here**, not just in the config schema: it lands
     in argv as ``--<method>``, so an arbitrary string would inject a flag into the `gh` call. An
@@ -326,7 +456,12 @@ def merge_argv(repo: str, number: int, method: str = "rebase") -> list[str]:
     ``--force``, and never ``--admin`` (which would bypass the repo's own branch protection)."""
     if method not in MERGE_METHODS:
         raise ValueError(f"unknown merge method {method!r}; expected one of {MERGE_METHODS}")
-    return ["gh", "pr", "merge", str(number), "-R", repo, f"--{method}", "--delete-branch"]
+    if not _COMMIT_ID.fullmatch(head_commit):
+        raise ValueError("the head commit to merge is not a commit id, so the merge is refused")
+    return [
+        "gh", "pr", "merge", str(number), "-R", repo, f"--{method}", "--delete-branch",
+        "--match-head-commit", head_commit,
+    ]
 
 
 def merged_argv(repo: str, number: int) -> list[str]:
@@ -372,10 +507,104 @@ def conflict_notice_present(bodies: list[str]) -> bool:
     return any(CONFLICT_NOTICE in str(b) for b in bodies)
 
 
-def plan_watch(state: PrState, *, bot: str, max_threads: int) -> WatchResult:
-    """A dry plan: the actionable threads (capped) + the conflict flag, with no writes."""
-    actionable = actionable_threads(state, bot=bot)[:max_threads]
-    return WatchResult(actionable=[t.id for t in actionable], conflicting=state.conflicting)
+def plan_watch(
+    state: PrState, *, bot: str, max_threads: int, trusted_reviewers: tuple[str, ...] = ()
+) -> WatchResult:
+    """A dry plan: the threads a fix pass would take (capped, after leaving out the untrusted, as
+    :func:`run_watch` does) + the conflict flag, with no writes. ``untrusted`` names those held, by
+    what the PR's own data says; the scheduler's pass also asks about a person's permission."""
+    open_threads = actionable_threads(state, bot=bot)
+    fixable = [t for t in open_threads if thread_trusted(t, trusted_reviewers)]
+    return WatchResult(
+        actionable=[t.id for t in fixable[:max_threads]],
+        conflicting=state.conflicting,
+        untrusted=[t.id for t in open_threads if not thread_trusted(t, trusted_reviewers)],
+    )
+
+
+def symlinks_in_listing(ls_files_z: str) -> list[str]:
+    """The paths in ``git ls-files -s -z`` output that are a symlink (mode 120000)."""
+    return [
+        entry.partition("\t")[2]
+        for entry in ls_files_z.split("\0")
+        if entry.startswith("120000 ")
+    ]
+
+
+def protected_name_links(links: list[str]) -> list[str]:
+    """Those of ``links`` where a protected NAME itself is the link, such as ``.github -> cfg``: a
+    session writing through it changes what the staged listing would not call protected. A link
+    merely below such a directory is not one of these: see :func:`protected_link_targets`."""
+    return [link for link in links if protected_paths([link.rsplit("/", 1)[-1]])]
+
+
+def protected_link_targets(links: dict[str, str]) -> dict[str, str]:
+    """Where the links below a protected directory lead, in the tree: ``{path: the link}``, for each
+    step of a chain. ``links`` maps each symlink to what it says. So in
+    ``.github/workflows/ci.yml -> ../../ci/ci.yml``, a change to ``ci/ci.yml`` is a change to the
+    workflow. A link at any component counts: with ``.github/c -> ../alias/c`` and
+    ``alias -> real``, ``alias``, ``alias/c`` and ``real/c`` are all protected. A target outside the
+    tree is left out, as a session cannot write there."""
+    targets: dict[str, str] = {}
+    for link in links:
+        if protected_paths([link]):
+            for step in _link_steps(link, links):
+                targets[step] = link
+    return targets
+
+
+def _link_steps(start: str, links: dict[str, str]) -> list[str]:
+    """Every in-tree path ``start`` passes through, resolving a link at any of its components."""
+    steps: list[str] = []
+    pending = start
+    seen: set[str] = set()
+    while pending not in seen:
+        seen.add(pending)
+        parts = pending.split("/")
+        for index in range(1, len(parts) + 1):
+            prefix = "/".join(parts[:index])
+            if prefix not in links:
+                continue
+            said = links[prefix]
+            if posixpath.isabs(said):
+                return steps
+            pending = posixpath.normpath(
+                posixpath.join(posixpath.dirname(prefix), said, *parts[index:])
+            )
+            if pending == ".." or pending.startswith("../"):
+                return steps
+            if prefix != start:
+                steps.append(prefix)
+            steps.append(pending)
+            break
+        else:
+            return steps
+    return steps
+
+
+def link_targets_touched(names: list[str], targets: dict[str, str]) -> list[str]:
+    """The links from :func:`protected_link_targets` whose target ``names`` are at or under."""
+    touched = set()
+    for name in filter(None, names):
+        folded = name.casefold()
+        for target, link in targets.items():
+            wanted = target.casefold()
+            if wanted == "." or folded == wanted or folded.startswith(wanted + "/"):
+                touched.add(link)
+    return sorted(touched)
+
+
+def protected_paths(names: list[str]) -> list[str]:
+    """Which of :data:`PROTECTED_PATHS` the repo-relative ``names`` touch, by our spelling and never
+    theirs, since a name is the session's own text. Folded, for a case-insensitive filesystem."""
+    protected = {path.casefold(): path for path in PROTECTED_PATHS}
+    touched = {
+        protected[part.casefold()]
+        for name in names
+        for part in name.split("/")
+        if part.casefold() in protected
+    }
+    return sorted(touched)
 
 
 # Seams: the model fix decision, the gh write, the git push. fixer(thread) -> (action, reply) where
@@ -468,10 +697,17 @@ def run_watch(
     merge: Merge | None = None,
     auto_merge: bool = False,
     confirm_merged: ConfirmMerged | None = None,
+    author_trusted: Callable[[ReviewThread], bool] | None = None,
 ) -> WatchResult:
     """Run the bounded auto-fix loop over a PR's actionable threads (ADR 0044): per thread the
     ``fixer`` decides fix-vs-reject and the reply; a fix posts the reply, resolves the thread; a
-    rejection posts the reasoned reply and leaves the thread open. A fixer that answers
+    rejection posts the reasoned reply and leaves the thread open. Only a thread whose author has a
+    standing in the repo goes to the fixer: the others are held, which keeps the merge gate shut,
+    and nothing here resolves them (ADR 0103). **Fixes are pushed first**: a reply saying "Addressed
+    in <sha>" and a resolved thread are only true once GitHub has the commit, so a refused push
+    posts nothing for them and they read as undetermined. A PR that is no longer open gets nothing:
+    a push would recreate a merged PR's deleted branch. ``author_trusted`` is the seam for a check
+    that needs the network, and defaults to :func:`thread_trusted`. A fixer that answers
     :data:`UNDETERMINED` — or raises — never ran the session (a usage limit, an auth error, a
     crash): **nothing is posted**, the thread is recorded ``undetermined`` with the reason and left
     for the next poll, and it counts as neither fixed nor rejected. On a ``CONFLICTING`` PR the
@@ -501,7 +737,22 @@ def run_watch(
     ``record`` (if given) logs each action for diagnostics. The caller gates this on
     ``settings.pr_watcher.enabled`` + a non-dry run."""
     result = WatchResult(conflicting=state.conflicting)
-    for thread in actionable_threads(state, bot=bot)[:max_threads]:
+    if state.state.upper() != "OPEN":
+        result.merge_blocked_by = [f"state: {state.state or 'UNKNOWN'}"]
+        if record:
+            record(f"#{state.number} is {state.state or 'UNKNOWN'}: nothing done")
+        return result
+    is_trusted = author_trusted or thread_trusted
+    fixable: list[ReviewThread] = []
+    for thread in actionable_threads(state, bot=bot):
+        if is_trusted(thread):
+            fixable.append(thread)
+            continue
+        result.untrusted.append(thread.id)
+        if record:
+            record(f"thread {thread.id} ({thread.path}): held, its author is not trusted")
+    fixed: list[tuple[ReviewThread, str]] = []
+    for thread in fixable[:max_threads]:
         result.actionable.append(thread.id)
         try:
             action, reply = fixer(thread)
@@ -515,12 +766,11 @@ def run_watch(
             if record:
                 record(f"thread {thread.id} ({thread.path}): undetermined ({reply})")
             continue
-        gh_exec(reply_argv(thread.id, reply))
         if action == "fixed":
-            gh_exec(resolve_argv(thread.id))
-            result.fixed.append(thread.id)
-        else:
-            result.rejected.append(thread.id)  # disputed: reply only, leave the thread open
+            fixed.append((thread, reply))
+            continue
+        gh_exec(reply_argv(thread.id, reply))
+        result.rejected.append(thread.id)  # disputed: reply only, leave the thread open
         if record:
             record(f"thread {thread.id} ({thread.path}): {action}")
     if state.conflicting and handle_conflict is not None:
@@ -534,11 +784,24 @@ def run_watch(
         )
         if record:
             record(f"conflict on #{state.number}: {note}")
-    if result.fixed or result.conflict_resolved:
-        push()
-        result.pushed = True
-        if record:  # the push is an outward write — audit it explicitly (invariant: audit all)
-            record(f"pushed HEAD:{state.branch} on #{state.number}")
+    if fixed or result.conflict_resolved:
+        try:
+            push()
+        except Exception as exc:  # noqa: BLE001 — refused or not, nothing below is true yet
+            result.push_failed = True
+            result.undetermined.extend(thread.id for thread, _reply in fixed)
+            if record:
+                record(f"push of #{state.number} failed, nothing posted for its fixes: {exc}")
+        else:
+            result.pushed = True
+            if record:  # the push is an outward write — audit it (invariant: audit all)
+                record(f"pushed HEAD:{state.branch} on #{state.number}")
+            for thread, reply in fixed:
+                gh_exec(reply_argv(thread.id, reply))
+                gh_exec(resolve_argv(thread.id))
+                result.fixed.append(thread.id)
+                if record:
+                    record(f"thread {thread.id} ({thread.path}): fixed")
 
     if merge is not None:
         # The gate is recomputed HERE, from the state this pass actually saw — a caller cannot
@@ -546,6 +809,8 @@ def run_watch(
         decision = merge_readiness(state, bot=bot)
         if not auto_merge:
             result.merge_blocked_by = ["auto_merge is off"]
+        elif result.push_failed:
+            result.merge_blocked_by = ["the push failed; the head is not what this pass worked on"]
         elif result.pushed or result.fixed:
             # This pass changed the head. The decision's green checks describe the OLD commit, so
             # merging now would ship an untested one — wait for the next poll (ADR 0063 §4).
@@ -629,7 +894,6 @@ def watch_repos(
 # The hook records INTENT here; the scheduled drain executes it through the same `run_watch` path.
 # Pure functions only — the file I/O belongs to the hook and the runner.
 
-QUEUE_PATH = ".agentic-forge/pr-watch-queue.json"  # legacy in-repo location (read fallback)
 QUEUE_FILE = "pr-watch-queue.json"  # resolved under diagnostics.state_root() — ADR 0072
 MAX_QUEUE = 50  # a hook bug must not enqueue unboundedly
 _SLUG = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -688,6 +952,17 @@ def _count(value: Any) -> int:
         return max(0, int(value))
     except (TypeError, ValueError):
         return 0
+
+
+def entry_in_scope(entry: WatchEntry, origin: str | None, operator_repos: list[str]) -> bool:
+    """True if the scheduler may act on ``entry``: it names the checkout's own ``origin``, or a repo
+    the operator's user-level ``pr_watcher.repos`` lists. A queue names repos, and the scheduler
+    holds the operator's credentials for all of them (ADR 0103). GitHub slugs are case-insensitive;
+    an unknown origin matches nothing."""
+    wanted = entry.slug.casefold()
+    return wanted == (origin or "").casefold() or any(
+        repo.casefold() == wanted for repo in operator_repos
+    )
 
 
 def queue_add(queue: list[WatchEntry], entry: WatchEntry) -> list[WatchEntry]:

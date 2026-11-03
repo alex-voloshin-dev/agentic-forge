@@ -34,8 +34,10 @@ __all__ = [
     "STATE_DIRNAME",
     "repo_slug",
     "state_root",
+    "user_state_root",
     "state_file",
     "state_anchor",
+    "DROPPED_LEGACY_FILES",
     "LEGACY_STATE_FILES",
     "write_state",
     "append_state",
@@ -43,7 +45,10 @@ __all__ = [
     "hook_notice",
     "hook_crash_notice",
     "hook_crash",
+    "current_state_file",
+    "dropped_legacy_notice",
     "existing_state_file",
+    "ignored_legacy_files",
     "KINDS",
     "DEFAULT_REVIEW_CAP",
     "Problem",
@@ -98,15 +103,23 @@ def state_root(cwd: Path | str) -> Path:
     ``~/.agentic-forge/state/<repo>-<hash>/`` by default; ``<repo>/.agentic-forge/`` only when
     the operator's own config enables ``state.in_repo``: a repo's config cannot (ADR 0102). Never
     raises — an unreadable config falls back to the user-level default, which is the direction that
-    cannot dirty someone's repository."""
+    cannot dirty someone's repository. The repo's file is not opened, since it cannot change the
+    answer, and this runs while the tree may be a pull request's (ADR 0103)."""
     root = main_repo_root(cwd)
     try:
         from . import settings as _settings
 
-        if _settings.resolve(root).state_in_repo:
+        if _settings.resolve(root, repo_file=False).state_in_repo:
             return root / STATE_DIRNAME
     except Exception:  # noqa: BLE001 — a state path must resolve even if config resolution breaks
         pass
+    return user_state_root(cwd)
+
+
+def user_state_root(cwd: Path | str) -> Path:
+    """The user-level state directory for the repo containing ``cwd``, whatever ``state.in_repo``
+    says: what must not sit in a repo uses this rather than :func:`state_root` (ADR 0103)."""
+    root = main_repo_root(cwd)
     base = os.environ.get("AGENTIC_FORGE_STATE_HOME")
     # The env override exists for two reasons: an operator relocating state (XDG-style layouts,
     # a shared box), and hermetic tests — without it every test would write into the developer's
@@ -127,7 +140,7 @@ def legacy_state_notice(cwd: Path | str) -> str:
     legacy = root / STATE_DIRNAME
     if not legacy.is_dir():
         return ""
-    # Only the names the migration moves, so that following this notice ends it, and never a name
+    # Only the names the migration handles, so that following this notice ends it, and never a name
     # read from the directory: a repo chooses those, and this line reaches the model (ADR 0102).
     stale = sorted(n for n in LEGACY_STATE_FILES if state_io.readable(legacy / n, root))
     if not stale:
@@ -137,11 +150,40 @@ def legacy_state_notice(cwd: Path | str) -> str:
         return ""
     # The real path, not ${CLAUDE_PLUGIN_ROOT}: hooks get that variable, a shell usually does not.
     command = f"python3 {shlex.quote(str(_MIGRATE_CLI))} --repo {shlex.quote(str(root))}"
-    return (
-        f"agentic-forge: runtime state still lives in the repo ({', '.join(stale)}). "
-        f"Its home is now {resolved}. To see what would move, run `{command}`; add `--apply` to "
-        f"merge those files there and remove them from the repo (ADR 0072/0080)."
+    moving = [name for name in stale if name not in DROPPED_LEGACY_FILES]
+    dropped = [name for name in stale if name in DROPPED_LEGACY_FILES]
+    parts = ["agentic-forge:"]
+    if moving:
+        parts.append(
+            f"runtime state still lives in the repo ({', '.join(moving)}). "
+            f"Its home is now {resolved}."
+        )
+    if dropped:
+        parts.append(dropped_legacy_notice(dropped))
+    parts.append(
+        f"To see what would happen, run `{command}`; add `--apply` to merge what moves and "
+        "remove them from the repo (ADR 0072/0080/0103)."
     )
+    return " ".join(parts)
+
+
+def dropped_legacy_notice(names: list[str]) -> str:
+    """The sentence that names legacy files which are no longer read. ``names`` come from
+    :data:`DROPPED_LEGACY_FILES`, never from a directory listing."""
+    return (
+        f"Not read and not imported, because a repo can commit them: {', '.join(names)} under "
+        f"{STATE_DIRNAME}/ (ADR 0103)."
+    )
+
+
+def ignored_legacy_files(cwd: Path | str) -> list[str]:
+    """Which of :data:`DROPPED_LEGACY_FILES` sit at the in-repo location without it being the state
+    root, so that a caller about to ignore one can say so."""
+    root = main_repo_root(cwd)
+    legacy = root / STATE_DIRNAME
+    if state_root(cwd) == legacy:
+        return []
+    return [name for name in DROPPED_LEGACY_FILES if state_io.readable(legacy / name, root)]
 
 
 def state_file(cwd: Path | str, filename: str) -> Path:
@@ -198,6 +240,10 @@ LEGACY_STATE_FILES = (
     "pr-watch-queue.json",
     "schedule-state.json",
 )
+# Of those, the ones that decide what the scheduler does: which PRs it acts on, and whether a job is
+# due. A repo can commit a file at these names, so they are read from the state root only and the
+# migration deletes them rather than importing them (ADR 0103).
+DROPPED_LEGACY_FILES = ("pr-watch-queue.json", "schedule-state.json")
 _MIGRATE_CLI = Path(__file__).resolve().parents[2] / "bin" / "state_migrate.py"
 
 
@@ -290,7 +336,7 @@ def hook_crash(
             cwd, kind="error", component=component, message=message, severity=severity,
             session_id=session_id, force=True,
         )
-        repo_controls_path = settings.resolve(main_repo_root(cwd)).state_in_repo
+        repo_controls_path = settings.resolve(main_repo_root(cwd), repo_file=False).state_in_repo
         marker = HOOK_CRASH_MARKER + component
         if once_per_session(cwd, marker, session_id, if_unsaved=not repo_controls_path):
             log = state_root(cwd) / DIAGNOSTICS_FILE
@@ -322,6 +368,17 @@ def existing_state_file(cwd: Path | str, filename: str, legacy_rel: str) -> Path
     legacy = root / legacy_rel
     if state_io.readable(legacy, root):
         return legacy
+    return current_state_file(cwd, filename)
+
+
+def current_state_file(cwd: Path | str, filename: str) -> Path:
+    """The path a READER should use for a state file a repo must not be able to supply: the state
+    root and nowhere else (ADR 0103). As in :func:`existing_state_file`, what crosses a symlink or
+    is not a regular file comes back as ``os.devnull``, which reads as "no state yet"."""
+    state, anchor = _state_location(cwd)
+    new = state / filename
+    if state_io.readable(new, anchor):
+        return new
     if state_io.symlink_below(new, anchor) or os.path.lexists(new):
         return Path(os.devnull)
     return new

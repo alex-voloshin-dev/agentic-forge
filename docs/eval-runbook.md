@@ -419,7 +419,8 @@ PR on a repo you own** — never a real PR first.
    `python plugin/bin/pr_watch.py --owner <you> --name <repo> --pr <N>` — confirm it prints the actionable
    thread count + `conflicting=<bool>` and the thread ids, and makes **no** writes (check GitHub).
 3. **Enable + apply on the throwaway PR.** Set `{"pr_watcher": {"enabled": true}}` in
-   `.agentic-forge/config.json`, `gh pr checkout <N>`, then run with `--apply` and verify each
+   `~/.agentic-forge/config.json` (a repo's file cannot turn it on, ADR 0103), `gh pr checkout <N>`,
+   then run with `--apply` and verify each
    invariant on the real PR:
    - a fixable comment → a commit on the branch + a reply + the thread **resolved**;
    - a comment it rejects → a reasoned reply, thread **left open**, no spurious commit;
@@ -432,9 +433,24 @@ PR on a repo you own** — never a real PR first.
    threads skipped; a still-conflicted PR does **not** get a second "please rebase" comment).
 5. **Fork PR.** Point `--apply` at a fork PR → it must **refuse** ("same-repo auto-apply only") while
    the dry plan still works.
-6. **Scheduled wiring.** Add the repo to `pr_watcher.repos`, run
-   `python plugin/bin/run_scheduled.py run --repo . --force`, and confirm the `pr-watch` job fans out over
-   the configured repos' open PRs (and no-ops with a message when disabled / no repos).
+6. **Scheduled wiring.** Add the repo to `pr_watcher.repos` in the same user-level file, run
+   `python plugin/bin/run_scheduled.py --repo . --force`, and confirm the `pr-watch` job fans out over the
+   configured repos' open PRs (and no-ops with a message when disabled / no repos). **Since ADR 0103 none of
+   this has been run against real GitHub**: its scenarios use a fake `gh` and a local bare origin. So on a
+   throwaway PR, check in particular:
+   - `git fetch origin -- refs/pull/<N>/head` works with your credentials, including under cron;
+   - a fork PR is never fetched, and `--health` stays ok;
+   - a fixer commit from the detached worktree reaches the PR's branch through
+     `git push origin HEAD:refs/heads/<branch>`, and your own checkout and HEAD do not change, with that
+     branch checked out too;
+   - `gh pr merge --match-head-commit <oid> -R <slug>` merges at that commit and **refuses** once the branch
+     has moved, and does no local work with `-R` given: nothing should move in the directory it ran in;
+   - `headRefOid` is what GitHub's GraphQL API returns for that PR;
+   - a thread from someone without write access is held and not resolved, one from a writer reaches the fixer,
+     and a listed reviewer app does too. `authorAssociation`, `__typename`, the permission endpoint and
+     `latestOpinionatedReviews` have been read for real, but not on a pass;
+   - the fixer's in-tree edit reaches the PR under your login;
+   - a second clone's drain says the queue is elsewhere.
 
 Enable the hourly cron only after all six pass — and only for repos whose PR authors you trust (the
 auto-fix autonomy applies to every open same-repo PR).

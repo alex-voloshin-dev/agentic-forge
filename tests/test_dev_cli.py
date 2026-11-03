@@ -27,7 +27,7 @@ import run_spine_e2e  # noqa: E402
 import run_tier1_evals  # noqa: E402
 import sync_models as sync_models_cli  # noqa: E402
 import validate as validate_cli  # noqa: E402
-from agentic_forge import diagnostics, schedule  # noqa: E402
+from agentic_forge import diagnostics, schedule, settings  # noqa: E402
 
 
 def test_validate_cli_main_ok() -> None:
@@ -1471,7 +1471,8 @@ def test_tier1_eval_uses_router_tier_from_settings(
 _PR_DATA = {"data": {"repository": {"pullRequest": {
     "number": 42, "mergeable": "MERGEABLE", "headRefName": "feat-x",
     "reviewThreads": {"nodes": [{"id": "T1", "isResolved": False, "comments": {"nodes": [
-        {"body": "fix", "path": "a.py", "line": 5, "author": {"login": "rev"}}]}}]},
+        {"body": "fix", "path": "a.py", "line": 5, "author": {"login": "rev"},
+         "authorAssociation": "MEMBER"}]}}]},
 }}}}
 
 
@@ -1496,9 +1497,7 @@ def test_pr_watch_apply_disabled_by_default(tmp_path: Path, capsys: pytest.Captu
 
 
 def test_pr_watch_apply_runs_when_enabled(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
-    cfg = tmp_path / ".agentic-forge"
-    cfg.mkdir(parents=True)
-    (cfg / "config.json").write_text('{"pr_watcher": {"enabled": true}}', encoding="utf-8")
+    _enable(tmp_path)
     pushed: list[bool] = []
     rc = pr_watch_cli.main(
         ["x", "--repo", str(tmp_path), "--owner", "o", "--name", "r", "--pr", "42", "--apply"],
@@ -1512,9 +1511,7 @@ def test_pr_watch_apply_runs_when_enabled(tmp_path: Path, capsys: pytest.Capture
 
 
 def test_pr_watch_apply_refuses_fork(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
-    cfg = tmp_path / ".agentic-forge"
-    cfg.mkdir(parents=True)
-    (cfg / "config.json").write_text('{"pr_watcher": {"enabled": true}}', encoding="utf-8")
+    _enable(tmp_path)
     fork = {"data": {"repository": {"pullRequest": {
         "number": 7, "mergeable": "MERGEABLE", "headRefName": "f", "baseRefName": "main",
         "isCrossRepository": True, "reviewThreads": {"nodes": []},
@@ -1548,22 +1545,16 @@ def test_pr_watch_job_disabled(tmp_path: Path) -> None:
 
 
 def test_pr_watch_job_no_repos(tmp_path: Path) -> None:
-    cfg = tmp_path / ".agentic-forge"
-    cfg.mkdir(parents=True)
-    (cfg / "config.json").write_text('{"pr_watcher": {"enabled": true}}', encoding="utf-8")
+    _enable(tmp_path)
     assert "no repos" in run_scheduled._pr_watch(tmp_path)  # enabled but nothing configured
 
 
 def test_pr_watch_job_runs_live_when_configured(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    cfg = tmp_path / ".agentic-forge"
-    cfg.mkdir(parents=True)
-    (cfg / "config.json").write_text(
-        '{"pr_watcher": {"enabled": true, "repos": ["o/r"]}}', encoding="utf-8"
-    )
+    _enable(tmp_path, ', "repos": ["o/r"]')
     monkeypatch.setattr(
-        run_scheduled, "_run_pr_watch_live", lambda repo, specs: f"ran {len(specs)}"
+        run_scheduled, "_run_pr_watch_live", lambda repo, specs, trusted: f"ran {len(specs)}"
     )
     assert run_scheduled._pr_watch(tmp_path) == "ran 1"  # enabled + repos -> live branch
 
@@ -1877,8 +1868,19 @@ def _completed(stdout: str, returncode: int = 0, stderr: str = "") -> types.Simp
     return types.SimpleNamespace(stdout=stdout, returncode=returncode, stderr=stderr)
 
 
-def _enable(tmp_path: Path, extra: str = "") -> None:
-    cfg = tmp_path / ".agentic-forge"
+def _checkout(repo: Path) -> None:
+    """A real checkout of ``o/r``: a watch pass and the drain ask git about the tree they act on."""
+    for args in (
+        ("init", "-q", "-b", "main"),
+        ("remote", "add", "origin", "https://github.com/o/r.git"),
+        ("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "c"),
+    ):
+        subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+
+
+def _enable(_repo: Path, extra: str = "") -> None:
+    """The operator's file: a repo's cannot turn the watcher on (ADR 0103)."""
+    cfg = Path.home() / ".agentic-forge"
     cfg.mkdir(parents=True, exist_ok=True)
     (cfg / "config.json").write_text(
         '{"pr_watcher": {"enabled": true' + extra + "}}", encoding="utf-8"
@@ -1890,6 +1892,12 @@ def _log(tmp_path: Path) -> str:
     return log.read_text(encoding="utf-8") if log.is_file() else ""
 
 
+@pytest.fixture(autouse=True)
+def _no_real_permission_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The child asks GitHub about a thread's author, and these threads' authors are made up."""
+    monkeypatch.setattr(pr_watch_cli, "_read_permission", lambda *_args: True)
+
+
 class _Git:
     """A fake `_git(repo, *args)`: records every call; answers per subcommand."""
 
@@ -1897,15 +1905,19 @@ class _Git:
         self.calls: list[tuple[str, ...]] = []
         self.dirty = dirty  # `status --porcelain` shows changes BEFORE the fixer ran
         self.diff = diff  # `add -A` stages something (the session landed an edit)
+        self.commit_exit = 0
+        self.commits = True  # `commit` moves HEAD
 
     def __call__(self, repo: Path, *args: str) -> types.SimpleNamespace:
         self.calls.append(args)
         if args[0] == "status":
             return _completed(" M a.py\n" if self.dirty else "")
-        if args[:2] == ("diff", "--cached"):
+        if args[:3] == ("diff", "--cached", "--quiet"):
             return _completed("", returncode=1 if self.diff else 0)
-        if args[0] == "rev-parse":
-            return _completed("abc1234\n")
+        if args[0] == "rev-parse":  # HEAD moves when something is committed, and not otherwise
+            return _completed("abc1234\n" if self.ran("commit") and self.commits else "0000000\n")
+        if args[0] == "commit":
+            return _completed("", returncode=self.commit_exit, stderr="gpg failed to sign")
         return _completed("")
 
     def ran(self, *prefix: str) -> bool:
@@ -1968,10 +1980,215 @@ def test_fixer_builds_a_bounded_runner(monkeypatch: pytest.MonkeyPatch, tmp_path
         return lambda s, p, w: ""
 
     monkeypatch.setattr(pr_watch_cli.agent_eval, "claude_cli_runner", fake_runner)
-    pr_watch_cli._fixer(tmp_path, "the-model", max_threads=10)
+    pr_watch_cli._fixer_runner("the-model", 10, "/a/fresh/scratch")
+    assert seen["env"] == {"CLAUDE_CODE_TMPDIR": "/a/fresh/scratch"}
     assert seen["retries"] == 0  # one attempt: a retry loop could outlive the whole watch pass
     assert seen["call_timeout"] == pr_watch.fixer_timeout(10) == 144
-    assert seen["model"] == "the-model" and seen["allowed_tools"] == "Read,Write,Edit,Grep,Glob"
+    assert seen["model"] == "the-model"
+    # The tree is a PR's, and the comment untrusted: ADR 0103, measured in test_fixer_real_cli.py.
+    assert seen["allowed_tools"] is None and seen["tools"] == "Read,Write,Edit,Grep,Glob"
+    assert seen["setting_sources"] == "" and seen["permission_mode"] == "acceptEdits"
+    assert seen["strict_mcp_config"] is True and seen["session_persistence"] is False
+    assert seen["denials_undetermined"] is True
+    assert seen["settings"] == pr_watch_cli._fixer_settings()
+
+
+@pytest.mark.parametrize(
+    "staged",
+    [
+        ".github/workflows/ci.yml\0",
+        "a.py\0.gitattributes\0",
+        "sub/.gitattributes\0",
+        ".gitmodules\0",
+        ".husky/pre-commit\0",
+        ".agentic-forge/config.json\0",
+        ".GitHub/x\0",
+    ],
+)
+def test_fixer_refuses_to_commit_a_protected_path(tmp_path: Path, staged: str) -> None:
+    git = _Git(diff=True)
+    real = git.__call__
+
+    def with_names(repo: Path, *args: str) -> types.SimpleNamespace:
+        if args[:3] == ("diff", "--cached", "--name-only"):
+            git.calls.append(args)
+            return _completed(staged)
+        return real(repo, *args)
+
+    fix = pr_watch_cli._fixer(tmp_path, "m", runner=lambda s, p, w: "done", git=with_names)
+    action, why = fix(_THREAD)
+    assert action == pr_watch.UNDETERMINED and "not committed" in why
+    assert not git.ran("commit")
+    assert git.ran("reset", "--hard") and git.ran("clean", "-fdq")  # and it is gone
+    assert ("diff", "--cached", "--name-only", "--no-renames", "-z") in git.calls
+
+
+def test_fixer_commits_a_path_that_merely_looks_protected(tmp_path: Path) -> None:
+    git = _Git(diff=True)
+    real = git.__call__
+
+    def with_names(repo: Path, *args: str) -> types.SimpleNamespace:
+        if args[:3] == ("diff", "--cached", "--name-only"):
+            return _completed("docs/github.md\0x.github\0.gitattributes.md\0")
+        return real(repo, *args)
+
+    fix = pr_watch_cli._fixer(tmp_path, "m", runner=lambda s, p, w: "done", git=with_names)
+    assert fix(_THREAD)[0] == "fixed" and git.ran("commit")
+
+
+def test_fixer_refuses_at_the_commit_what_a_link_below_a_protected_directory_leads_to(
+    tmp_path: Path,
+) -> None:
+    """A link below `.github` does not stop the session, and its target is protected there."""
+    (tmp_path / ".github").mkdir()
+    (tmp_path / ".github" / "ci.yml").symlink_to("../ci/ci.yml")
+    git = _Git(diff=True)
+    real = git.__call__
+
+    def with_tree(repo: Path, *args: str) -> types.SimpleNamespace:
+        if args[:3] == ("ls-files", "-s", "-z"):
+            return _completed("120000 abc 0\t.github/ci.yml\0")
+        if args[:3] == ("diff", "--cached", "--name-only"):
+            return _completed("ci/ci.yml\0")
+        return real(repo, *args)
+
+    fix = pr_watch_cli._fixer(tmp_path, "m", runner=lambda s, p, w: "done", git=with_tree)
+    action, why = fix(_THREAD)
+    assert action == pr_watch.UNDETERMINED
+    assert "the target of .github/ci.yml" in why and not git.ran("commit")
+
+
+def test_fixer_starts_no_session_when_a_link_cannot_be_read(tmp_path: Path) -> None:
+    git = _Git()
+    real = git.__call__
+    ran: list[str] = []
+
+    def with_tree(repo: Path, *args: str) -> types.SimpleNamespace:
+        if args[:3] == ("ls-files", "-s", "-z"):
+            return _completed("120000 abc 0\tmissing-link\0")
+        return real(repo, *args)
+
+    def runner(system: str, prompt: str, workdir: Path) -> str:
+        ran.append(prompt)
+        return "done"
+
+    fix = pr_watch_cli._fixer(tmp_path, "m", runner=runner, git=with_tree)
+    assert fix(_THREAD)[0] == pr_watch.UNDETERMINED and ran == []
+
+
+def test_fixer_starts_no_session_on_a_dirty_tree(tmp_path: Path) -> None:
+    git = _Git(dirty=True, diff=True)
+    ran: list[str] = []
+
+    def runner(system: str, prompt: str, workdir: Path) -> str:
+        ran.append(prompt)
+        return "done"
+
+    fix = pr_watch_cli._fixer(tmp_path, "m", runner=runner, git=git)
+    assert fix(_THREAD)[0] == pr_watch.UNDETERMINED
+    assert ran == [] and not git.ran("reset") and not git.ran("add")  # the user's staging stands
+
+
+@pytest.mark.parametrize(
+    "failing",
+    [("add",), ("diff", "--cached", "--quiet"), ("diff", "--cached", "--name-only"), ("commit",)],
+    ids=["add", "diff", "listing", "commit"],
+)
+def test_fixer_says_undetermined_when_git_fails_and_leaves_the_tree_clean(
+    tmp_path: Path, failing: tuple[str, ...]
+) -> None:
+    git = _Git(diff=True)
+    real = git.__call__
+
+    def fails(repo: Path, *args: str) -> types.SimpleNamespace:
+        if args[: len(failing)] == failing:
+            git.calls.append(args)
+            return _completed("", returncode=128, stderr="the tail of git's complaint")
+        return real(repo, *args)
+
+    fix = pr_watch_cli._fixer(tmp_path, "m", runner=lambda s, p, w: "done", git=fails)
+    action, why = fix(_THREAD)
+    assert action == pr_watch.UNDETERMINED and "the tail of git's complaint" in why
+    assert git.ran("reset", "--hard") and git.ran("clean", "-fdq")
+
+
+def test_fixer_wants_head_to_have_moved(tmp_path: Path) -> None:
+    git = _Git(diff=True)
+    git.commits = False  # exit 0, and nothing new: as a hook or a wrapper could leave it
+    fix = pr_watch_cli._fixer(tmp_path, "m", runner=lambda s, p, w: "done", git=git)
+    action, why = fix(_THREAD)
+    assert action == pr_watch.UNDETERMINED and "left HEAD where it was" in why
+
+
+@pytest.mark.parametrize("failing", [("status",), ("ls-files",)])
+def test_fixer_starts_no_session_when_it_cannot_read_the_tree(
+    tmp_path: Path, failing: tuple[str, ...]
+) -> None:
+    git = _Git()
+    real = git.__call__
+    ran: list[str] = []
+
+    def fails(repo: Path, *args: str) -> types.SimpleNamespace:
+        if args[: len(failing)] == failing:
+            return _completed("", returncode=128)
+        return real(repo, *args)
+
+    def runner(system: str, prompt: str, workdir: Path) -> str:
+        ran.append(prompt)
+        return "done"
+
+    fix = pr_watch_cli._fixer(tmp_path, "m", runner=runner, git=fails)
+    assert fix(_THREAD)[0] == pr_watch.UNDETERMINED and ran == []
+
+
+@pytest.mark.parametrize("special", ["[", "]", "\\", "*", "?", "{", "(", "!", "#"])
+def test_a_config_dir_no_rule_can_spell_gets_no_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, special: str
+) -> None:
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", f"/opt/a{special}b")
+    ran: list[str] = []
+
+    def runner(system: str, prompt: str, workdir: Path) -> str:
+        ran.append(prompt)
+        return "done"
+
+    git = _Git()
+    action, why = pr_watch_cli._fixer(tmp_path, "m", runner=runner, git=git)(_THREAD)
+    assert action == pr_watch.UNDETERMINED and "no session started" in why and ran == []
+    assert "/opt/a" not in why
+
+
+def test_fixer_settings_deny_the_clis_own_directory() -> None:
+    plain = json.loads(pr_watch_cli._fixer_settings({}))
+    assert plain["autoMemoryEnabled"] is False
+    # No Write rule: the CLI warns about one on every session, and Edit covers the file tools.
+    assert plain["permissions"]["deny"] == ["Read(~/.claude/**)", "Edit(~/.claude/**)"]
+    dotted = json.loads(pr_watch_cli._fixer_settings({"CLAUDE_CONFIG_DIR": "/opt/x/../cc"}))
+    assert "Read(//opt/cc/**)" in dotted["permissions"]["deny"]
+    moved = json.loads(pr_watch_cli._fixer_settings({"CLAUDE_CONFIG_DIR": "/opt/cc"}))
+    assert "Read(//opt/cc/**)" in moved["permissions"]["deny"]
+    assert "Edit(~/.claude/**)" in moved["permissions"]["deny"]
+
+
+def test_author_checker_asks_once_a_pass_and_not_for_who_the_pr_already_rules_out(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    asked: list[str] = []
+
+    def read(repo: Path, slug: str, login: str) -> bool:
+        asked.append(login)
+        return login == "writer"
+
+    monkeypatch.setattr(pr_watch_cli, "_read_permission", read)
+    check = pr_watch_cli._author_checker(tmp_path, "o/r", ("codex",))
+    thread = pr_watch.ReviewThread
+    writer = thread("A", False, "writer", "b", "p", 1, author_association="MEMBER")
+    other = thread("B", False, "reader", "b", "p", 1, author_association="COLLABORATOR")
+    stranger = thread("C", False, "x", "b", "p", 1, author_association="NONE")
+    app = thread("D", False, "codex", "b", "p", 1, author_association="NONE", author_type="Bot")
+    assert check(writer) and check(writer)
+    assert not check(other) and not check(stranger) and check(app)
+    assert asked == ["writer", "reader"]
 
 
 def test_pr_watch_apply_undetermined_posts_nothing(
@@ -1986,7 +2203,7 @@ def test_pr_watch_apply_undetermined_posts_nothing(
         gh_exec=calls.append, push=lambda: pushed.append(True),
     )
     out = capsys.readouterr().out
-    assert rc == 0 and "undetermined 1" in out and "fixed 0" in out
+    assert rc == 1 and "undetermined 1" in out and "fixed 0" in out  # the job must not read as ok
     assert calls == [] and pushed == []  # no reply on the reviewer's thread, nothing pushed
     assert "undetermined (limit hit)" in _log(tmp_path)  # but audited (forced)
 
@@ -2023,6 +2240,7 @@ def test_conflict_handler_unreadable_comments_skips_the_notice(
     assert _handler(tmp_path, git, None, posted)() is False
     assert posted == []  # unknown is not absent: nothing re-posted this poll
     assert ("merge", "--abort") in git.calls
+    assert ("fetch", "origin", "--", "main") in git.calls  # a base name is never a flag
     assert "rebase notice NOT posted" in capsys.readouterr().err
     assert "rebase notice NOT posted" in _log(tmp_path)  # and recorded why
 
@@ -2126,18 +2344,33 @@ def test_run_watcher_returns_the_exit_code(tmp_path: Path) -> None:
 # F3 / F8: a watch pass reports its outcome; anything but exit 0 is a forced diagnostics event.
 
 
+_SAME_REPO = pr_watch.PrHead(False, "a" * 40)
+
+
+def _pass_seams(tree: Path, **over: object) -> dict[str, object]:
+    """A pass with git and gh replaced: a same-repo PR and a directory for its tree."""
+    tree.mkdir(exist_ok=True)
+    return {
+        "read_head": lambda *_: _SAME_REPO,
+        "open_tree": lambda *_: tree,
+        "close_tree": lambda _tree: None,
+        **over,
+    }
+
+
 def test_watch_one_pr_reads_the_exit_code_and_records_failures(
     tmp_path: Path, capsys: pytest.CaptureFixture
 ) -> None:
     _enable(tmp_path, ', "auto_merge": true, "bot": "trusted[bot]"')
+    _checkout(tmp_path)
     cmds: list[list[str]] = []
 
-    def run_watcher(cmd: list[str]) -> int | None:
+    def run_watcher(cmd: list[str], cwd: Path) -> int | None:
         cmds.append(cmd)
         return {1: 0, 2: 1, 3: None}[int(cmd[cmd.index("--pr") + 1])]
 
     watch = run_scheduled._watch_one_pr(
-        tmp_path, checkout=lambda argv: 0, run_watcher=run_watcher
+        tmp_path, run_watcher=run_watcher, **_pass_seams(tmp_path / "tree")
     )
     assert watch("o", "r", 1) == run_scheduled.WatchOutcome(True)
     assert _log(tmp_path) == ""  # a completed pass is not an anomaly
@@ -2147,39 +2380,420 @@ def test_watch_one_pr_reads_the_exit_code_and_records_failures(
     assert "o/r#2: watcher exited 1" in log and "o/r#3: watcher killed" in log
     assert log.count('"component": "pr-watch-queue"') == 2
     assert "skip #2" in capsys.readouterr().err
-    # the trusted (pre-checkout) settings reach the watcher as argv, after --apply
+    # the trusted settings reach the watcher as argv, after --apply
     assert cmds[0][-6:] == [
         "--apply", "--bot", "trusted[bot]", "--merge-method", "rebase", "--auto-merge"
     ]
 
 
-def test_watch_one_pr_checkout_failure_is_recorded(tmp_path: Path) -> None:
+def test_watch_one_pr_reports_a_held_thread_as_a_pass_with_a_reason(tmp_path: Path) -> None:
+    _enable(tmp_path)
+    _checkout(tmp_path)
+    watch = run_scheduled._watch_one_pr(
+        tmp_path, run_watcher=lambda cmd, cwd: pr_watch.EXIT_HELD,
+        **_pass_seams(tmp_path / "tree"),
+    )
+    assert watch("o", "r", 1) == run_scheduled.WatchOutcome(True, run_scheduled._HELD)
+    assert _log(tmp_path) == ""  # held is not an anomaly until it runs out of ticks
+
+
+def test_watch_one_pr_refuses_a_repo_it_cannot_log_under(tmp_path: Path) -> None:
     _enable(tmp_path)
     ran: list[list[str]] = []
 
-    def run_watcher(cmd: list[str]) -> int | None:
-        ran.append(cmd)
+    def no_read(*_args: object) -> pr_watch.PrHead:
+        raise AssertionError("it asked GitHub")
+
+    watch = run_scheduled._watch_one_pr(
+        tmp_path, read_head=no_read, run_watcher=lambda cmd, cwd: ran.append(cmd) or 0,
+    )
+    outcome = watch("o", "r", 1)
+    assert not outcome.ok and "leads to no checkout" in outcome.reason and ran == []
+    assert "leads to no checkout" in _log(tmp_path)
+
+
+def test_watch_one_pr_passes_the_operators_checkout_for_the_log(tmp_path: Path) -> None:
+    _enable(tmp_path)
+    _checkout(tmp_path)
+    cmds: list[list[str]] = []
+
+    def run_watcher(cmd: list[str], cwd: Path) -> int:
+        cmds.append(cmd)
+        return 0
+
+    run_scheduled._watch_one_pr(
+        tmp_path, run_watcher=run_watcher, **_pass_seams(tmp_path / "tree")
+    )("o", "r", 1)
+    assert cmds[0][cmds[0].index("--state-repo") + 1] == str(tmp_path)
+
+
+def test_watch_one_pr_runs_the_watcher_in_the_passs_tree(tmp_path: Path) -> None:
+    _enable(tmp_path)
+    _checkout(tmp_path)
+    seen: list[tuple[list[str], Path]] = []
+    closed: list[Path] = []
+
+    def run_watcher(cmd: list[str], cwd: Path) -> int:
+        seen.append((cmd, cwd))
+        return 0
+
+    tree = tmp_path / "tree"
+    trusted = settings.resolve(tmp_path)
+    run_scheduled._watch_one_pr(
+        tmp_path, trusted=trusted, run_watcher=run_watcher,
+        **_pass_seams(tree, close_tree=closed.append),
+    )("o", "r", 1)
+    ((cmd, cwd),) = seen
+    assert cwd == tree and cmd[cmd.index("--repo") + 1] == str(tree) and closed == [tree]
+    assert "--from-scheduler" in cmd and not any(c.startswith("--model") for c in cmd)
+    assert "--auto-merge" not in cmd and "--merge-only" not in cmd
+
+
+def test_watch_one_pr_passes_the_operators_model_and_the_per_repo_merge(tmp_path: Path) -> None:
+    _enable(tmp_path, ', "auto_merge": ["O/R", "o/other"]')
+    user_file = Path.home() / ".agentic-forge" / "config.json"
+    held = json.loads(user_file.read_text(encoding="utf-8"))
+    user_file.write_text(
+        json.dumps({**held, "models": {"software-engineer": "user-model"}}), encoding="utf-8"
+    )
+    _checkout(tmp_path)
+    cfg = tmp_path / ".agentic-forge"
+    cfg.mkdir()
+    (cfg / "config.json").write_text(
+        '{"models": {"software-engineer": "repo-model"}}', encoding="utf-8"
+    )
+    cmds: list[list[str]] = []
+
+    def run_watcher(cmd: list[str], cwd: Path) -> int:
+        cmds.append(cmd)
         return 0
 
     watch = run_scheduled._watch_one_pr(
-        tmp_path, component="pr-watch", checkout=lambda argv: 128, run_watcher=run_watcher
+        tmp_path, run_watcher=run_watcher, **_pass_seams(tmp_path / "tree")
     )
-    assert watch("o", "r", 9) == run_scheduled.WatchOutcome(False, "checkout failed (exit 128)")
-    assert ran == []  # never --apply on the wrong branch
+    watch("o", "r", 1)
+    watch("o", "third", 2)
+    assert "--model=user-model" in cmds[0] and "--auto-merge" in cmds[0]
+    assert "--auto-merge" not in cmds[1]
 
-    def hung(argv: list[str]) -> int:
-        raise subprocess.TimeoutExpired(cmd=argv, timeout=120)
 
-    watch = run_scheduled._watch_one_pr(tmp_path, checkout=hung, run_watcher=run_watcher)
-    assert watch("o", "r", 9).reason.startswith("checkout failed: ")
+def test_watch_one_pr_gives_another_repos_pr_no_tree(tmp_path: Path) -> None:
+    _enable(tmp_path, ', "auto_merge": ["o/other"]')
+    _checkout(tmp_path)
+    seen: list[tuple[list[str], Path]] = []
+
+    def no_tree(*_args: object) -> Path:
+        raise AssertionError("a tree for another repo's PR")
+
+    def run_watcher(cmd: list[str], cwd: Path) -> int:
+        seen.append((cmd, cwd))
+        return 0
+
+    watch = run_scheduled._watch_one_pr(
+        tmp_path, read_head=lambda *_: _SAME_REPO, open_tree=no_tree, run_watcher=run_watcher,
+    )
+    assert watch("o", "other", 2).ok
+    ((cmd, cwd),) = seen
+    assert "--merge-only" in cmd and "--auto-merge" in cmd and cwd == tmp_path
+
+
+def test_watch_one_pr_removes_the_tree_when_the_watcher_raises(tmp_path: Path) -> None:
+    _enable(tmp_path)
+    _checkout(tmp_path)
+    closed: list[Path] = []
+    tree = tmp_path / "tree"
+
+    def run_watcher(cmd: list[str], cwd: Path) -> int:
+        raise OSError("could not start")
+
+    watch = run_scheduled._watch_one_pr(
+        tmp_path, run_watcher=run_watcher, **_pass_seams(tree, close_tree=closed.append)
+    )
+    with pytest.raises(OSError, match="could not start"):
+        watch("o", "r", 1)
+    assert closed == [tree]
+
+
+def test_read_head_raises_when_gh_fails_and_reads_the_answer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    answers = iter([
+        _completed("", returncode=4),
+        _completed('{"data": {"repository": {"pullRequest": {"isCrossRepository": true}}}}'),
+    ])
+    monkeypatch.setattr(run_scheduled.subprocess, "run", lambda *a, **k: next(answers))
+    with pytest.raises(RuntimeError, match="exited 4"):
+        run_scheduled._read_head(tmp_path, "o", "r", 1)
+    assert run_scheduled._read_head(tmp_path, "o", "r", 1).cross_repo is True
+
+
+def test_a_worktree_that_will_not_open_is_recorded_and_nothing_runs(tmp_path: Path) -> None:
+    _enable(tmp_path)
+    _checkout(tmp_path)
+    ran: list[list[str]] = []
+
+    def run_watcher(cmd: list[str], cwd: Path) -> int | None:
+        ran.append(cmd)
+        return 0
+
+    def refused(*_args: object) -> Path:
+        raise RuntimeError("git worktree add failed (exit 128)")
+
+    watch = run_scheduled._watch_one_pr(
+        tmp_path, component="pr-watch", run_watcher=run_watcher,
+        read_head=lambda *_: _SAME_REPO, open_tree=refused,
+    )
+    assert watch("o", "r", 9).reason == "no worktree for the PR: git worktree add failed (exit 128)"
+    assert ran == []
+
+    def hung(*_args: object) -> Path:
+        raise subprocess.TimeoutExpired(cmd="git", timeout=120)
+
+    watch = run_scheduled._watch_one_pr(
+        tmp_path, run_watcher=run_watcher, read_head=lambda *_: _SAME_REPO, open_tree=hung,
+    )
+    assert watch("o", "r", 9).reason.startswith("no worktree for the PR: ")
     log = _log(tmp_path)
-    assert '"component": "pr-watch"' in log and "checkout failed (exit 128)" in log
+    assert '"component": "pr-watch"' in log and "git worktree add failed" in log
+
+
+def test_open_worktree_cleans_up_after_a_refused_add(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _checkout(tmp_path)
+    real = run_scheduled._git
+
+    def git(repo: Path, *args: str, **kwargs: object) -> object:
+        if args[0] == "fetch":
+            return _completed("")
+        if args[0] == "worktree":
+            return _completed("", returncode=128, stderr="fatal: nope")
+        return real(repo, *args)
+
+    monkeypatch.setattr(run_scheduled, "_git", git)
+    head = real(tmp_path, "rev-parse", "HEAD").stdout.strip()
+    with pytest.raises(RuntimeError, match=r"git worktree add failed \(exit 128\): fatal: nope"):
+        run_scheduled._open_worktree(tmp_path, 7, head)
+    assert list(run_scheduled._passes_dir(tmp_path).iterdir()) == []
+
+
+def test_a_timed_out_add_removes_what_it_left(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _checkout(tmp_path)
+    real = run_scheduled._git
+    removed: list[tuple[str, ...]] = []
+
+    def git(repo: Path, *args: str, **kwargs: object) -> object:
+        if args[0] == "fetch":
+            return _completed("")
+        if args[:2] == ("worktree", "add"):
+            raise subprocess.TimeoutExpired(cmd="git", timeout=600)
+        if args[:2] == ("worktree", "remove"):
+            removed.append(args)
+            return _completed("")
+        return real(repo, *args)
+
+    monkeypatch.setattr(run_scheduled, "_git", git)
+    head = real(tmp_path, "rev-parse", "HEAD").stdout.strip()
+    with pytest.raises(subprocess.TimeoutExpired):
+        run_scheduled._open_worktree(tmp_path, 7, head)
+    assert removed and removed[0][2:4] == ("--force", "--force")
+    assert list(run_scheduled._passes_dir(tmp_path).iterdir()) == []
+
+
+def test_git_output_need_not_be_utf8(tmp_path: Path) -> None:
+    _checkout(tmp_path)
+    bad = os.fsencode(tmp_path) + b"/wt-\xe9"
+    subprocess.run(
+        [b"git", b"-C", os.fsencode(tmp_path), b"worktree", b"add", b"-q", b"--detach", bad],
+        check=True, capture_output=True,
+    )
+    done = run_scheduled._git(tmp_path, "worktree", "list", "--porcelain")
+    assert done.returncode == 0 and "wt-\udce9" in done.stdout
+
+
+def test_a_worktree_that_will_not_close_is_recorded_not_fatal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    _checkout(tmp_path)
+    run_scheduled._close_worktree(tmp_path, tmp_path / "no-such-worktree")  # real git refuses it
+    assert "git worktree remove failed (exit" in capsys.readouterr().err
+    assert "git worktree remove failed" in _log(tmp_path)
+
+    def no_git(*_args: object, **_kwargs: object) -> None:
+        raise OSError("git")
+
+    monkeypatch.setattr(run_scheduled, "_git", no_git)
+    run_scheduled._close_worktree(tmp_path, tmp_path / "x")
+    assert "git worktree remove failed: git" in capsys.readouterr().err
+
+
+def test_leftovers_are_not_a_failure_when_git_will_not_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    def no_git(*_args: object, **_kwargs: object) -> None:
+        raise OSError("git")
+
+    monkeypatch.setattr(run_scheduled, "_git", no_git)
+    stray = run_scheduled._passes_dir(tmp_path) / "stray"
+    stray.mkdir(parents=True)
+    run_scheduled._remove_leftovers(tmp_path)
+    assert "leftovers not checked" in capsys.readouterr().err
+    assert not stray.exists()  # what is ours on disk still goes
+
+
+def test_a_repo_directory_that_will_not_open_runs_unlocked(tmp_path: Path) -> None:
+    with run_scheduled._run_lock(tmp_path / "missing") as held:
+        assert held is True
+
+
+def test_the_watcher_inherits_the_run_lock(tmp_path: Path) -> None:
+    spawned: dict[str, object] = {}
+
+    def popen(cmd: list[str], **kwargs: object) -> _Proc:
+        spawned.update(kwargs)
+        return _Proc()
+
+    run_scheduled._run_watcher(["w"], tmp_path, 7.0, popen=popen)
+    assert spawned["pass_fds"] == ()  # no lock is held here
+    with run_scheduled._run_lock(tmp_path) as held:
+        assert held is True
+        run_scheduled._run_watcher(["w"], tmp_path, 7.0, popen=popen)
+        fds = spawned["pass_fds"]
+        assert isinstance(fds, tuple) and len(fds) == 1 and fds[0] == run_scheduled._lock_fd
+    assert run_scheduled._lock_fd is None
+
+
+def test_an_out_of_scope_drop_shows_for_a_week_and_counts_while_recent(tmp_path: Path) -> None:
+    entry = pr_watch.WatchEntry("o", "renamed", 7)
+    assert run_scheduled._out_of_scope_line(tmp_path, 1000.0) == ""
+    run_scheduled._note_out_of_scope(tmp_path, entry, 1000.0)
+    run_scheduled._note_out_of_scope(tmp_path, pr_watch.WatchEntry("o", "renamed", 8), 2000.0)
+    line = run_scheduled._out_of_scope_line(tmp_path, 3000.0)
+    assert "2 queued PR(s)" in line and "o/renamed#8" in line and "renamed repo" in line
+    week = run_scheduled._OUT_OF_SCOPE_SHOWN_SECONDS
+    assert run_scheduled._out_of_scope_line(tmp_path, 2000.0 + week) == ""
+    run_scheduled._note_out_of_scope(tmp_path, entry, 2000.0 + week)
+    assert "1 queued PR(s)" in run_scheduled._out_of_scope_line(tmp_path, 2000.0 + week)
+
+
+@pytest.mark.parametrize("text", ["not json", "[]"])
+def test_an_unreadable_out_of_scope_note_reads_as_none(tmp_path: Path, text: str) -> None:
+    diagnostics.write_state(tmp_path, run_scheduled._OUT_OF_SCOPE_FILE, text)
+    assert run_scheduled._out_of_scope_line(tmp_path, 1000.0) == ""
+
+
+def test_an_out_of_scope_note_that_cannot_be_saved_is_not_a_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refused(*_args: object) -> None:
+        raise OSError("refused")
+
+    monkeypatch.setattr(run_scheduled.diagnostics, "write_state", refused)
+    run_scheduled._note_out_of_scope(tmp_path, pr_watch.WatchEntry("o", "r", 1), 1.0)
+
+
+def test_an_unreadable_skip_count_reads_as_none(tmp_path: Path) -> None:
+    diagnostics.write_state(tmp_path, run_scheduled._LOCK_SKIPS_FILE, "not json")
+    assert run_scheduled._lock_skips(tmp_path) == 0
+    diagnostics.write_state(tmp_path, run_scheduled._LOCK_SKIPS_FILE, "true")
+    assert run_scheduled._lock_skips(tmp_path) == 0
+
+
+def test_a_skip_that_cannot_be_saved_is_not_a_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refused(*_args: object) -> None:
+        raise OSError("refused")
+
+    monkeypatch.setattr(run_scheduled.diagnostics, "write_state", refused)
+    run_scheduled._note_lock_skip(tmp_path)
+
+
+def test_the_watcher_under_the_scheduler_does_not_read_the_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    user_level = Path.home() / ".agentic-forge"
+    user_level.mkdir(parents=True, exist_ok=True)
+    (user_level / "config.json").write_text(  # the driver already merged this with the repo's
+        '{"pr_watcher": {"enabled": true}, "models": {"software-engineer": "user-model"}}',
+        encoding="utf-8",
+    )
+    cfg = tmp_path / ".agentic-forge"
+    cfg.mkdir()
+    (cfg / "config.json").write_text(
+        '{"models": {"software-engineer": "pr-model"}, "pr_watcher": {"enabled": false}}',
+        encoding="utf-8",
+    )
+    seen: list[str] = []
+
+    def fixer(repo: Path, model: str, **_kwargs: object) -> object:
+        seen.append(model)
+        return lambda t: ("fixed", "done")
+
+    monkeypatch.setattr(pr_watch_cli, "_fixer", fixer)
+    argv = ["x", "--repo", str(tmp_path), "--owner", "o", "--name", "r", "--pr", "42"]
+    common: dict[str, object] = {
+        "fetch": _pr_fetch, "gh_exec": lambda argv: None, "push": lambda: None,
+    }
+    rc = pr_watch_cli.main(
+        [*argv, "--from-scheduler", "--model=argv-model", "--bot", "b", "--apply"], **common
+    )
+    assert rc == 0 and seen == ["argv-model"]  # not switched off, and not the PR's model
+    assert "fixed 1" in capsys.readouterr().out
+
+    # Run by hand, in the same tree, the repo's file counts for the two things it may still say.
+    rc = pr_watch_cli.main([*argv, "--apply"], **common)
+    assert rc == 0 and "disabled" in capsys.readouterr().out
+
+
+def test_a_conflict_merge_whose_push_fails_fails_the_pass(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    """No thread to go undetermined here, and the base was merged in for nothing."""
+    _enable(tmp_path)
+    conflicted = {"data": {"repository": {"pullRequest": {
+        "number": 42, "mergeable": "CONFLICTING", "headRefName": "f", "baseRefName": "main",
+        "reviewThreads": {"nodes": []},
+    }}}}
+
+    def refused() -> None:
+        raise RuntimeError("non-fast-forward")
+
+    rc = pr_watch_cli.main(
+        ["x", "--repo", str(tmp_path), "--owner", "o", "--name", "r", "--pr", "42", "--apply"],
+        fetch=lambda *a, **k: conflicted, handle_conflict=lambda: True, push=refused,
+        gh_exec=lambda argv: None,
+    )
+    assert rc == 1 and "pushed=False" in capsys.readouterr().out
+
+
+def test_merge_only_fixes_nothing_pushes_nothing_and_says_so(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    _enable(tmp_path)
+    calls: list[list[str]] = []
+    pushed: list[bool] = []
+
+    def fixer(thread: object) -> tuple[str, str]:
+        raise AssertionError("the fixer ran")
+
+    rc = pr_watch_cli.main(
+        ["x", "--repo", str(tmp_path), "--owner", "o", "--name", "r", "--pr", "42",
+         "--from-scheduler", "--merge-only", "--bot", "b", "--apply"],
+        fetch=_pr_fetch, fixer=fixer, gh_exec=calls.append, push=lambda: pushed.append(True),
+    )
+    assert rc == 1 and calls == [] and pushed == []
+    assert "fix and push refused for o/r#42" in capsys.readouterr().err
+    assert "fix and push refused for o/r#42" in _log(tmp_path)
 
 
 # F2c / F3: every entry's tick advances, the queue is persisted, THEN failed passes are reported.
 
 
 def _queue(tmp_path: Path, entries: list[dict]) -> Path:
+    _checkout(tmp_path)
     path = diagnostics.state_file(tmp_path, pr_watch.QUEUE_FILE)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(entries), encoding="utf-8")

@@ -23,7 +23,6 @@ from pathlib import Path
 __all__ = [
     "CADENCES",
     "MAX_RETRIES",
-    "STATE_PATH",
     "Job",
     "JobState",
     "JobHealth",
@@ -53,16 +52,15 @@ CADENCES: dict[str, int] = {
 # which it backs off to its normal cadence (so a persistently-broken job can't run every poll).
 MAX_RETRIES = 3
 
-STATE_PATH = ".agentic-forge/schedule-state.json"  # legacy in-repo location
 STATE_FILE = "schedule-state.json"  # resolved under diagnostics.state_root() — ADR 0072
 
 
 def _state_path(repo: Path | str) -> Path:
-    """Per-job state as a READER sees it: the state root, falling back to the legacy in-repo path
-    so an upgrade does not lose the run history (ADR 0072)."""
+    """Per-job state as a READER sees it: the state root and nowhere else. The legacy in-repo path
+    is gone from here because a repo could commit a file there saying no job is due (ADR 0103)."""
     from . import diagnostics
 
-    return diagnostics.existing_state_file(repo, STATE_FILE, STATE_PATH)  # per-job state
+    return diagnostics.current_state_file(repo, STATE_FILE)
 
 
 @dataclass(frozen=True)

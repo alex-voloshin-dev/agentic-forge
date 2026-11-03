@@ -14,12 +14,14 @@ def _pr_json(*extra_threads: dict) -> dict:
         {  # actionable: unresolved, reviewer-authored
             "id": "T1", "isResolved": False,
             "comments": {"nodes": [
-                {"body": "fix this", "path": "a.py", "line": 5, "author": {"login": "rev"}}]},
+                {"body": "fix this", "path": "a.py", "line": 5, "author": {"login": "rev"},
+             "authorAssociation": "MEMBER"}]},
         },
         {  # skipped: resolved
             "id": "T2", "isResolved": True,
             "comments": {"nodes": [
-                {"body": "ok", "path": "b.py", "line": None, "author": {"login": "rev"}}]},
+                {"body": "ok", "path": "b.py", "line": None, "author": {"login": "rev"},
+             "authorAssociation": "MEMBER"}]},
         },
         {  # skipped: bot-authored
             "id": "T3", "isResolved": False,
@@ -68,7 +70,8 @@ def test_actionable_threads_filters() -> None:
 
 def test_plan_watch_caps_and_reports_conflict() -> None:
     second = {"id": "T4", "isResolved": False, "comments": {"nodes": [
-        {"body": "and this", "path": "d.py", "line": 2, "author": {"login": "rev"}}]}}
+        {"body": "and this", "path": "d.py", "line": 2, "author": {"login": "rev"},
+             "authorAssociation": "MEMBER"}]}}
     state = pr_watch.parse_pr(_pr_json(second))
     assert [*pr_watch.actionable_threads(state, bot=_BOT)]  # T1 + T4 actionable
     plan = pr_watch.plan_watch(state, bot=_BOT, max_threads=1)
@@ -77,7 +80,7 @@ def test_plan_watch_caps_and_reports_conflict() -> None:
 
 def test_command_builders_never_force_or_merge() -> None:
     push = pr_watch.push_argv("/r", "b")
-    assert push == ["git", "-C", "/r", "push", "origin", "HEAD:b"]
+    assert push == ["git", "-C", "/r", "push", "origin", "HEAD:refs/heads/b"]
     assert "--force" not in push and "merge" not in push  # safety invariants
     assert "resolveReviewThread" in " ".join(pr_watch.resolve_argv("T1"))
     reply = pr_watch.reply_argv("T1", "hi")
@@ -100,7 +103,7 @@ def test_run_watch_fix_path_replies_resolves_and_pushes() -> None:
     joined = [" ".join(a) for a in calls]
     assert any("addPullRequestReviewThreadReply" in j for j in joined)  # replied
     assert any("resolveReviewThread" in j for j in joined)  # resolved
-    assert recorded and "T1" in recorded[0]  # diagnostics recorded the action
+    assert recorded[0].startswith("pushed") and "T1" in recorded[1]  # the push, then the thread
 
 
 def test_run_watch_reject_path_leaves_thread_open_and_no_push() -> None:
@@ -121,7 +124,8 @@ def test_run_watch_reject_path_leaves_thread_open_and_no_push() -> None:
 
 def test_run_watch_bounded_by_max_threads() -> None:
     second = {"id": "T4", "isResolved": False, "comments": {"nodes": [
-        {"body": "and this", "path": "d.py", "line": 2, "author": {"login": "rev"}}]}}
+        {"body": "and this", "path": "d.py", "line": 2, "author": {"login": "rev"},
+             "authorAssociation": "MEMBER"}]}}
     state = pr_watch.parse_pr(_pr_json(second))
     result = pr_watch.run_watch(
         state, bot=_BOT, max_threads=1,
@@ -239,7 +243,8 @@ def test_run_watch_undetermined_thread_still_holds_the_merge_gate() -> None:
         "number": 5, "mergeable": "MERGEABLE", "headRefName": "f", "baseRefName": "main",
         "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}]},
         "reviewThreads": {"nodes": [{"id": "T9", "isResolved": False, "comments": {"nodes": [
-            {"body": "x", "path": "a.py", "line": 1, "author": {"login": "rev"}}]}}]},
+            {"body": "x", "path": "a.py", "line": 1, "author": {"login": "rev"},
+             "authorAssociation": "MEMBER"}]}}]},
     }}}}
     result = pr_watch.run_watch(
         pr_watch.parse_pr(data), bot=_BOT, max_threads=10,

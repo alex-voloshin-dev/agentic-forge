@@ -201,6 +201,7 @@ def slug_from_remote_url(url: str) -> str | None:
                 break
         else:
             return None
+    text = text.rstrip("/")  # before the suffix: `owner/name.git/` is the same remote
     text = text[: -len(".git")] if text.endswith(".git") else text
     parts = [p for p in text.strip("/").split("/") if p]
     if len(parts) != 2:

@@ -3,8 +3,9 @@ name: scheduled
 # Headless cadence (Stage 7): the external clock for the declarative job registry in
 # agentic_forge.schedule. Runs the *due* jobs (kb-maintenance, deploy-digest, audit-digest); the
 # jobs are deterministic and need no model token. Real cadence needs the last-run state to persist
-# across runs (a target repo commits .agentic-forge/ or caches it); in this ephemeral checkout the
-# run is a wiring smoke. Adapt this workflow in a target repo that uses the plugin.
+# across runs (a target repo caches the user-level state root, ~/.agentic-forge/state/: a committed
+# file is not read, ADR 0103); in this ephemeral checkout the run is a wiring smoke. Adapt this
+# workflow in a target repo that uses the plugin.
 
 on:
   schedule:
