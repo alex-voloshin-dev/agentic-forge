@@ -31,7 +31,9 @@ jobs:
   # (ADR 0094). The dev tooling itself stays on 3.11+.
   hooks-py39:
     name: Hooks on Python 3.9 (the field's floor)
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, whose setup-python has no 3.9, so the job failed without
+    # running. A floor test that cannot run proves nothing, so its image is chosen for the interpreter.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
