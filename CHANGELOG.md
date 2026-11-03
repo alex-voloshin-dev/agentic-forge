@@ -72,6 +72,11 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 - The warning for a repo's `external_reviewer` value compared it with the user file's raw value, not the
   one in effect, so it could stay silent on a value that differed and warn on one that did not.
 
+### Fixed — CI
+
+- The Python 3.9 hook job failed without running, because `ubuntu-latest` moved to 26.04 and has no 3.9. It
+  now runs on `ubuntu-24.04`, so the floor from ADR 0094 is tested again.
+
 ### Security
 
 - **Recommendation for operators: set `external_reviewer.isolated: true` if you run the reviewer on repos
