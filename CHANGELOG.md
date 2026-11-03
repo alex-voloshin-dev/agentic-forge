@@ -7,6 +7,8 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.11.4] - 2026-11-03
+
 ### Changed
 
 - **The commit gate narrows to what a simple command changes, and can only narrow (ADR 0101).** An empty commit from a
