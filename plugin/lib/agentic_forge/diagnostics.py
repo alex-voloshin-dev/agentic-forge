@@ -19,13 +19,14 @@ import hashlib
 import json
 import os
 import re
+import shlex
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import guardrails, handoff, settings
+from . import guardrails, handoff, settings, state_io
 
 __all__ = [
     "DIAGNOSTICS_PATH",
@@ -34,6 +35,10 @@ __all__ = [
     "repo_slug",
     "state_root",
     "state_file",
+    "state_anchor",
+    "LEGACY_STATE_FILES",
+    "write_state",
+    "append_state",
     "once_per_session",
     "hook_notice",
     "hook_crash_notice",
@@ -91,8 +96,9 @@ def state_root(cwd: Path | str) -> Path:
     """Where this plugin writes generated state for the repo containing ``cwd``.
 
     ``~/.agentic-forge/state/<repo>-<hash>/`` by default; ``<repo>/.agentic-forge/`` only when
-    ``state.in_repo`` is explicitly enabled. Never raises — an unreadable config falls back to the
-    user-level default, which is the direction that cannot dirty someone's repository."""
+    the operator's own config enables ``state.in_repo``: a repo's config cannot (ADR 0102). Never
+    raises — an unreadable config falls back to the user-level default, which is the direction that
+    cannot dirty someone's repository."""
     root = main_repo_root(cwd)
     try:
         from . import settings as _settings
@@ -121,19 +127,20 @@ def legacy_state_notice(cwd: Path | str) -> str:
     legacy = root / STATE_DIRNAME
     if not legacy.is_dir():
         return ""
-    stale = sorted(
-        p.name for p in legacy.iterdir() if p.is_file() and p.name != "config.json"
-    )
+    # Only the names the migration moves, so that following this notice ends it, and never a name
+    # read from the directory: a repo chooses those, and this line reaches the model (ADR 0102).
+    stale = sorted(n for n in LEGACY_STATE_FILES if state_io.readable(legacy / n, root))
     if not stale:
         return ""
     resolved = state_root(cwd)
     if resolved == legacy:  # state.in_repo is on — this is where it belongs
         return ""
+    # The real path, not ${CLAUDE_PLUGIN_ROOT}: hooks get that variable, a shell usually does not.
+    command = f"python3 {shlex.quote(str(_MIGRATE_CLI))} --repo {shlex.quote(str(root))}"
     return (
         f"agentic-forge: runtime state still lives in the repo ({', '.join(stale)}). "
-        f"Its home is now {resolved} — run `python3 "
-        f"${{CLAUDE_PLUGIN_ROOT}}/bin/state_migrate.py --repo {root}` to merge and clean up "
-        f"(ADR 0072/0080)."
+        f"Its home is now {resolved}. To see what would move, run `{command}`; add `--apply` to "
+        f"merge those files there and remove them from the repo (ADR 0072/0080)."
     )
 
 
@@ -149,34 +156,81 @@ def state_file(cwd: Path | str, filename: str) -> Path:
     return state_root(cwd) / filename
 
 
+def _state_location(cwd: Path | str) -> tuple[Path, Path]:
+    """``(state root, anchor)`` for the repo containing ``cwd``; see :func:`state_anchor`."""
+    root = main_repo_root(cwd)
+    state = state_root(root)
+    return state, root if state == root / STATE_DIRNAME else state
+
+
+def state_anchor(cwd: Path | str) -> Path:
+    """The directory below which a state path may not cross a symlink (ADR 0102). In a repo that is
+    the repo root, so a linked ``.agentic-forge`` is refused. At user level it is the state root
+    itself: a checkout cannot plant anything at or above it, and relocating ``~/.agentic-forge``, or
+    one repo's ``<slug>``, with a link is the operator's to do."""
+    return _state_location(cwd)[1]
+
+
+def write_state(cwd: Path | str, filename: str, text: str) -> Path:
+    """Atomically write a state file; return its path. Raises ``OSError``, including
+    :class:`state_io.StateWriteRefused` for a path a checkout has made unsafe."""
+    state, anchor = _state_location(cwd)
+    path = state / filename
+    state_io.write_text(path, text, anchor=anchor)
+    return path
+
+
+def append_state(cwd: Path | str, filename: str, text: str) -> Path:
+    """Append to a state file without following a symlink; return its path. Raises as
+    :func:`write_state` does."""
+    state, anchor = _state_location(cwd)
+    path = state / filename
+    state_io.append_text(path, text, anchor=anchor)
+    return path
+
+
 NOTICES_FILE = "notices.json"  # marker -> the session that last saw this notice
+# What the in-repo location may hold of ours: what the migration moves, and what it deletes.
+LEGACY_STATE_FILES = (
+    "audit.jsonl",
+    DIAGNOSTICS_FILE,
+    NOTICES_FILE,
+    "pr-watch-queue.json",
+    "schedule-state.json",
+)
+_MIGRATE_CLI = Path(__file__).resolve().parents[2] / "bin" / "state_migrate.py"
 
 
-def once_per_session(cwd: Path | str, marker: str, session_id: str | None) -> bool:
+def once_per_session(
+    cwd: Path | str, marker: str, session_id: str | None, *, if_unsaved: bool = True
+) -> bool:
     """True the FIRST time ``marker`` comes up in ``session_id`` — the gate for a notice that a
     session should see once, not on every tool call (ADR 0081).
 
     Keyed by the last session id per marker, so the file stays one small object however long the
-    plugin runs. Never raises: an unwritable state root means the notice is simply shown again,
-    which is the harmless direction."""
+    plugin runs. Never raises. If the marker cannot be saved, the answer is ``if_unsaved``: by
+    default True, so the notice is simply shown again, which is the harmless direction for one that
+    comes up rarely. :func:`hook_crash` passes False when state is in the repo, because a state root
+    a checkout has made unwritable must not become a line on every tool call."""
     if not session_id:
         return False
-    path = state_file(cwd, NOTICES_FILE)
+    state, anchor = _state_location(cwd)
+    path = state / NOTICES_FILE
     seen: dict[str, Any] = {}
     try:
-        if path.is_file():
+        if state_io.readable(path, anchor):
             loaded = json.loads(path.read_text(encoding="utf-8"))
             seen = loaded if isinstance(loaded, dict) else {}
-    except (json.JSONDecodeError, OSError):
+    # ValueError: bad JSON, or bytes that are not UTF-8. RecursionError: JSON nested too deeply.
+    except (ValueError, RecursionError, OSError):
         seen = {}
     if seen.get(marker) == session_id:
         return False
     seen[marker] = session_id
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(seen), encoding="utf-8")
+        state_io.write_text(path, json.dumps(seen), anchor=anchor)
     except OSError:
-        pass
+        return if_unsaved
     return True
 
 
@@ -214,6 +268,7 @@ def hook_crash(
     *,
     session_id: str | None = None,
     severity: str = "blocker",
+    type_only: bool = False,
 ) -> dict[str, Any]:
     """Record a hook's own crash and return the JSON the hook should print (``{}`` once it has
     already said so this session).
@@ -222,17 +277,25 @@ def hook_crash(
     was gated on ``diagnostics.enabled``, which is off by default, so on a default install a
     crashing guardrail left no record and no message: indistinguishable from a healthy one. The
     event is now written regardless of the toggle (``force``, like an outward action), and the
-    first crash of a session per hook reaches the operator through ``systemMessage``. Never
-    raises — the caller is an except-clause that must still exit 0."""
+    first crash of a session per hook reaches the operator through ``systemMessage``. If that
+    "first" cannot be saved, the message repeats: a hook must not fail silently, and an unwritable
+    home is the operator's own to fix. The exception is state in the repo, where a checkout controls
+    the path and could put a line on every tool call, so there it is not shown (ADR 0102). With
+    ``type_only`` the notice names the exception's type and not its text, for a hook whose
+    exceptions can repeat what a repo's files say; the record keeps both. Never raises — the caller
+    is an except-clause that must still exit 0."""
     try:
         message = guardrails.redact_secrets(f"{type(exc).__name__}: {exc}")[:_MAX_LEN]
         emit(
             cwd, kind="error", component=component, message=message, severity=severity,
             session_id=session_id, force=True,
         )
-        if once_per_session(cwd, HOOK_CRASH_MARKER + component, session_id):
+        repo_controls_path = settings.resolve(main_repo_root(cwd)).state_in_repo
+        marker = HOOK_CRASH_MARKER + component
+        if once_per_session(cwd, marker, session_id, if_unsaved=not repo_controls_path):
             log = state_root(cwd) / DIAGNOSTICS_FILE
-            return {"systemMessage": hook_crash_notice(component, message, log)}
+            shown = type(exc).__name__ if type_only else message
+            return {"systemMessage": hook_crash_notice(component, shown, log)}
     except Exception:
         pass
     return {}
@@ -244,12 +307,24 @@ def existing_state_file(cwd: Path | str, filename: str, legacy_rel: str) -> Path
     Writes always go to :func:`state_file`, but an upgrading user already has data at the old
     in-repo location — so a reader prefers the new path when it exists and otherwise falls back to
     the legacy one. Without this, moving the state root would silently blank every digest and job
-    history on upgrade. **Readers only** — writing through it resurrects the legacy directory."""
-    new = state_root(cwd) / filename
-    if new.exists():
+    history on upgrade. **Readers only** — writing through it resurrects the legacy directory.
+
+    A path that crosses a symlink is never returned: what is behind the link is another file, and
+    readers put this one's lines in a digest or a bundle meant to be shared (ADR 0102). Nor is one
+    that holds something other than a regular file. If that leaves nothing, the answer is
+    ``os.devnull``, which is not a regular file and reads as empty, so every reader sees "no state
+    yet"."""
+    state, anchor = _state_location(cwd)
+    new = state / filename
+    if state_io.readable(new, anchor):
         return new
-    legacy = main_repo_root(cwd) / legacy_rel
-    return legacy if legacy.exists() else new
+    root = main_repo_root(cwd)
+    legacy = root / legacy_rel
+    if state_io.readable(legacy, root):
+        return legacy
+    if state_io.symlink_below(new, anchor) or os.path.lexists(new):
+        return Path(os.devnull)
+    return new
 
 
 def main_repo_root(cwd: Path | str) -> Path:
@@ -351,11 +426,7 @@ def record_event(
     if not force and not settings.resolve(root, env=env).diagnostics_enabled:
         return None
     try:
-        path = state_root(root) / DIAGNOSTICS_FILE
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(event) + "\n")
-        return path
+        return append_state(root, DIAGNOSTICS_FILE, json.dumps(event) + "\n")
     except Exception:
         return None
 
@@ -509,7 +580,8 @@ def load(repo: Path | str, *, max_lines: int | None = None) -> list[str]:
     path = existing_state_file(repo, DIAGNOSTICS_FILE, DIAGNOSTICS_PATH)
     if not path.is_file():
         return []
-    lines = path.read_text(encoding="utf-8").splitlines()
+    # errors="replace": the parser then skips a line that cannot be decoded, like a torn one.
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     return lines[-max_lines:] if max_lines is not None else lines
 
 

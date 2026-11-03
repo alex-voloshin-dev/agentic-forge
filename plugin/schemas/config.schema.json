@@ -149,7 +149,18 @@
       "properties": {
         "in_repo": {
           "type": "boolean",
-          "description": "Write generated state into <repo>/.agentic-forge/ instead of the user-level default. Off: a fresh run adds no untracked path to your repo."
+          "description": "Write generated state into <repo>/.agentic-forge/ instead of the user-level default. Off: a fresh run adds no untracked path to your repo. User-level file only: a value in a repo file is ignored with a warning (ADR 0102)."
+        }
+      }
+    },
+    "knowledge": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The knowledge vault at <repo>/docs/knowledge/ (ADR 0018).",
+      "properties": {
+        "allow_external_vault": {
+          "type": "boolean",
+          "description": "Read and write a vault that resolves outside the repo, for a vault kept elsewhere and reached by a link. Default false, because a checkout can commit that link. User-level file only: a value in a repo file is ignored with a warning (ADR 0102)."
         }
       }
     },

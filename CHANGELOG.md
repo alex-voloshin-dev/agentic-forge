@@ -7,6 +7,76 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Security
+
+- **Behaviour change: a repo-level `state.in_repo` is now ignored (ADR 0102).** A repo's committed config
+  could move the plugin's generated state into the checkout, and a checkout could then cause the plugin's
+  hooks to modify files outside it, with your permissions. The setting is now honoured from
+  `~/.agentic-forge/config.json` only, where it applies to every repo. A value in a repo file is ignored
+  with a warning that names the key and not the value, shown once per session, unless it equals the value
+  in effect. It holds when a repo file is malformed too, with or without `jsonschema`. If a repo of yours
+  set it, its new state goes to the user-level root, and the session-start notice gives the command that
+  merges what is already there.
+- **State writes no longer follow a symlink, wherever state is (ADR 0102).** New `agentic_forge.state_io`:
+  a full write is a temp file in the same directory and an atomic replace, an append uses `O_NOFOLLOW` and
+  takes regular files only, and both refuse a path that crosses a symlink or is the wrong type: in a repo at
+  or below `.agentic-forge`, at user level below the state directory. A link at or above that, such as a
+  relocated `~/.agentic-forge` or one repo's state directory, keeps working. The temp file is private until
+  it has its final mode. Every writer goes through it: the diagnostics log, the once-per-session notices, the
+  audit log and its rotation and archives, the subagent budget counter, the schedule state, the PR-watch
+  queue, and `state_migrate`. A refused write is quiet and does not fail a hook. With state in the repo, a
+  hook-crash notice that cannot be saved is dropped rather than repeated on every call; with user-level state
+  it still shows. The scheduled PR-watch drain fails its job
+  instead, since an unsaved tick would watch the same PRs again. A rotation whose archive is refused leaves the
+  log untrimmed, so no record is lost, and records an anomaly saying the log is growing. At user level `archive/`
+  may still be your own link. A full write now needs the directory to be writable, even if the file is.
+- **State reads no longer follow a symlink.** A state file behind a link, in the state directory or at the
+  legacy in-repo location, is treated as absent, so its target cannot reach a digest or a diagnostics
+  bundle. Rotation leaves such a log alone. `state_migrate` follows no link, at a legacy name or at a target:
+  it names what it skipped, keeps the legacy file, and exits `1` if a target was left unmerged.
+- **Behaviour change: a knowledge vault that resolves outside the repo now needs a new setting (ADR 0102).**
+  On a default install, a repo could commit a link that put notes in a directory of its choosing and brought
+  titles from outside into the session context. The vault directory must now resolve inside the repo, meaning the
+  nearest directory up from the working directory that holds a `.git` entry; a link that stays inside, such as
+  `docs -> website/docs`, keeps working, also from a package directory. Otherwise `vault.add_note` and
+  `vault.scaffold` raise an error naming the path and the remedy and create nothing, and reads act as an empty
+  vault: nothing from it reaches the session, which gets one line per session naming the setting. A linked worktree
+  is its own repo here, so one whose `docs` links to the main checkout needs the setting. **If you keep a vault elsewhere and reach it by a link, set
+  `knowledge.allow_external_vault: true` in `~/.agentic-forge/config.json`.** That key is user-level only: a value
+  in a repo file is ignored with a warning.
+- **The knowledge vault's writers no longer follow a symlinked file (ADR 0102).** `vault.add_note` and
+  `vault.scaffold` wrote through a link at a note or a map-of-content. They now refuse it and raise an error naming
+  the path, before writing anything, so the skill's user can be told the note was not saved. A linked file is
+  skipped when reading, so its frontmatter cannot reach the session context.
+- **The session-start migration notice no longer repeats text a repo chose.** It lists only the plugin's own
+  state files, never a name read from the directory, and neither does `state_migrate`'s output.
+- **A session-start crash no longer repeats text a repo chose.** Its notice names the exception's type only; the
+  record keeps the text. `frontmatter.parse` turns anything PyYAML raises into a `FrontmatterError` that does not
+  repeat it, and `load_vault` takes a note's `title`, `type` and tags only if they are strings, so an alias bomb or a
+  huge int costs that note and not the session. A title or tag that is not a string, such as `title: 2024`, is now
+  ignored.
+
+### Fixed
+
+- The legacy-state notice can now be followed: it gives the script's real path instead of
+  `${CLAUDE_PLUGIN_ROOT}`, says the command is a dry run and to add `--apply`, and stops once the migration has
+  run, because it no longer counts files the migration does not move. `state_migrate` deletes a legacy
+  `notices.json`.
+- A rotation whose archive could not be written, for example on a full disk, said `logs.archives is 0`. Its
+  record now says the archive failed.
+- A `notices.json` that is not UTF-8 no longer stops `session_start` printing anything.
+- `plugin/bin/run_scheduled.py` now exits non-zero and says so when it cannot save its job state. It used to exit
+  `0`, with every job running again on each poll whatever its cadence.
+- `state_migrate` names the file when one cannot be parsed, reports a log that is not UTF-8 as an error rather than a
+  traceback, no longer claims nothing was removed when something had been, and names a legacy `archive/` it leaves
+  behind. The digests tolerate a log line that is not UTF-8.
+- A vault note that is not UTF-8, or whose frontmatter holds an impossible date, no longer breaks loading the
+  vault. It is skipped, or read without frontmatter. The session-start hook also builds its context separately
+  now, so a failure there cannot discard notices whose once-per-session marker has been spent.
+- `vault.add_note` refuses a read-only note or map-of-content it would have to change, which the atomic write would
+  otherwise have replaced without a word, and a long note name no longer fails on the temp file's name. It checks
+  what it will write before writing anything, on a fresh vault too.
+
 ## [2026.11.1] - 2026-11-03
 
 ### Added — external reviewer: opt-in isolation (ADR 0100)

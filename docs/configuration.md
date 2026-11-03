@@ -9,10 +9,12 @@ The plugin reads optional JSON config from two places, both validated against
 **Precedence (lowest → highest):** built-in defaults < user-level file < per-repo file < env vars.
 The two files deep-merge, so a repo overrides only the keys it sets and inherits the rest. The reviewer
 keys are the exception, for security: `external_reviewer.command`, `isolated`, `model` and `effort` are
-**user-level only**, and a repo cannot turn on a user-level `external_reviewer.enabled: false`. All keys
+**user-level only**, and a repo cannot turn on a user-level `external_reviewer.enabled: false`.
+`state.in_repo` and `knowledge.allow_external_vault` are **user-level only** as well (ADR 0102). All keys
 are optional. A ready, schema-valid example with **every** key ships at
 [`plugin/config.example.json`](../plugin/config.example.json) — copy it to either location and trim. In a
-repo, those four reviewer keys do nothing, so trim them there.
+repo, those four reviewer keys, `state.in_repo` and `knowledge.allow_external_vault` do nothing, so trim them
+there.
 
 > These files are committed / home-local — **never** put secrets (API keys, tokens) in them. Use the
 > env vars for secrets and one-off overrides.
@@ -28,7 +30,8 @@ repo, those four reviewer keys do nothing, so trim them there.
 | `pre_router.enabled` | bool | `false` | The deterministic pre-router hook (ADR 0089): on each prompt, name the clearly-matching skill in the prompt's context. Suggests only; never invokes. **Off by default** — measured at +0.095 activation over the session note (inside single-run noise) on a stand ADR 0090 then found empty, so the null result is uninterpretable; it stays off because the honest baseline left it nothing to fix (ADR 0091). Overridable with `AGENTIC_FORGE_PRE_ROUTER`. |
 | `logs.enabled` | bool | `true` | Write a redacted audit record per tool call (ADR 0019/0078). **On by default** — it is the only record of what the agent did, and the substrate of the diagnostics bundle. Turning it off stops the writing; it does not move the file (that is ADR 0072's state root). Overridable with `AGENTIC_FORGE_LOGS`. |
 | `diagnostics.enabled` | bool | `false` | Turn on the self-diagnostics log `~/.agentic-forge/state/<repo-slug>/diagnostics.jsonl` (ADR 0072) — guardrail denials, pipeline failures (ADR 0039). **This is "the logger."** Hook crashes are recorded regardless of this switch and announced once per session (ADR 0094); the file is rotated at session start under the `logs.*` bounds. |
-| `state.in_repo` | bool | `false` | Keep generated runtime state (diagnostics, audit, schedule, PR-watch queue) **inside** the project at `<repo>/.agentic-forge/` instead of the user-level state root. Off by default: the plugin must not write into a repo it does not own (ADR 0072). The committed `config.json` is unaffected — configuration is the project's, state is the runtime's. `AGENTIC_FORGE_STATE_HOME` relocates the root when the default is not wanted. |
+| `state.in_repo` | bool | `false` | Keep generated runtime state (diagnostics, audit, schedule, PR-watch queue) **inside** the project at `<repo>/.agentic-forge/` instead of the user-level state root. Off by default: the plugin must not write into a repo it does not own (ADR 0072). **User-level only: set it in `~/.agentic-forge/config.json`, and it then applies to every repo.** A value in a repo file is ignored with a warning, in both directions, unless it equals the value in effect, because a checkout must not choose where the plugin writes (ADR 0102). See [State and symlinks](#state-and-symlinks). The committed `config.json` is unaffected — configuration is the project's, state is the runtime's. `AGENTIC_FORGE_STATE_HOME` relocates the root when the default is not wanted. |
+| `knowledge.allow_external_vault` | bool | `false` | Read and write a knowledge vault whose directory resolves outside the repo (the nearest directory up holding a `.git` entry), for a vault you keep elsewhere and reach by a link. **User-level only: set it in `~/.agentic-forge/config.json`.** A value in a repo file is ignored with a warning, in both directions, unless it equals the value in effect, because a checkout can commit the link (ADR 0102). Only a real `true` counts. See [Vault notes and symlinks](#vault-notes-and-symlinks). |
 | `subagent_budget.soft` | int ≥ 0 | `25` | Per-session subagent (`Task`) count at which the budget hook warns. |
 | `subagent_budget.hard` | int ≥ 0 | `50` | Count at which the budget hook blocks further `Task` spawns. |
 | `test_gate.skip` | bool | `false` | Skip the pre-commit test gate (the `commit_gate` hook). |
@@ -122,6 +125,71 @@ reason an unknown top-level key is reported as `$ fails the schema's additionalP
 its name, and a free-form key under `models` as `*`. A file that cannot be read at all, including one
 that is not UTF-8 or not parseable JSON, is dropped the same way and never stops a session. So is a file
 over 1 MB, without being read, and one the validator itself fails on.
+
+### State and symlinks
+
+Plugin state is written without following a symlink, wherever it lives (ADR 0102). A full write is a temp
+file in the same directory and an atomic replace; an append takes regular files only. A write is refused if
+the path crosses a symlink, or if the name or a parent is the wrong type, such as a directory at a log's name
+or a file at the state directory's. What is checked depends on where state is:
+
+- **In a repo:** `<repo>/.agentic-forge` and everything below it. A checkout controls these.
+- **At user level:** everything below the state directory, except `archive/`. A checkout cannot put a link
+  at or above that directory, so these are yours and are fine: `~/.agentic-forge`, `AGENTIC_FORGE_STATE_HOME`,
+  one repo's `~/.agentic-forge/state/<repo-slug>` and its `archive/` may each be a link.
+
+A refused write is quiet: that record is simply not kept, and an ordinary once-per-session notice shows again.
+A hook does not fail over it. A hook-crash notice that cannot be saved shows again as well, because a hook must
+not fail silently. The exception is state in the repo, where a checkout could make that happen on every tool
+call: there it is not shown, and the crash itself is still recorded if the log can be written. Three cases are
+not quiet. The scheduled PR-watch drain fails its job, because an unsaved tick means the same PRs are watched
+again. `plugin/bin/run_scheduled.py` exits non-zero and says so if it cannot save its job state, because every
+job would otherwise run again on the next poll, whatever its cadence. And a rotation whose archive is refused leaves the log untrimmed, so no record is lost, and records an
+anomaly in the diagnostics log at each session start, since the log is growing past its bound. A disk that
+cannot take the archive still trims, and the rotation's record says the archive failed.
+
+A full write needs the directory to be writable, even if the file itself is, because of the temp file.
+
+Readers treat a state file behind a link as absent, in the state directory and at the legacy in-repo location,
+so its target cannot reach a digest or a diagnostics bundle.
+
+If a repo's committed config set `state.in_repo: true`, its generated state now goes to the user-level root.
+Files already in the repo stay readable until a new one is written beside them. The session-start notice gives
+the full command, which on its own is a dry run; add `--apply` to merge the files and remove them from the
+repo. A legacy `archive/` of rotated logs is not moved: the migration names it and it stays. A file that cannot be
+parsed stops the migration with exit `1`, naming the file: it and the ones after it stay, and any reported as
+merged by then have gone from the repo. `plugin/bin/state_migrate.py` deletes a legacy `notices.json`, which holds
+only per-session markers. It
+does not follow a link. One at a legacy name is named and kept, and the exit code stays `0`. One at a target is
+named, the legacy file stays, and the exit code is `1`, because that target was left unmerged. Any other file in
+that directory is left alone and does not raise the notice.
+
+### Vault notes and symlinks
+
+**The vault directory must resolve inside the repo** (ADR 0102). The repo here is the nearest directory, going up
+from the working directory, that holds a `.git` entry, so this works from a package inside a checkout; with none,
+it is the working directory itself. A link at `docs/knowledge` or `docs` that stays inside, such as
+`docs -> website/docs` or a package's `docs -> ../../docs`, works. One that leads outside, however many links it
+takes, is not used unless you set `knowledge.allow_external_vault: true` in `~/.agentic-forge/config.json`. It does
+not matter who made the link. A linked worktree is its own repo here, so a worktree whose `docs` links to the main
+checkout needs the setting. Without the setting:
+
+- `vault.add_note` and `vault.scaffold` raise an error naming the path and this setting, and create nothing.
+- Reading acts as an empty vault, with no crash: nothing from it reaches the session context. The session-start
+  hook prints one line once per session saying the vault is not read and naming the setting, with no path or text
+  from the repo. `vault.validate_vault` reports it as its one problem, so a skill can tell you.
+
+If you keep a vault outside the repo and reach it by a link, you need the setting after upgrading. It then applies
+to every repo you open, including one whose link you did not make.
+
+Inside the vault, `vault.add_note` raises an error naming the path if a link or anything but a regular file sits at
+the note or at a map-of-content it would link from, or if one it would have to change is read-only, before writing
+anything: the note was **not** saved, and the skill's user should be told. That holds with the setting too, and on
+a vault that does not exist yet. A map-of-content already holding the link is not changed, and an existing
+`README.md` is not written at all, so neither stops a capture. A linked file in the vault is skipped when reading,
+and so is a note that is not UTF-8. Frontmatter that does not parse costs that note its frontmatter, and a `title`,
+`type` or tag that is not a string is ignored. A note's name and frontmatter title reach the session context by
+design (ADR 0018), and a repo chooses both.
 
 ## Env-var overrides
 

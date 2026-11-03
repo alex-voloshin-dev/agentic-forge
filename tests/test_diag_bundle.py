@@ -579,8 +579,9 @@ def test_skill_script_honours_env_home_and_prints_an_absolute_path(  # type: ign
 
 
 def test_diagnostics_bundle_eval_stand_is_hermetic(tmp_path: Path) -> None:
-    """The Tier-2 cases seed a repo-side state dir (`state.in_repo`) and a fake home, so a run
-    touches nothing real: the zip lands under fake-home/Downloads, the 2024 records fall outside
+    """The Tier-2 cases seed the legacy repo-side state files, which the readers fall back to
+    (ADR 0072), and a fake home, so a run reads nothing real: the zip lands under
+    fake-home/Downloads, the 2024 records fall outside
     the window, the undated ones stay, and the seeded settings token never ships (audit C6c)."""
     from agentic_forge.agent_eval import materialize_fixtures
     from agentic_forge.evals import load_evals

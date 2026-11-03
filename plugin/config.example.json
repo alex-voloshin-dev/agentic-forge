@@ -2,6 +2,9 @@
   "state": {
     "in_repo": false
   },
+  "knowledge": {
+    "allow_external_vault": false
+  },
   "diagnostics": {
     "enabled": true
   },

@@ -12,6 +12,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 _REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO / "plugin" / "lib"))
 sys.path.insert(0, str(_REPO / "plugin" / "bin"))
@@ -86,14 +88,30 @@ def test_nothing_to_migrate_is_not_an_error(tmp_path: Path) -> None:
     assert state_migrate.main(["x", "--repo", str(tmp_path)]) == 0
 
 
-def test_state_in_repo_makes_it_a_no_op(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+def test_state_in_repo_makes_it_a_no_op(tmp_path: Path, monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
+    home = tmp_path / "home"
+    (home / diagnostics.STATE_DIRNAME).mkdir(parents=True)
+    (home / diagnostics.STATE_DIRNAME / "config.json").write_text(
+        '{"state": {"in_repo": true}}', encoding="utf-8"
+    )
+    monkeypatch.setenv("HOME", str(home))
+    repo = tmp_path / "repo"
+    source = _legacy(repo, "audit.jsonl", [{"n": 1}])
+    assert state_migrate.main(["x", "--repo", str(repo), "--apply"]) == 0
+    assert source.is_file()  # this IS the state root; leave it alone
+    assert "state.in_repo" in capsys.readouterr().out
+
+
+def test_a_repo_files_in_repo_does_not_stop_the_migration(tmp_path: Path) -> None:
+    """Only the operator can keep state in the repo (ADR 0102), so a repo that set it migrates."""
     legacy = tmp_path / diagnostics.STATE_DIRNAME
     legacy.mkdir(parents=True)
     (legacy / "config.json").write_text('{"state": {"in_repo": true}}', encoding="utf-8")
-    _legacy(tmp_path, "audit.jsonl", [{"n": 1}])
+    source = _legacy(tmp_path, "audit.jsonl", [{"n": 1}])
     assert state_migrate.main(["x", "--repo", str(tmp_path), "--apply"]) == 0
-    assert (legacy / "audit.jsonl").is_file()  # this IS the state root; leave it alone
-    assert "state.in_repo" in capsys.readouterr().out
+    assert not source.exists()
+    assert (legacy / "config.json").is_file()
+    assert '"n": 1' in diagnostics.state_file(tmp_path, "audit.jsonl").read_text(encoding="utf-8")
 
 
 def test_the_notice_names_the_resolved_root(tmp_path: Path) -> None:
@@ -136,3 +154,90 @@ def test_scheduler_state_saves_to_the_state_root_even_when_a_legacy_file_exists(
     assert "digest" in loaded
     saved = schedule.save_state(tmp_path, loaded)
     assert saved == diagnostics.state_file(tmp_path, schedule.STATE_FILE)
+
+
+def test_a_bad_file_midway_keeps_what_was_merged_and_a_rerun_finishes(tmp_path: Path) -> None:
+    """Files are merged one at a time, so a bad line in a later one comes after an earlier source is
+    gone. Nothing may be lost in that state: the merged records are at the target, the bad file is
+    where it was, the notice still says so, and repairing the file lets the same command finish."""
+    _legacy(tmp_path, "audit.jsonl", [{"n": 1}])
+    bad = _legacy(tmp_path, "diagnostics.jsonl", [{"e": 1}])
+    bad.write_text('{"e": 1}\nnot json\n', encoding="utf-8")
+    assert state_migrate.main(["x", "--repo", str(tmp_path), "--apply"]) == 1
+    audit = diagnostics.state_file(tmp_path, "audit.jsonl")
+    assert audit.read_text(encoding="utf-8") == '{"n": 1}\n'
+    assert not diagnostics.state_file(tmp_path, "diagnostics.jsonl").exists()
+    assert bad.read_text(encoding="utf-8") == '{"e": 1}\nnot json\n'
+    assert "diagnostics.jsonl" in diagnostics.legacy_state_notice(tmp_path)
+
+    bad.write_text('{"e": 1}\n', encoding="utf-8")
+    assert state_migrate.main(["x", "--repo", str(tmp_path), "--apply"]) == 0
+    assert audit.read_text(encoding="utf-8") == '{"n": 1}\n'
+    merged = diagnostics.state_file(tmp_path, "diagnostics.jsonl")
+    assert merged.read_text(encoding="utf-8") == '{"e": 1}\n'
+    assert not (tmp_path / diagnostics.STATE_DIRNAME).exists()
+    assert diagnostics.legacy_state_notice(tmp_path) == ""
+
+
+# --- what is left behind, and errors that say which file (ADR 0102) -----------
+
+
+def test_the_legacy_archive_left_behind_is_named(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+    """The notice does not promise to remove it, and the migration says it stayed."""
+    legacy = tmp_path / diagnostics.STATE_DIRNAME
+    (legacy / "archive").mkdir(parents=True)
+    (legacy / "archive" / "audit-20260101T000000Z.jsonl.gz").write_bytes(b"x")
+    source = _legacy(tmp_path, "audit.jsonl", [{"n": 2}])
+    notice = diagnostics.legacy_state_notice(tmp_path)
+    assert "remove them from the repo" in notice and "remove it from" not in notice
+    assert state_migrate.main(["x", "--repo", str(tmp_path)]) == 0
+    assert "archive/: rotated logs, not moved" in capsys.readouterr().out
+    assert state_migrate.main(["x", "--repo", str(tmp_path), "--apply"]) == 0
+    assert "archive/: rotated logs, not moved" in capsys.readouterr().out
+    assert not source.exists() and (legacy / "archive").is_dir()
+    assert diagnostics.legacy_state_notice(tmp_path) == ""
+
+
+def test_no_archive_is_not_mentioned(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+    _legacy(tmp_path, "audit.jsonl", [{"n": 2}])
+    assert state_migrate.main(["x", "--repo", str(tmp_path), "--apply"]) == 0
+    assert "archive/" not in capsys.readouterr().out
+
+
+def test_the_error_says_which_file_and_what_has_already_gone(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+    moved = _legacy(tmp_path, "audit.jsonl", [{"n": 1}])
+    bad = moved.with_name("diagnostics.jsonl")
+    bad.write_text("not json\n", encoding="utf-8")
+    assert state_migrate.main(["x", "--repo", str(tmp_path), "--apply"]) == 1
+    assert not moved.exists() and bad.is_file()
+    err = capsys.readouterr().err
+    assert "nothing was removed" not in err
+    assert "diagnostics.jsonl cannot be parsed" in err and "have gone from it" in err
+
+
+def test_the_error_names_the_file_it_stopped_at_not_the_last_one_listed(  # type: ignore[no-untyped-def]
+    tmp_path: Path, capsys
+) -> None:
+    bad = _legacy(tmp_path, "audit.jsonl", [])
+    bad.write_text("not json\n", encoding="utf-8")
+    later = _legacy(tmp_path, "diagnostics.jsonl", [{"n": 1}])
+    assert state_migrate.main(["x", "--repo", str(tmp_path), "--apply"]) == 1
+    assert "audit.jsonl cannot be parsed" in capsys.readouterr().err
+    assert later.is_file()
+
+
+@pytest.mark.parametrize("flags", [[], ["--apply"]], ids=["dry-run", "apply"])
+def test_a_legacy_log_that_is_not_utf8_is_an_error_not_a_traceback(  # type: ignore[no-untyped-def]
+    tmp_path: Path, capsys, flags: list[str]
+) -> None:
+    source = _legacy(tmp_path, "audit.jsonl", [])
+    source.write_bytes(b'{"n":1}\n\xff\xfe\n')
+    assert state_migrate.main(["x", "--repo", str(tmp_path), *flags]) == 1
+    assert "audit.jsonl cannot be parsed (UnicodeDecodeError)" in capsys.readouterr().err
+    assert source.is_file()
+
+
+def test_an_error_quotes_nothing_from_the_file(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+    _legacy(tmp_path, "audit.jsonl", []).write_text("SENTINEL-FROM-THE-REPO\n", encoding="utf-8")
+    assert state_migrate.main(["x", "--repo", str(tmp_path), "--apply"]) == 1
+    assert "SENTINEL" not in capsys.readouterr().err

@@ -11,12 +11,13 @@ from __future__ import annotations
 
 import gzip
 import json
-import os
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from . import state_io
 
 __all__ = [
     "AUDIT_PATH",
@@ -133,9 +134,10 @@ def record_days(chunk: bytes) -> float | None:
     return abs((stamps[1] - stamps[0]).total_seconds()) / 86400.0
 
 
-def _archive(path: Path, chunk: bytes, keep: int) -> Path | None:
+def _archive(path: Path, chunk: bytes, keep: int, anchor: Path) -> Path | None:
     """Gzip ``chunk`` (the records rotation is about to drop) into ``<log dir>/archive/``, keeping
-    at most ``keep`` archives. Returns the archive path, or None when archiving is off or fails.
+    at most ``keep`` archives. Returns the archive path, or None when archiving is off. A failed
+    write raises; failing to prune the old ones does not, since the records are safe by then.
 
     Discarding is the wrong default for the one artifact a field report is reconstructed from: on a
     busy repo the bound is reached every 11-15 days, so "60 days of history" was never available to
@@ -143,13 +145,14 @@ def _archive(path: Path, chunk: bytes, keep: int) -> Path | None:
     if keep <= 0:
         return None
     directory = path.parent / "archive"
-    directory.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     target = directory / f"{path.stem}-{stamp}.jsonl.gz"
-    with gzip.open(target, "wb") as handle:
-        handle.write(chunk)
-    for stale in sorted(directory.glob(f"{path.stem}-*.jsonl.gz"))[:-keep]:
-        stale.unlink(missing_ok=True)
+    state_io.write_bytes(target, gzip.compress(chunk), anchor=anchor)
+    try:
+        for stale in sorted(directory.glob(f"{path.stem}-*.jsonl.gz"))[:-keep]:
+            stale.unlink(missing_ok=True)
+    except OSError:
+        pass
     return target
 
 
@@ -171,11 +174,18 @@ def _rotate(
     session-start hook, which must not break a session). A trim is **recorded** rather than
     silent — see ADR 0080/0081 — and the discarded records are gzipped into a dated sibling
     first, so a rotation costs disk rather than history. ``label`` names the log in that record
-    and ``component`` tags it."""
+    and ``component`` tags it. A log behind a symlink is left alone: its target is not our log, and
+    archiving it would copy another file into the state directory. An archive that was refused for
+    the same reason leaves the log untrimmed, because trimming would turn a repo's link into lost
+    records, and records that: the log is now growing past its bound. Only state in the repo can get
+    there through a link, since at user level a checkout cannot plant one and ``archive/`` may be
+    the operator's own, as the state directory may. A disk that cannot take the archive still trims,
+    and the record says so (ADR 0102)."""
     from . import diagnostics
 
     try:
-        if not path.is_file() or path.stat().st_size <= max_bytes:
+        anchor = diagnostics.state_anchor(repo)
+        if not state_io.readable(path, anchor) or path.stat().st_size <= max_bytes:
             return False
         data = path.read_bytes()
         if len(data) <= keep_bytes:  # misuse guard (keep >= max): nothing to trim into
@@ -186,18 +196,35 @@ def _rotate(
             if newline != -1:
                 tail = tail[newline + 1 :]
         dropped = data[: len(data) - len(tail)]
+        failure = ""
+        archive_anchor = path.parent / "archive" if anchor == path.parent else anchor
         try:
-            archived = _archive(path, dropped, archives)
-        except OSError:
-            archived = None  # a full or read-only disk must not cost us the trim itself
-        tmp = path.with_suffix(".jsonl.rotating")
-        tmp.write_bytes(tail)
-        os.replace(tmp, path)
+            archived = _archive(path, dropped, archives, archive_anchor)
+        except state_io.StateWriteRefused:
+            diagnostics.emit(
+                repo, kind="anomaly", component=component,
+                message=(
+                    f"{label} not rotated: its archive directory was refused, so nothing was "
+                    f"trimmed and the log keeps growing past its bound ({max_bytes}). Replace "
+                    "what is at archive/ beside the log with a plain directory."
+                ),
+                severity="major", force=True,
+            )
+            return False
+        except OSError as exc:  # a full or read-only disk must not cost us the trim itself
+            archived = None
+            failure = type(exc).__name__
+        state_io.write_bytes(path, tail, anchor=anchor)
         # Rotation MOVES the oldest records out of the live log. Announce it in the terms an
         # operator reasons in — days, and where the records went (ADR 0080/0081).
         days = record_days(dropped)
         span = f"~{days:.0f} days of records" if days is not None else f"{len(dropped)} bytes"
-        landed = f"archived to {archived}" if archived else "DISCARDED (logs.archives is 0)"
+        if archived:
+            landed = f"archived to {archived}"
+        elif failure:
+            landed = f"DISCARDED (the archive could not be written: {failure})"
+        else:
+            landed = "DISCARDED (logs.archives is 0)"
         kept_days = record_days(tail)
         retention = f"; the live log now holds ~{kept_days:.0f} days" if kept_days else ""
         diagnostics.emit(
@@ -264,5 +291,6 @@ def load_audit(repo: Path | str, *, max_lines: int | None = None) -> list[str]: 
     path = diagnostics.existing_state_file(repo, AUDIT_FILE, AUDIT_PATH)
     if not path.is_file():
         return []
-    lines = path.read_text(encoding="utf-8").splitlines()
+    # errors="replace": the parser then skips a line that cannot be decoded, like a torn one.
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     return lines[-max_lines:] if max_lines is not None else lines

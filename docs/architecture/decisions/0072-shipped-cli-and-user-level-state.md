@@ -99,6 +99,9 @@ Some users *want* the audit trail inside the project (a shared CI checkout, a co
 requirement). `{"state": {"in_repo": true}}` restores the old layout. Off by default: the safe
 behaviour must be the one you get without reading the docs.
 
+*Amended 2026-11-03 by [ADR 0102](0102-a-checkout-does-not-choose-where-state-goes.md): this is honoured
+from the user-level file only, and a value in a repo file is ignored with a warning.*
+
 `AGENTIC_FORGE_STATE_HOME` relocates the root; its first purpose is hermetic tests — an autouse
 `conftest` fixture points it at a `tmp_path`, so the suite can no longer write into the developer's
 real `$HOME`, which it would otherwise now do.

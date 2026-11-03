@@ -1,6 +1,13 @@
 from __future__ import annotations
 
+import json
+import os
+import re
+import subprocess
+import sys
 from pathlib import Path
+
+import pytest
 
 from agentic_forge import vault
 from agentic_forge.vault import (
@@ -248,3 +255,195 @@ def test_session_summary_no_root_moc(tmp_path: Path) -> None:
 def test_module_exports() -> None:
     for name in vault.__all__:
         assert hasattr(vault, name)
+
+
+# --- the skills' documented calls, as written, in processes of their own -----------------------
+
+_REPO = Path(__file__).resolve().parents[1]
+_SKILLS_USING_THE_VAULT = ("knowledge", "repo-onboarding")
+# The bytes 2026.11.1 wrote, plus a note someone wrote by hand and linked from a map.
+_VAULT_FROM_BEFORE = {
+    "MOC.md": (
+        "---\ntitle: Knowledge Map\ntype: moc\ntags: [moc]\n---\n\n# Knowledge Map\n\n"
+        "The map-of-content for this project's knowledge vault. Link notes here under themes.\n\n"
+        "## Notes\n- [[decisions]]\n"
+    ),
+    "README.md": (
+        "# Knowledge vault\n\nObsidian-format project knowledge maintained by agentic-forge's "
+        "`knowledge` skill: atomic notes (`*.md` with `[[wikilinks]]`), maps-of-content "
+        "(`type: moc`), entry point `MOC.md`.\n"
+    ),
+    "decisions.md": (
+        "---\ntitle: Decisions\ntype: moc\ntags: [moc]\n---\n\n# Decisions\n\n## Notes\n"
+        "- [[use-sqlite|Use SQLite]]\n- [[by-hand]]\n"
+    ),
+    "use-sqlite.md": (
+        "---\ntitle: Use SQLite\ntype: note\ntags: [decision]\n---\n\n# Use SQLite\n\n"
+        "We chose SQLite because it is one file.\n"
+    ),
+    "by-hand.md": "No frontmatter on this one. See [[use-sqlite]].\n",
+}
+
+
+def _documented_call(skill: str) -> str:
+    """The one line the skill tells a model to run. Read from the skill, so a test cannot go on
+    passing for a call that the skill no longer documents."""
+    text = (_REPO / "plugin" / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
+    found = re.findall(r'^python -c "(.+)"$', text, flags=re.MULTILINE)
+    assert len(found) == 1, found
+    return found[0]
+
+
+def _python(code: str, repo: Path) -> subprocess.CompletedProcess[str]:
+    """``python -c`` in the repo. The interpreter and the import path are the two things the skills
+    leave to the installation; everything else is as written."""
+    env = {**os.environ, "PYTHONPATH": str(_REPO / "plugin" / "lib")}
+    return subprocess.run(
+        [sys.executable, "-c", code], cwd=repo, env=env, capture_output=True, text=True, check=False
+    )
+
+
+def _vault_call(body: str, repo: Path) -> str:
+    result = _python(f"from agentic_forge import vault; {body}", repo)
+    assert result.returncode == 0, result.stderr
+    return result.stdout.strip()
+
+
+def _session_context(repo: Path) -> str:
+    result = subprocess.run(
+        [sys.executable, str(_REPO / "plugin" / "hooks" / "scripts" / "session_start.py")],
+        input=json.dumps({"cwd": str(repo), "session_id": "s1"}),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+
+
+@pytest.mark.parametrize("skill", _SKILLS_USING_THE_VAULT)
+def test_the_documented_call_on_a_fresh_repo(tmp_path: Path, skill: str) -> None:
+    """The knowledge skill's recall path: nothing there, scaffold it, capture, check."""
+    call = _documented_call(skill)
+    first = _python(call, tmp_path)
+    assert first.returncode == 0, first.stderr
+    assert first.stdout.strip() == str(["vault not found at docs/knowledge/"])
+    assert list(tmp_path.iterdir()) == []  # asking creates nothing
+
+    _vault_call("vault.scaffold('.')", tmp_path)
+    assert _python(call, tmp_path).stdout.strip() == "[]"
+    _vault_call(
+        "vault.add_note('.', 'use-sqlite', 'Use SQLite', 'It is one file.', "
+        "tags=('decision',), moc='decisions')",
+        tmp_path,
+    )
+    assert _python(call, tmp_path).stdout.strip() == "[]"
+    assert "use-sqlite" in _vault_call("print(vault.recall('.', 'sqlite'))", tmp_path)
+    assert "[[use-sqlite]] — Use SQLite" in _session_context(tmp_path)
+    vpath = tmp_path / "docs" / "knowledge"
+    assert sorted(p.name for p in vpath.iterdir()) == [
+        "MOC.md", "README.md", "decisions.md", "use-sqlite.md",
+    ]
+
+
+@pytest.mark.parametrize("skill", _SKILLS_USING_THE_VAULT)
+def test_the_documented_call_on_a_vault_from_the_last_release(tmp_path: Path, skill: str) -> None:
+    """Capturing into an existing vault changes what it must and no more: the map gains one line,
+    every other file keeps its bytes, and a mode someone chose stays."""
+    vpath = tmp_path / "docs" / "knowledge"
+    vpath.mkdir(parents=True)
+    for name, text in _VAULT_FROM_BEFORE.items():
+        (vpath / name).write_text(text, encoding="utf-8")
+    (vpath / "decisions.md").chmod(0o664)
+
+    call = _documented_call(skill)
+    assert _python(call, tmp_path).stdout.strip() == "[]"
+    assert "[[use-sqlite]] — Use SQLite" in _session_context(tmp_path)
+    assert "use-sqlite" in _vault_call("print(vault.recall('.', 'sqlite'))", tmp_path)
+
+    add = "vault.add_note('.', 'next', 'Next', 'See [[use-sqlite]].', tags=('x',), moc='decisions')"
+    _vault_call(add, tmp_path)
+    _vault_call(add, tmp_path)  # capturing the same note again adds no second link
+    assert _python(call, tmp_path).stdout.strip() == "[]"
+    expected = dict(_VAULT_FROM_BEFORE)
+    expected["decisions.md"] += "- [[next|Next]]\n"
+    written = {p.name: p.read_text(encoding="utf-8") for p in vpath.iterdir()}
+    del written["next.md"]
+    assert written == expected
+    assert (vpath / "next.md").read_text(encoding="utf-8").startswith("---\ntitle: Next\n")
+    assert (vpath / "decisions.md").stat().st_mode & 0o777 == 0o664
+
+
+@pytest.mark.parametrize("skill", _SKILLS_USING_THE_VAULT)
+def test_the_documented_call_on_a_vault_kept_elsewhere(tmp_path: Path, skill: str) -> None:
+    """The upgrade of someone who keeps the vault outside the repo: told the remedy by the call the
+    skill makes, nothing changed out there, and the setting brings everything back."""
+    repo = tmp_path / "repo"
+    (repo / "docs").mkdir(parents=True)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    for name, text in _VAULT_FROM_BEFORE.items():
+        (elsewhere / name).write_text(text, encoding="utf-8")
+    (repo / "docs" / "knowledge").symlink_to(elsewhere, target_is_directory=True)
+
+    call = _documented_call(skill)
+    told = _python(call, repo)
+    assert told.returncode == 0 and "knowledge.allow_external_vault" in told.stdout
+    add = "vault.add_note('.', 'next', 'Next', 'Body.', moc='decisions')"
+    refused = _python(f"from agentic_forge import vault; {add}", repo)
+    assert refused.returncode != 0
+    assert "StateWriteRefused" in refused.stderr
+    assert "knowledge.allow_external_vault" in refused.stderr
+    assert sorted(p.name for p in elsewhere.iterdir()) == sorted(_VAULT_FROM_BEFORE)
+    assert "Use SQLite" not in _session_context(repo)
+    assert _vault_call("print(vault.recall('.', 'sqlite'))", repo) == "[]"
+
+    config = Path(os.environ["HOME"]) / ".agentic-forge" / "config.json"
+    config.parent.mkdir(parents=True)
+    config.write_text(json.dumps({"knowledge": {"allow_external_vault": True}}), encoding="utf-8")
+    assert _python(call, repo).stdout.strip() == "[]"
+    assert "[[use-sqlite]] — Use SQLite" in _session_context(repo)
+    _vault_call(add, repo)
+    assert (elsewhere / "next.md").is_file()
+    assert (repo / "docs" / "knowledge").is_symlink()
+
+
+# --- pre-checks refuse only what would be written (ADR 0102) ------------------
+
+
+def _git_entry(path: Path) -> Path:
+    (path / ".git").mkdir(parents=True)
+    return path
+
+
+def test_a_link_inside_the_git_repo_works_from_a_package_directory(tmp_path: Path) -> None:
+    repo = _git_entry(tmp_path / "repo")
+    add_note(repo, "a", "A", "a", moc="decisions")
+    pkg = repo / "packages" / "app"
+    pkg.mkdir(parents=True)
+    (pkg / "docs").symlink_to("../../docs")
+    assert validate_vault(pkg) == []
+    assert "a" in load_vault(pkg).notes
+
+
+def test_a_linked_readme_inside_the_repo_does_not_stop_captures(tmp_path: Path) -> None:
+    """README.md is not a note, and nothing writes to it once it exists."""
+    repo = _git_entry(tmp_path / "repo")
+    add_note(repo, "a", "A", "a")
+    vpath = vault_path(repo)
+    (repo / "NOTES.md").write_text("# n\n", encoding="utf-8")
+    (vpath / "README.md").unlink()
+    (vpath / "README.md").symlink_to("../../NOTES.md")
+    assert validate_vault(repo) == []
+    add_note(repo, "b", "B", "b")
+    assert (vpath / "b.md").is_file()
+    assert (repo / "NOTES.md").read_text(encoding="utf-8") == "# n\n"
+
+
+def test_a_read_only_root_moc_that_need_not_change_does_not_stop_captures(tmp_path: Path) -> None:
+    """The themed map is already linked from the root, so nothing is written to the root."""
+    repo = _git_entry(tmp_path / "repo")
+    add_note(repo, "a", "A", "a", moc="decisions")
+    (vault_path(repo) / "MOC.md").chmod(0o444)
+    add_note(repo, "b", "B", "b", moc="decisions")
+    assert "[[b|B]]" in (vault_path(repo) / "decisions.md").read_text(encoding="utf-8")

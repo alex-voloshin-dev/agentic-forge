@@ -16,23 +16,28 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
 
-from agentic_forge import diagnostics, guardrails, observability, settings  # noqa: E402
+from agentic_forge import (  # noqa: E402
+    diagnostics,
+    guardrails,
+    observability,
+    settings,
+    state_io,
+)
 
 
 def write_audit(payload: dict[str, Any], cwd: str) -> Path | None:
     """Append ``payload``'s redacted audit record to the audit log; return its path.
 
-    Returns ``None`` when ``logs.enabled`` is off (ADR 0078). The log is keyed to the MAIN
-    working-tree root (worktree-aware via ``main_repo_root``), so a worktree-phase session's trail
-    survives the worktree's removal."""
+    Returns ``None`` when ``logs.enabled`` is off (ADR 0078), or when the log path crosses a symlink
+    (ADR 0102). The log is keyed to the MAIN working-tree root (worktree-aware via
+    ``main_repo_root``), so a worktree-phase session's trail survives the worktree's removal."""
     if not settings.resolve(cwd).logs_enabled:
         return None
     record = guardrails.audit_record(payload, ts=datetime.now(timezone.utc).isoformat())
-    log_path = diagnostics.state_file(cwd, observability.AUDIT_FILE)
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    with log_path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record) + "\n")
-    return log_path
+    try:
+        return diagnostics.append_state(cwd, observability.AUDIT_FILE, json.dumps(record) + "\n")
+    except state_io.StateWriteRefused:
+        return None
 
 
 def main() -> int:

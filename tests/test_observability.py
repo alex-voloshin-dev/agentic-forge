@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import gzip
 import json
+from pathlib import Path
+
+import pytest
 
 from agentic_forge.observability import Digest, digest, parse_lines, render
 
@@ -249,3 +252,24 @@ def test_rotate_diagnostics_trims_archives_and_records(tmp_path) -> None:
     last = json.loads(kept[-1])  # the trim is recorded — in the log it just trimmed
     assert last["component"] == "diagnostics-rotation"
     assert "diagnostics log rotated" in last["message"] and "days of records" in last["message"]
+
+
+@pytest.mark.parametrize("script", ["audit_digest.py", "diagnostics_digest.py"])
+def test_a_digest_survives_a_log_that_is_not_utf8(tmp_path, script: str) -> None:
+    """One bad line costs that line, as a torn one does, and not the whole digest (ADR 0102)."""
+    import subprocess
+    import sys
+
+    root = Path(__file__).resolve().parents[1]
+    legacy = tmp_path / ".agentic-forge"
+    legacy.mkdir()
+    name = "audit.jsonl" if script == "audit_digest.py" else "diagnostics.jsonl"
+    (legacy / name).write_bytes(b'{"tool": "Bash", "kind": "error"}\n\xff\xfe\n')
+    done = subprocess.run(
+        [sys.executable, str(root / "dev" / script), "--repo", str(tmp_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr[-200:]
+    assert "Traceback" not in done.stderr

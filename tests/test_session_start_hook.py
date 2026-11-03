@@ -66,7 +66,8 @@ def test_main_records_diagnostics_on_error(tmp_path: Path, monkeypatch, capsys) 
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
     assert session_start.main() == 0  # never blocks the session
     out = json.loads(capsys.readouterr().out)
-    assert "session-start hook crashed: RuntimeError: vault exploded" in out["systemMessage"]
+    assert "session-start hook crashed: RuntimeError" in out["systemMessage"]
+    assert "vault exploded" not in out["systemMessage"]  # the type only: ADR 0102
 
     events = [json.loads(line) for line in diagnostics.load(tmp_path)]
     assert any(e["component"] == "session-start" and e["kind"] == "error" for e in events)
