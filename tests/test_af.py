@@ -1197,7 +1197,11 @@ def test_a_long_subject_does_not_stall_the_classifier() -> None:
 
 
 def test_a_tag_named_head_counts_as_no_tag(tagged: Path) -> None:
-    _git(tagged, "tag", "HEAD")
+    # A newer git refuses `git tag HEAD`, but a ref of that name can still arrive by a fetch.
+    head = subprocess.run(
+        ["git", "-C", str(tagged), "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    _git(tagged, "update-ref", "refs/tags/HEAD", head)
     commits = _ok("release-commits", cwd=tagged)["commits"]
     assert "fix: b" in commits
     assert release.commits_since(tagged, "HEAD") == release.commits_since(tagged)
