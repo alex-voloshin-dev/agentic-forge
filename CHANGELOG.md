@@ -7,6 +7,8 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.11.1] - 2026-11-03
+
 ### Added — external reviewer: opt-in isolation (ADR 0100)
 
 - `external_reviewer.isolated` (default `false`), `external_reviewer.model` and
