@@ -7,6 +7,8 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.11.5] - 2026-11-03
+
 ### Security
 
 - **Skills no longer run inline Python (ADR 0104).** The documented `python -c` calls took the working directory's
