@@ -86,8 +86,6 @@ def test_shipped_clis_import_only_stdlib_and_agentic_forge() -> None:
 _ALLOWED_IN_REPO_PATHS = {
     ("agentic_forge/diagnostics.py", ".agentic-forge/diagnostics.jsonl"),  # legacy read-fallback
     ("agentic_forge/observability.py", ".agentic-forge/audit.jsonl"),  # legacy read-fallback
-    ("agentic_forge/schedule.py", ".agentic-forge/schedule-state.json"),  # legacy read-fallback
-    ("agentic_forge/pr_watch.py", ".agentic-forge/pr-watch-queue.json"),  # legacy read-fallback
 }
 # The committed config is the REPO's file, not generated state — any shipped module may name it.
 _ALWAYS_ALLOWED = {".agentic-forge/config.json"}

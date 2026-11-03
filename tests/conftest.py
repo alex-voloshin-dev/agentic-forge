@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from agentic_forge import settings
+
 VALID_EVALS = {
     "skill_name": "demo",
     "evals": [
@@ -29,6 +31,7 @@ def _isolate_user_config(
     user-level config layer, ADR 0049). Point HOME at a fresh empty dir for every test, so
     ``settings.resolve`` sees no user-level config unless a test sets one explicitly."""
     monkeypatch.setenv("HOME", str(tmp_path_factory.mktemp("home")))
+    settings._printed.clear()  # a warning prints once per process, and a test is a process here
 
 
 @pytest.fixture

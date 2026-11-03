@@ -18,6 +18,9 @@ This CLI does the migration the way it has to be done:
   cleanly instead of doubling;
 * **validates** every line parses as JSON before it removes anything;
 * leaves the committed `config.json` alone — that file is the repository's, not runtime state;
+* **does not import** `pr-watch-queue.json` or `schedule-state.json`: a repo can commit a file at
+  those names, and they decide what the scheduler does. They are named and removed, and the next
+  created PR and the next job run write new ones at the state root (ADR 0103);
 * **does not follow a symlink**, at a legacy name, a legacy directory that is one, or a target: the
   first would copy another file's content into your state, and the last would remove the legacy file
   after merging into something the readers then refuse. What is skipped is named and kept, and the
@@ -34,6 +37,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -43,11 +47,12 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "lib"))
 
 from agentic_forge import diagnostics, state_io  # noqa: E402
 
-# Runtime state files, and whether they are line-oriented (mergeable) or a single JSON document
-# (last-writer-wins: a schedule cursor or a queue has no meaningful concatenation).
+# Runtime state files, by what happens to them: the line-oriented logs are merged, and the rest are
+# deleted. The markers hold nothing to keep; the other two a repo could have committed (ADR 0103).
 _JSONL = ("diagnostics.jsonl", "audit.jsonl")
-_JSON_DOC = ("schedule-state.json", "pr-watch-queue.json")
 _DISPOSABLE = (diagnostics.NOTICES_FILE,)  # per-session markers: nothing to keep
+_DROPPED = diagnostics.DROPPED_LEGACY_FILES
+_DROPPED_WHY = "not imported, because a repo can commit it (ADR 0103)"
 
 
 def _merge_jsonl(legacy: Path, target: Path, anchor: Path) -> tuple[int, int]:
@@ -79,6 +84,23 @@ def plan(repo: Path) -> tuple[Path, Path, list[str]]:
         name for name in diagnostics.LEGACY_STATE_FILES if state_io.readable(legacy / name, root)
     )
     return legacy, resolved, present
+
+
+def _tracked(root: Path, path: Path) -> bool:
+    """True if git tracks ``path``. Unknown is False: this only decides whether to say more."""
+    try:
+        done = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "--error-unmatch", "--", str(path)],
+            capture_output=True, timeout=30,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return False
+    return done.returncode == 0
+
+
+def _say_if_tracked(name: str, tracked: bool) -> None:
+    if tracked:
+        print(f"  {name}: it was tracked, so it now shows as a deletion to commit")
 
 
 def _print_symlinks(legacy: Path) -> None:
@@ -125,7 +147,7 @@ def migrate(repo: Path, *, apply: bool, handled: list[str]) -> int:
     for name in present:
         handled.append(name)
         source = legacy / name
-        problem = "" if name in _DISPOSABLE else _target_problem(resolved / name, anchor)
+        problem = _target_problem(resolved / name, anchor) if name in _JSONL else ""
         if problem:
             print(f"  {name}: skipped, {problem}; {source} stays")
         elif name in _DISPOSABLE:
@@ -135,35 +157,30 @@ def migrate(repo: Path, *, apply: bool, handled: list[str]) -> int:
             lines = sum(1 for line in text.splitlines() if line.strip())
             print(f"  {name}: {lines} record(s), {source.stat().st_size} bytes -> merge")
         else:
-            print(f"  {name}: {source.stat().st_size} bytes -> keep the NEWER of the two")
+            print(f"  {name}: {_DROPPED_WHY} -> delete")
     _print_archive(legacy)
     if not apply:
         print("\ndry run — re-run with --apply to merge these and remove them from the repo")
         return 0
 
     skipped = 0
+    root = diagnostics.main_repo_root(repo)
     for name in present:
         handled.append(name)
         source, target = legacy / name, resolved / name
-        if name in _DISPOSABLE:
+        tracked = _tracked(root, source)
+        if name not in _JSONL:
             source.unlink()
-            print(f"  {name}: deleted")
+            print(f"  {name}: deleted" + (f" ({_DROPPED_WHY})" if name in _DROPPED else ""))
+            _say_if_tracked(name, tracked)
             continue
         if _target_problem(target, anchor):
             skipped += 1
             continue  # named above
-        if name in _JSONL:
-            added, duplicates = _merge_jsonl(source, target, anchor)
-            print(f"  {name}: +{added} record(s), {duplicates} already present")
-        else:
-            if not target.is_file() or source.stat().st_mtime > target.stat().st_mtime:
-                text = source.read_text(encoding="utf-8")
-                json.loads(text)  # validate before overwriting
-                state_io.write_text(target, text, anchor=anchor)
-                print(f"  {name}: replaced (legacy was newer)")
-            else:
-                print(f"  {name}: kept the newer copy already at the target")
+        added, duplicates = _merge_jsonl(source, target, anchor)
+        print(f"  {name}: +{added} record(s), {duplicates} already present")
         source.unlink()
+        _say_if_tracked(name, tracked)
 
     remaining = len(list(legacy.iterdir())) if legacy.is_dir() else 0
     if not remaining:

@@ -7,6 +7,91 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Security
+
+- **Behaviour change: a repo's config no longer controls the PR watcher (ADR 0103).** A committed
+  `.agentic-forge/config.json` could turn on the scheduled watcher and decide what it acted on and whether it
+  merged, on the operator's scheduler and with the operator's credentials, even over a user-level
+  `enabled: false`. Everything under `pr_watcher` is now honoured from `~/.agentic-forge/config.json` only. A repo
+  can only switch things off, with `enabled`, `auto_merge` or `auto_watch` set to `false`, each of which wins over your
+  setting and is reported. It cannot turn anything on or add a repo. A value in a
+  repo file is ignored with a warning that names the key and not the value, shown once per session, unless it equals
+  the value in effect. It holds when a repo file is malformed too, with or without `jsonschema`. **If you set any of
+  these per repo, move them to your user-level file, or the watcher stops there.**
+- **`pr_watcher.auto_merge` also takes a list of repos (ADR 0103).** The docs told people to turn merging on per repo,
+  which a user-level setting alone cannot do. `["owner/name"]` merges only in those repos. `true` still means every repo
+  your scheduler runs on. There is no new key.
+- **A pull request's tree no longer reaches your checkout or decides anything for the scheduled watcher (ADR 0103).**
+  Settings read before a checkout did not stay out of a PR's reach, because the tree stayed on the PR after each pass.
+  Each pass now fetches the PR's head into no local branch and works in a detached worktree of its own under the
+  user-level state directory, removed afterwards. Your tree and HEAD are not involved, there is no `gh pr checkout`, and
+  the clock can run in the checkout you work in. Settings are read once, and the watcher does not open the config file
+  in the PR's tree. A fork's tree is not fetched at all, since the watcher does nothing for a fork. Corrects ADR 0067.
+- **Behaviour change: the fixer's Claude session is confined (ADR 0103).** A pull request's `.claude/settings.json` could run
+  hooks as the operator in that session, with the operator's credentials in reach, and needed no model call to do it; and
+  its file tools reached anything the operator's account could. The fixer now passes `--setting-sources ""
+  --strict-mcp-config --tools Read,Write,Edit,Grep,Glob --permission-mode acceptEdits --no-session-persistence`, on the
+  manual `--apply` path as well. Measured against the real CLI: no settings, hooks, MCP servers, `env`, `apiKeyHelper` or memory
+  load from the tree or from your home, no shell or web tool exists, and a read or write outside the tree is denied, including
+  the CLI's own memory under `~/.claude`, through `--settings`, and the temp output of your other sessions, through a fresh
+  `CLAUDE_CODE_TMPDIR`, both of which it would otherwise exempt. A `CLAUDE_CONFIG_DIR` no permission rule can spell gets no session. The tree's
+  recent commit subjects still reach the model, through the CLI's own status block. Evals keep their flags.
+- **Behaviour change: if you authenticate the fixer through an `env` in a `settings.json`, it stops working (ADR 0103).** Committed
+  or user-level, that file is no longer read. Use the CLI's login or the clock's environment. Such a session never ran, and a
+  thread left undetermined now fails the job rather than reading as a watched PR.
+- **Behaviour change: only review threads from people with write access, or reviewer apps you list, reach the fixer (ADR 0103).** Anyone
+  can comment on a public PR. A person needs an association of `OWNER`, `MEMBER` or `COLLABORATOR` and then write, maintain or admin on the
+  repo, asked of GitHub once a pass. **If you rely on a reviewer app, list it in the new user-level `pr_watcher.trusted_reviewers`.** An
+  entry counts only for an author of type Bot. Any other thread gets no reply and holds the merge gate until a person resolves it.
+- **A failed `git commit` no longer claims a fix (ADR 0103).** The fixer checks `git add`, the staged listing and `git commit`, and that
+  HEAD moved. A signer or an identity the clock lacks used to get "Addressed in <old head>" and a resolved thread, and the next poll merged
+  without the fix.
+- **The merge gate reads `latestOpinionatedReviews` (ADR 0103).** More than 100, or a change request with no author, keeps it shut. A PR that
+  is no longer open gets nothing done, so a merged PR's deleted branch is not recreated.
+- **Upgrading: put the clock's checkout back on its branch.** The old driver left it on the last PR, whose config would stop the watcher. A
+  scheduled pass's `models` now come from your user-level file alone.
+- **A fixer session's outcome decides what is posted (ADR 0103).** A session with a denied tool call posts nothing, rather than a false
+  "No change made". One that changed `.github/`, `.claude/`, `.husky/`, `.agentic-forge/`, a `.mcp.json`, a `.gitattributes` or a `.gitmodules` gets no commit. A
+  fix is pushed before the reply and the resolve, so a refused push no longer leaves GitHub told of a commit that is gone.
+- **Merges are pinned (ADR 0103).** `gh pr merge` now carries `--match-head-commit` with the commit the merge gate
+  read, so a push after that read does not ride through. `merge_argv` requires it, and refuses what is not a commit id.
+- **Behaviour change: a PR outside the checkout's `origin` gets no fix pass (ADR 0103).** The fixer can only push to
+  `origin`. Such a PR, listed in your `pr_watcher.repos`, may still be merged by slug; if it has an open thread or a
+  conflict the refusal is recorded and the job fails.
+- **A failed pass now fails the sweep's job (ADR 0103)**, as it already did the queue drain's, so `--health` shows it.
+- **Only one run works on a repo at a time, using `flock` where there is one (ADR 0103).** A watcher inherits the lock,
+  so a driver killed mid-pass does not free it while its child works. A held lock exits `0`, and after 6 polls in a row
+  it is an anomaly and shows in `--health`. What killed runs left is removed once the lock is held.
+- A base branch name can no longer be read as a flag by the conflict handler's `git fetch`.
+- Each pass's diagnostics stay with the operator's checkout, through `--state-repo`, under a clock in a submodule or with
+  `--separate-git-dir`. It used to leak a state directory per pass and, under `state.in_repo`, could push the log to the PR.
+- **Behaviour change: `pr-watch-queue.json` and `schedule-state.json` are no longer read from a repo (ADR 0103).** A repo
+  can commit a regular file at either legacy path. The drain, the `pr_created` hook and the scheduler read the state root
+  only, and `state_migrate` names and removes these two files rather than importing them; the session-start notice names
+  them too, and it says when a removed file was tracked, since that shows as a deletion to commit. A PR queued at the old
+  path is not carried over, and every job with history there is due once. Under a user-level `state.in_repo: true`, the
+  tree still is the state root.
+- **A queue entry can no longer send the scheduler to an arbitrary repo (ADR 0103).** An entry naming a repo that is
+  neither the checkout's `origin` remote nor in your user-level `pr_watcher.repos` is dropped before any `gh` call, with
+  the reason in the diagnostics log. A drain in a different clone says when a queue for its repo waits under another
+  checkout, because the state root is keyed by path.
+
+### Changed
+
+- `plugin/config.example.json` ships `pr_watcher.repos` as `[]`, so a copy in a repo draws no warning.
+- `pr_watch.push_argv` pushes to `HEAD:refs/heads/<branch>`, which a detached HEAD needs.
+
+### Fixed
+
+- `connectors.slug_from_remote_url` reads `owner/name.git/` as `owner/name`.
+- A non-UTF-8 path in `git worktree list` no longer stops every scheduled job, and a killed `git worktree add` no longer
+  leaves a record nothing removes. LFS smudges are skipped for a pass's tree. `--health` shows queued PRs dropped as out of
+  scope for a week, which is what a renamed repo looks like, a PR that ran out of ticks with a thread held, and why the watcher is off.
+- `.github/workflows/scheduled.yml` says to cache the user-level state root to keep cadence, as a committed `.agentic-forge/` is not read.
+- A config warning prints once per process rather than once per resolve.
+- The `pr-watch` skill: merging needs `auto_merge` to be `true` or a list naming this repo, and autonomous mode is
+  started by the user. The PR-created hook only says what can follow, as ADR 0063 has it.
+
 ## [2026.11.2] - 2026-11-03
 
 ### Security

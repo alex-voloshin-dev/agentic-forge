@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from agentic_forge import schedule
+from agentic_forge import diagnostics, schedule
 from agentic_forge.schedule import (
     CADENCES,
     JOBS,
@@ -137,7 +137,7 @@ def test_save_then_load_roundtrips(tmp_path: Path) -> None:
 
 
 def test_load_state_migrates_legacy_flat(tmp_path: Path) -> None:
-    p = tmp_path / schedule.STATE_PATH
+    p = diagnostics.state_file(tmp_path, schedule.STATE_FILE)
     p.parent.mkdir(parents=True)
     p.write_text('{"d": 123.0, "w": 456}', encoding="utf-8")  # legacy flat {name: last_run}
     assert load_state(tmp_path) == {
@@ -152,21 +152,21 @@ def test_save_state_creates_parent_dir(tmp_path: Path) -> None:
 
 
 def test_load_state_malformed_is_empty(tmp_path: Path) -> None:
-    p = tmp_path / schedule.STATE_PATH
+    p = diagnostics.state_file(tmp_path, schedule.STATE_FILE)
     p.parent.mkdir(parents=True)
     p.write_text("not json", encoding="utf-8")
     assert load_state(tmp_path) == {}
 
 
 def test_load_state_non_dict_is_empty(tmp_path: Path) -> None:
-    p = tmp_path / schedule.STATE_PATH
+    p = diagnostics.state_file(tmp_path, schedule.STATE_FILE)
     p.parent.mkdir(parents=True)
     p.write_text("[1, 2, 3]", encoding="utf-8")
     assert load_state(tmp_path) == {}
 
 
 def test_load_state_drops_bad_values(tmp_path: Path) -> None:
-    p = tmp_path / schedule.STATE_PATH
+    p = diagnostics.state_file(tmp_path, schedule.STATE_FILE)
     p.parent.mkdir(parents=True)
     # a string and a bool are not valid state values; an uncoercible mapping is dropped too
     p.write_text('{"d": 1.0, "s": "x", "b": true, "m": {"last_run": "nope"}}', encoding="utf-8")

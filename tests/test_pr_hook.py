@@ -222,9 +222,10 @@ def test_a_non_create_command_is_never_enqueued() -> None:
 
 
 def _hook_env(tmp_path: Path, config: dict[str, Any] | None) -> subprocess.CompletedProcess[str]:
-    (tmp_path / ".agentic-forge").mkdir(parents=True, exist_ok=True)
+    user_level = Path.home() / ".agentic-forge"  # the operator's: a repo's cannot turn it on
+    user_level.mkdir(parents=True, exist_ok=True)
     if config is not None:
-        (tmp_path / ".agentic-forge" / "config.json").write_text(json.dumps(config), "utf-8")
+        (user_level / "config.json").write_text(json.dumps(config), "utf-8")
     payload = {
         "tool_name": "Bash",
         "tool_input": {"command": "gh pr create --fill"},

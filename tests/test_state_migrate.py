@@ -150,9 +150,8 @@ def test_scheduler_state_saves_to_the_state_root_even_when_a_legacy_file_exists(
 
     legacy = _legacy(tmp_path, "schedule-state.json", [])
     legacy.write_text(json.dumps({"digest": {"last_run": 1.0, "runs": 3}}), encoding="utf-8")
-    loaded = schedule.load_state(tmp_path)  # still READ from the legacy file
-    assert "digest" in loaded
-    saved = schedule.save_state(tmp_path, loaded)
+    assert schedule.load_state(tmp_path) == {}  # a repo can commit that file: not read (ADR 0103)
+    saved = schedule.save_state(tmp_path, {})
     assert saved == diagnostics.state_file(tmp_path, schedule.STATE_FILE)
 
 

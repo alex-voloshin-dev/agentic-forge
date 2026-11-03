@@ -17,11 +17,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -33,6 +36,7 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "lib"))
 from agentic_forge import (  # noqa: E402
     connectors,
     diagnostics,
+    models,
     observability,
     ops,
     pr_watch,
@@ -40,6 +44,22 @@ from agentic_forge import (  # noqa: E402
     settings,
     vault,
 )
+
+# Each pass works in its own worktree under here, never in the operator's tree (ADR 0103).
+_PASSES_DIRNAME = "pr-watch-passes"
+# Polls in a row that found the run lock held. One pass can hold it across three polls of a
+# 10-minute clock, so this many is a stall rather than a slow pass: an hour, at that cadence.
+_LOCK_SKIPS_FILE = "run-lock-skips.json"
+_LOCK_SKIPS_REPORTED = 6
+# What the drain dropped as naming no repo of this checkout's, which `--health` shows for a week: a
+# renamed repo reads like this, and only the job's output would otherwise say so.
+_OUT_OF_SCOPE_FILE = "pr-watch-out-of-scope.json"
+_OUT_OF_SCOPE_SHOWN_SECONDS = 7 * 24 * 60 * 60
+# The same for a PR that ran out of ticks with a thread still held: it never got its answer.
+_HELD_OUT_FILE = "pr-watch-held-out.json"
+_HELD = "a review thread is held: its author is not trusted"
+# The run lock's descriptor while this process holds it: a watcher inherits it, see _run_lock.
+_lock_fd: int | None = None
 
 
 def _kb_maintenance(repo: Path) -> str:
@@ -134,7 +154,8 @@ def _run_watcher(
     seconds. Returns its exit code, or ``None`` when it was killed at the budget — the WHOLE
     group, so a fixer session cannot outlive the watcher that spawned it. ``popen`` /
     ``kill_group`` are seams (injected by the tests)."""
-    proc = popen(cmd, cwd=str(cwd), start_new_session=True)
+    inherited = () if _lock_fd is None else (_lock_fd,)
+    proc = popen(cmd, cwd=str(cwd), start_new_session=True, pass_fds=inherited)
     try:
         proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -144,59 +165,343 @@ def _run_watcher(
     return int(proc.returncode)
 
 
+def _git(
+    repo: Path, *args: str, timeout: float = 120
+) -> subprocess.CompletedProcess[str]:
+    # core.hooksPath=/dev/null: a checkout hook here would run with a PR's tree, and the watcher
+    # never needs the repo's own hooks (the same rule as bin/pr_watch.py's _git). LFS: a smudge
+    # would download whatever the PR's pointers name, and the fixer has no use for the blobs.
+    # surrogateescape: a path in git's output need not be UTF-8, and one must not stop every job.
+    return subprocess.run(
+        ["git", "-C", str(repo), "-c", "core.hooksPath=/dev/null", *args],
+        capture_output=True, encoding="utf-8", errors="surrogateescape", timeout=timeout,
+        env={**os.environ, "GIT_LFS_SKIP_SMUDGE": "1"},
+    )
+
+
+def _git_failure(what: str, done: subprocess.CompletedProcess[str]) -> str:
+    err = " ".join(str(done.stderr or "").split())[-200:]
+    err = err.encode("utf-8", "backslashreplace").decode("utf-8")  # it may be printed to stdout
+    return f"{what} failed (exit {done.returncode})" + (f": {err}" if err else "")
+
+
+def _passes_dir(repo: Path) -> Path:
+    """Always at user level, even under ``state.in_repo``: a pass's tree must not be in the repo."""
+    return diagnostics.user_state_root(repo) / _PASSES_DIRNAME
+
+
+def _open_worktree(repo: Path, number: int, oid: str) -> Path:
+    """A fresh detached worktree of ``oid``, the commit GitHub says the PR's head is. Nothing about
+    the operator's checkout changes: no local branch, no FETCH_HEAD, and HEAD stays where it is, so
+    this works with that branch checked out, and from a linked worktree. Raises ``RuntimeError``."""
+    fetched = _git(
+        repo, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--no-recurse-submodules",
+        "origin", "--", f"refs/pull/{number}/head", timeout=600,
+    )
+    if fetched.returncode != 0:
+        raise RuntimeError(_git_failure("git fetch of the PR's head", fetched))
+    if _git(repo, "cat-file", "-e", f"{oid}^{{commit}}").returncode != 0:
+        raise RuntimeError("the PR's head moved during the fetch; the next poll sees the new one")
+    passes = _passes_dir(repo)
+    passes.mkdir(parents=True, exist_ok=True)
+    directory = Path(tempfile.mkdtemp(prefix=f"pr{number}-", dir=passes))
+    try:
+        added = _git(
+            repo, "worktree", "add", "--quiet", "--detach", str(directory), oid, timeout=600
+        )
+    except subprocess.SubprocessError:  # killed mid-add: it left a record that says `initializing`
+        _close_worktree(repo, directory)
+        shutil.rmtree(directory, ignore_errors=True)
+        raise
+    if added.returncode != 0:
+        shutil.rmtree(directory, ignore_errors=True)
+        raise RuntimeError(_git_failure("git worktree add", added))
+    return directory
+
+
+def _close_worktree(repo: Path, directory: Path) -> None:
+    """Remove a pass's worktree. It fails loudly rather than fatally: nothing the operator owns is
+    involved, and the next run's :func:`_remove_leftovers` tries again. `--force` twice, as a killed
+    `worktree add` leaves its record locked as `initializing`, which one refuses and prune skips."""
+    try:
+        done = _git(repo, "worktree", "remove", "--force", "--force", str(directory))
+        problem = "" if done.returncode == 0 else _git_failure("git worktree remove", done)
+    except (subprocess.SubprocessError, OSError) as exc:
+        problem = f"git worktree remove failed: {exc}"
+    if problem:
+        print(f"pr-watch: {problem}", file=sys.stderr)
+        diagnostics.emit(
+            repo, kind="anomaly", component="pr-watch", message=problem, severity="major",
+            force=True,
+        )
+
+
+def _remove_leftovers(repo: Path) -> None:
+    """Remove what killed runs left: their worktrees under the passes directory and their records.
+    Called only with the run lock held, because a held lock is what says no watcher is in one.
+
+    Each is removed by name, not with `git worktree prune`, which would also drop the record of an
+    operator's own worktree on a disk that is not mounted right now."""
+    passes = _passes_dir(repo).resolve()
+    try:
+        listed = _git(repo, "worktree", "list", "--porcelain")
+        names = {
+            Path(line[len("worktree "):])
+            for line in listed.stdout.splitlines()
+            if line.startswith("worktree ")
+        }
+        recorded = {path for path in names if path.parent == passes}
+        for path in recorded:
+            _close_worktree(repo, path)
+    except (subprocess.SubprocessError, OSError) as exc:
+        print(f"pr-watch: leftovers not checked: {exc}", file=sys.stderr)
+    if passes.is_dir():
+        for entry in passes.iterdir():
+            if entry.is_dir() and not entry.is_symlink():
+                shutil.rmtree(entry, ignore_errors=True)
+
+
+@contextmanager
+def _run_lock(repo: Path) -> Iterator[bool]:
+    """Yields False if another run holds this repo. A pass may last half an hour and the clock ticks
+    every ten minutes, and a second run would clean up the first's worktree. The main checkout's
+    directory is what is locked, since its linked worktrees share the state root, so no file is
+    created and the kernel releases it however the holder dies. A watcher inherits the descriptor
+    (see :func:`_run_watcher`), so a driver killed mid-pass does not free it while the watcher is
+    still working. Without ``flock`` (Windows, or a filesystem that refuses) there is no lock, as
+    there was none before."""
+    global _lock_fd
+    try:
+        import fcntl
+    except ImportError:  # pragma: no cover -- Windows
+        yield True
+        return
+    try:
+        handle = os.open(str(diagnostics.main_repo_root(repo)), os.O_RDONLY)
+    except OSError:
+        yield True
+        return
+    try:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            yield False
+            return
+        except OSError:  # pragma: no cover -- a filesystem without flock
+            yield True
+            return
+        _lock_fd = handle
+        yield True
+    finally:
+        _lock_fd = None
+        os.close(handle)
+
+
+def _lock_skips(repo: Path) -> int:
+    """How many polls in a row found the run lock held."""
+    path = diagnostics.current_state_file(repo, _LOCK_SKIPS_FILE)
+    try:
+        count = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else 0
+    except (ValueError, OSError):
+        return 0
+    return count if isinstance(count, int) and not isinstance(count, bool) else 0
+
+
+def _note_lock_skip(repo: Path) -> None:
+    """A held lock is normal for a poll or two, so it exits 0. A long run of them is a stalled
+    watcher, which would otherwise look like a quiet one: it goes to the diagnostics log, and to
+    ``--health``, which reads the same count."""
+    skips = _lock_skips(repo) + 1
+    try:
+        diagnostics.write_state(repo, _LOCK_SKIPS_FILE, json.dumps(skips))
+    except OSError:
+        pass
+    if skips % _LOCK_SKIPS_REPORTED == 0:
+        diagnostics.emit(
+            repo, kind="anomaly", component="scheduled-run", severity="major", force=True,
+            message=f"{skips} polls in a row found the run lock held: is a watcher stalled?",
+        )
+
+
+def _clear_lock_skips(repo: Path) -> None:
+    try:
+        diagnostics.state_file(repo, _LOCK_SKIPS_FILE).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _drop_note(repo: Path, filename: str) -> dict[str, Any]:
+    path = diagnostics.current_state_file(repo, filename)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except (ValueError, OSError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _note_drop(repo: Path, filename: str, entry: pr_watch.WatchEntry, now: float) -> None:
+    """Keep a dropped entry where `--health` can show it. It starts counting again once what it held
+    has aged out, so an old drop does not read as today's."""
+    held = _drop_note(repo, filename)
+    at = held.get("at")
+    recent = isinstance(at, (int, float)) and now - at < _OUT_OF_SCOPE_SHOWN_SECONDS
+    count = held.get("count")
+    total = (count if recent and isinstance(count, int) else 0) + 1
+    note = {"count": total, "last": f"{entry.slug}#{entry.number}", "at": now}
+    try:
+        diagnostics.write_state(repo, filename, json.dumps(note))
+    except OSError:
+        pass
+
+
+def _drop_line(repo: Path, filename: str, now: float, happened: str, why: str) -> str:
+    held = _drop_note(repo, filename)
+    at = held.get("at")
+    if not isinstance(at, (int, float)) or now - at >= _OUT_OF_SCOPE_SHOWN_SECONDS:
+        return ""
+    day = time.strftime("%Y-%m-%d", time.gmtime(at))
+    return (
+        f"pr-watch-queue: {held.get('count')} queued PR(s) {happened} in the last week, last "
+        f"{held.get('last')} on {day}: {why}"
+    )
+
+
+def _note_out_of_scope(repo: Path, entry: pr_watch.WatchEntry, now: float) -> None:
+    _note_drop(repo, _OUT_OF_SCOPE_FILE, entry, now)
+
+
+def _out_of_scope_line(repo: Path, now: float) -> str:
+    return _drop_line(
+        repo, _OUT_OF_SCOPE_FILE, now, "dropped",
+        "not this checkout's origin, and not in the user-level pr_watcher.repos. A renamed repo "
+        "reads like this: update the origin remote.",
+    )
+
+
+def _held_out_line(repo: Path, now: float) -> str:
+    return _drop_line(
+        repo, _HELD_OUT_FILE, now, "ran out of ticks with a review thread held",
+        "its author is not trusted. A person has to answer it, or list a reviewer app in the "
+        "user-level pr_watcher.trusted_reviewers.",
+    )
+
+
+def _watcher_off_line(repo: Path) -> str:
+    """Why the watcher does nothing, if it does nothing: a run of `ok` jobs does not say."""
+    if settings.resolve(repo).pr_watcher_enabled:
+        return ""
+    if settings.resolve(repo, repo_file=False).pr_watcher_enabled:
+        return "pr-watcher: off, by this repo's .agentic-forge/config.json (enabled: false)"
+    return f"pr-watcher: off: pr_watcher.enabled is not true {_WHERE_IT_IS_SET}"
+
+
+def _read_head(repo: Path, owner: str, name: str, number: int) -> pr_watch.PrHead:
+    """Ask GitHub, without touching the tree. Raises on any answer that does not say."""
+    done = subprocess.run(
+        pr_watch.pr_query_argv(owner, name, number),
+        cwd=str(repo), capture_output=True, text=True, timeout=120,
+    )
+    if done.returncode != 0:
+        raise RuntimeError(f"gh api graphql exited {done.returncode}")
+    return pr_watch.parse_head(json.loads(done.stdout))
+
+
 def _watch_one_pr(
     repo: Path,
     *,
     component: str = "pr-watch-queue",
-    checkout: Callable[[list[str]], int] | None = None,
-    run_watcher: Callable[[list[str]], int | None] | None = None,
+    trusted: settings.Settings | None = None,
+    read_head: Callable[[str, str, int], pr_watch.PrHead] | None = None,
+    open_tree: Callable[[int, str], Path] | None = None,
+    close_tree: Callable[[Path], None] | None = None,
+    run_watcher: Callable[[list[str], Path], int | None] | None = None,
 ) -> Callable[[str, str, int], WatchOutcome]:
-    """One watch pass over one PR: check its branch out, run the watcher CLI bounded by
-    :data:`pr_watch.WATCH_BUDGET_SECONDS`, and report a :class:`WatchOutcome`. A pass that did not
-    complete is printed AND recorded as a forced ``component`` diagnostics anomaly — a checkout
-    failure used to go to stderr only, a non-zero exit nowhere at all. ``checkout`` (argv -> exit
-    code) and ``run_watcher`` (argv -> exit code, ``None`` if killed) are seams for the tests."""
+    """One watch pass over one PR: put its head in a worktree of its own, run the watcher CLI there
+    bounded by :data:`pr_watch.WATCH_BUDGET_SECONDS`, remove the worktree, and report a
+    :class:`WatchOutcome`. A pass that did not complete is printed AND recorded as a forced
+    ``component`` diagnostics anomaly — a checkout failure used to go to stderr only, a non-zero
+    exit nowhere at all.
+
+    TRUST BOUNDARY (ADR 0067, corrected by 0103): ``trusted`` is read once, before any PR's tree
+    exists, by the caller or here. The operator's tree and HEAD are not touched, so nothing that
+    reads them can read a PR's, and the watcher is told not to open the config in the tree it runs
+    in. A fork's tree is not put on disk at all: the watcher does nothing for a fork, so asking
+    GitHub first loses nothing. A PR in a repo other than this checkout's ``origin`` gets no tree
+    and no fix, because the fixer can only push to ``origin``; the watcher may still merge it, which
+    goes by slug. ``read_head``, ``open_tree``, ``close_tree`` and ``run_watcher`` (argv, cwd ->
+    exit code, ``None`` if killed) are seams for the tests."""
     budget = pr_watch.WATCH_BUDGET_SECONDS
+    resolved = trusted if trusted is not None else settings.resolve(repo)
+    origin = (connectors.remote_slug(repo) or "").casefold()
+    # What the child logs through: a pass's tree need not lead back here, as it does not in a
+    # submodule or with --separate-git-dir, and main_repo_root rightly does not guess.
+    state_repo = diagnostics.main_repo_root(repo)
+    # Not from the tree: a clock the old driver left on a PR's branch would otherwise take it from
+    # there, so a scheduled pass's model is the operator's (ADR 0103).
+    operator = settings.resolve(repo, repo_file=False)
 
-    def do_checkout(argv: list[str]) -> int:  # pragma: no cover -- real `gh pr checkout`
-        done = subprocess.run(argv, cwd=str(repo), capture_output=True, text=True, timeout=120)
-        return int(done.returncode)
+    def do_read_head(  # pragma: no cover -- real gh
+        owner: str, name: str, number: int
+    ) -> pr_watch.PrHead:
+        return _read_head(repo, owner, name, number)
 
-    def do_run(cmd: list[str]) -> int | None:  # pragma: no cover -- real subprocess
-        return _run_watcher(cmd, repo, budget)
+    def do_open(number: int, oid: str) -> Path:  # pragma: no cover -- real git
+        return _open_worktree(repo, number, oid)
 
-    checkout_pr = checkout or do_checkout
+    def do_close(directory: Path) -> None:  # pragma: no cover -- real git
+        _close_worktree(repo, directory)
+
+    def do_run(cmd: list[str], cwd: Path) -> int | None:  # pragma: no cover -- real subprocess
+        return _run_watcher(cmd, cwd, budget)
+
+    head_of = read_head or do_read_head
+    open_pass = open_tree or do_open
+    close_pass = close_tree or do_close
     run_cli = run_watcher or do_run
 
-    def attempt(owner: str, name: str, number: int) -> WatchOutcome:
-        # TRUST BOUNDARY (ADR 0067): resolve the watcher's own settings from the tree as it stands
-        # BEFORE the PR is checked out. `<repo>/.agentic-forge/config.json` is a committed, tracked
-        # file, so a PR could otherwise rewrite `pr_watcher.bot` (hiding its author's threads from
-        # the gate) or set `auto_merge`, and the watcher would read its kill switch from inside its
-        # own blast radius. The trusted values are passed down as argv.
-        trusted = settings.resolve(repo)
-        # Check out the PR branch first: the fixer commits to HEAD and the conflict handler merges
-        # into the current branch, so both need the PR's head branch checked out (same-repo PRs).
-        try:
-            rc = checkout_pr(["gh", "pr", "checkout", str(number), "-R", f"{owner}/{name}"])
-        except (subprocess.SubprocessError, OSError) as exc:  # e.g. the checkout itself hung
-            return WatchOutcome(False, f"checkout failed: {exc}")
-        if rc != 0:  # ABORT — never run --apply on the wrong branch (HEAD unmoved)
-            return WatchOutcome(False, f"checkout failed (exit {rc})")
+    def run_in(tree: Path, owner: str, name: str, number: int, *, merge_only: bool) -> WatchOutcome:
+        model = models.model_for("software-engineer", operator.models, default="")
         cmd = [
-            sys.executable, str(_HERE / "pr_watch.py"), "--repo", str(repo),
-            "--owner", owner, "--name", name, "--pr", str(number), "--apply",
-            "--bot", trusted.pr_watcher_bot,          # from the PRE-checkout tree
-            "--merge-method", trusted.pr_watcher_merge_method,
+            sys.executable, str(_HERE / "pr_watch.py"), "--repo", str(tree),
+            "--owner", owner, "--name", name, "--pr", str(number), "--from-scheduler",
+            "--state-repo", str(state_repo),
+            *(["--merge-only"] if merge_only else []),
+            *([f"--model={model}"] if model else []),
+            "--apply",
+            "--bot", resolved.pr_watcher_bot,          # read before any PR's tree existed
+            "--merge-method", resolved.pr_watcher_merge_method,
         ]
-        if trusted.pr_watcher_auto_merge:
+        if resolved.merges_in(f"{owner}/{name}"):
             cmd.append("--auto-merge")
-        code = run_cli(cmd)
+        code = run_cli(cmd, tree)
         if code is None:
             return WatchOutcome(False, f"watcher killed at the {budget}s budget (whole group)")
+        if code == pr_watch.EXIT_HELD:
+            return WatchOutcome(True, _HELD)
         if code != 0:
             return WatchOutcome(False, f"watcher exited {code}")
         return WatchOutcome(True)
+
+    def attempt(owner: str, name: str, number: int) -> WatchOutcome:
+        if not (state_repo / ".git").exists():
+            return WatchOutcome(False, f"not started: {repo} leads to no checkout to log under")
+        try:
+            head = head_of(owner, name, number)
+        except (subprocess.SubprocessError, OSError, RuntimeError, ValueError) as exc:
+            return WatchOutcome(False, f"not started, could not read the PR: {exc}")
+        if head.cross_repo:
+            print(f"pr-watch: PR #{number} from a fork — same-repo only, so it is not fetched")
+            return WatchOutcome(True)
+        if f"{owner}/{name}".casefold() != origin:
+            return run_in(repo, owner, name, number, merge_only=True)
+        try:
+            tree = open_pass(number, head.oid)
+        except (subprocess.SubprocessError, OSError, RuntimeError) as exc:
+            return WatchOutcome(False, f"no worktree for the PR: {exc}")
+        try:
+            return run_in(tree, owner, name, number, merge_only=False)
+        finally:
+            close_pass(tree)
 
     def watch_one(owner: str, name: str, number: int) -> WatchOutcome:
         outcome = attempt(owner, name, number)
@@ -211,22 +516,72 @@ def _watch_one_pr(
     return watch_one
 
 
-def _run_pr_watch_live(repo: Path, specs: list[tuple[str, str]]) -> str:  # pragma: no cover
-    summary = pr_watch.watch_repos(
-        specs, list_prs=_pr_list(repo), watch_one=_watch_one_pr(repo, component="pr-watch")
-    )
-    return f"pr-watch: watched {summary['prs']} PR(s) across {summary['repos']} repo(s)"
+def _run_pr_watch_live(
+    repo: Path,
+    specs: list[tuple[str, str]],
+    trusted: settings.Settings,
+    *,
+    watch: Callable[[str, str, int], WatchOutcome] | None = None,
+    list_prs: Callable[[str, str], list[int]] | None = None,
+) -> str:
+    """The sweep. A pass that failed fails the job, as in the queue drain: otherwise `--health` says
+    ok over a watcher that never got to do anything. ``watch`` / ``list_prs`` are seams."""
+    do_watch = watch or _watch_one_pr(repo, component="pr-watch", trusted=trusted)
+    failed = 0
+
+    def counted(owner: str, name: str, number: int) -> WatchOutcome:
+        nonlocal failed
+        outcome = do_watch(owner, name, number)
+        failed += 0 if outcome.ok else 1
+        return outcome
+
+    summary = pr_watch.watch_repos(specs, list_prs=list_prs or _pr_list(repo), watch_one=counted)
+    line = f"pr-watch: watched {summary['prs']} PR(s) across {summary['repos']} repo(s)"
+    if failed:
+        raise RuntimeError(
+            f"{line}; {failed} of {summary['prs']} watch pass(es) failed (see diagnostics)"
+        )
+    return line
+
+
+_WHERE_IT_IS_SET = "in ~/.agentic-forge/config.json"
 
 
 def _pr_watch(repo: Path) -> str:
     # opt-in + configured-repos gate; the live branch drives real gh + per-PR CLI subprocesses.
     resolved = settings.resolve(repo)
     if not resolved.pr_watcher_enabled:
-        return "pr-watch: disabled (set pr_watcher.enabled to watch)"
+        return f"pr-watch: disabled (set pr_watcher.enabled {_WHERE_IT_IS_SET} to watch)"
     specs = pr_watch.parse_repos(resolved.pr_watcher_repos)
     if not specs:
-        return "pr-watch: no repos configured (set pr_watcher.repos)"
-    return _run_pr_watch_live(repo, specs)
+        return f"pr-watch: no repos configured (set pr_watcher.repos {_WHERE_IT_IS_SET})"
+    return _run_pr_watch_live(repo, specs, resolved)
+
+
+def _queued_elsewhere(repo: Path) -> str:
+    """What to add to "empty" when the queue for this checkout's repo sits under another checkout's
+    state: the state root is keyed by path, so a PR created in one clone is not drained from a
+    second one, and from the second one that looks like nothing to do. The hook only writes small
+    files here, so reading them on the empty path costs little."""
+    origin = connectors.remote_slug(repo)
+    if origin is None:
+        return ""
+    here = diagnostics.user_state_root(repo)
+    waiting = 0
+    for path in here.parent.glob(f"*/{pr_watch.QUEUE_FILE}"):
+        if path.parent == here or path.is_symlink():
+            continue
+        try:
+            queue = pr_watch.parse_queue(json.loads(path.read_text(encoding="utf-8")))
+        except (ValueError, OSError, RecursionError):
+            continue
+        waiting += sum(1 for entry in queue if entry.slug.casefold() == origin.casefold())
+    if not waiting:
+        return ""
+    return (
+        f" here; {waiting} PR(s) of {origin} are queued under another checkout, and a queue drains "
+        "in the checkout that created the PR or a linked worktree of it"
+    )
 
 
 def _pr_watch_queue(
@@ -237,9 +592,11 @@ def _pr_watch_queue(
 ) -> str:
     """Drain the auto-watch queue (ADR 0068): one watch pass per enqueued PR, then re-persist.
 
-    Reuses `_watch_one_pr` — so the ADR 0067 trust boundary (settings resolved BEFORE
-    `gh pr checkout`), the recomputed merge gate, `auto_merge` and `confirm_merged` all apply
-    unchanged. **No new merge path exists**; this only decides *which* PRs get a pass.
+    Reuses `_watch_one_pr` — so the ADR 0067 trust boundary (settings resolved BEFORE any PR's
+    tree exists), the recomputed merge gate, `auto_merge` and `confirm_merged` all apply
+    unchanged. **No new merge path exists**; this only decides *which* PRs get a pass. The queue is
+    read from the state root and nowhere else, and an entry naming a repo that is neither this
+    checkout's `origin` nor in the operator's `pr_watcher.repos` is dropped unwatched (ADR 0103).
 
     An entry leaves the queue when its PR is finished or its tick budget runs out, so a PR that
     never becomes mergeable cannot hold a slot forever. Every entry's tick advances **whatever
@@ -249,22 +606,35 @@ def _pr_watch_queue(
     next poll) with a count that is true. ``watch_one`` / ``finished`` are seams for the tests."""
     resolved = settings.resolve(repo)
     if not resolved.pr_watcher_enabled:
-        return "pr-watch-queue: disabled (set pr_watcher.enabled)"
-    source = diagnostics.existing_state_file(repo, pr_watch.QUEUE_FILE, pr_watch.QUEUE_PATH)
+        return f"pr-watch-queue: disabled (set pr_watcher.enabled {_WHERE_IT_IS_SET})"
+    source = diagnostics.current_state_file(repo, pr_watch.QUEUE_FILE)
     if not source.is_file():
-        return "pr-watch-queue: empty"
+        return f"pr-watch-queue: empty{_queued_elsewhere(repo)}"
     try:
         queue = pr_watch.parse_queue(json.loads(source.read_text(encoding="utf-8")))
     except (json.JSONDecodeError, OSError) as exc:
         return f"pr-watch-queue: unreadable ({exc})"
     if not queue:
-        return "pr-watch-queue: empty"
+        return f"pr-watch-queue: empty{_queued_elsewhere(repo)}"
 
-    do_watch = watch_one or _watch_one_pr(repo)
+    do_watch = watch_one or _watch_one_pr(repo, trusted=resolved)
     is_finished = finished or (lambda entry: _pr_finished(repo, entry))
+    origin = connectors.remote_slug(repo)
     kept: list[pr_watch.WatchEntry] = []
-    dropped = failed = 0
+    dropped = failed = out_of_scope = 0
     for entry in queue:
+        if not pr_watch.entry_in_scope(entry, origin, resolved.pr_watcher_repos):
+            out_of_scope += 1
+            dropped += 1
+            reason = "not this checkout's origin, and not in the user-level pr_watcher.repos"
+            print(f"pr-watch-queue: dropped {entry.slug}#{entry.number} ({reason})")
+            _note_out_of_scope(repo, entry, time.time())
+            diagnostics.emit(
+                repo, kind="anomaly", component="pr-watch-queue",
+                message=f"dropped {entry.slug}#{entry.number} ({reason})",
+                severity="major", force=True,
+            )
+            continue
         try:
             outcome = do_watch(entry.owner, entry.name, entry.number)
         except Exception as exc:  # noqa: BLE001 — one PR's crash must not lose the queue file
@@ -283,6 +653,9 @@ def _pr_watch_queue(
         if nxt is None:
             dropped += 1
             reason = pr_watch.drop_reason(entry, finished=done, failed=not outcome.ok)
+            if outcome.reason == _HELD and not done:
+                _note_drop(repo, _HELD_OUT_FILE, entry, time.time())
+                reason += f"; {_HELD}"
             diagnostics.emit(  # leaving the queue is an outcome worth auditing
                 repo, kind="anomaly", component="pr-watch-queue",
                 message=f"dropped {entry.slug}#{entry.number} ({reason})",
@@ -295,12 +668,13 @@ def _pr_watch_queue(
     diagnostics.write_state(
         repo, pr_watch.QUEUE_FILE, json.dumps(pr_watch.queue_dump(kept), indent=2) + "\n"
     )
-    summary = f"pr-watch-queue: {len(queue)} watched, {dropped} dropped, {len(kept)} remaining"
+    watched = len(queue) - out_of_scope
+    summary = f"pr-watch-queue: {watched} watched, {dropped} dropped, {len(kept)} remaining"
     if failed:
         # Persisted first (ticks advanced), reported second: the job is a failure — not a "watched
         # N PR(s)" success — but the entries have still aged, so nothing is re-spawned forever.
         raise RuntimeError(
-            f"{summary}; {failed} of {len(queue)} watch pass(es) failed (see diagnostics)"
+            f"{summary}; {failed} of {watched} watch pass(es) failed (see diagnostics)"
         )
     return summary
 
@@ -381,7 +755,19 @@ def main(argv: list[str]) -> int:
     state = schedule.load_state(repo)
     if args.health:
         print(schedule.format_health(schedule.health(schedule.JOBS, state)))
+        skips = _lock_skips(repo)
+        if skips >= _LOCK_SKIPS_REPORTED:
+            print(f"run lock: held for the last {skips} polls, so no job has run: stalled watcher?")
+        lines = (
+            _watcher_off_line(repo), _out_of_scope_line(repo, now), _held_out_line(repo, now),
+        )
+        for line in lines:
+            if line:
+                print(line)
         return 0
+    ignored = diagnostics.ignored_legacy_files(repo)
+    if ignored:
+        print(f"agentic-forge: {diagnostics.dropped_legacy_notice(ignored)}")
     due = list(schedule.JOBS) if args.force else schedule.due_jobs(schedule.JOBS, state, now)
 
     if not due:
@@ -393,6 +779,19 @@ def main(argv: list[str]) -> int:
             print(f"  {job.name} ({job.cadence}) — {job.description}")
         return 0
 
+    with _run_lock(repo) as held:
+        if not held:
+            _note_lock_skip(repo)
+            print("Another scheduled run holds this repo; nothing run, the next poll retries.")
+            return 0
+        _clear_lock_skips(repo)
+        _remove_leftovers(repo)
+        return _run_due(repo, due, state, now)
+
+
+def _run_due(
+    repo: Path, due: list[schedule.Job], state: dict[str, schedule.JobState], now: float
+) -> int:
     all_ok = True
     for job in due:
         action = _ACTIONS.get(job.action)

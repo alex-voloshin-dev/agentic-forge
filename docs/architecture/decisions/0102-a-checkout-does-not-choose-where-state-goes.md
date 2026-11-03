@@ -171,7 +171,6 @@ Each operator has to choose it, and the choice applies to all their repos.
 - **The skills' `python -c` resolves modules from the current directory first.** So a checkout can shadow a module
   there, and a plugin-only install may not find the module at all. A following release replaces it with a shipped
   script.
-- **`pr_watcher` settings stay repo-settable.** A following release handles them.
 - **A state home inside a checkout.** An `AGENTIC_FORGE_STATE_HOME` that is relative, or points into a repo,
   puts the levels the walk exempts under that repo's control. The variable is the operator's to set.
 - **The budget counter lives in the shared temp directory.** A link planted at its name makes each call count
@@ -183,10 +182,16 @@ Found while reviewing this, older than it, and left for a later release:
 - `_merge_jsonl` appends old records after new ones, so a merged log is not in time order.
 - `main_repo_root` does not verify a `gitdir:` pointer against the back-pointer in the worktree's git directory,
   so a `.git` file, which git itself will not deliver, can key state to another checkout.
-- Committed regular `pr-watch-queue.json` and `schedule-state.json` at the legacy location stay authoritative
-  until a state file exists, and the migration promotes them.
 - A repo can erase its own audit trail with repo-level `logs.*` bounds.
 - Archive files get the umask's default mode rather than the log's, and state directories are not made private.
+
+Handled since, by [ADR 0103](0103-a-checkout-does-not-steer-the-watcher.md) (2026-11-03). Both were listed here when
+this ADR was accepted:
+
+- `pr_watcher` settings stayed repo-settable.
+- Committed regular `pr-watch-queue.json` and `schedule-state.json` at the legacy location stayed authoritative until
+  a state file existed, and the migration promoted them. The consequence below, that existing files stay readable,
+  now holds for the logs only.
 
 ## Consequences
 

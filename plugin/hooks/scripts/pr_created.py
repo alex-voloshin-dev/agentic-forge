@@ -45,7 +45,8 @@ def enqueue(cwd: str, payload: dict[str, Any]) -> bool:
     if ref is None:
         return False
     owner, name, number = ref
-    source = diagnostics.existing_state_file(root, pr_watch.QUEUE_FILE, pr_watch.QUEUE_PATH)
+    # The state root only: a committed file at the old in-repo path must not join the queue (0103).
+    source = diagnostics.current_state_file(root, pr_watch.QUEUE_FILE)
     existing: Any = []
     if source.is_file():
         try:
@@ -74,6 +75,9 @@ def main() -> int:
         if notice:
             if enqueue(cwd, payload):
                 notice += "\nagentic-forge: queued for the scheduled watch (pr_watcher.auto_watch)."
+                if pr_watch.QUEUE_FILE in diagnostics.ignored_legacy_files(cwd):
+                    dropped = diagnostics.dropped_legacy_notice([pr_watch.QUEUE_FILE])
+                    notice += f"\nagentic-forge: {dropped}"
             # ONE JSON object: bare stdout from a PostToolUse hook is transcript-only, so the
             # reminder ADR 0063 says this hook "injects" never reached the model. additionalContext
             # does; systemMessage shows the operator the same line.

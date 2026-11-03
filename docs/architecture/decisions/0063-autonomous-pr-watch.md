@@ -33,6 +33,11 @@ merge/force command builder here, by design."* Half of that is now intentionally
 - **`merge_argv(repo, number, method)` exists** and `run_watch` can merge.
 - **`pr_watcher.auto_merge` defaults to `false`.** A published plugin must not start merging pull
   requests in every repo that installs it; the capability ships off and is enabled per repo.
+
+  > **Amended 2026-11-03 by [ADR 0103](0103-a-checkout-does-not-steer-the-watcher.md).** It is enabled in the user-level file, as `true` or
+  > a list of repos. The review comments this ADR triages are no longer anyone's: a person needs write access on the repo, and a reviewer
+  > app has to be listed in the user-level `pr_watcher.trusted_reviewers`, since those apps are `Bot` with an association of `NONE` or
+  > `CONTRIBUTOR`. Any other thread is held, and holds the gate.
 - **`never force-push` remains absolute** — there is still no force builder, and none is planned.
   Conflict resolution merges the base *into* the branch and pushes fast-forward.
 - `merge_method` is clamped to `{rebase, squash, merge}` **in the library**, not only in the schema:

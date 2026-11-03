@@ -199,6 +199,17 @@ def session_outcome(stdout: str) -> SessionUndetermined | None:
     return None
 
 
+def permission_denials(stdout: str) -> int:
+    """How many tool calls the envelope says were denied. Never what they asked for: that is the
+    model's text, and the caller's message may reach a log. Anything else reads as none."""
+    try:
+        data = json.loads(stdout)
+    except (json.JSONDecodeError, TypeError):
+        return 0
+    denials = data.get("permission_denials") if isinstance(data, dict) else None
+    return len(denials) if isinstance(denials, list) else 0
+
+
 def _parse_cli_json(stdout: str) -> RunOutput:
     """Parse `claude -p --output-format json` stdout into the reply text + token usage.
 
@@ -764,6 +775,13 @@ def claude_cli_runner(
     replace_system: bool = False,
     timeout_retries: int = 1,
     env: dict[str, str] | None = None,
+    setting_sources: str = "project",
+    strict_mcp_config: bool = False,
+    tools: str | None = None,
+    permission_mode: str | None = None,
+    session_persistence: bool = True,
+    denials_undetermined: bool = False,
+    settings: str | None = None,
 ) -> Runner:
     """Level-2 seam: run the role headlessly via `claude -p` (Claude Code auth).
 
@@ -800,6 +818,17 @@ def claude_cli_runner(
       off-format reply was previously scored as a routing decision; the parser now rejects it, and
       this flag reduces how often it happens.
 
+    ``setting_sources`` is ``--setting-sources``. An eval keeps ``project``: the project's settings
+    are part of the repo under test. A session in a tree that is **not trusted** needs more, and
+    ``pr_watch._fixer`` is the one that asks (ADR 0103, measured against the CLI): project settings
+    run code as the operator, user settings can hand a session Bash or bypass its permissions, and
+    ``--allowedTools`` only grants, so ``tools`` (``--tools``) is what removes a tool from the
+    session and ``permission_mode`` (``--permission-mode``) what confines the rest to the working
+    tree. ``session_persistence=False`` is ``--no-session-persistence``. With
+    ``denials_undetermined`` a session in which a tool call was denied raises
+    :class:`SessionUndetermined`: what it says afterwards was not its decision to make. ``settings``
+    is ``--settings``, which applies whatever ``setting_sources`` says.
+
     Note the limit: this controls the *system prompt*, not the CLI's user-level ``CLAUDE.md``
     auto-discovery, which still applies. Only ``--bare`` disables that, and it forces
     ``ANTHROPIC_API_KEY`` auth — which would break the subscription-billed path the runbook
@@ -817,7 +846,17 @@ def claude_cli_runner(
         # in <language>" rule reached the graded artifacts here, so the same case scored differently
         # on different machines. Project settings stay — they are part of the repo under test.
         cmd = ["claude", "-p", prompt, system_flag, system, "--output-format", "json"]
-        cmd += ["--setting-sources", "project"]
+        cmd += ["--setting-sources", setting_sources]
+        if strict_mcp_config:
+            cmd.append("--strict-mcp-config")
+        if tools is not None:
+            cmd += ["--tools", tools]
+        if permission_mode is not None:
+            cmd += ["--permission-mode", permission_mode]
+        if not session_persistence:
+            cmd.append("--no-session-persistence")
+        if settings is not None:
+            cmd += ["--settings", settings]
         if allowed_tools is not None:
             cmd += ["--allowedTools", allowed_tools]
         if model:
@@ -856,6 +895,10 @@ def claude_cli_runner(
                 if dead is not None:  # exit 0, but the envelope says the session never ran
                     print(dead.marker, end="", flush=True, file=sys.stderr)
                     raise dead
+                denied = permission_denials(completed.stdout)
+                if denials_undetermined and denied:
+                    print("!", end="", flush=True, file=sys.stderr)
+                    raise SessionUndetermined("permission_denied", f"{denied} tool call(s) denied")
                 print(".", end="", flush=True, file=sys.stderr)
                 return _parse_cli_json(completed.stdout)
             if attempt < retries:

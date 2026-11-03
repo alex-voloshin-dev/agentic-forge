@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "agentic-forge plugin config",
-  "description": "Plugin configuration (ADR 0041). The SAME schema validates two files: the user-level ~/.agentic-forge/config.json (cross-project, ADR 0049) and the per-repo <repo>/.agentic-forge/config.json. Precedence: built-in defaults < user-level < per-repo < env vars. All keys are optional; omitted keys fall back to built-in defaults. A committed example with every key lives at plugin/config.example.json (see docs/configuration.md). These files are COMMITTED \u2014 do not put secrets (API keys, tokens) in them; use env vars for those.",
+  "description": "Plugin configuration (ADR 0041). The SAME schema validates two files: the user-level ~/.agentic-forge/config.json (cross-project, ADR 0049) and the per-repo <repo>/.agentic-forge/config.json. Precedence: built-in defaults < user-level < per-repo < env vars, except the keys a repo file cannot set (ADR 0100/0102/0103). All keys are optional; omitted keys fall back to built-in defaults. A committed example with every key lives at plugin/config.example.json (see docs/configuration.md). These files are COMMITTED \u2014 do not put secrets (API keys, tokens) in them; use env vars for those.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -92,7 +92,7 @@
     "pr_watcher": {
       "type": "object",
       "additionalProperties": false,
-      "description": "PR watcher (ADR 0044/0045; autonomous mode 0063). Off by default; outward GitHub writes (push/reply/resolve/merge) are opt-in. Never force-pushes.",
+      "description": "PR watcher (ADR 0044/0045; autonomous mode 0063). Off by default; outward GitHub writes (push/reply/resolve/merge) are opt-in. Never force-pushes. Honoured from the user-level file only: a repo file can only set enabled, auto_merge or auto_watch to false (ADR 0103).",
       "properties": {
         "enabled": {
           "type": "boolean"
@@ -114,9 +114,26 @@
             "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$"
           }
         },
+        "trusted_reviewers": {
+          "type": "array",
+          "description": "Logins of reviewer apps whose review threads may reach the fixer. An entry counts only for an author of type Bot, as GraphQL drops the [bot] suffix and a person could register the bare login (ADR 0103).",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9-]*(\\[bot\\])?$"
+          }
+        },
         "auto_merge": {
-          "type": "boolean",
-          "description": "Let the watcher merge a PR once the merge gate opens (ADR 0063). OFF by default \u2014 merging is irreversible and outward-facing."
+          "type": [
+            "boolean",
+            "array"
+          ],
+          "description": "Let the watcher merge a PR once the merge gate opens (ADR 0063). true is every repo the operator's scheduler runs on; a list of owner/name is only those (ADR 0103). OFF by default \u2014 merging is irreversible and outward-facing.",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$"
+          }
         },
         "merge_method": {
           "enum": [

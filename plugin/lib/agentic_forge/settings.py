@@ -7,12 +7,14 @@ home, a repo overrides them per-project, and CI / one-off env vars still win. Bo
 validated against `schemas/config.schema.json`. The exception is `external_reviewer`: `command`,
 `isolated`, `model` and `effort` are the operator's and honoured from the user-level file only, and
 a repo cannot turn on a user-level `enabled: false` (ADR 0100). `state.in_repo` and
-`knowledge.allow_external_vault` are the operator's in the same way (ADR 0102).
+`knowledge.allow_external_vault` are the operator's in the same way (ADR 0102), and so is all of
+`pr_watcher`, of which a repo file can only switch things off (ADR 0103).
 
 `resolve()` **never raises**: a missing file adds nothing; a malformed / schema-invalid / oversized
 file adds nothing but a one-line warning — printed to stderr and carried on ``Settings.warnings``,
 which the session-start hook shows once per session (a hook's stderr reaches nobody) — except that a
-dropped repo file's clear `enabled: false` is kept (ADR 0100). `jsonschema` is
+dropped repo file's clear `enabled: false` is kept, for the reviewer (ADR 0100) and the watcher
+(ADR 0103). `jsonschema` is
 imported **lazily and is optional** — a guardrail hook may run under a bare `python3` without the
 plugin's third-party deps, so when it is unavailable a committed (trusted) file is loaded
 *unvalidated* rather than dropped, and resolve still coerces every value defensively; the shape of
@@ -29,6 +31,7 @@ import json
 import os
 import re
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -60,19 +63,62 @@ _RAW_OPT_OUT = re.compile(
     r"""(?:false\b|\{[^{}]*?["']enabled["']\s*:\s*["']?false\b)""",
     re.IGNORECASE,
 )
+# The `pr_watcher` keys a repo file can never set. They decide what the operator's scheduler does to
+# GitHub with the operator's credentials, so a checkout must not get a say (ADR 0103). `enabled` is
+# deliberately not here, as a repo may stop automation on itself. See _drop_repo_watcher_settings.
+_OPERATOR_WATCHER_KEYS = (
+    "bot",
+    "max_threads",
+    "repos",
+    "trusted_reviewers",
+    "auto_merge",
+    "auto_watch",
+    "max_ticks",
+    "merge_method",
+    "poll_seconds",
+)
+# What a repo file may do to the watcher: switch these off, and nothing else (ADR 0103).
+_REPO_MAY_SWITCH_OFF = ("enabled", "auto_merge", "auto_watch")
+_REPO_OFF_SAYS = {
+    "enabled": (
+        "is false in this repo's config, which overrides your user-level true — the scheduled "
+        "watcher does nothing here; check it is intended"
+    ),
+    "auto_merge": (
+        "is false in this repo's config, which overrides your user-level setting — the watcher "
+        "does not merge here; check it is intended"
+    ),
+    "auto_watch": (
+        "is false in this repo's config, which overrides your user-level setting — a created PR is "
+        "not queued here; check it is intended"
+    ),
+}
+
+
+def _raw_watcher_off(key: str) -> re.Pattern[str]:
+    """As _RAW_OPT_OUT, for one key. `[^{}]` also crosses `repos`, whose array holds no braces."""
+    top = "false\\b|" if key == "enabled" else ""
+    return re.compile(
+        r"""["']pr_watcher["']\s*:\s*"""
+        rf"""(?:{top}\{{[^{{}}]*?["']{key}["']\s*:\s*["']?false\b)""",
+        re.IGNORECASE,
+    )
+
+
 # What the warning for a dropped file says remains, by where the file was.
 _USER_FILE_DROPPED = (
     "the whole file is dropped until it is fixed, except an external_reviewer.enabled: false it "
     "clearly states; the repo config and the built-in defaults apply instead"
 )
 _REPO_FILE_DROPPED = (
-    "the whole file is dropped until it is fixed, except an external_reviewer.enabled: false it "
-    "clearly states; the user-level config still applies"
+    "the whole file is dropped until it is fixed, except an external_reviewer.enabled: false, or a "
+    "pr_watcher auto_merge, auto_watch or enabled: false it clearly states; the user-level config "
+    "still applies"
 )
 _MERGED_CONFIG_DROPPED = (
     "every setting is at its built-in default until it is fixed, except the user-level "
-    "external_reviewer settings, state.in_repo and knowledge.allow_external_vault, and an "
-    "external_reviewer.enabled: false in either file"
+    "external_reviewer and pr_watcher settings, state.in_repo and knowledge.allow_external_vault, "
+    "an external_reviewer.enabled: false in either file, and what a repo's pr_watcher turns off"
 )
 
 DEFAULTS: dict[str, Any] = {
@@ -122,14 +168,19 @@ DEFAULTS: dict[str, Any] = {
     "models": {},  # tier/role -> model id (increment 4); empty = the runner default
     # PR watcher (increment 1, ADR 0044/0045): off by default; outward GitHub writes are opt-in.
     # `repos` (owner/name) are the repos the scheduled hourly job watches (empty = none).
+    # All of it is honoured from the user-level file only; a repo can only switch things off (0103).
     "pr_watcher": {
         "enabled": False,
         "bot": "github-actions[bot]",
         "max_threads": 10,
         "repos": [],
+        # Reviewer apps whose threads may reach the fixer: GitHub gives them no association worth
+        # the name, and an entry counts only for an author of type Bot (ADR 0103).
+        "trusted_reviewers": [],
         # Autonomous mode (ADR 0063). auto_merge stays OFF by default: a published plugin must not
         # start merging pull requests in every repo that installs it. poll_seconds is also the
         # window an external PR reviewer gets — the gate cannot open before the first post-CI poll.
+        # `true` is every repo the operator's scheduler runs on; a list of owner/name is only those.
         "auto_merge": False,
         # auto_watch is ON by default *within an enabled watcher* (ADR 0069): `enabled` is the
         # master switch, and once a user has opted into the watcher, watching the PRs they create
@@ -168,7 +219,7 @@ class Settings:
     pr_watcher_bot: str
     pr_watcher_max_threads: int
     pr_watcher_repos: list[str]
-    pr_watcher_auto_merge: bool
+    pr_watcher_auto_merge: bool  # `auto_merge: true`; merges_in is what to ask
     pr_watcher_auto_watch: bool
     pr_watcher_max_ticks: int
     pr_watcher_merge_method: str
@@ -183,6 +234,16 @@ class Settings:
     # to its own config, so a skip should say so (ADR 0100).
     external_reviewer_disabled_by_repo: bool = False
     knowledge_allow_external_vault: bool = False
+    pr_watcher_auto_merge_repos: tuple[str, ...] = ()  # `auto_merge: ["owner/name", ...]`
+    pr_watcher_trusted_reviewers: tuple[str, ...] = ()
+
+    def merges_in(self, slug: str) -> bool:
+        """True if the watcher may merge in ``owner/name``, the gate permitting. GitHub slugs are
+        case-insensitive, so a list entry is too."""
+        wanted = slug.casefold()
+        return self.pr_watcher_auto_merge or any(
+            entry.casefold() == wanted for entry in self.pr_watcher_auto_merge_repos
+        )
 
 
 def _schema() -> dict[str, Any]:
@@ -222,11 +283,17 @@ def _deep_merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
     return base
 
 
+# What this process has already printed: a run resolves settings many times over.
+_printed: set[str] = set()
+
+
 def _warn(warning: str) -> str:
-    """Print ``warning`` to stderr and return it. A closed stderr must not make resolve raise, and
-    the line is still carried on :attr:`Settings.warnings`."""
+    """Print ``warning`` to stderr, once per process, and return it. A closed stderr must not make
+    resolve raise, and the line is still carried on :attr:`Settings.warnings`."""
     try:
-        print(warning, file=sys.stderr)
+        if warning not in _printed:
+            print(warning, file=sys.stderr)
+            _printed.add(warning)
     except (OSError, ValueError):
         pass
     return warning
@@ -401,8 +468,92 @@ def _opted_out(file_data: dict[str, Any]) -> bool:
     )
 
 
-def _dropped_file_opts_out(path: Path) -> bool:
-    """True if a config file that was dropped still clearly turns the reviewer off, so a typo cannot
+def _is_off(key: str, value: Any) -> bool:
+    """True if ``value`` switches ``key`` off. Anything but a truthy value counts, as with
+    :func:`_opted_out`: off is the safe side. A list is ``auto_merge`` naming repos, which is on."""
+    if isinstance(value, list):
+        return key != "auto_merge" or not value
+    return not _coerce_bool(value)
+
+
+def _watcher_offs(file_data: dict[str, Any]) -> list[str]:
+    """What one config file's data switches off in the PR watcher."""
+    section = file_data.get("pr_watcher")
+    if section is False:
+        return ["enabled"]
+    if not isinstance(section, dict):
+        return []
+    return [k for k in _REPO_MAY_SWITCH_OFF if k in section and _is_off(k, section[k])]
+
+
+def _user_watcher_section(user_data: dict[str, Any]) -> dict[str, Any]:
+    """The user-level ``pr_watcher`` mapping, or ``{}`` if it is absent or malformed."""
+    section = user_data.get("pr_watcher")
+    return cast("dict[str, Any]", section) if isinstance(section, dict) else {}
+
+
+def _drop_repo_watcher_settings(
+    repo_data: dict[str, Any], user_data: dict[str, Any]
+) -> tuple[str, ...]:
+    """Remove from a repo file, before it can be merged, everything it may not decide about the PR
+    watcher, and report it.
+
+    The scheduler that reads this acts with the operator's credentials, against whatever slugs it
+    is given, and the repo is what is being watched. So a repo cannot turn the watcher on, choose
+    what it watches, or let it merge (ADR 0103). What remains is what a repo may do to itself:
+    ``enabled``, ``auto_merge`` and ``auto_watch`` set to false, each of which overrides the
+    operator's and is reported when it does. The whole section goes otherwise, so a key added next
+    year is the operator's unless someone decides otherwise. A value equal to the one in effect gets
+    no warning: the shipped example has them all. Names the keys we know and never a value, or a key
+    the file made up: this line reaches the session.
+
+    A section that is not a mapping stays, to fail the merge and take the malformed-config path,
+    except ``false``, which says plainly what a repo may say."""
+    user_section = _user_watcher_section(user_data)
+    defaults = DEFAULTS["pr_watcher"]
+    user_enabled = _coerce_bool(user_section.get("enabled", defaults["enabled"]))
+    offs = _watcher_offs(repo_data)
+    if repo_data.get("pr_watcher") is False:
+        repo_data["pr_watcher"] = {"enabled": False}
+    section = repo_data.get("pr_watcher")
+    if not isinstance(section, dict):
+        return ()
+    warnings: list[str] = []
+    for key in _OPERATOR_WATCHER_KEYS:
+        if key in offs or key not in section:
+            continue
+        if section[key] != user_section.get(key, defaults[key]):
+            why = "in a repo config is ignored — only the user-level config can set it"
+            warnings.append(_ignored_value(f"pr_watcher.{key}", why))
+    for key in offs:
+        in_effect = user_section.get(key, defaults[key])
+        if key != "enabled" and not user_enabled:
+            continue  # the watcher is off anyway, so this overrides nothing
+        if not _is_off(key, in_effect):
+            warnings.append(_ignored_value(f"pr_watcher.{key}", _REPO_OFF_SAYS[key]))
+    if "enabled" in section and "enabled" not in offs and not user_enabled:
+        why = "in a repo config is ignored — a repo can only turn the watcher off, not on"
+        warnings.append(_ignored_value("pr_watcher.enabled", why))
+    del repo_data["pr_watcher"]
+    if offs:
+        repo_data["pr_watcher"] = dict.fromkeys(offs, False)
+    return tuple(warnings)
+
+
+def _plain_watcher_value(key: str, value: Any) -> Any:
+    """A user-level ``pr_watcher`` value, as far as it is safe for the malformed-config fallback to
+    keep: that path has to build :class:`Settings` without raising, and only a scalar, or a list of
+    strings where a list belongs, is certain to. ``None`` otherwise: the default stays."""
+    if isinstance(value, list):
+        keeps_a_list = key in ("repos", "auto_merge", "trusted_reviewers")
+        return [item for item in value if isinstance(item, str)] if keeps_a_list else None
+    return value if isinstance(value, (bool, int, str)) else None
+
+
+def _dropped_file_says(
+    path: Path, raw: re.Pattern[str], decoded: Callable[[dict[str, Any]], bool]
+) -> bool:
+    """True if a config file that was dropped still clearly turns something off, so a typo cannot
     turn a repo's opt-out back on (ADR 0100). Parses what can be parsed: the raw text first, which
     needs no decodable JSON, then the JSON for a file only the schema refused. Reads no further than
     the size limit. A file with neither, such as one in another encoding, says nothing we can read,
@@ -410,12 +561,33 @@ def _dropped_file_opts_out(path: Path) -> bool:
     try:
         with path.open("rb") as handle:
             text = handle.read(_CONFIG_MAX_BYTES).decode("utf-8", "replace")
-        if _RAW_OPT_OUT.search(text):
+        if raw.search(text):
             return True
         data = json.loads(text)
     except Exception:  # the file has already been reported as dropped
         return False
-    return isinstance(data, dict) and _opted_out(data)
+    return isinstance(data, dict) and decoded(data)
+
+
+def _dropped_file_opts_out(path: Path) -> bool:
+    """:func:`_dropped_file_says` for the external reviewer."""
+    return _dropped_file_says(path, _RAW_OPT_OUT, _opted_out)
+
+
+def _dropped_file_switches_off(path: Path, key: str) -> bool:
+    """:func:`_dropped_file_says` for one key of the PR watcher."""
+    return _dropped_file_says(path, _raw_watcher_off(key), lambda data: key in _watcher_offs(data))
+
+
+def _dropped_repo_file_remains(path: Path) -> dict[str, Any]:
+    """What survives of a repo file that was dropped: only what it clearly turns off."""
+    remains: dict[str, Any] = {}
+    if _dropped_file_opts_out(path):
+        remains["external_reviewer"] = {"enabled": False}
+    offs = [key for key in _REPO_MAY_SWITCH_OFF if _dropped_file_switches_off(path, key)]
+    if offs:
+        remains["pr_watcher"] = dict.fromkeys(offs, False)
+    return remains
 
 
 def _schema_problem(error: Any) -> str:
@@ -474,6 +646,14 @@ def _load_config(path: Path, consequence: str) -> tuple[dict[str, Any], str]:
     return cast("dict[str, Any]", data), ""
 
 
+def _auto_merge_repos(value: Any) -> tuple[str, ...]:
+    """The strings of a value that may be a list: the slugs of ``auto_merge``, the logins of
+    ``trusted_reviewers``. A non-string entry names nothing."""
+    if not isinstance(value, list):
+        return ()
+    return tuple(entry for entry in value if isinstance(entry, str))
+
+
 def _settings_from(
     data: dict[str, Any], warnings: tuple[str, ...] = (), *, disabled_by_repo: bool = False
 ) -> Settings:
@@ -521,6 +701,8 @@ def _settings_from(
         # boolean rather than the widened truthy set ("yes"/"on"/1) that a config slipping past an
         # absent `jsonschema` could otherwise carry (ADR 0067).
         pr_watcher_auto_merge=pr.get("auto_merge") is True,
+        pr_watcher_auto_merge_repos=_auto_merge_repos(pr.get("auto_merge")),
+        pr_watcher_trusted_reviewers=_auto_merge_repos(pr.get("trusted_reviewers")),
         pr_watcher_auto_watch=pr.get("auto_watch") is True,
         pr_watcher_max_ticks=_int(pr.get("max_ticks"), DEFAULTS["pr_watcher"]["max_ticks"]),
         pr_watcher_merge_method=method,
@@ -559,14 +741,20 @@ def _repo_alone_opted_out(user_data: dict[str, Any], repo_data: dict[str, Any]) 
 
 
 def resolve(
-    repo: Path | str, *, env: dict[str, str] | None = None, home: Path | str | None = None
+    repo: Path | str,
+    *,
+    env: dict[str, str] | None = None,
+    home: Path | str | None = None,
+    repo_file: bool = True,
 ) -> Settings:
     """Resolve the plugin :class:`Settings` for ``repo`` — DEFAULTS < user-level file < repo file <
     env, with two ``external_reviewer`` exceptions (ADR 0100): a repo file cannot set ``command``,
     ``isolated``, ``model`` or ``effort``, and cannot turn on a user-level ``enabled: false``. It
-    cannot set ``state.in_repo`` or ``knowledge.allow_external_vault`` either (ADR 0102). ``home``
-    overrides the user-config base dir
-    (defaults to :func:`Path.home`; mostly for tests/embedding)."""
+    cannot set ``state.in_repo`` or ``knowledge.allow_external_vault`` either (ADR 0102), or any of
+    ``pr_watcher`` but switching something off (ADR 0103). ``home`` overrides the user-config base
+    dir (defaults to :func:`Path.home`; mostly for tests/embedding). ``repo_file=False`` does not
+    open the repo's file at all, for a caller whose working tree may be a pull request's, or who
+    wants only what that file cannot change."""
     src = os.environ if env is None else env
     user_data: dict[str, Any] = {}
     repo_data: dict[str, Any] = {}
@@ -574,10 +762,12 @@ def resolve(
 
     try:
         user_data, user_warning = _load_user_config(home)
-        repo_path = Path(repo) / CONFIG_PATH
-        repo_data, repo_warning = _load_config(repo_path, _REPO_FILE_DROPPED)
-        if repo_warning and _dropped_file_opts_out(repo_path):
-            repo_data = {"external_reviewer": {"enabled": False}}
+        repo_warning = ""
+        if repo_file:
+            repo_path = Path(repo) / CONFIG_PATH
+            repo_data, repo_warning = _load_config(repo_path, _REPO_FILE_DROPPED)
+            if repo_warning:
+                repo_data = _dropped_repo_file_remains(repo_path)
         warnings = tuple(w for w in (user_warning, repo_warning) if w)
         # Before the merge, so it cannot carry them.
         warnings = (
@@ -590,6 +780,7 @@ def resolve(
                 "allow_external_vault",
                 _user_allows_external_vault(user_data),
             ),
+            *_drop_repo_watcher_settings(repo_data, user_data),
         )
         data = copy.deepcopy(DEFAULTS)
         _deep_merge(data, user_data)
@@ -638,6 +829,12 @@ def resolve(
             fallback["external_reviewer"]["enabled"] = False
         fallback["state"]["in_repo"] = _user_state_in_repo(user_data)
         fallback["knowledge"]["allow_external_vault"] = _user_allows_external_vault(user_data)
+        for key, value in _user_watcher_section(user_data).items():
+            plain = _plain_watcher_value(key, value)
+            if key in DEFAULTS["pr_watcher"] and plain is not None:
+                fallback["pr_watcher"][key] = plain
+        for key in _watcher_offs(repo_data):
+            fallback["pr_watcher"][key] = False
         return _settings_from(
             fallback,
             (*warnings, dropped),
