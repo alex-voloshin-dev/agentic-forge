@@ -7,6 +7,8 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.11.2] - 2026-11-03
+
 ### Security
 
 - **Behaviour change: a repo-level `state.in_repo` is now ignored (ADR 0102).** A repo's committed config
