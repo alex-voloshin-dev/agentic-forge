@@ -7,6 +7,8 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.11.3] - 2026-11-03
+
 ### Security
 
 - **Behaviour change: a repo's config no longer controls the PR watcher (ADR 0103).** A committed
