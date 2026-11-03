@@ -34,6 +34,7 @@ plugin/
     pre_router.py                     # L4: deterministic pre-router for the UserPromptSubmit hook (ADR 0089)
     vault.py                          # L3: Obsidian knowledge-vault core (ADR 0018)
     guardrails.py                     # L4: guardrail hook logic (ADR 0019)
+    gate_scope.py                     # L4: narrows the commit gate to what a simple command changes (ADR 0101)
     ops.py release.py                 # Stage 4: deploy/incident assessment + release core (ADR 0021)
     schedule.py observability.py      # Stage 7: scheduled-job registry + audit digest (ADR 0024)
     connectors.py                     # real provider connectors behind the ops seams (ADR 0025)
@@ -73,6 +74,7 @@ pyproject.toml                        # uv / pytest / ruff / mypy config
 | `skill_eval.py` | Skill Tier-2 quality runner: knowledge skills run as the `software-engineer` with them loaded, others directly; reuses `agent_eval.run_eval_cases` (ADR 0017). |
 | `vault.py` | L3 knowledge-vault core: parse/resolve `[[wikilinks]]`, load + validate the note graph, scaffold, add+link notes, rank recall candidates, build the session-start summary (ADR 0018). Writes go through `state_io` with the vault as anchor, so a linked note or MOC raises `StateWriteRefused`, and a linked or undecodable file is skipped when reading. A vault directory that resolves outside the repo (the nearest directory up holding a `.git` entry) is refused for writes and reads as empty, unless the user-level `knowledge.allow_external_vault` says otherwise; `outside_repo_notice` is the line session start prints then (ADR 0102). |
 | `guardrails.py` | L4 guardrail logic: dangerous-command deny-list, test-gate command choice, secret redaction + audit record, subagent-budget counter (ADR 0019). |
+| `gate_scope.py` | L4 commit-gate narrowing (ADR 0101): a strict matcher for simple `git add`/`commit`/`push` commands, git reads of what they change, and `narrow`, which leaves `choose_gate`'s gate as it is, skips it, or gives ruff the changed files. Anything uncertain leaves it as it is. |
 | `ops.py` | Stage-4 ops assessment behind provider-agnostic `PipelineSource`/`AlertSource` seams: `rollout_health`, `triage_alerts`, `deploy_status`, `classify_incident` (sev1–4) (ADR 0021). `SourceUnavailable` is what a seam raises instead of `[]`; `deploy_status` carries `unavailable` and the `unknown` health — never "healthy" from no data (ADR 0094). `UnavailablePipeline` is a configured source that cannot answer and says why — distinct from an empty in-memory one (ADR 0095). |
 | `release.py` | Stage-4 release core: classify conventional commits → semver bump + Keep-a-Changelog grouping; thin `commits_since` git seam (ADR 0021). |
 | `schedule.py` | Stage-7 scheduled-job registry + pure `due_jobs` due-logic + last-run state I/O (ADR 0024). |

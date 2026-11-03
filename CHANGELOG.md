@@ -7,6 +7,34 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Changed
+
+- **The commit gate narrows to what a simple command changes, and can only narrow (ADR 0101).** An empty commit from a
+  package directory was blocked by every old `ruff check .` finding in that package, because the hook never asked what was
+  being committed. The gate is still what `choose_gate` picks for the session's cwd, run from there. Now, for `git commit`
+  (with an optional single `git add` before it) or a `git push` that can only send the current branch to its own name, git says
+  what changes.
+  Nothing changed: the gate is skipped, whichever it is. `ruff check .` becomes `ruff check` with the changed lintable files
+  under cwd, or is skipped if there are none. It stays whole if the commit touches a ruff config, you have a user-level ruff
+  config, a config on the path mentions `include`, `extend-include`, `extension` or `extend`, a tracked lintable name under cwd is
+  a symlink, or a changed path is a directory, submodule or symlink. `go vet ./...` is skipped only when nothing under cwd
+  changed. `dev/validate.py`, `npm run lint`, `cargo clippy` and `rubocop` run whole, as before, whenever something changed.
+  Any other command shape, any character the small matcher does not understand, or any git failure behaves exactly as before.
+  Any narrowed failure runs the whole gate, whose usual classification decides, so this adds no block. **A change committed
+  from a repo root with no manifest stays ungated, as before.** It is per file, not per line: touching a file with old findings
+  still blocks.
+- **A gate block no longer tells the agent how to turn the gate off (ADR 0101).** The message the model reads says what ran on
+  what, and to fix the findings or ask you. You get the step that works in a `systemMessage`: `test_gate.skip: true` in
+  `<cwd>/.agentic-forge/config.json`, in a separate call first, because the hook runs before the command. If you relied on the
+  old text, nothing else changed. A block on a command shape that ran whole adds that running `git commit` or `git push` as its
+  own call gates only what changed.
+
+### Security
+
+- **A gate block is redacted before it reaches the model (ADR 0101).** A linter quotes what it reads, and a tracked symlink to a
+  credentials file put secrets in the block message. The tail now goes through `redact_secrets`. Control characters in filenames
+  are escaped, and the argv stays on one line.
+
 ## [2026.11.3] - 2026-11-03
 
 ### Security

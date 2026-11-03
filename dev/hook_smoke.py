@@ -25,6 +25,7 @@ import importlib
 import json
 import os
 import py_compile
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -121,10 +122,11 @@ def check_imports(failures: list[str]) -> list[str]:
 
 
 def run_hook(
-    hook: Path, payload: dict[str, object], cwd: Path, state: Path, scratch: Path
+    hook: Path, payload: dict[str, object], cwd: Path, state: Path, scratch: Path,
+    extra_env: dict[str, str] | None = None,
 ) -> str | None:
     """Run one hook; None when it behaved, else the reason."""
-    env = dict(os.environ)
+    env = {**os.environ, **(extra_env or {})}
     env["AGENTIC_FORGE_STATE_HOME"] = str(state)
     env["TMPDIR"] = str(scratch)  # `tempfile.gettempdir` reads it, so each run starts from nothing
     env["CLAUDE_PLUGIN_ROOT"] = str(PLUGIN)
@@ -169,16 +171,54 @@ def check_hooks(failures: list[str]) -> list[str]:
     return [h.name for h in hooks]
 
 
+def check_narrowed_commit(failures: list[str], hook_env: dict[str, str] | None = None) -> str:
+    """The commit gate's own path, which the `git status` payload above never reaches: a real repo,
+    an empty commit from a package, and a stand-in ruff that fails if it runs at all (ADR 0101).
+
+    A slim image has no git. Saying so is the honest result there; on CI it is a failure, since a
+    floor test that cannot run proves nothing (ADR 0082)."""
+    if not shutil.which("git"):
+        if os.environ.get("CI"):
+            failures.append("narrowed commit: no git on CI")
+        return "narrowed commit NOT run: no git here"
+    with tempfile.TemporaryDirectory() as tmp:
+        base = Path(tmp).resolve()
+        package = base / "repo" / "pkg"
+        package.mkdir(parents=True)
+        (package / "pyproject.toml").write_text("[project]\nname = 'smoke'\n", encoding="utf-8")
+        ruff_ran = base / "ruff-ran"
+        tools = base / "bin"
+        tools.mkdir()
+        (tools / "ruff").write_text(f'#!/bin/sh\ntouch "{ruff_ran}"\nexit 1\n', encoding="utf-8")
+        (tools / "ruff").chmod(0o755)
+        (base / "tmp").mkdir()
+        identity = ("-c", "user.name=smoke", "-c", "user.email=smoke@example.invalid")
+        for args in (("init", "-q"), ("add", "."), (*identity, "commit", "-qm", "init")):
+            subprocess.run(["git", *args], cwd=str(package.parent), check=True, capture_output=True)
+        payload: dict[str, object] = {
+            "hook_event_name": "PreToolUse", "tool_name": "Bash",
+            "tool_input": {"command": "git commit --allow-empty -m empty"},
+        }
+        env = {"PATH": f"{tools}{os.pathsep}{os.environ.get('PATH', '')}", **(hook_env or {})}
+        problem = run_hook(
+            HOOKS / "commit_gate.py", payload, package, base / "state", base / "tmp", env
+        )
+        if problem or ruff_ran.exists():
+            failures.append(f"narrowed commit: {problem or 'ruff ran on an empty commit'}")
+    return "narrowed commit run"
+
+
 def main(argv: list[str]) -> int:
     failures: list[str] = []
     compiled = check_compiles(failures)
     mods = check_imports(failures)
     hooks = check_hooks(failures)
+    narrowed = check_narrowed_commit(failures)
     version = ".".join(str(v) for v in sys.version_info[:3])
     print(
         f"hook smoke on Python {version}: {compiled} files compiled, "
         f"{len(mods)} hook-reachable modules imported ({' '.join(mods)}), "
-        f"{len(hooks)} hooks run"
+        f"{len(hooks)} hooks run, {narrowed}"
     )
     for line in failures:
         print(f"  FAIL {line}")

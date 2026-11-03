@@ -32,6 +32,36 @@ def test_smoke_passes_under_this_interpreter(capsys: object) -> None:
     assert hook_smoke.main([]) == 0
 
 
+def test_the_smoke_says_it_ran_the_narrowed_commit(capsys) -> None:
+    assert hook_smoke.main([]) == 0
+    assert "narrowed commit run" in capsys.readouterr().out
+
+
+def test_the_smoke_reaches_the_narrowed_commit_gate() -> None:
+    failures: list[str] = []
+    assert hook_smoke.check_narrowed_commit(failures) == "narrowed commit run"
+    assert failures == []
+
+
+def test_the_narrowed_commit_smoke_fails_when_the_gate_runs_on_an_empty_commit(monkeypatch) -> None:
+    """The stand-in ruff exits 1, so a gate that did not narrow would block and be reported."""
+    failures: list[str] = []
+    hook_smoke.check_narrowed_commit(failures, hook_env={"GIT_DIR": "x"})  # the whole gate runs
+    assert failures and "narrowed commit" in failures[0]
+
+
+@pytest.mark.parametrize(("ci", "fails"), [("true", True), (None, False)])
+def test_no_git_says_so_and_fails_only_on_ci(monkeypatch, ci: str | None, fails: bool) -> None:
+    monkeypatch.setattr(hook_smoke.shutil, "which", lambda name: None)
+    if ci:
+        monkeypatch.setenv("CI", ci)
+    else:
+        monkeypatch.delenv("CI", raising=False)
+    failures: list[str] = []
+    assert "NOT run" in hook_smoke.check_narrowed_commit(failures)
+    assert bool(failures) is fails
+
+
 def _budget_count(tmp: Path) -> str:
     """Run the budget hook through the smoke's own runner and read its counter."""
     cwd, state, scratch = tmp / "repo", tmp / "state", tmp / "scratch"
