@@ -17,7 +17,10 @@
   },
   "external_reviewer": {
     "enabled": true,
-    "command": "codex"
+    "command": "codex",
+    "isolated": false,
+    "model": null,
+    "effort": null
   },
   "models": {},
   "pr_watcher": {

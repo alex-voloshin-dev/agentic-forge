@@ -51,7 +51,7 @@ _CONFIG_MARKER = "settings:dropped-config"
 
 
 def config_notice(cwd: str, resolved: settings.Settings, session_id: str | None) -> str:
-    """The warnings for config files ``resolve`` had to drop — the FIRST time this session, then "".
+    """The warnings for config ``resolve`` had to ignore — the FIRST time this session, then "".
 
     A malformed or schema-invalid ``config.json`` is ignored whole (`test_gate.skip`,
     `pr_watcher.enabled`, every key in it silently at its default), and the stderr line every hook

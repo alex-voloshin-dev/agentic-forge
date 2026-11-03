@@ -1,8 +1,8 @@
 """PR-created detection for the PostToolUse hook (ADR 0063).
 
 Pure: given a hook payload, decide whether the session just **created** a pull request and, if so,
-produce the reminder that starts the autonomous watch. Kept out of the hook script so it is unit
-tested like every other guardrail decision — the script is only stdin/stdout plumbing.
+produce the notice saying what can follow it. Kept out of the hook script so it is unit tested like
+every other guardrail decision — the script is only stdin/stdout plumbing.
 
 Deliberately narrow: it matches `gh pr create` on the **command word** of a segment (the
 `command-position` discipline of ADR 0054), so a quoted mention in an echo, a `--body` that talks
@@ -20,12 +20,14 @@ __all__ = ["created_pr_url", "is_pr_create", "pr_created_notice", "created_pr_re
 
 # The reminder the hook injects — as `additionalContext` (the model) and `systemMessage` (the
 # operator); bare stdout from a PostToolUse hook is transcript-only, so until 2026.9 the model never
-# saw it. It names the follow-up explicitly so the session can act on it; it does not itself start
-# anything (a hook must not launch a merging agent — ADR 0063 §6).
+# saw it. It says who can do what, because both read it: the pr-watch skill is
+# `disable-model-invocation`, so "run /pr-watch" sent an agent after a command it cannot invoke. It
+# does not itself start anything (a hook must not launch a merging agent — ADR 0063 §6).
 NOTICE = (
-    "agentic-forge: pull request created. Autonomous watch is available — run /pr-watch to poll "
-    "checks, triage review comments, resolve conflicts, and (when pr_watcher.auto_merge is on and "
-    "the merge gate opens) merge."
+    "agentic-forge: pull request created. /pr-watch is a manual command for the user: it watches "
+    "the PR and merges only if pr_watcher.auto_merge is on and the merge gate opens. An agent "
+    "cannot invoke it and should not try; it can check the PR itself with `gh pr checks` and "
+    "`gh pr view`."
 )
 
 # A PR URL in the command's output, e.g. https://github.com/owner/name/pull/11

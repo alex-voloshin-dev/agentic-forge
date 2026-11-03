@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -341,10 +342,65 @@ def test_redact_secrets(secret: str) -> None:
     assert "[REDACTED]" in redact_secrets(f"prefix {secret} suffix")
 
 
+@pytest.mark.parametrize(
+    "assignment",
+    [
+        '"password": "hunter2hunter2"',
+        '"password":"hunter2hunter2"',
+        "{'password': 'hunter2hunter2'}",
+        "'password'='hunter2hunter2'",
+        '{"client_secret": "hunter2hunter2"}',
+        '"API_KEY" : "hunter2hunter2"',
+        'curl -d "{\\"password\\": \\"hunter2hunter2\\"}"',  # JSON inside a shell string
+        'password: \\"hunter2hunter2\\"',
+        'password = "hunter2hunter2"',
+    ],
+)
+def test_redact_a_quoted_assignment(assignment: str) -> None:
+    out = redact_secrets(f"prefix {assignment} suffix")
+    assert "hunter2hunter2" not in out and "[REDACTED]" in out and "suffix" in out
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        '{"token": token_value, "password": password}',
+        '"secret": false,',
+        '"api_key": os.environ["API_KEY"]',
+        'd["password"] = value',
+        '{"password": {"type": "string"}}',
+        '"token_count": "1234567"',
+        '"password_hint": "the usual"',
+        'if password == "abcdefgh":',
+        '"token"',
+        "get_token(user_id)",
+    ],
+)
+def test_redact_leaves_ordinary_code_with_these_names_alone(code: str) -> None:
+    assert redact_secrets(code) == code
+
+
 def test_redact_pem_private_key() -> None:
     pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEabc123\n-----END RSA PRIVATE KEY-----"
     out = redact_secrets(f"key:\n{pem}\ndone")
     assert "[REDACTED]" in out and "MIIEabc123" not in out
+    assert out.endswith("done")  # with an END line, what follows it stays
+
+
+@pytest.mark.parametrize("label", ["", "RSA ", "EC ", "OPENSSH "])
+def test_redact_pem_private_key_with_no_end_line_runs_to_the_end_of_the_text(label: str) -> None:
+    out = redact_secrets(f"key:\n-----BEGIN {label}PRIVATE KEY-----\nMIIEabc123\nMIIEdef456")
+    assert out == "key:\n[REDACTED]"
+
+
+def test_redact_keeps_what_follows_each_of_two_pem_keys() -> None:
+    pem = "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----"
+    assert redact_secrets(f"{pem} one {pem} two") == "[REDACTED] one [REDACTED] two"
+
+
+def test_redact_leaves_a_public_certificate_alone() -> None:
+    cert = "-----BEGIN CERTIFICATE-----\nMIIEabc123\n-----END CERTIFICATE-----"
+    assert redact_secrets(cert) == cert
 
 
 @pytest.mark.parametrize(
@@ -633,3 +689,10 @@ def test_remote_env_dump_command_position(command: str, blocks: bool) -> None:
 def test_module_exports() -> None:
     for name in guardrails.__all__:
         assert hasattr(guardrails, name)
+
+
+def test_redacting_repeated_secret_words_is_not_quadratic() -> None:
+    started = time.monotonic()
+    guardrails.redact_secrets("secret" * 20000)
+    assert time.monotonic() - started < 5
+    assert "[REDACTED]" in guardrails.redact_secrets("AWS_SECRET_ACCESS_KEY=abcdefghij")

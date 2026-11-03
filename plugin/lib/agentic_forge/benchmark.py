@@ -195,6 +195,7 @@ def prior_record(
     history: list[dict[str, Any]], component: str, model: str
 ) -> dict[str, Any] | None:
     """The most recent record for ``(component, model)`` (the prior version's baseline), or None."""
+    record: dict[str, Any]
     for record in reversed(history):
         if record.get("component") == component and record.get("model") == model:
             return record

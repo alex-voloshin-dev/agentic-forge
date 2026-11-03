@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""PR-created hook (PostToolUse): notice `gh pr create`, prompt the autonomous watch (ADR 0063).
+"""PR-created hook (PostToolUse): notice `gh pr create`, say what can follow it (ADR 0063).
 
 A skill cannot observe a command it did not run, so the *automatic* half of "watching starts when
-the PR is created" has to live in a hook. This one is **observability-only**: it injects a reminder
+the PR is created" has to live in a hook. This one is **observability-only**: it injects a notice
 naming the PR (`additionalContext` for the model, `systemMessage` for the operator — bare stdout
 from a PostToolUse hook is transcript-only) and exits 0. It deliberately does **not** spawn a
 watcher — auto-merge sits downstream of this signal, and a guardrail layer must not silently start

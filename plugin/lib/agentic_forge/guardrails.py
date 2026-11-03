@@ -989,15 +989,18 @@ _SECRETS = [
     re.compile(r"\bAIza[0-9A-Za-z_\-]{35}\b"),  # Google API key
     re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),  # Slack
     re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),  # JWT
-    re.compile(r"-----BEGIN[^-]*PRIVATE KEY-----[\s\S]*?-----END[^-]*-----"),
+    # END is optional, to the end of the text: a key cut off by a cap or a pipe is still a key.
+    re.compile(r"-----BEGIN[^-]*PRIVATE KEY-----[\s\S]*?(?:-----END[^-]*-----|\Z)"),
     re.compile(r"(?<=://)[^/\s:@]+:[^/\s@]+(?=@)"),  # user:password in a URL
     re.compile(r"(?i)\bauthorization\b\s*:\s*\S+(\s+\S{4,})?"),
     re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._\-]{16,}"),
     # key=value / key: value assignments. No leading \b on the keyword so AWS_SECRET_ACCESS_KEY
-    # (underscore-joined, no word boundary before "secret") is still caught.
+    # (underscore-joined, no word boundary before "secret") is still caught. A quoted key, as in
+    # JSON or a dict, needs a quoted value, so `{"token": token_value}` in ordinary code stays
+    # readable. A quote may be escaped, as JSON inside a shell command's string has it.
     re.compile(
-        r"(?i)(api[_-]?key|secret\w*|access[_-]?key|token|password|passwd)"
-        r"\s*[:=]\s*['\"]?[^\s'\"]{6,}"
+        r"(?i)(api[_-]?key|secret\w{0,64}|access[_-]?key|token|password|passwd)"
+        r"(?:\s*[:=]\s*(?:\\?['\"])?|\\?['\"]\s*[:=]\s*\\?['\"])[^\s'\"]{6,}"
     ),
 ]
 

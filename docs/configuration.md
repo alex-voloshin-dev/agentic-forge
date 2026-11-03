@@ -7,9 +7,12 @@ The plugin reads optional JSON config from two places, both validated against
 - **Per-repo** (committed): `<repo>/.agentic-forge/config.json` — project-specific overrides.
 
 **Precedence (lowest → highest):** built-in defaults < user-level file < per-repo file < env vars.
-The two files deep-merge, so a repo overrides only the keys it sets and inherits the rest. All keys
+The two files deep-merge, so a repo overrides only the keys it sets and inherits the rest. The reviewer
+keys are the exception, for security: `external_reviewer.command`, `isolated`, `model` and `effort` are
+**user-level only**, and a repo cannot turn on a user-level `external_reviewer.enabled: false`. All keys
 are optional. A ready, schema-valid example with **every** key ships at
-[`plugin/config.example.json`](../plugin/config.example.json) — copy it to either location and trim.
+[`plugin/config.example.json`](../plugin/config.example.json) — copy it to either location and trim. In a
+repo, those four reviewer keys do nothing, so trim them there.
 
 > These files are committed / home-local — **never** put secrets (API keys, tokens) in them. Use the
 > env vars for secrets and one-off overrides.
@@ -30,8 +33,11 @@ are optional. A ready, schema-valid example with **every** key ships at
 | `subagent_budget.hard` | int ≥ 0 | `50` | Count at which the budget hook blocks further `Task` spawns. |
 | `test_gate.skip` | bool | `false` | Skip the pre-commit test gate (the `commit_gate` hook). |
 | `review.passes` | int ≥ 1 | `3` | Calibrates the **scheduled non-convergence scan** (`diagnostics.scan_reviews`) — the iteration at which a still-`changes` loop is flagged. The in-skill loops use the constant `handoff.REVIEW_LOOP_BUDGET` (3) and do **not** read this; raising it above 3 only moves the detector's threshold (ADR 0067). |
-| `external_reviewer.enabled` | bool | `true` | Enable the external reviewer pass — on by default, auto-invoked as an extra lens in every workflow that writes a reviewable deliverable: `develop` (`--kind code`), `product` (`--kind product`), `architecture` (`--kind technical`), `plan` (`--kind plan`), `research` (`--kind research`), `ux-design` (`--kind ux`), `marketing` (`--kind marketing`) (ADR 0042 / 0057 / 0060 / 0061 / 0062). Degrades gracefully when the CLI is absent; set `false` to opt out (e.g. secret-bearing repos). |
-| `external_reviewer.command` | string | `"codex"` | The reviewer executable name on PATH (a bare name, not a shell line). |
+| `external_reviewer.enabled` | bool | `true` | Enable the external reviewer pass — on by default, auto-invoked as an extra lens in every workflow that writes a reviewable deliverable: `develop` (`--kind code`), `product` (`--kind product`), `architecture` (`--kind technical`), `plan` (`--kind plan`), `research` (`--kind research`), `ux-design` (`--kind ux`), `marketing` (`--kind marketing`) (ADR 0042 / 0057 / 0060 / 0061 / 0062). Degrades gracefully when the CLI is absent; set `false` to opt out (e.g. secret-bearing repos). **This key is an exception to the precedence above:** a user-level `false` holds whatever a repo config says, and that attempt is ignored with a warning, because content goes to a third party (ADR 0100). A repo can turn it off, with a warning if that overrides a user-level `true`, and can turn it on if there is no user-level `false`. A repo's `false` survives its file being dropped when it can still be read there; see below. With it off, the skills' `review()` runs nothing and returns `None` (`disabled`). The operator's `--force` on `plugin/bin/external_review.py` still overrides it. |
+| `external_reviewer.command` | string | `"codex"` | The reviewer executable name on PATH: a bare name, not a path or a shell line. **User-level only: set it in `~/.agentic-forge/config.json`.** A value in a repo file is ignored with a warning, because the operator chooses the program: a repo that chose it could have a program of its choosing run on your machine and forge the verdict (ADR 0100). There is no warning if it equals the value in effect, so copying the example into a repo stays quiet. At user level, anything but a bare name falls back to `codex` with a warning. The `--command` argument of `plugin/bin/external_review.py` is your own, so it may name a path, which is resolved against your current directory. The library's `review()`, which the skills call, runs only this configured value and refuses any other. |
+| `external_reviewer.isolated` | bool | `false` | Run the reviewer without your user config and without persisting session files: codex `exec --ignore-user-config --ephemeral`, on top of the read-only sandbox (ADR 0100). Applies to the skills' calls as well as `plugin/bin/external_review.py`. Before each isolated run the plugin checks `codex exec --help` for both flags; if either is missing, or the check fails, the review is **skipped** (`isolation-unsupported`), never run without them. This limits what the CLI loads from your home; it is not a stronger sandbox, and it does not change what is sent to the third party. **User-level only: set it in `~/.agentic-forge/config.json`.** A value in a repo file is ignored with a warning unless it equals the value in effect, because it would drop your whole `$CODEX_HOME/config.toml`, including provider or hardening settings (ADR 0100). **Recommended for repos that take outside contributions:** see below. |
+| `external_reviewer.model` | string \| null | `null` | Passed as `--model`, isolated or not, only when set. Null leaves the choice to the CLI. **With `isolated` your configured model is not loaded, so set it here if you relied on it.** **User-level only**, like `isolated`: a repo must not choose the model that reviews it. |
+| `external_reviewer.effort` | string \| null | `null` | Passed as `-c model_reasoning_effort="<value>"`, isolated or not, only when set. Whether codex honours this key has **not been verified** against a real run; it does not appear in `codex exec --help`. The same applies: with `isolated`, your configured effort is not loaded. **User-level only**, like `isolated`. |
 | `models` | object | `{}` | Per-role / skill / `router` model tiers (ADR 0043) — each value is a tier (`default` / `simple` / `cheap`) or a model id. **Affects the eval/dev CLIs only** (`dev/run_*_evals.py`, `plugin/bin/pr_watch.py`, `dev/ralph.py`) — live-session role routing is the gate-validated agent frontmatter (ADR 0046), which this key does not change. Empty = the runner's default model everywhere. See the [eval runbook](eval-runbook.md). |
 | `pr_watcher.enabled` | bool | `false` | Enable the PR watcher's outward GitHub writes (ADR 0044/0045). |
 | `pr_watcher.bot` | string | `"github-actions[bot]"` | The bot login whose review threads the watcher skips. |
@@ -42,6 +48,80 @@ are optional. A ready, schema-valid example with **every** key ships at
 | `pr_watcher.auto_watch` | bool | `true` | Let the PR-created hook **enqueue** a new PR for the scheduled watch (ADR 0068/0069). On by default — but it requires `enabled` as well, so with the watcher off the queue file is never created and the plugin writes nothing into your repo. Merging still needs `auto_merge` (off). **A 10-minute tick needs a 10-minute external clock** (`*/10 * * * * python plugin/bin/run_scheduled.py`): the plugin has no daemon. |
 | `pr_watcher.max_ticks` | int ≥ 1 | `144` | How many drains one queued PR may consume before it is dropped (24 h at the 10-minute cadence). Nothing is watched forever. |
 | `pr_watcher.poll_seconds` | int ≥ 60 | `600` | Autonomous re-check cadence (10 min). **Also the window an external PR reviewer gets:** a freshly opened PR has `PENDING` checks, so the gate can't open before the first post-CI poll — shortening this shortens that window. Don't substitute the build duration for it (a static gate can finish in seconds). |
+
+### Reviewer skip reasons and invalid values
+
+An external review that does not produce a verdict is a **skip**, and a skip is never an approval:
+it has no verdict and writes no `review.md`. `plugin/bin/external_review.py` prints the reason and a
+short redacted detail, and the skills' `review()` returns `None`.
+
+| Reason | Meaning | CLI exit |
+|---|---|---|
+| `missing-cli` | The command is not on PATH. | `0` |
+| `timeout` | No result before the review timeout. | `1` |
+| `process-failure` | The CLI exited non-zero or could not be started. A target too large for one argv element ends here too. | `1` |
+| `invalid-output` | It exited 0, but its stdout was not UTF-8, held no review-shaped JSON, or could not prove an approve (see below). | `1` |
+| `isolation-unsupported` | `isolated` is on and the capability check did not find both flags. | `1` |
+| `command-not-configured` | `review()` was passed a `command` other than the configured one. It was not run. | Not reachable: the CLI does not go through this check. |
+| `disabled` | `review()` was called with `external_reviewer.enabled` false, at either config level. Nothing ran. | Not reachable: the CLI prints its own message and exits `0`, unless `--force` is passed. |
+
+A review has a verdict only if the reply holds a JSON object with `verdict` and a `findings` list. If any
+such object in the reply says `changes`, the verdict is `changes`, even if the reviewer was only quoting
+it, and even beside an `approve`. Its findings are those of every `changes` object, without duplicates.
+An `approve` is refused, as `invalid-output`, if the reply also says `"verdict": "changes"` in a form that
+did not decode (a trailing comma, `findings` null or missing), or if more than 1000 openings did not
+decode, so that the rest of the reply was not read. A `changes` decoded before that limit still decides.
+Finding fields lose terminal escapes and control characters and have secrets redacted. Only the first 4000
+characters of a field are read: a longer one is cut at a word and ends in `[truncated]`.
+
+`plugin/bin/external_review.py` refuses a `--target` or `--out` that is a symlink, or that goes through a
+symlinked directory inside the repo, with a message and exit `1`, before anything runs. Pass the real path.
+A link above the repo root is fine, and so is a path outside the repo. A `--target` that is not a regular
+file or not UTF-8 text is refused the same way.
+
+`model` and `effort` must match `^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`, so a value cannot become a flag,
+and there is deliberately no free-form args key. An invalid string is treated as unset, and an invalid
+`command` falls back to `codex`; each gives a warning that names the key and does not echo the value.
+The rest of the file still applies, with or without `jsonschema`, because these shapes are checked in
+code rather than by a schema pattern.
+
+The only reviewer key a repo file can use is `enabled`. See ADR 0100.
+
+**Set `isolated: true` if you run the reviewer on repos that take outside contributions.** Separately from
+this plugin's config, the codex CLI reads project-level configuration of its own. Without isolation, in a
+project you have marked trusted in your codex config, that can cause a program the repo chose to run on your
+machine during the review, including in a linked worktree of a trusted repo. In an untrusted project it did
+not, and with `isolated` it did not in any case. This was measured on codex-cli 0.164.0 and may differ on
+other versions. Isolation does not stop everything a repo can say: its `AGENTS.md` reached the reviewer in
+every mode, so findings stay advisory.
+
+The schema still checks types and every other key. So a `model` that is not a string or null, or any
+other schema error in a file, drops **that whole file** when `jsonschema` is installed. A dropped repo
+file does not touch your reviewer settings. A dropped user-level file loses all of them until it is
+fixed, including `isolated: true`, except an `enabled: false` it clearly states.
+
+The symlink refusal for `--target` and `--out` treats `--repo`, by default the current directory, as the
+repo root: run the CLI from the repo's top level.
+
+A repo's own `enabled: false` is kept when its file is dropped, by a schema error, a JSON typo, a
+non-mapping section or its size, as long as the file still clearly says so: the raw text is searched and
+what decodes is read. Nothing else in the file is kept. If a file cannot be decoded at all, such as one in
+another encoding, or cannot be read, or holds the statement past its first 1 MB, the opt-out **cannot be
+known**, so the reviewer stays on and only the warning tells you. For a secret-bearing repo, check that
+warning, or also set `enabled: false` at user level.
+
+If a repo's `enabled: false` overrides a user-level `true`, resolving the settings warns, because a branch
+can add it to its own config, and the skip detail and the CLI's message say the repo did it. The CLI still
+exits `0`.
+
+A dropped file gets one warning, printed to stderr and shown once per session. It says what still applies,
+and it gives the JSON path
+and the name of the failed schema rule, such as `$.review.passes fails the schema's minimum rule`, and
+never the value, because the file may be repo-controlled and the line reaches the session. For the same
+reason an unknown top-level key is reported as `$ fails the schema's additionalProperties rule`, without
+its name, and a free-form key under `models` as `*`. A file that cannot be read at all, including one
+that is not UTF-8 or not parseable JSON, is dropped the same way and never stops a session. So is a file
+over 1 MB, without being read, and one the validator itself fails on.
 
 ## Env-var overrides
 

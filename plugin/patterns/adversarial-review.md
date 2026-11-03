@@ -73,6 +73,7 @@ opinion. For a quick single-file diff lint, a single `reviewer` pass is enough â
   `${CLAUDE_PLUGIN_ROOT}/bin/external_review.py` (`--kind code|marketing|plan|product|research|technical|ux`, `--out
   review.md`); pick the kind that matches the deliverable â€” an unknown one falls back to the **code**
   criteria, which is wrong for a brief, spec, or design. It degrades
-  gracefully when absent. It runs **read-only**; it sends the target to a third-party agent, so
+  gracefully when absent; any skip (`review()` returns `None`, the CLI prints the reason, ADR 0100)
+  means no external verdict was reached, never an approval. It runs **read-only**; it sends the target to a third-party agent, so
   **set `external_reviewer.enabled: false` on secret-bearing repos**, and treat its findings as
   advisory (prompt-injectable).
