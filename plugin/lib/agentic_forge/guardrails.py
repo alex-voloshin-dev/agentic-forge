@@ -22,6 +22,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from . import state_io
+
 __all__ = [
     "Decision",
     "ALLOW",
@@ -1082,16 +1084,23 @@ def bump_and_check(counter_path: Path | str, *, soft: int, hard: int) -> Decisio
 
     Over ``hard`` -> block; over ``soft`` -> a non-blocking warning; otherwise ALLOW. The counter
     is a tiny integer file (one per session), so the budget is enforced across hook invocations.
+    A counter path that is a symlink is neither read nor written (ADR 0102), so this call counts as
+    the first.
     """
     path = Path(counter_path)
-    try:
-        # max(0, ...) so a hand-edited negative value can't silently disarm the cap
-        count = max(0, int(path.read_text(encoding="utf-8").strip()))
-    except (FileNotFoundError, ValueError):
-        count = 0
+    anchor = path.parent
+    count = 0
+    if state_io.readable(path, anchor):
+        try:
+            # max(0, ...) so a hand-edited negative value can't silently disarm the cap
+            count = max(0, int(path.read_text(encoding="utf-8").strip()))
+        except (FileNotFoundError, ValueError):
+            count = 0
     count += 1
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(str(count), encoding="utf-8")
+    try:
+        state_io.write_text(path, str(count), anchor=anchor)
+    except state_io.StateWriteRefused:
+        pass
     if count > hard:
         return Decision(
             True,

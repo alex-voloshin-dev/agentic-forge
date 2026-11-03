@@ -31,7 +31,8 @@ matter, how to synthesise, what's worth capturing — is the skill's, exactly as
 
 On-listing (router) skill. **Recall:** detect the vault, `vault.recall` for candidates, read the
 top notes, answer grounded in them citing `[[links]]` (or say the vault is silent — never
-invent). **Capture:** distill to atomic notes, `vault.add_note` (writes + links from a MOC),
+invent). **Capture:** distill to atomic notes, `vault.add_note` (writes + links from a MOC; raises rather than write through a linked file or into a vault
+that resolves outside the repo, ADR 0102),
 `vault.validate_vault` and fix any broken link/orphan. It reads **our** notes — distinct from
 `research` (the outside world). Gated by Tier-1 triggers and a Tier-2 capture-quality contract
 (`run_skill_evals.py`).

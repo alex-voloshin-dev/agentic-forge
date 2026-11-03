@@ -48,6 +48,7 @@ def build_context(cwd: str) -> str:
 
 
 _CONFIG_MARKER = "settings:dropped-config"
+_OUTSIDE_VAULT_MARKER = "knowledge:outside-repo"
 
 
 def config_notice(cwd: str, resolved: settings.Settings, session_id: str | None) -> str:
@@ -61,6 +62,15 @@ def config_notice(cwd: str, resolved: settings.Settings, session_id: str | None)
     if not diagnostics.once_per_session(cwd, _CONFIG_MARKER, session_id):
         return ""
     return "\n".join(resolved.warnings)
+
+
+def outside_vault_notice(cwd: str, session_id: str | None) -> str:
+    """Say once per session that a vault is not being read: without this, one kept elsewhere would
+    just vanish from the session on upgrade (ADR 0102)."""
+    notice = vault.outside_repo_notice(cwd)
+    if notice and diagnostics.once_per_session(cwd, _OUTSIDE_VAULT_MARKER, session_id):
+        return notice
+    return ""
 
 
 def main() -> int:
@@ -92,9 +102,19 @@ def main() -> int:
         notices = [
             diagnostics.legacy_state_notice(cwd),
             config_notice(cwd, limits, session_id),
+            outside_vault_notice(cwd, session_id),
         ]
         notice = "\n\n".join(n for n in notices if n)
-        context = build_context(cwd)
+        # Separately: its failure must not throw away notices whose once-per-session marker has
+        # just been spent, or a repo could hide warnings about itself (ADR 0102).
+        context = ""
+        try:
+            context = build_context(cwd)
+        except Exception as exc:
+            crash = diagnostics.hook_crash(
+                cwd, "session-start", exc, session_id=session_id, severity="minor", type_only=True
+            )
+            notice = "\n\n".join(n for n in (notice, crash.get("systemMessage", "")) if n)
         if notice:
             context = f"{notice}\n\n{context}" if context.strip() else notice
         if context.strip():
@@ -112,7 +132,7 @@ def main() -> int:
         # crash (regardless of the diagnostics toggle) and say so, so a vault/injection bug isn't
         # silent (parity with the other hooks, ADR 0039).
         crash = diagnostics.hook_crash(
-            cwd, "session-start", exc, session_id=session_id, severity="minor"
+            cwd, "session-start", exc, session_id=session_id, severity="minor", type_only=True
         )
         if crash:
             print(json.dumps(crash))

@@ -35,6 +35,11 @@ def parse(text: str) -> tuple[dict[str, Any], str]:
         data = yaml.safe_load(match.group(1))
     except yaml.YAMLError as exc:
         raise FrontmatterError(f"invalid YAML in frontmatter: {exc}") from exc
+    # PyYAML raises others on some input: KeyError on a bad `!!bool`, ValueError on an impossible
+    # date, RecursionError on nesting. Their text can repeat the file's, so none of it goes on.
+    except Exception as exc:
+        reason = f"frontmatter could not be parsed ({type(exc).__name__})"
+        raise FrontmatterError(reason) from None
 
     if data is None:
         data = {}

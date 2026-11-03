@@ -6,7 +6,8 @@ One resolver for the plugin's knobs. **Precedence: built-in DEFAULTS < the user-
 home, a repo overrides them per-project, and CI / one-off env vars still win. Both files are
 validated against `schemas/config.schema.json`. The exception is `external_reviewer`: `command`,
 `isolated`, `model` and `effort` are the operator's and honoured from the user-level file only, and
-a repo cannot turn on a user-level `enabled: false` (ADR 0100).
+a repo cannot turn on a user-level `enabled: false` (ADR 0100). `state.in_repo` and
+`knowledge.allow_external_vault` are the operator's in the same way (ADR 0102).
 
 `resolve()` **never raises**: a missing file adds nothing; a malformed / schema-invalid / oversized
 file adds nothing but a one-line warning — printed to stderr and carried on ``Settings.warnings``,
@@ -70,12 +71,17 @@ _REPO_FILE_DROPPED = (
 )
 _MERGED_CONFIG_DROPPED = (
     "every setting is at its built-in default until it is fixed, except the user-level "
-    "external_reviewer settings and an external_reviewer.enabled: false in either file"
+    "external_reviewer settings, state.in_repo and knowledge.allow_external_vault, and an "
+    "external_reviewer.enabled: false in either file"
 )
 
 DEFAULTS: dict[str, Any] = {
     # Generated state (logs, queues, job state) goes to the USER level unless this is on (ADR 0072).
+    # Honoured from the user-level file only (ADR 0102).
     "state": {"in_repo": False},
+    # Read and write a vault that resolves outside the repo. Off, because a checkout can commit the
+    # link that would take it there. Honoured from the user-level file only (ADR 0102).
+    "knowledge": {"allow_external_vault": False},
     "diagnostics": {"enabled": False},  # the self-diagnostics log collector (ADR 0039)
     # The PostToolUse audit trail (ADR 0019). ON by default — it is the only record of what the
     # agent actually did, and the field evidence this project runs on. The switch exists because
@@ -176,6 +182,7 @@ class Settings:
     # The repo's config is what turned the reviewer off, not the operator's: a branch can add that
     # to its own config, so a skip should say so (ADR 0100).
     external_reviewer_disabled_by_repo: bool = False
+    knowledge_allow_external_vault: bool = False
 
 
 def _schema() -> dict[str, Any]:
@@ -336,6 +343,40 @@ def _drop_repo_reviewer_settings(
     return tuple(warnings)
 
 
+def _user_state_in_repo(user_data: dict[str, Any]) -> bool:
+    """What the user-level file says about ``state.in_repo``: False if absent or malformed."""
+    section = user_data.get("state")
+    return _coerce_bool(section.get("in_repo", False)) if isinstance(section, dict) else False
+
+
+def _user_allows_external_vault(file_data: dict[str, Any]) -> bool:
+    """``knowledge.allow_external_vault`` in ``file_data``: False if absent or malformed. ``is
+    True``, NOT :func:`_coerce_bool`: "on" is the dangerous side here, as with ``auto_merge``."""
+    section = file_data.get("knowledge")
+    return isinstance(section, dict) and section.get("allow_external_vault") is True
+
+
+def _drop_repo_section(
+    repo_data: dict[str, Any], name: str, key: str, in_effect: bool
+) -> tuple[str, ...]:
+    """Remove a one-key section from a repo file before it can be merged, and report it.
+
+    ``state.in_repo`` and ``knowledge.allow_external_vault`` decide where the plugin reads and
+    writes, and a checkout must not get to point those at places it has chosen with its own paths
+    (ADR 0102). The section holds nothing else, so all of it goes, which also means a non-mapping
+    cannot reach the merge. As with the reviewer's keys, a value equal to the one in effect changes
+    nothing and gets no warning: the shipped example has both, false."""
+    if name not in repo_data:
+        return ()
+    section = repo_data.pop(name)
+    if not isinstance(section, dict):
+        return (_ignored_value(name, "in a repo config is ignored — it is not a mapping"),)
+    if key not in section or _coerce_bool(section[key]) == in_effect:
+        return ()
+    why = "in a repo config is ignored — only the user-level config can set it"
+    return (_ignored_value(f"{name}.{key}", why),)
+
+
 def _reviewer_isolated(section: dict[str, Any]) -> tuple[bool, tuple[str, ...]]:
     """``external_reviewer.isolated`` -> ``(value, warnings)``. Uses :func:`_coerce_bool`, NOT the
     ``is True`` of ``auto_merge``: there "on" is the dangerous side, here it is the safe one, so a
@@ -494,6 +535,7 @@ def _settings_from(
             *effort_warnings,
         ),
         external_reviewer_disabled_by_repo=disabled_by_repo,
+        knowledge_allow_external_vault=_user_allows_external_vault(data),
     )
 
 
@@ -521,9 +563,10 @@ def resolve(
 ) -> Settings:
     """Resolve the plugin :class:`Settings` for ``repo`` — DEFAULTS < user-level file < repo file <
     env, with two ``external_reviewer`` exceptions (ADR 0100): a repo file cannot set ``command``,
-    ``isolated``, ``model`` or ``effort``, and cannot turn on a user-level ``enabled: false``.
-    ``home`` overrides the user-config base dir (defaults to :func:`Path.home`; mostly for
-    tests/embedding)."""
+    ``isolated``, ``model`` or ``effort``, and cannot turn on a user-level ``enabled: false``. It
+    cannot set ``state.in_repo`` or ``knowledge.allow_external_vault`` either (ADR 0102). ``home``
+    overrides the user-config base dir
+    (defaults to :func:`Path.home`; mostly for tests/embedding)."""
     src = os.environ if env is None else env
     user_data: dict[str, Any] = {}
     repo_data: dict[str, Any] = {}
@@ -537,7 +580,17 @@ def resolve(
             repo_data = {"external_reviewer": {"enabled": False}}
         warnings = tuple(w for w in (user_warning, repo_warning) if w)
         # Before the merge, so it cannot carry them.
-        warnings = (*warnings, *_drop_repo_reviewer_settings(repo_data, user_data))
+        warnings = (
+            *warnings,
+            *_drop_repo_reviewer_settings(repo_data, user_data),
+            *_drop_repo_section(repo_data, "state", "in_repo", _user_state_in_repo(user_data)),
+            *_drop_repo_section(
+                repo_data,
+                "knowledge",
+                "allow_external_vault",
+                _user_allows_external_vault(user_data),
+            ),
+        )
         data = copy.deepcopy(DEFAULTS)
         _deep_merge(data, user_data)
         _deep_merge(data, repo_data)
@@ -583,6 +636,8 @@ def resolve(
                 fallback["external_reviewer"][key] = user_section[key]
         if _opted_out(user_data) or _opted_out(repo_data):
             fallback["external_reviewer"]["enabled"] = False
+        fallback["state"]["in_repo"] = _user_state_in_repo(user_data)
+        fallback["knowledge"]["allow_external_vault"] = _user_allows_external_vault(user_data)
         return _settings_from(
             fallback,
             (*warnings, dropped),

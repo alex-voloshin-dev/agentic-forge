@@ -251,7 +251,6 @@ def _pr_watch_queue(
     if not resolved.pr_watcher_enabled:
         return "pr-watch-queue: disabled (set pr_watcher.enabled)"
     source = diagnostics.existing_state_file(repo, pr_watch.QUEUE_FILE, pr_watch.QUEUE_PATH)
-    path = diagnostics.state_file(repo, pr_watch.QUEUE_FILE)  # the tick's result lands here
     if not source.is_file():
         return "pr-watch-queue: empty"
     try:
@@ -291,8 +290,11 @@ def _pr_watch_queue(
             )
         else:
             kept.append(nxt)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(pr_watch.queue_dump(kept), indent=2) + "\n", encoding="utf-8")
+    # The tick's result lands in the state root. A refusal raises and fails this job, on purpose: an
+    # unsaved tick means the same PRs are watched again, and only the job's failure says so.
+    diagnostics.write_state(
+        repo, pr_watch.QUEUE_FILE, json.dumps(pr_watch.queue_dump(kept), indent=2) + "\n"
+    )
     summary = f"pr-watch-queue: {len(queue)} watched, {dropped} dropped, {len(kept)} remaining"
     if failed:
         # Persisted first (ticks advanced), reported second: the job is a failure — not a "watched
@@ -407,7 +409,16 @@ def main(argv: list[str]) -> int:
             )
         all_ok = all_ok and ok
         state = schedule.record_run(state, job.name, now, ok=ok)
-    schedule.save_state(repo, state)
+    try:
+        schedule.save_state(repo, state)
+    except OSError as exc:  # includes a refused path (ADR 0102): no job's cursor advanced
+        message = f"job state not saved, so these jobs run again next poll: {exc}"
+        print(f"FAILED: {message}")
+        diagnostics.emit(
+            repo, kind="error", component="scheduled-run", message=message,
+            severity="major", force=True,
+        )
+        return 1
     return 0 if all_ok else 1  # non-zero so a cron/CI gating on exit code sees job failures
 
 

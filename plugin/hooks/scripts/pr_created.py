@@ -20,7 +20,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
 
-from agentic_forge import diagnostics, pr_hook, pr_watch, settings  # noqa: E402
+from agentic_forge import diagnostics, pr_hook, pr_watch, settings, state_io  # noqa: E402
 
 
 def enqueue(cwd: str, payload: dict[str, Any]) -> bool:
@@ -46,7 +46,6 @@ def enqueue(cwd: str, payload: dict[str, Any]) -> bool:
         return False
     owner, name, number = ref
     source = diagnostics.existing_state_file(root, pr_watch.QUEUE_FILE, pr_watch.QUEUE_PATH)
-    path = diagnostics.state_file(root, pr_watch.QUEUE_FILE)  # writes never go back in-repo
     existing: Any = []
     if source.is_file():
         try:
@@ -56,8 +55,11 @@ def enqueue(cwd: str, payload: dict[str, Any]) -> bool:
     queue = pr_watch.queue_add(
         pr_watch.parse_queue(existing), pr_watch.WatchEntry(owner, name, number)
     )
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(pr_watch.queue_dump(queue), indent=2) + "\n", encoding="utf-8")
+    text = json.dumps(pr_watch.queue_dump(queue), indent=2) + "\n"
+    try:
+        diagnostics.write_state(root, pr_watch.QUEUE_FILE, text)  # writes never go back in-repo
+    except state_io.StateWriteRefused:  # ADR 0102
+        return False
     return True
 
 

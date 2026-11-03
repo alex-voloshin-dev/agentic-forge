@@ -88,7 +88,9 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
   dir is the **main** working-tree root (`diagnostics.main_repo_root` resolves a linked worktree's
   `.git` file back through its `gitdir:` pointer), so a worktree-phase trail survives the worktree's
   removal; diagnostics events are normalised the same way. The session-start hook rotates the log
-  once per session above a size bound (`observability.rotate_audit`, keep-the-tail).
+  once per session above a size bound (`observability.rotate_audit`, keep-the-tail). Like every state
+  writer it goes through `state_io`, which does not follow a symlink, and a refused write is dropped
+  quietly (ADR 0102).
 - **PR created** (`PostToolUse` / Bash, `pr_created.py`) — notices a real `gh pr create` (matched at
   a **command position** on a quote-aware segment, so `gh pr view` and a quoted mention in a
   `--body` don't fire) *and* the PR URL `gh` printed on success, then injects a notice as

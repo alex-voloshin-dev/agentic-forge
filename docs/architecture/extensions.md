@@ -18,6 +18,10 @@ One resolver for the plugin's knobs, over a layered precedence:
 built-in DEFAULTS  <  user-level ~/.agentic-forge/config.json  <  per-repo .agentic-forge/config.json  <  env vars
 ```
 
+What the checkout must not decide is taken out of the repo file before that merge, not restored after
+it: the reviewer's `command`, `isolated`, `model` and `effort` (ADR 0100), and `state.in_repo` and
+`knowledge.allow_external_vault` (ADR 0102).
+
 So a user sets defaults once in their home, a repo overrides them per-project, and CI / one-off env
 vars still win. Both files are validated against [`config.schema.json`](../../plugin/schemas/config.schema.json).
 `resolve()` **never raises**: a missing file is defaults; a malformed file is defaults + a one-line

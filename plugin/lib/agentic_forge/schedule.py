@@ -65,14 +65,6 @@ def _state_path(repo: Path | str) -> Path:
     return diagnostics.existing_state_file(repo, STATE_FILE, STATE_PATH)  # per-job state
 
 
-def _state_write_path(repo: Path | str) -> Path:
-    """Where per-job state is WRITTEN — always the state root, so the next save drains a legacy
-    file instead of feeding it (ADR 0081)."""
-    from . import diagnostics
-
-    return diagnostics.state_file(repo, STATE_FILE)
-
-
 @dataclass(frozen=True)
 class Job:
     """A scheduled job: a name, a cadence (key of :data:`CADENCES`), a description, and an
@@ -222,9 +214,12 @@ def load_state(repo: Path | str) -> dict[str, JobState]:
 
 
 def save_state(repo: Path | str, state: dict[str, JobState]) -> Path:
-    """Persist per-job state under the state root; return the state file path."""
-    path = _state_write_path(repo)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    """Persist per-job state under the state root, never the legacy location, so the next save
+    drains a legacy file instead of feeding it (ADR 0081); return the state file path. Raises
+    ``OSError``, including :class:`state_io.StateWriteRefused`: unsaved state means every job runs
+    again next poll whatever its cadence, and the caller has to say so (ADR 0102)."""
+    from . import diagnostics
+
     data = {
         name: {
             "last_run": s.last_run,
@@ -234,8 +229,7 @@ def save_state(repo: Path | str, state: dict[str, JobState]) -> Path:
         }
         for name, s in state.items()
     }
-    path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
-    return path
+    return diagnostics.write_state(repo, STATE_FILE, json.dumps(data, indent=2, sort_keys=True))
 
 
 @dataclass(frozen=True)
