@@ -13,7 +13,9 @@ Three checks, stdlib only:
 3. every hook runs to exit 0 on a minimal payload for its event and prints nothing or JSON.
 
 A hook script with no payload in :data:`PAYLOADS` is a failure too: a new hook must be smoked.
-State goes to a temp directory (``AGENTIC_FORGE_STATE_HOME``), never to the operator's.
+State goes to a temp directory (``AGENTIC_FORGE_STATE_HOME``), never to the operator's, and so does
+the hooks' scratch (``TMPDIR``): a counter in the shared temp directory, such as the budget hook's,
+would otherwise grow across runs until the hook blocks.
 """
 
 from __future__ import annotations
@@ -118,10 +120,13 @@ def check_imports(failures: list[str]) -> list[str]:
     return mods
 
 
-def run_hook(hook: Path, payload: dict[str, object], cwd: Path, state: Path) -> str | None:
+def run_hook(
+    hook: Path, payload: dict[str, object], cwd: Path, state: Path, scratch: Path
+) -> str | None:
     """Run one hook; None when it behaved, else the reason."""
     env = dict(os.environ)
     env["AGENTIC_FORGE_STATE_HOME"] = str(state)
+    env["TMPDIR"] = str(scratch)  # `tempfile.gettempdir` reads it, so each run starts from nothing
     env["CLAUDE_PLUGIN_ROOT"] = str(PLUGIN)
     body = dict(payload)
     body.setdefault("cwd", str(cwd))
@@ -151,12 +156,14 @@ def check_hooks(failures: list[str]) -> list[str]:
         cwd = Path(tmp) / "repo"
         cwd.mkdir()
         state = Path(tmp) / "state"
+        scratch = Path(tmp) / "tmp"
+        scratch.mkdir()
         for hook in hooks:
             payload = PAYLOADS.get(hook.name)
             if payload is None:
                 failures.append(f"hook: {hook.name}: no smoke payload in dev/hook_smoke.py")
                 continue
-            problem = run_hook(hook, payload, cwd, state)
+            problem = run_hook(hook, payload, cwd, state, scratch)
             if problem:
                 failures.append(f"hook: {hook.name}: {problem}")
     return [h.name for h in hooks]

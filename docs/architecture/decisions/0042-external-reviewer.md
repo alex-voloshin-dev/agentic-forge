@@ -1,6 +1,8 @@
 # 0042 — External reviewer (codex) as a subagent
 
 Status: Accepted — **implemented** (planned-increment 2; see the [Unreleased] CHANGELOG entry).
+Corrected by [0100](0100-external-reviewer-isolation-and-skip-reasons.md): §5's claim that a committed
+config can't choose an arbitrary binary was wrong, and `command` is now user-level only.
 
 ## Context
 

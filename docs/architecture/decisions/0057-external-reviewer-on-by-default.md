@@ -58,7 +58,9 @@ ADR 0042 still bound this and are why the flip is acceptable:
   reviewer cannot mutate the repo or run shell, so a prompt-injected target yields *tainted advisory
   findings*, not code execution.
 - **`command` is a bare executable name** (schema-constrained) and the prompt is a single argv
-  element — no shell injection.
+  element — no shell injection. (A bare name was not enough, because the operator must be the one
+  who chooses the program: [0100](0100-external-reviewer-isolation-and-skip-reasons.md) makes
+  `command` user-level only.)
 - **Findings are sanitised** (single-line, severity clamped) before they reach `review.md`.
 - **Advisory, verified.** Every external finding is verified against the source before it drives the
   verdict, like any finding in the multi-aspect / adversarial patterns.

@@ -63,6 +63,27 @@ def test_notice_on_successful_create() -> None:
     assert pr_hook.NOTICE in notice and _URL in notice
 
 
+def test_notice_is_truthful_about_who_can_run_the_watch() -> None:
+    # The skill is off the model's listing, so an agent told to "run /pr-watch" cannot. The notice
+    # reaches both the agent and the operator, so it has to say which of them can do what.
+    root = Path(__file__).resolve().parents[1]
+    skill = (root / "plugin" / "skills" / "pr-watch" / "SKILL.md").read_text(encoding="utf-8")
+    assert "disable-model-invocation: true" in skill  # the fact this notice depends on
+    assert "run /pr-watch" not in pr_hook.NOTICE
+    assert "manual command for the user" in pr_hook.NOTICE
+    assert "cannot invoke it" in pr_hook.NOTICE and "`gh pr checks`" in pr_hook.NOTICE
+
+
+def test_notice_does_not_promise_a_merge() -> None:
+    # Merging needs auto_merge (off by default) AND the gate; the notice must carry both conditions.
+    assert "only if pr_watcher.auto_merge is on and the merge gate opens" in pr_hook.NOTICE
+
+
+def test_notice_text_holds_no_pr_url_for_the_ref_regex_to_find() -> None:
+    # created_pr_ref reads the PR back out of the notice, so the fixed text must not contain one.
+    assert pr_hook.created_pr_url(pr_hook.NOTICE) == ""
+
+
 def test_no_notice_when_create_failed() -> None:
     # gh prints the URL only on success; without one there may be no PR to watch.
     assert pr_hook.pr_created_notice(_payload("gh pr create --fill", "error: no commits")) == ""

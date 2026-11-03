@@ -37,13 +37,13 @@ validated tier onto each agent's `model:` frontmatter, and Tier-0 (`validate_age
 agent's committed `model:` drifts from the validated policy — so live `Task` delegation can never run
 on an unvalidated tier. `dev/sync_models.py` regenerates the frontmatter from the policy.
 
-## External reviewer seam (`external_review.py`, ADR 0042 / 0057 / 0060)
+## External reviewer seam (`external_review.py`, ADR 0042 / 0057 / 0060 / 0100)
 
 A different model is an independent review lens — it catches what a same-family `reviewer` pass
 misses (see [adversarial-review.md](../../plugin/patterns/adversarial-review.md)). This seam runs a
 third-party reviewer CLI (e.g. `codex`) as that extra lens: a pure `build_prompt` / `parse_review`
 core plus a thin subprocess seam that **never raises** and degrades gracefully when the CLI is
-absent. Gated by the `external_reviewer.{enabled,command}` settings. **On by default (ADR 0057)** and
+absent. Gated by the `external_reviewer.*` settings. **On by default (ADR 0057)** and
 **auto-wired** as an extra lens into **every workflow that writes a reviewable deliverable** —
 `develop`'s multi-aspect code-review gate (`--kind code`, findings inside the bounded N = 3 loop),
 `product`'s skeptic pass (`--kind product`), `architecture`'s (`--kind technical`) and `plan`'s
@@ -60,6 +60,32 @@ when `codex` is absent (the common case) — so it only reaches a third party wh
 installed. It sends the target to that third party, so **set `enabled: false` on secret-bearing
 repos**. Driver: `plugin/bin/external_review.py`.
 
+**Skips say why (ADR 0100).** `review_outcome` returns a `ReviewOutcome`: `reviewed` with the review,
+or `skipped` with a reason (`missing-cli`, `timeout`, `process-failure`, `invalid-output`,
+`isolation-unsupported`, `command-not-configured`, `disabled`) and a short detail, redacted before it is capped. A skip has no verdict, so
+it cannot read as approval. `review()` wraps it for the skills, which did not change. It runs nothing when
+`enabled` is false (`disabled`), and refuses a `command` other than the configured one
+(`command-not-configured`) without running it. The operator's CLI calls `review_outcome` directly, so
+`--command` and `--force` still work. **Isolation is opt-in** (`external_reviewer.isolated`, with `model` and `effort`): it adds
+`--ignore-user-config --ephemeral` after `exec --help` confirms both flags, and skips otherwise rather
+than falling back. `review()` reads these settings through `settings.resolve`, so the setting reaches
+the skills too. Every flag is fixed in `_argv`; there is no free-form args setting. **`command`,
+`isolated`, `model` and `effort` are user-level only:** a repo file's values are removed before the
+merge, because the repo is what gets reviewed. A repo that picked the executable could have a program
+of its choosing run on the operator's machine and forge the verdict, a repo's `isolated` would drop the operator's whole CLI config, and a repo's
+`model` or `effort` could weaken its own review. A user-level `enabled: false` also holds against a repo,
+because content goes to a third party. `model`, `effort` and `command` are
+validated in code rather than by a schema pattern: `jsonschema` may be absent, and a schema failure
+would drop the whole file, `isolated` included. This is not a stronger sandbox than those flags provide.
+
+**Reading the reply (ADR 0100).** The reviewer may quote the target, so any review-shaped `changes` in the
+reply decides the verdict, with the findings of every `changes` object, de-duplicated. An approve is refused, as
+`invalid-output`, when the raw reply also says `changes` in a form that did not decode, or when too many
+openings failed to decode for the rest to be read. Every finding field
+loses terminal escapes and control characters and has secrets redacted before it reaches the terminal or
+`review.md`. The CLI refuses a symlink for `--target` and `--out`, and a symlinked directory inside the
+repo on the way to either.
+
 ## PR watcher (`pr_watch.py`, ADR 0044 / 0045)
 
 Parse a GitHub PR's review state from the `gh` GraphQL JSON and drive a **bounded** fix loop:
@@ -75,8 +101,9 @@ unresolved threads, `MERGEABLE`). An external reviewer's window is the poll inte
 timeout: a fresh PR has `PENDING` checks, so the earliest merge is one `poll_seconds` after opening.
 It is gated by
 `pr_watcher.auto_merge`, **off by default**, and never merges in the same pass that pushed a fix (the
-green checks describe the pre-fix commit). A `PostToolUse` hook notices `gh pr create` and prompts
-the watch; it only suggests — a guardrail must not silently launch an agent that can merge. Two surfaces:
+green checks describe the pre-fix commit). A `PostToolUse` hook notices `gh pr create` and says what
+can follow: `/pr-watch` is a manual command for the user, and an agent checks the PR with `gh` itself.
+It only informs — a guardrail must not silently launch an agent that can merge. Two surfaces:
 the scheduled multi-repo driver `plugin/bin/pr_watch.py` (maintainer/CI), and the **`pr-watch` skill**
 (off-listing, manual `/pr-watch`) — interactive single-PR babysitting over the same lib, added
 after field bundles showed users hand-rolling `gh pr view` polling loops.

@@ -91,10 +91,11 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
   once per session above a size bound (`observability.rotate_audit`, keep-the-tail).
 - **PR created** (`PostToolUse` / Bash, `pr_created.py`) — notices a real `gh pr create` (matched at
   a **command position** on a quote-aware segment, so `gh pr view` and a quoted mention in a
-  `--body` don't fire) *and* the PR URL `gh` printed on success, then injects a reminder to start the
-  autonomous watch as `additionalContext` + `systemMessage` (ADR 0063; it was bare stdout, which a
-  PostToolUse hook shows to nobody — ADR 0094). This is the only mechanism that can fire automatically on PR
-  creation — a skill cannot observe a command it did not run. It **only suggests**: it never spawns
+  `--body` don't fire) *and* the PR URL `gh` printed on success, then injects a notice as
+  `additionalContext` + `systemMessage` (ADR 0063; it was bare stdout, which a PostToolUse hook shows
+  to nobody — ADR 0094). The notice says who can do what: `/pr-watch` is a manual command for the
+  user (the skill is `disable-model-invocation`), and an agent checks the PR with `gh` itself. This
+  is the only mechanism that can fire automatically on PR creation — a skill cannot observe a command it did not run. It **only suggests**: it never spawns
   the watcher, because auto-merge sits downstream of that signal and a guardrail layer must not
   silently start an agent that can merge. Pure observability; **never blocks**.
 
@@ -105,7 +106,7 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
 - **Reuse** — the test-gate reuses by-stack (`stacks.py`); budgets use a session-scoped counter
   file; logging reuses the redaction in `guardrails.py`.
 - **Exit-code contract** — `2` = block (reason on stderr, fed back to the model); `0` = allow. A
-  non-blocking warning (budget soft cap, merge preflight, the PR-created reminder, a dropped
+  non-blocking warning (budget soft cap, merge preflight, the PR-created notice, a dropped
   config) is JSON on stdout — `systemMessage` for the operator plus
   `hookSpecificOutput.additionalContext` for the model (`diagnostics.hook_notice`). Never stderr:
   Claude Code discards a hook's stderr on exit 0, and two of these warnings reached nobody for

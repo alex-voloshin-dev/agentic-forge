@@ -51,15 +51,33 @@
     "external_reviewer": {
       "type": "object",
       "additionalProperties": false,
-      "description": "External reviewer CLI (increment 2). `command` is the executable name only (e.g. \"codex\") \u2014 not a shell line, and never an API key/secret (this file is committed).",
+      "description": "External reviewer CLI (increment 2). `command` is the executable name only (e.g. \"codex\") \u2014 not a shell line, and never an API key/secret (this file is committed). `command`, `isolated`, `model` and `effort` are honoured from the user-level file only; a repo file's values are ignored with a warning (ADR 0100).",
       "properties": {
         "enabled": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Run the external reviewer. On by default; content goes to a third party when it runs. With it false the skills' review() runs nothing. A repo config cannot turn on a user-level false, and may turn it off, with a warning if that overrides a user-level true. A repo's false is kept if its file is dropped and still clearly says so; a file that cannot be decoded at all cannot say so, and then the reviewer stays on (ADR 0100)."
         },
         "command": {
           "type": "string",
-          "description": "A bare executable name on PATH (e.g. \"codex\") \u2014 not a path or shell line.",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+          "description": "A bare executable name on PATH (e.g. \"codex\") \u2014 not a path or shell line. Honoured from the user-level file only: a value in a repo file is ignored with a warning, because the operator chooses the program (ADR 0100). A value that is not a bare name falls back to the default with a warning. Enforced in code, not here: a schema failure would drop the whole file, `isolated` included."
+        },
+        "isolated": {
+          "type": "boolean",
+          "description": "Run the reviewer without the operator's user config and without persisting session files (ADR 0100): codex `exec --ignore-user-config --ephemeral`, on top of the read-only sandbox. Off by default. When the CLI cannot honour it the review is SKIPPED, never run without it. Honoured from the user-level file only: a value in a repo file is ignored with a warning, because it would drop the operator's whole CLI config. Not a stronger sandbox than those flags provide."
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Model passed as `--model`. Null leaves the choice to the CLI; `isolated` ignores the user config, so set this there if you relied on the configured model. Honoured from the user-level file only: a value in a repo file is ignored with a warning (ADR 0100). An invalid string (it must match ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$) is treated as unset with a warning. Enforced in code, not by a pattern here: a schema failure would drop the whole file, `isolated` included."
+        },
+        "effort": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Reasoning effort passed as `-c model_reasoning_effort=\"<value>\"`. Null leaves the choice to the CLI. Same rules as `model`: user-level only, and an invalid string is treated as unset with a warning, enforced in code (ADR 0100)."
         }
       }
     },

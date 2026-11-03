@@ -7,6 +7,149 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Added — external reviewer: opt-in isolation (ADR 0100)
+
+- `external_reviewer.isolated` (default `false`), `external_reviewer.model` and
+  `external_reviewer.effort` (default `null`). `isolated` runs codex with `--ignore-user-config
+  --ephemeral` on top of the read-only sandbox, so it does not load `$CODEX_HOME/config.toml` (auth
+  still uses `CODEX_HOME`) and persists no session files. That also drops the configured model and
+  effort, so `model` is passed as `--model` and `effort` as `-c model_reasoning_effort="<value>"`,
+  each only when set, with or without isolation. With the settings unset, the invocation is the same
+  as before.
+- Before each isolated run the plugin runs `<command> exec --help` and requires both flags. If either
+  is missing, or the check fails or times out, the review is skipped as `isolation-unsupported`; it
+  never falls back to a non-isolated run. The setting also reaches the skills: `review()` reads it
+  through `settings.resolve`, so no SKILL.md changed.
+- There is deliberately no free-form args setting, and `--ignore-rules` is deliberately not passed,
+  since it would remove restrictions. `model` and `effort` are checked in code against a strict
+  pattern (no leading dash). An invalid string is treated as unset, with a warning on
+  `Settings.warnings`, and the rest of the file still applies. The schema checks only their type,
+  because a schema failure drops the whole file, `isolated` included. This is not a stronger sandbox
+  than those flags provide.
+- All three are user-level settings. See `### Security`.
+- `external_review.review_outcome(...)` returns a `ReviewOutcome` with status `reviewed` or `skipped`
+  and a reason: `missing-cli`, `timeout`, `process-failure`, `invalid-output`,
+  `isolation-unsupported`, `command-not-configured` or `disabled`. A skip has no verdict, so it cannot read as approval. Its detail is at most
+  500 characters, redacted before it is capped, and never carries the failed call's argv.
+
+### Changed
+
+- The post-PR notice now says who can do what. `/pr-watch` is `disable-model-invocation`, so "run
+  /pr-watch" sent an agent after a command it cannot invoke. The notice now calls it a manual command
+  for the user, which merges only if `pr_watcher.auto_merge` is on and the merge gate opens, and tells
+  an agent not to try it and to check the PR with `gh pr checks` and `gh pr view`.
+- `review()` now wraps `review_outcome`, and existing call shapes are unchanged. Its `command` default
+  is now the configured reviewer rather than a literal `codex`, so a user-level `command` works
+  through it. See `### Security` for the `command` it refuses.
+- The reviewer call and the capability check now run with stdin closed (`subprocess.DEVNULL`).
+  `codex exec --help` says piped stdin is appended to the prompt, and the call used to inherit the
+  caller's stdin.
+
+### Fixed
+
+- `plugin/bin/external_review.py` printed "produced no parseable review" for every failure, even a
+  timeout. It now prints the actual reason and detail. Exit codes are unchanged: `0` for approve,
+  disabled or CLI absent; `1` for a `changes` verdict and for the other skip reasons. A reviewer whose
+  stdout is not UTF-8 is reported as `invalid-output`, and stdout is always read as UTF-8, not in the
+  locale's encoding. A bad byte in stderr no longer counts against the reply.
+- `benchmark.prior_record` failed `mypy` 2.4.1 with `no-any-return`, which would have reddened the
+  next PR because CI installs mypy unpinned. Declaring the loop variable's type fixes it, with no
+  ignore and no behaviour change.
+- `dev/hook_smoke.py` failed at the budget hook's hard cap on a machine that ran it often: it used a
+  fixed session id, and the hook's counter lives in the shared temp directory. Each run now gives the
+  hooks its own `TMPDIR`, so nothing accumulates across runs.
+- `settings.resolve` could raise on a config file: bytes that are not UTF-8, JSON nested too deeply,
+  and an integer past Python's digit limit all escaped `_load_config`, which runs before `resolve`'s
+  `try`. Each now drops the file with the usual warning, as does a path that cannot be checked at all.
+  So does a file over 1 MB, without reading it, and any failure inside schema validation: about 1.4 KB of
+  nested lists raised `RecursionError` there. A home directory that cannot be found is now reported, and
+  neither a merge that overflows nor a closed stderr can make it raise.
+- A dropped config's warning said every setting in the file was at its built-in default, which was not
+  true of what the other file sets. It now says what still applies, for a repo file, a user-level file and
+  the malformed fallback.
+- The warning for a repo's `external_reviewer` value compared it with the user file's raw value, not the
+  one in effect, so it could stay silent on a value that differed and warn on one that did not.
+
+### Security
+
+- **Recommendation for operators: set `external_reviewer.isolated: true` if you run the reviewer on repos
+  that take outside contributions.** On codex-cli 0.164.0, without isolation and in a project marked trusted
+  in the operator's codex config, the CLI's own project-level configuration could cause a program the repo
+  chose to run on the operator's machine during a review, including in a linked worktree of a trusted repo.
+  It did not in an untrusted project, and it did not with `isolated`. Instructions from the repo reach the
+  reviewer in every mode, so findings stay advisory. See `docs/configuration.md` and ADR 0100.
+- **Behaviour change: `external_reviewer.command`, `isolated`, `model` and `effort` are operator
+  settings, honoured only from the built-in default or the user-level
+  `~/.agentic-forge/config.json`.** A repo file's values for all four are removed before the files are
+  merged. A value that differs from the one in effect is reported with a warning that does not repeat
+  it, and a malformed repo file cannot reset any of them.
+  - `command`: a repository's `.agentic-forge/config.json` could cause a program it chose to run on the
+    operator's machine, and the review's verdict could be forged. This affected released versions,
+    through 2026.9.5, and the reviewer is on by default. The rule now is that the operator chooses the
+    program. A repo that set its own reviewer must now have each operator set it at user level. The
+    `--command` argument of `plugin/bin/external_review.py` is the operator's own and still accepts a
+    path.
+  - `isolated`, `model` and `effort`, all new in this release: a repo's `isolated: true` would discard
+    the operator's whole `$CODEX_HOME/config.toml`, including provider or hardening settings, and a
+    repo's `model` or `effort` could weaken its own review.
+- **Behaviour change: `review()` honours `external_reviewer.enabled`.** With it false at either config
+  level, `review()` returns `None` and runs nothing (reason `disabled`), even for a caller that did not
+  check the setting. The `--force` argument of `plugin/bin/external_review.py` is the operator's own and
+  still overrides it.
+- **Behaviour change: `review()` refuses a `command` other than the configured one.** It returns
+  `None` without running it (reason `command-not-configured`), so a session that read a repo's config
+  file directly and passed the value cannot run what the repo chose. The skills' calls are unchanged
+  when they pass the value from `settings.resolve`. `plugin/bin/external_review.py` is not affected.
+- **Behaviour change: a user-level `external_reviewer.enabled: false` now holds against a repo.** A
+  repo config could turn the reviewer back on, and so send content to a third party despite the
+  operator's opt-out. A repo's `true` is now ignored with a warning, and a malformed repo file cannot
+  reset it either. Without a user-level opt-out a repo can still turn the reviewer on. The operator's
+  `--force` still works.
+- **Behaviour change: a repo's own `enabled: false` is kept when its file is dropped.** A schema error, a
+  JSON typo, a non-mapping section or an oversized file no longer turns the reviewer back on if the file
+  still clearly says `false`. Nothing else in the file is kept. A file that cannot be decoded at all cannot
+  say so, so there the opt-out cannot be known and the reviewer stays on, with the warning.
+- **Behaviour change: a user-level file that is dropped keeps its clear `enabled: false` too,** so a typo
+  in the operator's own file cannot send content to a third party against their opt-out. The file's other
+  settings, including `isolated: true`, are still lost until it is fixed, and the session is told.
+- **Behaviour change: a repo's `enabled: false` that overrides a user-level `true` now warns,** because a
+  branch can add it to its own config and the CLI exits `0`. The repo keeps the right, and the skip's detail
+  and the CLI's message say the repo's config did it.
+- **Behaviour change: any review-shaped `changes` object in a reviewer's reply now decides the
+  verdict.** The first review-shaped object used to win, so a reply that quoted an approve could read as
+  one. The findings are those of every `changes` object, without duplicates. A `changes` the reviewer
+  only quoted also counts, which errs on the side of another look. An approve is now refused, as
+  `invalid-output`, if the raw reply also says `"verdict": "changes"` in a form that did not decode (a
+  trailing comma, `findings` null or missing), or if more than 1000 openings did not decode. A `changes`
+  decoded before that limit still decides. A raw tab or newline inside a JSON string no longer hides one.
+- External reviewer finding fields are now sanitised like the skip detail: terminal escapes and control
+  characters are removed and secrets are redacted before a finding reaches the terminal or `review.md`.
+  This also fixes the detail, where a control character inside a secret could hide it from redaction.
+  Each is read only up to 4000 characters, dropping the token at the cut, because redaction is quadratic
+  on hostile text: one crafted field took over 25 seconds. The time to parse a hostile reply still grows
+  with its size, and ADR 0100 gives what was measured.
+- **Behaviour change: `--command` holding a path separator is now made absolute against the caller's
+  current directory before any use.** The capability check and the review ran from different directories,
+  so a relative value could check one program and run another, in the repo.
+- **Behaviour change: `plugin/bin/external_review.py` refuses a symlink for `--target` and `--out`,**
+  with a message and exit `1`, before anything runs. Writing `--out` also does not follow a link placed
+  there during the review. It also refuses a symlinked directory inside the repo on the way to either,
+  which could send a file from outside the repo or write outside it. A link above the repo root and a
+  path outside the repo stay allowed. `--target` is read without following a link and must be a regular
+  file, closing the gap after the check, and one that cannot be read or is not UTF-8 is refused with exit
+  `1` rather than a traceback.
+- Secret redaction (`guardrails.redact_secrets`, shared by the audit log, diagnostics and the reviewer's
+  output) missed a quoted key, as in `"password": "..."` or `{'password': '...'}`, and a PEM private key
+  with no END line. Both are now redacted, the PEM key to the end of the text. A quoted key needs a
+  quoted value to match, so ordinary code such as `{"token": token_value}` is left alone.
+- A user-level `command` is validated in code as a bare executable name, because `jsonschema` is optional
+  at runtime. An invalid value falls back to `codex` with a warning that does not repeat it. The schema's
+  `pattern` for `command` is removed, so with `jsonschema` installed an invalid value no longer drops the whole
+  file; the rest of that file now applies.
+- A config file's schema warning no longer repeats its content. It reaches the session, and the file
+  may be repo-controlled. The warning now gives the JSON path and the name of the failed rule, such as
+  `$.review.passes fails the schema's minimum rule`. A key the schema does not declare appears as `*`.
+
 ## [2026.9.5] - 2026-09-18
 
 ### Fixed — rules that act at writing time (ADR 0099)

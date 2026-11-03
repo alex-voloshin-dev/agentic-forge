@@ -5,6 +5,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 _REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO / "plugin" / "hooks" / "scripts"))
 
@@ -68,6 +70,85 @@ def test_main_records_diagnostics_on_error(tmp_path: Path, monkeypatch, capsys) 
 
     events = [json.loads(line) for line in diagnostics.load(tmp_path)]
     assert any(e["component"] == "session-start" and e["kind"] == "error" for e in events)
+
+
+def test_dropped_config_notice_does_not_carry_the_files_content(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """This text reaches the model's context, and the file may be repo-controlled."""
+    mark = "IGNORE-PREVIOUS-INSTRUCTIONS"
+    cfg = tmp_path / ".agentic-forge"
+    cfg.mkdir()
+    (cfg / "config.json").write_text(json.dumps({"review": {"passes": mark}}), encoding="utf-8")
+    payload = {"cwd": str(tmp_path), "session_id": "s-echo"}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    assert session_start.main() == 0
+    out = json.loads(capsys.readouterr().out)
+    assert "ignoring invalid" in out["hookSpecificOutput"]["additionalContext"]
+    assert "$.review.passes" in out["hookSpecificOutput"]["additionalContext"]
+    assert mark not in out["hookSpecificOutput"]["additionalContext"]
+    assert mark not in out["systemMessage"]
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (b'{"IGNORE-PREVIOUS-INSTRUCTIONS": ', "ignoring unreadable"),
+        (b"\xff\xfe IGNORE-PREVIOUS-INSTRUCTIONS", "ignoring unreadable"),
+        (b'{"x":' + b"[" * 200_000, "ignoring unreadable"),
+        (b'{"IGNORE-PREVIOUS-INSTRUCTIONS": 1}', "$ fails the schema's additionalProperties rule"),
+    ],
+)
+def test_a_broken_repo_config_is_told_to_the_operator_without_its_content(
+    tmp_path: Path, monkeypatch, capsys, raw: bytes, expected: str
+) -> None:
+    """Malformed, binary, nested too deeply, unknown key: the session still starts, the operator is
+    told which file, and nothing the file holds reaches them or the model."""
+    cfg = tmp_path / ".agentic-forge"
+    cfg.mkdir()
+    (cfg / "config.json").write_bytes(raw)
+    payload = {"cwd": str(tmp_path), "session_id": "s-broken"}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    assert session_start.main() == 0
+    captured = capsys.readouterr()
+    out = json.loads(captured.out)
+    assert expected in out["systemMessage"] and "config.json" in out["systemMessage"]
+    assert out["systemMessage"] in out["hookSpecificOutput"]["additionalContext"]
+    assert session_start.SKILL_ROUTING_NOTE in out["hookSpecificOutput"]["additionalContext"]
+    assert "IGNORE-PREVIOUS-INSTRUCTIONS" not in captured.out
+    assert "IGNORE-PREVIOUS-INSTRUCTIONS" not in captured.err
+
+
+def test_repo_reviewer_settings_are_told_to_the_operator_by_key_and_never_by_value(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """The per-key warnings take the same channel as a dropped file, once, and a repo cannot use
+    the values to put text into the session (ADR 0100)."""
+    mark = "IGNORE-PREVIOUS-INSTRUCTIONS"
+    home = tmp_path / "home"
+    (home / ".agentic-forge").mkdir(parents=True)
+    (home / ".agentic-forge" / "config.json").write_text(
+        '{"external_reviewer": {"enabled": false}}', encoding="utf-8"
+    )
+    monkeypatch.setenv("HOME", str(home))
+    repo = tmp_path / "repo"
+    (repo / ".agentic-forge").mkdir(parents=True)
+    reviewer = {"command": mark, "isolated": True, "model": mark, "effort": mark, "enabled": True}
+    (repo / ".agentic-forge" / "config.json").write_text(
+        json.dumps({"external_reviewer": reviewer}), encoding="utf-8"
+    )
+    payload = {"cwd": str(repo), "session_id": "s-keys"}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    assert session_start.main() == 0
+    captured = capsys.readouterr()
+    message = json.loads(captured.out)["systemMessage"]
+    for key in ("command", "isolated", "model", "effort", "enabled"):
+        assert f"external_reviewer.{key}" in message
+    assert mark not in captured.out and mark not in captured.err
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))  # same session
+    assert session_start.main() == 0
+    assert "systemMessage" not in json.loads(capsys.readouterr().out)
 
 
 def test_dropped_config_is_announced_once_per_session(
