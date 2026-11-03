@@ -57,9 +57,10 @@ class Deploy:
     """One deploy/pipeline run in an environment."""
 
     sha: str
-    status: str  # "passing" | "failing" | "running" | "queued"
+    status: str  # "passing" | "failing" | "running" | "queued" | "cancelled"
     environment: str
     at: str = ""
+    workflow: str = ""  # which pipeline this run is of; health is per workflow
 
 
 @dataclass(frozen=True)
@@ -113,6 +114,16 @@ class UnavailablePipeline:
 
 
 @dataclass
+class UnavailableAlerts:
+    """An :class:`AlertSource` that cannot answer, and says why: "not read" is not "no alerts"."""
+
+    reason: str
+
+    def active_alerts(self, environment: str) -> list[Alert]:
+        raise SourceUnavailable(self.reason)
+
+
+@dataclass
 class InMemoryAlerts:
     """An :class:`AlertSource` fake (tests + eval fixtures), keyed by environment."""
 
@@ -123,17 +134,23 @@ class InMemoryAlerts:
 
 
 def rollout_health(deploys: list[Deploy], alerts: list[Alert]) -> str:
-    """Classify rollout health from the latest deploy and the active alerts.
+    """Classify rollout health from the latest deploy of each workflow and the active alerts.
 
-    ``failing`` when the latest deploy failed or any ``critical`` alert is active; ``degraded``
-    when the latest deploy is still in flight (``running``/``queued``) or a ``warning`` is active;
-    otherwise ``healthy``.
+    ``deploys`` is newest first. A green lint run says nothing about the deploy that failed before
+    it, so each workflow speaks for itself; runs with no workflow name count as one.
+
+    ``failing`` when one of those latest deploys failed or any ``critical`` alert is active;
+    ``degraded`` when one is in flight (``running``/``queued``) or was ``cancelled``, which is not
+    a pass, or a ``warning`` is active; otherwise ``healthy``.
     """
-    latest = deploys[0] if deploys else None
+    latest: dict[str, str] = {}
+    for deploy in deploys:
+        latest.setdefault(deploy.workflow, deploy.status)
+    statuses = set(latest.values())
     severities = {a.severity for a in alerts}
-    if (latest is not None and latest.status == "failing") or "critical" in severities:
+    if "failing" in statuses or "critical" in severities:
         return "failing"
-    if (latest is not None and latest.status in {"running", "queued"}) or "warning" in severities:
+    if statuses & {"running", "queued", "cancelled"} or "warning" in severities:
         return "degraded"
     return "healthy"
 
@@ -142,6 +159,10 @@ def triage_alerts(alerts: list[Alert]) -> dict[str, int]:
     """Count active alerts by severity, in :data:`ALERT_SEVERITIES` order (zeros omitted)."""
     counts = Counter(a.severity for a in alerts)
     return {sev: counts[sev] for sev in ALERT_SEVERITIES if counts[sev]}
+
+
+def _named(deploy: Deploy) -> dict[str, str]:
+    return {"workflow": deploy.workflow} if deploy.workflow else {}
 
 
 def recommended_action(health: str) -> str:
@@ -185,7 +206,9 @@ def deploy_status(
     status: dict[str, object] = {
         "environment": environment,
         "pipeline": health,
-        "deploys": [{"sha": d.sha, "status": d.status, "at": d.at} for d in deploys],
+        "deploys": [
+            {"sha": d.sha, "status": d.status, "at": d.at, **_named(d)} for d in deploys
+        ],
         "alerts": triage_alerts(active),
         "action": recommended_action(health),
     }

@@ -23,17 +23,17 @@ designing (`architecture`), task breakdown (`plan`), or reviewing already-writte
 > [knowledge-recall](../../patterns/knowledge-recall.md)); factor them in, and skip if the vault is empty.
 
 1. **Read inputs; fix the slug; detect the stack.** Load `plan.md` if present
-   (`handoff.load_artifact(..., expected_type="plan")`; **refuse to build from it unless `handoff.is_handoff_ready(header)`**) and/or `tech-design.md`; derive
+   (`python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type plan`; **refuse to build from it unless its `ready` is true**) and/or `tech-design.md`; derive
    `<feature-slug>` from the artifact's `feature` header. Pick the current step and the
    components it touches. **No plan and no design** (a direct "implement / build X" request):
    the request *is* the plan — one task, its scope and acceptance stated as `assumptions` in the
    change summary, the slug derived from the request — and the run takes the small-change path
    in step 2. Never stop to ask for a plan when running headless (there is no user to answer);
    ask only when interactive and the scope is genuinely unclear. Detect the target repo's stack —
-   `stacks.primary(<repo>)` (`stacks.detect` for monorepos) — and note the profile (pack +
+   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" stack-detect --repo <repo>` (its `primary`; `profiles` for monorepos) — and note the profile (pack +
    toolchain); its commands are fallbacks, so **prefer the repo's own declared commands**.
 2. **Batch the work; set up isolation.** Compute the plan's dependency levels with
-   `planning.plan_batches(tasks)` — each level is a set of independent tasks. Process levels **in
+   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" plan-batches --plan <path>` — each level is a set of independent tasks. Process levels **in
    order**; within a level, **fan out one git worktree per task** and run their implementations
    **concurrently** (see [worktree-parallel.md](../../patterns/worktree-parallel.md) +
    [worktree.md](../../patterns/worktree.md)); a one-task level (or a plan with no parallelism) is
@@ -47,10 +47,10 @@ designing (`architecture`), task breakdown (`plan`), or reviewing already-writte
 3. **Implement (per task, concurrently).** For each task in the level, spawn a
    [`software-engineer`](../../agents/software-engineer.md) (via `Task`, **not the `fork` subagent
    type** — [subagent-type rule](../../patterns/fan-out-fan-in.md#choosing-the-subagent-type)) into **its own worktree**;
-   each re-derives the stack profile there (the same `stacks` helper, so the result matches step 1)
+   each re-derives the stack profile there (the same `stack-detect`, so the result matches step 1)
    and **`Read`s the knowledge packs from disk** — `${CLAUDE_PLUGIN_ROOT}/skills/engineering-standards/SKILL.md`,
    then `${CLAUDE_PLUGIN_ROOT}/skills/<pack>/SKILL.md` for the profile's pack (e.g. `python-patterns`;
-   `stacks.pack_paths(plugin_root, profile)` lists both in reading order). The packs are
+   `stack-detect`'s `pack_paths` lists both in reading order). The packs are
    `disable-model-invocation` skills — off the listing, so they cannot be invoked by name, only
    read; pass the resolved paths in the `Task` prompt, since a subagent inherits none of this
    context. If the profile has no pack, the standards + the profile's toolchain. It writes the code
@@ -67,21 +67,18 @@ designing (`architecture`), task breakdown (`plan`), or reviewing already-writte
    profile/repo). The LLM reviewers receive the diff as input and need no git access; the lint/type
    aspect runs the stack tools on the integrated files. **External reviewer lens (on by default,
    ADR 0057):** when `external_reviewer.enabled` (settings), also run the external reviewer over the
-   same diff — call `agentic_forge`'s `external_review.review(diff, "code", command=<cfg>)` from
-   `${CLAUDE_PLUGIN_ROOT}/lib` (the same way this workflow already calls `handoff` / `stacks` /
-   `planning`; the repo-side CLI `${CLAUDE_PLUGIN_ROOT}/bin/external_review.py --kind code` is the equivalent entry point
-   when running in this repo). codex reviews it **read-only** as an independent-model lens and its
+   same diff — write it to a file outside the repo and run
+   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/external_review.py" --target <that file> --kind code`. codex reviews it **read-only** as an independent-model lens and its
    `findings` fold into the aggregation at their own severity. It
    **degrades gracefully** — absent/disabled/unparseable codex is *skipped, not a failure* — and its
    findings are **advisory** (prompt-injectable): verify each against the source before acting, like
    any finding. Aggregate all aspects (internal + external) to one approve/changes verdict. **Advance to the next dependency level only after this one integrates,
    is approved, and its QA is green.**
 5. **Loop back (bounded) — the exit criterion.** **Persist each round** — one `review-<artifact>-<iteration>.md` per round under `docs/sdlc/<feature-slug>/`, aggregating **both** lenses; on `proceed` keep only the final round, on `escalate` keep them all (naming + lifecycle: [review-loop.md](../../patterns/review-loop.md)). Compute the next action with the shared, tested
-   rule `handoff.review_loop_decision(verdict, iteration, cap=3, gate_green=<suite green + QA
-   passed>)` (see [patterns/review-loop.md](../../patterns/review-loop.md)):
+   rule `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" review-decision --verdict <verdict> --iteration <n> --gate-green <yes if suite green + QA passed, else no>` (see [patterns/review-loop.md](../../patterns/review-loop.md)):
    - **`revise`** — verdict `changes` and iteration < 3: return the findings to step 3, fix
      worst-first, re-integrate, re-review.
-   - **`escalate`** — verdict still `changes` at iteration 3 (budget exhausted): **do not proceed
+   - **`escalate`** — verdict still `changes`, or QA still red, at iteration 3 (budget exhausted): **do not proceed
      or merge** — surface the unresolved findings to the user and stop.
    - **`proceed`** — verdict `approve` **and** QA is green (step 6): the loop exits successfully.
    Only `proceed` lets develop advance a level and, at the last level, hand off.
@@ -126,7 +123,7 @@ review engine may emit one into the worktree.) A run that cannot reach this — 
   added and the whole suite green.
 - The multi-aspect review (internal aspects + the external-reviewer lens when enabled) exits on
   `proceed` — verdict `approve` (no blocker/major) **and** QA green — per
-  `review_loop_decision`; if the N = 3 budget is exhausted still on `changes` (`escalate`), develop
+  `review-decision`; if the N = 3 budget is exhausted still on `changes` (`escalate`), develop
   stops and surfaces the findings — it does not merge.
 - QA ran (existing + new + e2e); any surfaced defect was fixed, not masked.
 - Assumptions surfaced; the main checkout untouched; the worktree removed after merge/abandon.

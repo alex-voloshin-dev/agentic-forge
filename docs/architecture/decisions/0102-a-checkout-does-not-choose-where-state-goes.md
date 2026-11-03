@@ -168,9 +168,6 @@ Each operator has to choose it, and the choice applies to all their repos.
   moves between the two, the same answer.
 - **The nearest `.git` entry decides.** An unpacked archive with no `.git`, under a directory that has one such as
   a home kept in git, measures from that directory, so a link staying inside it is admitted.
-- **The skills' `python -c` resolves modules from the current directory first.** So a checkout can shadow a module
-  there, and a plugin-only install may not find the module at all. A following release replaces it with a shipped
-  script.
 - **A state home inside a checkout.** An `AGENTIC_FORGE_STATE_HOME` that is relative, or points into a repo,
   puts the levels the walk exempts under that repo's control. The variable is the operator's to set.
 - **The budget counter lives in the shared temp directory.** A link planted at its name makes each call count
@@ -192,6 +189,14 @@ this ADR was accepted:
 - Committed regular `pr-watch-queue.json` and `schedule-state.json` at the legacy location stayed authoritative until
   a state file existed, and the migration promoted them. The consequence below, that existing files stay readable,
   now holds for the logs only.
+
+Handled since, by [ADR 0104](0104-skills-run-a-script-not-inline-python.md) (2026-11-03). This was listed under the
+residual risks above when this ADR was accepted:
+
+- The skills' `python -c` resolved modules from the current directory first, so a checkout could shadow a module
+  there, and a plugin-only install might not find the module at all. Skills now run `plugin/bin/af.py`. The decision
+  above says a traceback from that call is how vault errors surface; a refusal is now one line on stderr and exit 1,
+  and the `knowledge` skill says to report it.
 
 ## Consequences
 

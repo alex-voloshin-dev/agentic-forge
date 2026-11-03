@@ -34,6 +34,8 @@ __all__ = [
     "actionable_threads",
     "merge_readiness",
     "reply_argv",
+    "reply_file_argv",
+    "author_checker",
     "resolve_argv",
     "push_argv",
     "merge_argv",
@@ -363,6 +365,26 @@ def permission_argv(slug: str, login: str) -> list[str]:
     return ["gh", "api", f"repos/{slug}/collaborators/{login}/permission"]
 
 
+def author_checker(
+    read_permission: Callable[[str], bool], trusted_reviewers: tuple[str, ...]
+) -> Callable[[ReviewThread], bool]:
+    """Whether a thread's author may reach a fixer: :func:`thread_trusted` as the cheap first
+    filter, then, for a person, their permission on the repo, asked once per login. The scheduled
+    driver and ``af.py pr-state`` both come through here."""
+    asked: dict[str, bool] = {}
+
+    def check(thread: ReviewThread) -> bool:
+        if not thread_trusted(thread, trusted_reviewers):
+            return False
+        if thread.author_type == "Bot":
+            return True
+        if thread.author not in asked:
+            asked[thread.author] = read_permission(thread.author)
+        return asked[thread.author]
+
+    return check
+
+
 def has_write_permission(payload: Any) -> bool:
     """True if a ``collaborators/<login>/permission`` answer says write or better. Fails closed."""
     return isinstance(payload, dict) and payload.get("permission") in WRITE_PERMISSIONS
@@ -384,7 +406,8 @@ def merge_readiness(state: PrState, *, bot: str) -> MergeDecision:
     — blocks, because "no builds" is not "green builds"); no unresolved actionable threads (a
     triaged-and-resolved PR *is* comment-free) **and the thread list was not truncated** (a missing
     thread must not read as an absent one); no reviewer's latest state is ``CHANGES_REQUESTED``
-    (such a review may carry no inline thread at all); and ``MERGEABLE``.
+    (such a review may carry no inline thread at all); ``MERGEABLE``; and not from a fork, whose
+    head this repo's checks and permissions say nothing about (ADR 0045, 0104).
 
     **There is deliberately no "wait for reviewer X" clause.** The window an external reviewer gets
     is the watch's own poll interval (``pr_watcher.poll_seconds``, default 600): the first pass sees
@@ -393,6 +416,8 @@ def merge_readiness(state: PrState, *, bot: str) -> MergeDecision:
     shorter (a static gate finishing in ~30s would otherwise open the gate before any reviewer
     looked). Shortening ``poll_seconds`` shortens the reviewer's window with it."""
     reasons: list[str] = []
+    if state.cross_repo:
+        reasons.append("from a fork")
     if state.state.upper() != "OPEN":
         reasons.append(f"state: {state.state or 'UNKNOWN'}")
     if state.draft:
@@ -424,6 +449,13 @@ _REPLY = (
     "mutation($threadId:ID!,$body:String!){addPullRequestReviewThreadReply"
     "(input:{pullRequestReviewThreadId:$threadId,body:$body}){comment{id}}}"
 )
+
+
+def reply_file_argv(thread_id: str, body_file: str) -> list[str]:
+    """:func:`reply_argv` for a command line a session will run: the body stays in a file, so no
+    reviewer's text is on it to be mangled or read by a shell (``-F`` with ``@`` reads the file)."""
+    return ["gh", "api", "graphql", "-f", f"query={_REPLY}", "-f", f"threadId={thread_id}",
+            "-F", f"body=@{body_file}"]
 
 
 def reply_argv(thread_id: str, body: str) -> list[str]:
@@ -508,17 +540,29 @@ def conflict_notice_present(bodies: list[str]) -> bool:
 
 
 def plan_watch(
-    state: PrState, *, bot: str, max_threads: int, trusted_reviewers: tuple[str, ...] = ()
+    state: PrState,
+    *,
+    bot: str,
+    max_threads: int,
+    trusted_reviewers: tuple[str, ...] = (),
+    trusted_author: Callable[[ReviewThread], bool] | None = None,
 ) -> WatchResult:
     """A dry plan: the threads a fix pass would take (capped, after leaving out the untrusted, as
     :func:`run_watch` does) + the conflict flag, with no writes. ``untrusted`` names those held, by
-    what the PR's own data says; the scheduler's pass also asks about a person's permission."""
+    what the PR's own data says, unless ``trusted_author`` says more; the scheduler's pass and
+    ``af.py pr-state`` also ask about a person's permission. A fork gets no fix pass at all, from
+    anyone: a push would land on the branch of that name in OUR origin (ADR 0045)."""
+    def trusted(thread: ReviewThread) -> bool:
+        if trusted_author is not None:
+            return trusted_author(thread)
+        return thread_trusted(thread, trusted_reviewers)
+
     open_threads = actionable_threads(state, bot=bot)
-    fixable = [t for t in open_threads if thread_trusted(t, trusted_reviewers)]
+    fixable = [] if state.cross_repo else [t for t in open_threads if trusted(t)]
     return WatchResult(
         actionable=[t.id for t in fixable[:max_threads]],
         conflicting=state.conflicting,
-        untrusted=[t.id for t in open_threads if not thread_trusted(t, trusted_reviewers)],
+        untrusted=[t.id for t in open_threads if not trusted(t)],
     )
 
 

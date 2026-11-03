@@ -31,8 +31,8 @@ research/code-review).
 
 - **Purpose**: analyze an **unfamiliar codebase** and **seed the knowledge vault** (Stage 3) — a
   map of components, entry points, conventions, and risks, plus atomic KB notes. Feeds Stage 3.
-- **Own behavior**: forks `Explore` to read the code; uses the installed `agentic_forge.vault`
-  module to write notes; emits an `onboarding` summary handoff.
+- **Own behavior**: forks `Explore` to read the code; uses `plugin/bin/af.py` (ADR 0104)
+  to write notes; emits an `onboarding` summary handoff.
 - **Boundary**: onboarding an *unfamiliar* codebase + seeding the KB — not feature research
   (`research`), not reviewing a change (`code-review`), not capturing a single decision
   (`knowledge`).

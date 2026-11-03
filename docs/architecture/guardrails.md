@@ -35,6 +35,10 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
   python3 -c` (local observability) and `… | python3 -m json.tool` (data parsing) pass while
   `curl https://…/install.sh | sh` blocks. A segment `shlex` cannot tokenize (unbalanced quotes)
   degrades to the pre-0054 text checks — block-leaning, never silently passing.
+  The hook reads the Bash command line and nothing a script does inside it. That is why `plugin/bin/af.py` returns a
+  commit, a push or a merge for the session to run rather than running it (ADR 0104); a command that holds only `af.py`
+  and its flags is allowed, and a quoted heredoc feeding it is data (ADR 0079). The force-push rule accepts an optional
+  `refs/heads/` on the destination, since that is the form `pr-state`'s `push` takes.
 - **test-gate** (`PreToolUse` / Bash, `commit_gate.py`) — on `git commit`/`git push`, runs the
   **fast** gate (`dev/validate.py` if present, else the detected stack's lint via `stacks.py`) from
   the session's `cwd` and blocks on failure, so broken code isn't committed. Skippable via

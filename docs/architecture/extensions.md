@@ -114,7 +114,9 @@ can follow: `/pr-watch` is a manual command for the user, and an agent checks th
 It only informs — a guardrail must not silently launch an agent that can merge. Two surfaces:
 the scheduled multi-repo driver `plugin/bin/pr_watch.py` (maintainer/CI), and the **`pr-watch` skill**
 (off-listing, manual `/pr-watch`) — interactive single-PR babysitting over the same lib, added
-after field bundles showed users hand-rolling `gh pr view` polling loops.
+after field bundles showed users hand-rolling `gh pr view` polling loops. The skill reads one PR through
+`af.py pr-state` (ADR 0104): a fork is read-only there too, a person's permission is asked, and `push` and `merge` are
+commands it prints for the session to run.
 
 ## Related, documented elsewhere
 

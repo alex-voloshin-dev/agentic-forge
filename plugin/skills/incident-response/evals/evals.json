@@ -28,7 +28,7 @@
   "component": {
     "id": "incident-response",
     "type": "skill",
-    "purpose": "Phase workflow: triage an incident — classify severity (sev1-4), capture impact and timeline, coordinate mitigation, and draft a postmortem — into an incident handoff. Own deterministic behavior via lib/ops.classify_incident; gated at Tier-1 and Tier-2."
+    "purpose": "Phase workflow: triage an incident — classify severity (sev1-4), capture impact and timeline, coordinate mitigation, and draft a postmortem — into an incident handoff. Own deterministic behavior via af.py incident-classify (lib/ops.classify_incident); gated at Tier-1 and Tier-2."
   },
   "thresholds": {
     "tier1_trigger": { "recall": 0.9, "specificity": 0.9 },

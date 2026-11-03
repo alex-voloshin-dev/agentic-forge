@@ -53,7 +53,7 @@ def test_skill_can_reach_the_tools_its_body_calls(skill: str) -> None:
 @pytest.mark.parametrize("skill", sorted(REVIEW_LOOP_SKILLS))
 def test_skill_exits_through_the_shared_rule(skill: str) -> None:
     body = _skill(skill)[1]
-    assert "review_loop_decision" in body, f"{skill} does not use the shared exit criterion"
+    assert 'af.py" review-decision --verdict' in body, f"{skill} skips the shared exit criterion"
     assert "escalate" in body, f"{skill} does not describe the escalate exit"
 
 
@@ -61,8 +61,8 @@ def test_skill_exits_through_the_shared_rule(skill: str) -> None:
 def test_skill_passes_its_own_external_reviewer_kind(skill: str, kind: str) -> None:
     body = _skill(skill)[1]
     assert kind in external_review.KINDS, f"{kind} is not a real KINDS key"
-    assert f'"{kind}"' in body, f"{skill} must call external_review.review(..., {kind!r})"
-    assert f"--kind {kind}" in body, f"{skill} must document the repo-side --kind {kind}"
+    assert 'bin/external_review.py" --target' in body, f"{skill} must run the reviewer CLI"
+    assert f"--kind {kind}" in body, f"{skill} must document --kind {kind}"
 
 
 def test_every_kind_is_claimed_by_exactly_one_skill() -> None:

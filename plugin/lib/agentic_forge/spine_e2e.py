@@ -609,7 +609,8 @@ def _ops_incident() -> Scenario:
         phases=(
             Phase(
                 "deploy-watch",
-                "Read pipeline.json and load it into ops.InMemoryPipeline / ops.InMemoryAlerts — "
+                "Read pipeline.json, a recorded snapshot, and pass it to "
+                "deploy-status --snapshot — "
                 "do NOT use a live connector (ignore any gh CLI or GRAFANA_URL). Assess rollout "
                 f"health and write {sdlc}deploy-status.md (frontmatter type: deploy-status, "
                 "environment, pipeline, deploys[], alerts, action).",
@@ -618,7 +619,7 @@ def _ops_incident() -> Scenario:
             Phase(
                 "incident-response",
                 "Read outage-scenario.md and the deploy-watch output "
-                f"{sdlc}deploy-status.md. Classify severity with ops.classify_incident "
+                f"{sdlc}deploy-status.md. Classify severity with incident-classify "
                 f"and write {sdlc}incident.md (frontmatter type: incident, severity, "
                 "status, impact, timeline[], remediation[]); name the impacted environment "
                 "from the deploy-status in the impact.",

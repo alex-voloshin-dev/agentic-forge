@@ -327,8 +327,8 @@ _TOK_SHORT_F = re.compile(r"-\w*f\w*")
 _TOK_DANGER_TARGET = re.compile(_DANGER_ALT)
 # find start paths: only a bare root/system dir (a sub-path like /opt/app is targeted cleanup).
 _TOK_FIND_TARGET = re.compile(rf"/\*?|{_HOME_ALIASES}|/(?:{_SYSTEM_ROOTS})/?")
-_TOK_PLUS_PROTECTED = re.compile(r"\+(?:\S*:)?(?:main|master|release)")
-_TOK_PROTECTED_DEST = re.compile(r"(?:\S*:)?(?:main|master|release)")
+_TOK_PLUS_PROTECTED = re.compile(r"\+(?:\S*:)?(?:(?:refs/)?heads/)?(?:main|master|release)")
+_TOK_PROTECTED_DEST = re.compile(r"(?:\S*:)?(?:(?:refs/)?heads/)?(?:main|master|release)")
 # Shell substitutions whose content the shell EXECUTES even inside double quotes.
 _SUBSTITUTION = re.compile(r"\$\(([^()]{0,2000})\)|`([^`]{0,2000})`")
 _SEPARATORS = frozenset(";|&\n")

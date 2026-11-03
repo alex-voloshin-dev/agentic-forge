@@ -102,8 +102,8 @@ and the security checkpoint needs its own checker (validate `review` + the plant
 
 ### `ops-incident` — operations lifecycle, artifact-driven (no app repo for phases 1–2)
 
-Each phase **prompt forces the in-memory source** (read the seeded JSON / markdown into
-`ops.InMemoryPipeline` / `ops.InMemoryAlerts`) and **neutralizes `gh` / `GRAFANA_URL`** — otherwise
+Each phase **prompt forces the recorded source** (read the seeded JSON / markdown, through
+`deploy-status --snapshot`) and **neutralizes `gh` / `GRAFANA_URL`** — otherwise
 `connectors.pipeline_source` auto-detects a runner-present `gh` and silently queries the CI repo
 instead of the fixture. The dry-run check asserts the neutralization is present in the prompts.
 

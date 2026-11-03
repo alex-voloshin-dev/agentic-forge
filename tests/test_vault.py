@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -140,7 +141,7 @@ def test_add_note_writes_and_links_moc(tmp_path: Path) -> None:
     path = add_note(tmp_path, "decision-x", "Decision X", "We chose X because Y.", tags=("adr",))
     assert path.is_file()
     text = path.read_text(encoding="utf-8")
-    assert "title: Decision X" in text and "tags: [adr]" in text and "We chose X" in text
+    assert 'title: "Decision X"' in text and 'tags: ["adr"]' in text and "We chose X" in text
     moc = (vault_path(tmp_path) / f"{ROOT_MOC}.md").read_text(encoding="utf-8")
     assert "[[decision-x|Decision X]]" in moc
 
@@ -289,24 +290,33 @@ def _documented_call(skill: str) -> str:
     """The one line the skill tells a model to run. Read from the skill, so a test cannot go on
     passing for a call that the skill no longer documents."""
     text = (_REPO / "plugin" / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
-    found = re.findall(r'^python -c "(.+)"$', text, flags=re.MULTILINE)
+    pattern = r'^python3 -E "\$\{CLAUDE_PLUGIN_ROOT\}/bin/af\.py" (vault-validate .*)$'
+    found = re.findall(pattern, text, flags=re.MULTILINE)
     assert len(found) == 1, found
     return found[0]
 
 
-def _python(code: str, repo: Path) -> subprocess.CompletedProcess[str]:
-    """``python -c`` in the repo. The interpreter and the import path are the two things the skills
-    leave to the installation; everything else is as written."""
-    env = {**os.environ, "PYTHONPATH": str(_REPO / "plugin" / "lib")}
+def _af(args: str, repo: Path, stdin: str | None = None) -> subprocess.CompletedProcess[str]:
+    """``bin/af.py`` in the repo as the skills write it: the bare ``python3``, with ``-E``."""
+    python3 = shutil.which("python3") or sys.executable
+    argv = [python3, "-E", str(_REPO / "plugin" / "bin" / "af.py"), *args.split()]
     return subprocess.run(
-        [sys.executable, "-c", code], cwd=repo, env=env, capture_output=True, text=True, check=False
+        argv, cwd=repo, input=stdin, capture_output=True, text=True, check=False
     )
 
 
-def _vault_call(body: str, repo: Path) -> str:
-    result = _python(f"from agentic_forge import vault; {body}", repo)
-    assert result.returncode == 0, result.stderr
-    return result.stdout.strip()
+def _problems(call: str, repo: Path) -> list[str]:
+    return list(json.loads(_af(call, repo).stdout)["problems"])
+
+
+def _add_note(repo: Path, **note: object) -> subprocess.CompletedProcess[str]:
+    return _af("vault-add-note --repo . --json -", repo, json.dumps(note))
+
+
+def _recalled(repo: Path, query: str) -> list[str]:
+    done = _af(f"vault-recall --repo . --query {query}", repo)
+    assert done.returncode == 0, done.stderr
+    return [note["name"] for note in json.loads(done.stdout)["notes"]]
 
 
 def _session_context(repo: Path) -> str:
@@ -325,20 +335,24 @@ def _session_context(repo: Path) -> str:
 def test_the_documented_call_on_a_fresh_repo(tmp_path: Path, skill: str) -> None:
     """The knowledge skill's recall path: nothing there, scaffold it, capture, check."""
     call = _documented_call(skill)
-    first = _python(call, tmp_path)
-    assert first.returncode == 0, first.stderr
-    assert first.stdout.strip() == str(["vault not found at docs/knowledge/"])
+    first = _af(call, tmp_path)
+    assert first.returncode == 1, first.stderr
+    assert json.loads(first.stdout) == {
+        "ok": False, "exists": False, "problems": ["vault not found at docs/knowledge/"],
+    }
     assert list(tmp_path.iterdir()) == []  # asking creates nothing
 
-    _vault_call("vault.scaffold('.')", tmp_path)
-    assert _python(call, tmp_path).stdout.strip() == "[]"
-    _vault_call(
-        "vault.add_note('.', 'use-sqlite', 'Use SQLite', 'It is one file.', "
-        "tags=('decision',), moc='decisions')",
-        tmp_path,
+    assert _af("vault-scaffold --repo .", tmp_path).returncode == 0
+    assert _problems(call, tmp_path) == []
+    added = _add_note(
+        tmp_path, name="use-sqlite", title="Use SQLite", body="It is one file.",
+        tags=["decision"], moc="decisions",
     )
-    assert _python(call, tmp_path).stdout.strip() == "[]"
-    assert "use-sqlite" in _vault_call("print(vault.recall('.', 'sqlite'))", tmp_path)
+    assert added.returncode == 0, added.stderr
+    assert json.loads(added.stdout)["replaced"] is False
+    assert _problems(call, tmp_path) == []
+    assert _af(call, tmp_path).returncode == 0
+    assert "use-sqlite" in _recalled(tmp_path, "sqlite")
     assert "[[use-sqlite]] — Use SQLite" in _session_context(tmp_path)
     vpath = tmp_path / "docs" / "knowledge"
     assert sorted(p.name for p in vpath.iterdir()) == [
@@ -357,20 +371,24 @@ def test_the_documented_call_on_a_vault_from_the_last_release(tmp_path: Path, sk
     (vpath / "decisions.md").chmod(0o664)
 
     call = _documented_call(skill)
-    assert _python(call, tmp_path).stdout.strip() == "[]"
+    assert _problems(call, tmp_path) == []
     assert "[[use-sqlite]] — Use SQLite" in _session_context(tmp_path)
-    assert "use-sqlite" in _vault_call("print(vault.recall('.', 'sqlite'))", tmp_path)
+    assert "use-sqlite" in _recalled(tmp_path, "sqlite")
 
-    add = "vault.add_note('.', 'next', 'Next', 'See [[use-sqlite]].', tags=('x',), moc='decisions')"
-    _vault_call(add, tmp_path)
-    _vault_call(add, tmp_path)  # capturing the same note again adds no second link
-    assert _python(call, tmp_path).stdout.strip() == "[]"
+    note = {
+        "name": "next", "title": "Next", "body": "See [[use-sqlite]].",
+        "tags": ["x"], "moc": "decisions",
+    }
+    assert json.loads(_add_note(tmp_path, **note).stdout)["replaced"] is False
+    # capturing the same note again adds no second link
+    assert json.loads(_add_note(tmp_path, **note).stdout)["replaced"] is True
+    assert _problems(call, tmp_path) == []
     expected = dict(_VAULT_FROM_BEFORE)
     expected["decisions.md"] += "- [[next|Next]]\n"
     written = {p.name: p.read_text(encoding="utf-8") for p in vpath.iterdir()}
     del written["next.md"]
     assert written == expected
-    assert (vpath / "next.md").read_text(encoding="utf-8").startswith("---\ntitle: Next\n")
+    assert (vpath / "next.md").read_text(encoding="utf-8").startswith('---\ntitle: "Next"\n')
     assert (vpath / "decisions.md").stat().st_mode & 0o777 == 0o664
 
 
@@ -387,23 +405,24 @@ def test_the_documented_call_on_a_vault_kept_elsewhere(tmp_path: Path, skill: st
     (repo / "docs" / "knowledge").symlink_to(elsewhere, target_is_directory=True)
 
     call = _documented_call(skill)
-    told = _python(call, repo)
-    assert told.returncode == 0 and "knowledge.allow_external_vault" in told.stdout
-    add = "vault.add_note('.', 'next', 'Next', 'Body.', moc='decisions')"
-    refused = _python(f"from agentic_forge import vault; {add}", repo)
-    assert refused.returncode != 0
-    assert "StateWriteRefused" in refused.stderr
+    told = _af(call, repo)
+    assert told.returncode == 1 and "knowledge.allow_external_vault" in told.stdout
+    note = {"name": "next", "title": "Next", "body": "Body.", "moc": "decisions"}
+    refused = _add_note(repo, **note)
+    assert refused.returncode == 1
+    assert refused.stdout == ""
+    assert "Traceback" not in refused.stderr  # the refusal is what the model reports
     assert "knowledge.allow_external_vault" in refused.stderr
     assert sorted(p.name for p in elsewhere.iterdir()) == sorted(_VAULT_FROM_BEFORE)
     assert "Use SQLite" not in _session_context(repo)
-    assert _vault_call("print(vault.recall('.', 'sqlite'))", repo) == "[]"
+    assert _recalled(repo, "sqlite") == []
 
     config = Path(os.environ["HOME"]) / ".agentic-forge" / "config.json"
     config.parent.mkdir(parents=True)
     config.write_text(json.dumps({"knowledge": {"allow_external_vault": True}}), encoding="utf-8")
-    assert _python(call, repo).stdout.strip() == "[]"
+    assert _problems(call, repo) == []
     assert "[[use-sqlite]] — Use SQLite" in _session_context(repo)
-    _vault_call(add, repo)
+    assert _add_note(repo, **note).returncode == 0
     assert (elsewhere / "next.md").is_file()
     assert (repo / "docs" / "knowledge").is_symlink()
 

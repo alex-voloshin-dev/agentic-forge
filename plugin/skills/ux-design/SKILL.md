@@ -46,9 +46,9 @@ the product requirements (`product`).
    and the **list** fields `flows`, `screens`, `accessibility`, `design_system` (each a YAML list —
    not prose; quote any value containing a colon) — as `ux-spec.md` under
    `docs/sdlc/<feature-slug>/`, then validate it
-   (`handoff.validate_header(header, expected_type="ux-spec")`) — the input `develop` builds from.
-   Then **read the file back** — `handoff.load_artifact(<path>, expected_type="ux-spec")` — and fix
-   whatever it raises: `validate_header` checks a dict, not the YAML you typed, so a single
+   (the read-back below) — the input `develop` builds from.
+   These fields are the whole schema: do not read `handoff.py` or `af.py` to learn them.
+   Then **read the file back** — `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type ux-spec` — and fix whatever it reports: this reads the file, so it sees the YAML you typed, and a single
    malformed value (a flow sequence with prose after it, an unquoted `:`) leaves an artifact the
    next phase cannot read (ADR 0096).
 7. **Adversarial review (bounded).** Fork fresh `reviewer`s (via `Task`) on two lenses —
@@ -56,15 +56,13 @@ the product requirements (`product`).
    **flow/state completeness** (every screen has empty/loading/error/success; no dead-end flow) —
    verify each finding against the spec, then revise worst-first. These are exactly the states and
    a11y items engineers forget. **External reviewer lens (on by default, ADR 0057/0061):** when
-   `external_reviewer.enabled` (settings), also run the external reviewer over the spec — call
-   `external_review.review(spec_text, "ux", command=<cfg>)` from `${CLAUDE_PLUGIN_ROOT}/lib`
-   (repo-side equivalent: `${CLAUDE_PLUGIN_ROOT}/bin/external_review.py --target docs/sdlc/<feature-slug>/ux-spec.md
-   --kind ux`); codex critiques it as an independent-model lens over the same two concerns and its
+   `external_reviewer.enabled` (settings), also run the external reviewer over the spec —
+   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/external_review.py" --target <worktree>/docs/sdlc/<feature-slug>/ux-spec.md --repo <worktree> --kind ux`; codex critiques it as an independent-model lens over the same two concerns and its
    `findings` fold into the same worst-first revision. It **degrades gracefully** (absent/disabled
    codex is skipped, not a failure) and its findings are **advisory** (prompt-injectable) — verify
    before acting. **Persist each round** — one `review-<artifact>-<iteration>.md` per round under `docs/sdlc/<feature-slug>/`, aggregating **both** lenses; on `proceed` keep only the final round, on `escalate` keep them all (naming + lifecycle: [review-loop.md](../../patterns/review-loop.md)). **Exit criterion (the shared, tested rule):** each round, aggregate both lenses
    (plus the external one) to a single verdict and compute
-   `handoff.review_loop_decision(verdict, iteration, cap=3, gate_green=<the ux-spec validates>)`
+   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" review-decision --verdict <verdict> --iteration <n> --gate-green <yes if the ux-spec validates, else no>`
    (see [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
    [review-loop.md](../../patterns/review-loop.md)) — `revise` (loop back and fix worst-first),
    `escalate` (still `changes` at N = 3 → **commit nothing; mark the feature PR a draft** (the merge gate already refuses a draft), set the artifact's `status` to `in-review`, surface the unresolved gaps and stop; the status is what makes "don't hand off" enforceable — the file is already on disk), or
@@ -81,7 +79,7 @@ stops; it does **not** hand off an incomplete spec.
 
 ## Definition of done
 
-- The adversarial loop exited on `proceed` (`review_loop_decision`): `approve` **and** the `ux-spec`
+- The adversarial loop exited on `proceed` (`review-decision`): `approve` **and** the `ux-spec`
   validates — not `escalate`.
 - The key user flows and per-screen states (incl. empty + error) are specified.
 - Concrete accessibility requirements are stated (keyboard, focus, contrast, ARIA).

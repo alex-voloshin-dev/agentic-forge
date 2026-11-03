@@ -1,5 +1,7 @@
 # Pattern: parallel worktrees (fan out independent tasks, then integrate)
 
+`${CLAUDE_PLUGIN_ROOT}` below is the plugin's directory, the one holding `skills/` and `patterns/`, and is not normally set in a shell: if this file reached you unexpanded, use the path your skill's own commands show.
+
 Implement **mutually-independent** plan tasks concurrently — one git worktree per task — then
 integrate them in dependency order. The parallel counterpart of [worktree.md](worktree.md), used by
 the `develop` workflow for plans with independent work
@@ -14,7 +16,7 @@ parallelism (a single chain) degrades to the plain one-worktree flow — no orch
 
 ## The method
 
-1. **Batch.** `planning.plan_batches(tasks)` → ordered **levels**; each level is a set of
+1. **Batch.** `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" plan-batches --plan <path>` → ordered **levels**; each level is a set of
    independent task ids.
 2. **Fan out (per level).** Create one worktree per task off the base branch and run a
    `software-engineer` in each **concurrently** (Task fan-out — [fan-out-fan-in.md](fan-out-fan-in.md)),
@@ -58,4 +60,4 @@ A worktree isolates the *source tree*. It does not isolate what the build and th
 
 Built on [worktree.md](worktree.md) + [fan-out-fan-in.md](fan-out-fan-in.md); the integrated diff
 feeds [multi-aspect-review.md](multi-aspect-review.md), bounded by [review-loop.md](review-loop.md).
-Batching is the tested `planning.plan_batches`.
+Batching is the tested `plan-batches`.

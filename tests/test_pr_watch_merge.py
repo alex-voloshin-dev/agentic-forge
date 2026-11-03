@@ -564,18 +564,16 @@ def test_protected_paths_are_named_our_way() -> None:
 _SKILL = Path(__file__).resolve().parents[1] / "plugin" / "skills" / "pr-watch" / "SKILL.md"
 
 
-def test_every_library_name_the_skill_gives_exists() -> None:
+def test_the_skill_names_the_commands_that_reach_the_library() -> None:
+    # That they exist and parse as written is held by tests/test_af.py.
     text = _SKILL.read_text(encoding="utf-8")
-    qualified = re.findall(r"(?<![/\w])pr_watch\.(\w+)", text)
-    bare = re.findall(r"`(\w+_argv|merge_readiness|parse_merged|conflict_notice_present)\b", text)
-    assert {"merge_readiness", "merge_argv", "push_argv", "PR_QUERY"} <= {*qualified, *bare}
-    assert [name for name in {*qualified, *bare} if not hasattr(pr_watch, name)] == []
+    assert {"pr-state", "pr-merged", "pr-reply-argv"} <= set(re.findall(r"\bpr-[a-z-]+", text))
 
 
 def test_the_skills_merge_call_works_on_what_its_own_query_returns() -> None:
     """`merge_argv` gained a required argument. What the skill says to pass has to be there, from
     the query it says to run, and a snapshot from before that query asked for it must not merge."""
-    assert "head_commit=state.head_oid" in " ".join(_SKILL.read_text(encoding="utf-8").split())
+    assert "`pr-state`'s `merge`" in " ".join(_SKILL.read_text(encoding="utf-8").split())
     assert "headRefOid" in pr_watch.PR_QUERY
     pull_request = {
         "number": 7, "headRefName": "feat-x", "headRefOid": _OID, "baseRefName": "master",
@@ -594,6 +592,33 @@ def test_the_skills_merge_call_works_on_what_its_own_query_returns() -> None:
     recorded = pr_watch.parse_pr(answer)
     with pytest.raises(ValueError, match="not a commit id"):
         pr_watch.merge_argv("o/n", recorded.number, "rebase", head_commit=recorded.head_oid)
+
+
+# --- a fork (ADR 0045, 0104) ---------------------------------------------------------------------
+
+
+def test_the_gate_stays_shut_for_a_fork_whatever_else_holds() -> None:
+    pull_request = {
+        "number": 7, "headRefName": "main", "headRefOid": _OID, "baseRefName": "main",
+        "isCrossRepository": True, "mergeable": "MERGEABLE", "isDraft": False, "state": "OPEN",
+        "reviewThreads": {"nodes": []}, "reviews": {"nodes": []},
+        "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}]},
+    }
+    state = pr_watch.parse_pr({"pullRequest": pull_request})
+    decision = pr_watch.merge_readiness(state, bot=_BOT)
+    assert (decision.ready, decision.reasons) == (False, ["from a fork"])
+    pull_request["isCrossRepository"] = False
+    same_repo = pr_watch.parse_pr({"pullRequest": pull_request})
+    assert pr_watch.merge_readiness(same_repo, bot=_BOT).ready
+
+
+def test_a_fork_gets_no_fix_pass_from_the_plan() -> None:
+    thread = pr_watch.ReviewThread("T1", False, "ann", "fix", "a.py", 1, "MEMBER", "User")
+    state = pr_watch.PrState(
+        number=7, branch="main", base="main", cross_repo=True, mergeable="MERGEABLE",
+        threads=[thread],
+    )
+    assert pr_watch.plan_watch(state, bot=_BOT, max_threads=5).actionable == []
 
 
 # --- a PR that is no longer open, and the gate's reviews (ADR 0103) -----------------------------

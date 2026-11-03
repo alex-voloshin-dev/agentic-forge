@@ -43,6 +43,8 @@ GROUP_ORDER: tuple[str, ...] = ("Added", "Changed", "Deprecated", "Removed", "Fi
 
 _HEADER = re.compile(r"^(?P<type>[a-zA-Z]+)(?:\([^)]*\))?(?P<bang>!)?:\s*(?P<desc>.+?)\s*$")
 _BREAKING = re.compile(r"^BREAKING[ -]CHANGE:", re.MULTILINE)
+# `_HEADER` is quadratic on a long run of spaces (80k took 39 s), and a subject is a line.
+_MAX_SUBJECT_CHARS = 1000
 
 
 @dataclass(frozen=True)
@@ -66,13 +68,20 @@ class Summary:
     bump: str  # "major" | "minor" | "patch" | "none"
     groups: dict[str, list[str]] = field(default_factory=dict)
     breaking: list[str] = field(default_factory=list)
+    # The subjects no group took, as written. Noise beside a real changelog; with no groups at all,
+    # the only honest thing a release of such a repo can list (ADR 0104).
+    uncategorised: list[str] = field(default_factory=list)
+
+
+def _subject(message: str) -> str:
+    return message.strip().partition("\n")[0].strip()[:_MAX_SUBJECT_CHARS]
 
 
 def classify(message: str) -> Change:
     """Classify a single commit message (its first line is the header; the body may flag
     ``BREAKING CHANGE``). A ``type!:`` prefix or a ``BREAKING CHANGE`` trailer marks it breaking."""
     first, _, body = message.strip().partition("\n")
-    first = first.strip()
+    first = first.strip()[:_MAX_SUBJECT_CHARS]
     breaking = bool(_BREAKING.search(message))
     match = _HEADER.match(first)
     if not match:
@@ -187,28 +196,43 @@ def summarize(
         bump=level,
         groups=changelog_groups(changes),
         breaking=[c.description for c in changes if c.breaking],
+        uncategorised=[_subject(m) for m in messages if classify(m).group is None],
     )
 
 
 def commits_since(repo: Path | str, tag: str | None = None) -> list[str]:
     """Return commit messages (subject + body) since ``tag`` (or the latest tag if ``None``),
-    newest first. Thin ``git`` seam — the skill calls this; the pure core above is tested without
-    a repo. Returns ``[]`` when there are no tags/commits or git is unavailable."""
+    newest first. A repo with no tag it can describe gives all of HEAD. Thin ``git`` seam — the
+    skill calls this; the pure core above is tested without a repo.
+
+    Raises ``ValueError`` when git cannot answer or ``tag`` does not resolve: a failure is not
+    "nothing to release". A tag name starting with ``-`` is refused, wherever it came from: git
+    allows one to exist, and on a command line it is an option (``--output=`` writes a file).
+    """
     import subprocess
 
     repo = str(repo)
 
-    def _git(*args: str) -> str:
+    def _git(*args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            ["git", "-C", repo, *args], capture_output=True, text=True, check=True
-        ).stdout
+            ["git", "-C", repo, *args], capture_output=True, text=True, errors="replace",
+            check=False,
+        )
 
-    try:
-        if tag is None:
-            tag = _git("describe", "--tags", "--abbrev=0").strip() or None
-        rng = f"{tag}..HEAD" if tag else "HEAD"
-        # %B = raw body; NUL-separate records so multi-line messages survive splitting.
-        out = _git("log", rng, "--no-merges", "--format=%B%x00")
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return []
-    return [chunk.strip() for chunk in out.split("\0") if chunk.strip()]
+    if tag is None:
+        described = _git("describe", "--tags", "--abbrev=0")
+        tag = (described.stdout.strip() or None) if described.returncode == 0 else None
+    if tag == "HEAD":  # a tag of that name would make the range HEAD..HEAD: empty, and false
+        tag = None
+    if tag is not None and tag.startswith("-"):
+        raise ValueError(f"refusing a tag that reads as an option: {tag!r}")
+    if tag is not None:
+        verified = _git("rev-parse", "--verify", "--quiet", f"{tag}^{{commit}}")
+        if verified.returncode != 0:
+            raise ValueError(f"no such tag: {tag!r}")
+    rng = f"{tag}..HEAD" if tag else "HEAD"
+    # %B = raw body; NUL-separate records so multi-line messages survive splitting.
+    log = _git("log", "--no-merges", "--format=%B%x00", "--end-of-options", rng)
+    if log.returncode != 0:
+        raise ValueError(f"git log exited {log.returncode}: {log.stderr[-300:].strip()}")
+    return [chunk.strip() for chunk in log.stdout.split("\0") if chunk.strip()]

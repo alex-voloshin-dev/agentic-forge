@@ -29,11 +29,13 @@ matter, how to synthesise, what's worth capturing — is the skill's, exactly as
 
 ## Recall + capture — the `knowledge` skill
 
-On-listing (router) skill. **Recall:** detect the vault, `vault.recall` for candidates, read the
+On-listing (router) skill, reaching the library through `plugin/bin/af.py` (ADR 0104). **Recall:** detect the vault,
+`vault-recall` for candidates, read the
 top notes, answer grounded in them citing `[[links]]` (or say the vault is silent — never
-invent). **Capture:** distill to atomic notes, `vault.add_note` (writes + links from a MOC; raises rather than write through a linked file or into a vault
-that resolves outside the repo, ADR 0102),
-`vault.validate_vault` and fix any broken link/orphan. It reads **our** notes — distinct from
+invent). **Capture:** distill to atomic notes, `vault-add-note` (writes + links from a MOC; exits 1 rather than write through a linked file or into a vault
+that resolves outside the repo, ADR 0102, and the skill reports that the note was not saved: it has no way of writing one by hand;
+a new note's title and tags are quoted, and `moc` and `readme` are not note names, ADR 0104),
+`vault-validate` and fix any broken link/orphan. It reads **our** notes — distinct from
 `research` (the outside world). Gated by Tier-1 triggers and a Tier-2 capture-quality contract
 (`run_skill_evals.py`).
 

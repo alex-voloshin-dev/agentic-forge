@@ -457,7 +457,7 @@ def validate_python_compat(plugin_dir: Path) -> Report:
     test *subjects*, not code that runs on a user's interpreter."""
     report = Report()
     runtime_files: list[Path] = []
-    for root in (plugin_dir / "lib", plugin_dir / "hooks"):
+    for root in (plugin_dir / "lib", plugin_dir / "hooks", plugin_dir / "bin"):
         runtime_files.extend(root.rglob("*.py"))
     runtime_files.extend((plugin_dir / "skills").glob("*/scripts/*.py"))
     for path in sorted(runtime_files):
@@ -474,6 +474,52 @@ def validate_python_compat(plugin_dir: Path) -> Report:
                 f"missing '{_FUTURE_IMPORT}' (shipped code must import on the user's bare "
                 "python3, which may be 3.9 — ADR 0050/0054 review)",
             )
+    return report
+
+
+# Inline Python takes the working directory's modules before the standard library's, so a checkout
+# could run code as the user, and it needs the library importable, which a plugin-only install does
+# not give it (ADR 0104). `-c`, `-`, a heredoc and stdin all do; so does `-m` for the library.
+_PYTHON = r"\bpython[0-9.]*"
+_PYTHON_FLAGS = r"(?:\s+-[WX]\s*\S+|\s+-[A-Za-z]+)*?"
+_INLINE_PYTHON = re.compile(
+    rf"{_PYTHON}{_PYTHON_FLAGS}\s+(?:-[A-Za-z]*c\b|-(?=\s|$)|/dev/stdin\b|-m\s+agentic_forge\b)"
+    rf"|{_PYTHON}{_PYTHON_FLAGS}\s*<"
+    rf"|\|\s*{_PYTHON}{_PYTHON_FLAGS}\s*$"
+    r"|\bfrom\s+agentic_forge(?:\.\w+)*\s+import\b|\bimport\s+agentic_forge\b"
+    r"|\b(?:__import__|import_module)\(\s*[\"']agentic_forge",
+    re.MULTILINE,
+)
+# A shipped script without -E: PYTHONPATH reaches the interpreter before the script's first line,
+# and a project's settings can set it. Only -E, which keeps user site-packages (ADR 0104).
+_SCRIPT_WITHOUT_E = re.compile(
+    rf"{_PYTHON}(?:\s+-(?!E\b)\S+)*\s+[\"']?[^\s\"']*/(?:bin|scripts)/[^\s\"']+\.py"
+)
+
+
+def validate_no_inline_python(plugin_dir: Path) -> Report:
+    """No skill, reference, pattern or role tells a model to run inline Python: what a skill needs
+    is a command in ``bin/af.py`` or a script of its own (ADR 0104). Eval fixtures are exempt, being
+    test subjects, and so are a skill's own scripts, which run in script mode."""
+    report = Report()
+    for root in ("skills", "patterns", "agents"):
+        for path in sorted((plugin_dir / root).rglob("*.md")):
+            text = path.read_text(encoding="utf-8")
+            lines = {text.count("\n", 0, m.start()) + 1 for m in _INLINE_PYTHON.finditer(text)}
+            for line in sorted(lines):
+                report.error(
+                    f"{path.relative_to(plugin_dir)}:{line}",
+                    "inline Python: a checkout could supply the module it imports; add a "
+                    "command to bin/af.py instead (ADR 0104)",
+                )
+            lines = {text.count("\n", 0, m.start()) + 1
+                     for m in _SCRIPT_WITHOUT_E.finditer(text)}
+            for line in sorted(lines):
+                report.error(
+                    f"{path.relative_to(plugin_dir)}:{line}",
+                    "a shipped script run without python3 -E: PYTHONPATH could reach the "
+                    "interpreter before the script does (ADR 0104)",
+                )
     return report
 
 
@@ -499,6 +545,7 @@ def validate_plugin(plugin_dir: Path) -> Report:
     report = Report()
     report.extend(validate_manifest(plugin_dir))
     report.extend(validate_python_compat(plugin_dir))
+    report.extend(validate_no_inline_python(plugin_dir))
     report.extend(validate_listing_budget(plugin_dir))
 
     skills_dir = plugin_dir / "skills"

@@ -7,6 +7,115 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Security
+
+- **Skills no longer run inline Python (ADR 0104).** The documented `python -c` calls took the working directory's
+  modules before the standard library's, so a repository could supply the code they ran, with the user's permissions.
+  Skills, references and patterns now run a shipped script, `plugin/bin/af.py`, as `python3 -E`. It does not read the
+  working directory for modules, and `-E` keeps `PYTHONPATH` out of the interpreter before the script starts. It has one
+  narrow command per operation and no way to call anything else. Tier-0 now fails on inline Python, or a shipped script
+  without `-E`, in any skill, reference, pattern or role. Closes the residual risk in ADR 0102 and the follow-up in
+  ADR 0100. A session can still write inline Python of its own accord, and the hook does not block it. A project's
+  `.claude/settings.json` can still choose the interpreter, as it can define hooks: trusting a project accepts that.
+- **Git no longer reads the config of a directory shaped like a bare repository (ADR 0104).** A checkout could commit one,
+  and git run inside it read its config, which can name a program to run. `af.py` sets `safe.bareRepository=explicit` for
+  what it starts, and on the `git` lines it prints. A linked worktree of a bare clone still works. Running from a bare
+  repository's own directory now fails and says so. Git lines written out in a skill body do not carry the setting, and a
+  git older than 2.38 ignores it.
+- **A fork is read-only in the skill path (ADR 0104).** `merge_readiness` had no fork condition, so a fork's PR could read
+  as ready, with a push command aimed at its branch name in your own origin. The gate now says `from a fork`, the plan has
+  no threads for one, and `pr-state` gives no `push` or `merge`.
+- **A person's association is not their permission, in the skill path too (ADR 0104).** `pr-state` asks GitHub about each
+  person once per login, failing closed, with the logic the scheduled driver uses (ADR 0103). A `--snapshot` says so under
+  `source`, and never opens a merge.
+- **A PR of another repo gets no push and no fix from `pr-state` (ADR 0104).** Run from a checkout of a different repo,
+  it printed a push to that checkout's origin and trusted the other repo's owner. It now compares `origin` with the PR's
+  repo, as the scheduler does: on a mismatch or no GitHub `origin`, `push` is null, `plan.threads` is empty, and it says
+  why. `merge` goes by slug and stays. An untrusted thread's `body` is no longer returned.
+- **A vault refusal is reported, not worked around (ADR 0104).** The `knowledge` skill told the model to write a note by
+  hand when the module was unavailable, which skipped the vault's path rule (ADR 0102). That path is gone. A refused
+  note is reported as not saved. `repo-onboarding` says the same.
+- **Commands that push, merge or commit are printed, not run, and free text stays off them (ADR 0104).** `af.py` returns
+  them for the session to run, so the guardrail hooks, which read the Bash command line, still see them. A reply and a PR
+  body stay in a file, since a copied line once took JSON escaping literally and ran part of a reviewer's text.
+- **The force-push rule knows a full ref (ADR 0104).** `git push --force origin HEAD:refs/heads/main`, `+HEAD:refs/heads/main`
+  and `-f origin refs/heads/main` were not blocked, and the first is the form the watcher's push takes.
+- **Committed text costs less (ADR 0104).** Frontmatter refuses a YAML alias, which no artifact needs and which a few lines
+  of expand past memory; a file given to `af.py` must be a regular file and is read through a cap; and the `stack:` hint no
+  longer takes over a minute on a file of newlines, on a path the commit gate reaches.
+- **A tag cannot be a flag (ADR 0104).** `release.commits_since` refuses a tag starting with `-`, which git allows and which
+  on a `git log` line could write a file.
+
+### Added
+
+- **`plugin/bin/af.py`: 21 commands for the skills (ADR 0104).** Vault, handoff, review loop, plan batches, stack
+  detection, release, deploy status, alerts, incident severity, pull requests and document delivery. Each takes flags,
+  or JSON from a file or stdin, and prints one JSON object. Exit 1 is a refusal or a check that found problems, 2 is
+  bad usage, 3 is a missing package. `python3 -E .../af.py --help` lists them.
+- **`deploy-status --alerts-json` (ADR 0104).** Alerts from elsewhere, such as an MCP connector, with the live pipeline.
+
+### Fixed
+
+- **Behaviour change: `pr-watch` pushes before it replies (ADR 0104).** The skill replied and resolved, then pushed, so a
+  failed push left a resolved thread and a gate reading ready for the unfixed head. The order is now fix, commit, push,
+  then reply, then resolve, in both modes, as `run_watch` has it. On a failed push nothing is posted and nothing merges in
+  that pass. `pr-state`'s `push` used to print whatever HEAD was: in live mode it now appears only when HEAD is on the PR's
+  branch and strictly ahead of its head, and `no_push` says why not.
+- **Behaviour change: `deploy-status` no longer reads healthy from what it did not read (ADR 0104).** No `gh`, or no alert
+  source, gave `healthy` from empty lists. Each now appears under `unavailable`. With no `gh`, or a set alert source that fails, a green rest is
+  `unknown`. With `gh` and no alert source the pipeline's reading stands, and the report must say the alerts were not read. `alerts-active`
+  exits 1 for the same reason. The scheduled digest keeps its own wording for no provider.
+- **Behaviour change: health is per workflow, and a cancelled run is not a pass (ADR 0104).** A green `Lint` after a failed
+  `Deploy production` read as healthy, and `cancelled` as passing. Both are fixed in the library, so the digest gets them
+  too. Which branch a run was on is still not considered. A snapshot's deploys are ordered by `at`, not by file order, and
+  more than one without an `at` is refused.
+- **Behaviour change: an `approve` with a red gate escalates at the cap (ADR 0104).** It revised for ever.
+- **A phase that reaches `proceed` hands off (ADR 0104).** The artifact could still say `status: draft`, which the next
+  phase refuses. `review-loop.md` and `doc-delivery.md` now set `status: approved` and re-run `handoff-load` before staging.
+- **A repo with no conventional commits can cut a release (ADR 0104).** Empty groups, a changelog that must not be empty
+  and a rule against invention left no way through. `release-summarize` returns `uncategorised`, and the skill lists those
+  subjects under Changed, unedited. No commits at all means nothing to release.
+- **Smaller (ADR 0104).** The force-push rule also catches `HEAD:heads/main`. A long subject no longer takes 39 s to
+  classify. A feature slug is matched whole, so a trailing newline is refused. A note over 2 MB is skipped by `load_vault`
+  before parsing. A tag named `HEAD` counts as no tag. Tier-3's `ops-incident` prompts name commands, not library calls.
+- **Plugin-only installs now work, within limits (ADR 0104).** The skills' calls needed the repo's package importable,
+  which a plugin install does not give you, and some used `python`, which many machines do not have. `af.py` finds the
+  library beside itself and needs only `python3`, 3.9 or newer.
+
+  **What that means without PyYAML and jsonschema, as on a stock macOS `python3`.** These work: the knowledge vault (a
+  capture, a check, and recall, which ranks without titles and tags and says so), `release`'s version and changelog,
+  `deploy-watch`, `incident-response`'s severity, `stack-detect`, and the review loop's decision. These do not: reading or
+  validating any handoff artifact, and with it `plan-batches`. So a spine phase cannot confirm its own output or trust its
+  input. `handoff-load` exits 3 and says so, the review loop escalates (`--gate-green unknown`), the artifact stays
+  `in-review`, and nothing is committed. The spine does not complete on such a machine until you run
+  `python3 -m pip install pyyaml jsonschema`. Not run on a real Python 3.9 beyond `dev/hook_smoke.py`.
+- **`bin/external_review.py` starts without PyYAML (ADR 0104).** It imported it at the top, so a bare `python3` failed
+  before printing anything. Only `--out` needs it now, and says so if it is missing.
+- **A note's title and tags read back as written (ADR 0104).** A title with `: ` saved with frontmatter nothing could read,
+  and lost its title and tags silently. Titles and tags are now quoted in a new note's frontmatter. Notes from before still
+  load. Names `moc` and `readme` are refused in any case, as is replacing a `type: moc` file with a note.
+- **`deploy-status` no longer reports `healthy` from the wrong data (ADR 0104).** `--snapshot` silently ignored `--repo`, so
+  an alerts-only file read as no deploys. It now cannot be combined with `--repo` or `--alerts-json`. A deploy or alert for
+  another environment is left out, and a file where every one of them is for another environment is refused, naming them.
+- **A failed read is not an empty answer (ADR 0104).** `release.commits_since` returned `[]` when git failed. It now raises.
+  A repo with no tags gives all of HEAD, where it used to give nothing.
+
+### Changed
+
+- **Eighteen skills, seven patterns and four references name `af.py` commands instead of library calls (ADR 0104).** No
+  description or role changed, and the listing budget is untouched. `validate_header` is gone from the skills: `handoff-load`
+  reads the file and runs the same schema, which is the check ADR 0096 asked for. The skills name the reviewer CLI
+  `bin/external_review.py`, with `--repo <worktree>` where a phase works in one, rather than `external_review.review(...)`.
+  `patterns/adversarial-review.md` says what its exit 1 means.
+- **`doc-proceed` prints the stage step (ADR 0104).** Its commit took only what was staged, and nothing said to stage.
+- **`vault-validate` exits 1 when it finds problems (ADR 0104).** The inline call exited 0 with a list. It still prints
+  the JSON. `tests/test_vault.py` follows; it no longer asserts `StateWriteRefused` in a traceback, since a refusal is now
+  one line, and asserts that line instead. `tests/test_review_loop_shape.py` no longer looks for `"<kind>"` in a body, the
+  argument of the call that is gone, and looks for the reviewer CLI with its `--kind`. `tests/test_pr_watch_merge.py`
+  looks for the `pr-*` commands where it looked for library names the skill no longer gives. `tests/test_spine_e2e.py`
+  expects a raise from a directory that is not a repo, `tests/test_domain_e2e.py`'s fake phase asks for a release range only
+  when the scenario is tagged, and `tests/test_vault.py` expects the quoted frontmatter.
+
 ## [2026.11.4] - 2026-11-03
 
 ### Changed

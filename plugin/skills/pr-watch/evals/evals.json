@@ -23,7 +23,7 @@
         "The resolved thread (T_already_done) and the bot-authored thread (T_bot_note) are excluded from the actionable set",
         "At most 2 threads are processed (the configured max_threads), and the remaining actionable thread is explicitly reported as deferred to the next pass — not silently dropped",
         "For a fixed thread the reply comes BEFORE the thread is resolved; the rejected/disputed thread gets a reasoned reply and is left OPEN (not resolved)",
-        "Any push is a single plain push of HEAD to fix/rate-limits (e.g. via pr_watch.push_argv) — no --force flag and no merge command anywhere",
+        "Any push is a single plain push of HEAD to fix/rate-limits (e.g. the `push` line pr-state returns) — no --force flag and no merge command anywhere",
         "The final report separates fixed vs rejected (with the rejection reasoning) vs deferred"
       ]
     },

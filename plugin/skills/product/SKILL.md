@@ -30,9 +30,9 @@ acceptance criteria, user stories. Not for *what exists* (`research`), *how to b
 > no `gh`) still commits — on `docs/<slug>`, reported as not pushed / no PR — never a failed phase.
 
 1. **Digest the inputs.** Load `research-brief.md`
-   (`handoff.load_artifact(..., expected_type="research-brief")`; **refuse to build on it unless `handoff.is_handoff_ready(header)` — an escalated upstream run leaves a schema-valid but rejected artifact on disk**) and assess the current product
+   (`python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type research-brief`; **refuse to build on it unless its `ready` is true — an escalated upstream run leaves a schema-valid but rejected artifact on disk**) and assess the current product
    (repo, existing docs). Pick the `<feature-slug>`. **If `research-brief.md` is absent** (check
-   `Path.exists()` first — `load_artifact` raises on a missing file): build the PRD from the
+   that the file exists first — `handoff-load` fails on a missing file): build the PRD from the
    request + the repo + its existing docs, record the assumptions and that no brief existed in the
    PRD's body, and proceed — the brief is an input when it exists, not a precondition.
 2. **Frame the change.** From the brief's findings + recommendation, decide the **goals** and
@@ -49,26 +49,22 @@ acceptance criteria, user stories. Not for *what exists* (`research`), *how to b
 5. **Write the PRD.** Produce `prd.md` (frontmatter `type`, `feature`, `status`, `goals`, `non_goals`, `metrics`,
    `acceptance`; body = context + user stories; **valid YAML — quote any value containing a colon**,
    e.g. an acceptance criterion naming `{"high": 0}`, or the whole artifact fails to parse for every
-   downstream phase) under `docs/sdlc/<feature-slug>/`; validate it
-   (`handoff.validate_header(..., expected_type="prd")`). Keep every requirement traceable to
+   downstream phase) under `docs/sdlc/<feature-slug>/`; validate it (the read-back below). Keep every requirement traceable to
    the brief.
-   Then **read the file back** — `handoff.load_artifact(<path>, expected_type="prd")` — and fix
-   whatever it raises: `validate_header` checks a dict, not the YAML you typed, so a single
+   Then **read the file back** — `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type prd` — and fix whatever it reports: this reads the file, so it sees the YAML you typed, and a single
    malformed value (a flow sequence with prose after it, an unquoted `:`) leaves an artifact the
    next phase cannot read (ADR 0096).
 6. **Skeptic pass (bounded).** Before handing off, fork a fresh `reviewer` (via `Task`) to
    challenge the draft adversarially — every acceptance criterion **testable**, every success
    metric **measurable**, the **non-goals complete**, and each requirement **traceable to the
    brief** — then revise worst-first. **External reviewer lens (on by default, ADR 0057):** when
-   `external_reviewer.enabled` (settings), also run the external reviewer over `prd.md` — call
-   `external_review.review(prd_text, "product", command=<cfg>)` from `${CLAUDE_PLUGIN_ROOT}/lib`
-   (repo-side equivalent: `${CLAUDE_PLUGIN_ROOT}/bin/external_review.py --target docs/sdlc/<feature-slug>/prd.md --kind
-   product`); codex critiques the PRD as an
+   `external_reviewer.enabled` (settings), also run the external reviewer over `prd.md` —
+   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/external_review.py" --target <worktree>/docs/sdlc/<feature-slug>/prd.md --repo <worktree> --kind product`; codex critiques the PRD as an
    independent-model lens (testable criteria, measurable metrics, complete non-goals, traceability)
    and its `findings` fold into the same worst-first revision. It **degrades gracefully** (absent/
    disabled codex is skipped, not a failure) and its findings are **advisory** (prompt-injectable) —
    verify before acting. **Persist each round** — one `review-<artifact>-<iteration>.md` per round under `docs/sdlc/<feature-slug>/`, aggregating **both** lenses; on `proceed` keep only the final round, on `escalate` keep them all (naming + lifecycle: [review-loop.md](../../patterns/review-loop.md)). **Exit criterion (the shared, tested rule):** each round, compute
-   `handoff.review_loop_decision(verdict, iteration, cap=3, gate_green=<prd.md validates>)` (see
+   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" review-decision --verdict <verdict> --iteration <n> --gate-green <yes if prd.md validates, else no>` (see
    [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
    [review-loop.md](../../patterns/review-loop.md)) — `revise` (loop back and fix worst-first),
    `escalate` (still `changes` at N = 3 → **commit nothing; mark the feature PR a draft** (the merge gate already refuses a draft), set the artifact's `status` to `in-review`, surface the unresolved gaps and stop; the status is what makes "don't hand off" enforceable — the file is already on disk), or
@@ -85,7 +81,7 @@ stops; it does **not** hand off an incomplete PRD.
 
 ## Definition of done
 
-- The skeptic loop exited on `proceed` (`review_loop_decision`): `approve` **and** `prd.md`
+- The skeptic loop exited on `proceed` (`review-decision`): `approve` **and** `prd.md`
   validates — not `escalate`.
 - `prd.md` validates against the prd handoff schema (goals + acceptance present).
 - Non-goals and success metrics are stated; user stories cover the goals.

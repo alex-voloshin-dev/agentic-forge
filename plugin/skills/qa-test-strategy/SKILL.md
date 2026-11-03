@@ -21,7 +21,7 @@ reviewing already-written code (`code-review`), or assembling a release (`releas
 ## Process
 
 1. **Read the inputs.** Load the feature/`plan.md`/`tech-design.md` or the code under change, and
-   detect the stack (`stacks.primary(<repo>)`) so the levels and tools match the repo.
+   detect the stack (`python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" stack-detect --repo <repo>`) so the levels and tools match the repo.
 2. **Delegate the analysis — plan only.** Fork the `qa-engineer` role (via `Task`) with the
    feature/code and the question "what are the risk areas, the right test levels, and the cases
    that matter?" — and say **plan only: design the strategy and the test list; do not create or
@@ -30,14 +30,14 @@ reviewing already-written code (`code-review`), or assembling a release (`releas
    not just the prompt.
 3. **Synthesize the strategy.** Aggregate into a `test-strategy` handoff artifact (`handoff` type
    `test-strategy`: `type`, `feature`, `status`, `scope`, `risks`, `test_levels`, `cases`), then
-   validate it (`handoff.validate_header(header, expected_type="test-strategy")`; see
+   validate it (the read-back below; see
    [handoff.md](../../patterns/handoff.md)). Cover the real risk areas (boundaries, invalid/abusive
    input, concurrency, rounding/precision, failure modes).
    Keep every frontmatter value **data**: a case's `expect` is a list, and why that order is
    right goes in the body — `expect: [h1, h2, n1] — insertion order kept` is a YAML syntax error
    that makes the whole artifact unreadable, and it is the one this skill actually writes.
-   Then **read the file back** — `handoff.load_artifact(<path>, expected_type="test-strategy")` —
-   and fix whatever it raises: `validate_header` checks a dict, not the YAML you typed (ADR 0096).
+   Then **read the file back** — `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type test-strategy` —
+   and fix whatever it reports: this reads the file, so it sees the YAML you typed (ADR 0096).
 4. **Prioritize.** Order cases so boundaries and error/abuse paths come first; call out the levels
    (unit / integration / e2e / perf / security) the change actually warrants — not a blanket list.
 5. **Defects & exploration (in-flow).** When a defect surfaces while planning the strategy, or

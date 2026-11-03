@@ -48,7 +48,7 @@ plugin/
   eval/{README.md, fixtures/}         # harness architecture + agent eval fixtures (L1)
   hooks/{hooks.json, scripts/*.py}    # L3 session-start + L4 guardrail hooks (ADR 0018/0019)
 dev/{validate.py, run_agent_evals.py, run_skill_evals.py, run_tier1_evals.py, run_activation_evals.py, run_spine_e2e.py, hook_smoke.py, audit_digest.py, diagnostics_digest.py, ralph.py, sync_models.py}  # maintainer + eval CLIs — NOT shipped
-plugin/bin/{run_scheduled.py, pr_watch.py, external_review.py, state_migrate.py}  # runtime CLIs that DO ship to users (ADR 0072)
+plugin/bin/{af.py, run_scheduled.py, pr_watch.py, external_review.py, state_migrate.py}  # runtime CLIs that DO ship to users (ADR 0072); af.py is what skills run (ADR 0104)
 tests/                                # pytest for lib + harness + plugin integrity
 pyproject.toml                        # uv / pytest / ruff / mypy config
 .github/workflows/{ci.yml,eval.yml,scheduled.yml}  # Tier-0 + hooks-on-3.9 always; Tier-1 weekly, Tier-2/3 on demand; scheduled wiring smoke
@@ -108,6 +108,10 @@ frontmatter field) never fail. Standard fields and documented Claude Code extens
 recognized; anything else warns as a possible typo. It also runs the two **skill-body contract
 guards** (`skill_contract`, ADR 0032/0033) over the present skills — documented handoff fields +
 the spine recall step — so a single `validate.py` run enforces them (they also block via pytest).
+It fails on **inline Python**, or a shipped script run without `-E`, in any `.md` under `skills/`, `patterns/` or
+`agents/` (`validate_no_inline_python`, ADR 0104): `python -c` takes the working directory's modules first, and
+`PYTHONPATH` reaches the interpreter before a script's first line, so what a skill needs from the library is a narrow
+command in `plugin/bin/af.py`, run as `python3 -E`.
 
 Coverage and types are part of Tier 0 too, enforced in CI: `pytest --cov=agentic_forge
 --cov-fail-under=80`, `ruff`, and `mypy` (see [ci.yml](../../.github/workflows/ci.yml)).

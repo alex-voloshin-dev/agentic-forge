@@ -6,11 +6,12 @@ repo's own tooling requires 3.11. A 3.10+ construct on a hook-reachable path fai
 there, and a hook that fails to start fails OPEN: the guardrail is silently gone and nothing says
 so. CI runs this file under 3.9 (the ``hooks-py39`` job in ``ci.yml``); it needs nothing installed.
 
-Three checks, stdlib only:
+Four checks, stdlib only:
 
 1. every shipped ``.py`` (hooks, lib, bin, skill scripts) byte-compiles under this interpreter;
-2. every lib module a hook imports — transitively — imports;
-3. every hook runs to exit 0 on a minimal payload for its event and prints nothing or JSON.
+2. every lib module a hook or a skill's command imports — transitively — imports;
+3. every hook runs to exit 0 on a minimal payload for its event and prints nothing or JSON;
+4. ``bin/af.py``, what skills run on this same interpreter (ADR 0104), answers, as a real process.
 
 A hook script with no payload in :data:`PAYLOADS` is a failure too: a new hook must be smoked.
 State goes to a temp directory (``AGENTIC_FORGE_STATE_HOME``), never to the operator's, and so does
@@ -35,6 +36,8 @@ REPO = Path(__file__).resolve().parents[1]
 PLUGIN = REPO / "plugin"
 LIB = PLUGIN / "lib"
 HOOKS = PLUGIN / "hooks" / "scripts"
+# What a skill body runs, on the same bare `python3` as a hook (ADR 0104).
+SKILL_COMMANDS = (PLUGIN / "bin" / "af.py", PLUGIN / "bin" / "external_review.py")
 
 _BASH = {"tool_name": "Bash", "tool_input": {"command": "git status"}}
 _POST = {"tool_response": {"stdout": "", "stderr": "", "interrupted": False}}
@@ -83,10 +86,11 @@ def _lib_imports(path: Path) -> set[str]:
 
 
 def hook_reachable_modules() -> list[str]:
-    """Every lib module some hook imports, transitively — the 3.9 contract's exact scope."""
+    """Every lib module some hook or skill command imports, transitively — the 3.9 contract's exact
+    scope."""
     seen: set[str] = set()
     todo: set[str] = set()
-    for hook in HOOKS.glob("*.py"):
+    for hook in (*HOOKS.glob("*.py"), *SKILL_COMMANDS):
         todo |= _lib_imports(hook)
     while todo:
         mod = todo.pop()
@@ -208,17 +212,35 @@ def check_narrowed_commit(failures: list[str], hook_env: dict[str, str] | None =
     return "narrowed commit run"
 
 
+def check_commands(failures: list[str]) -> int:
+    """Run ``af.py`` as a skill does: ``python3 -E``, a script, from a temp directory."""
+    calls = (["--help"], ["incident-classify", "--outage"], ["vault-recall", "--query", "x"],
+             ["review-decision", "--verdict", "approve", "--iteration", "1", "--gate-green", "yes"])
+    with tempfile.TemporaryDirectory() as tmp:
+        for args in calls:
+            done = subprocess.run(
+                [sys.executable, "-E", str(SKILL_COMMANDS[0]), *args], capture_output=True,
+                text=True, cwd=tmp, timeout=60, check=False,
+            )
+            if done.returncode != 0:
+                tail = " ".join(done.stderr.split())[-300:]
+                failures.append(f"af.py {args[0]}: exit {done.returncode}: {tail}")
+    return len(calls)
+
+
 def main(argv: list[str]) -> int:
     failures: list[str] = []
     compiled = check_compiles(failures)
     mods = check_imports(failures)
     hooks = check_hooks(failures)
     narrowed = check_narrowed_commit(failures)
+    commands = check_commands(failures)
     version = ".".join(str(v) for v in sys.version_info[:3])
     print(
         f"hook smoke on Python {version}: {compiled} files compiled, "
         f"{len(mods)} hook-reachable modules imported ({' '.join(mods)}), "
-        f"{len(hooks)} hooks run, {narrowed}"
+        f"{len(hooks)} hooks run, {narrowed}, "
+        f"{commands} af.py calls"
     )
     for line in failures:
         print(f"  FAIL {line}")

@@ -57,8 +57,7 @@ The failure mode of generated marketing is confident, low-signal fluff. So every
    subagent per web track when fanning out (there is no `research` *role*; `research` is the
    feature-flow skill) — **keeping every source URL**. Then
    apply the evidence discipline above (cite or mark every claim; no fabrication).
-3. **Synthesize** the sub-area's output: the handoff artifact — `market-brief` (frontmatter `type`, `feature`, `status`, `competitors`, `segments`, `sources`) or `marketing-strategy` (`type`, `feature`, `status`, `positioning`, `channels`) — validated via
-   `handoff.validate_header(header, expected_type="market-brief")` or `"marketing-strategy"` —
+3. **Synthesize** the sub-area's output: the handoff artifact — `market-brief` (frontmatter `type`, `feature`, `status`, `competitors`, `segments`, `sources`) or `marketing-strategy` (`type`, `feature`, `status`, `positioning`, `channels`) — validated by the read-back below —
    **valid YAML: quote any value containing a colon**, which a cited source URL always has, or the
    whole artifact fails to parse
    (see [handoff.md](../../patterns/handoff.md)); or the untyped deliverables per the reference —
@@ -72,8 +71,8 @@ The failure mode of generated marketing is confident, low-signal fluff. So every
    numbers are here and not only in `references/content.md` because a rule binds only the
    sessions that read it, and a session that never opens the reference wrote 847 characters
    against LinkedIn's "~3,000-char limit", five runs out of five (ADR 0099).
-   Then **read the file back** — `handoff.load_artifact(<path>, expected_type="market-brief")` —
-   and fix whatever it raises: `validate_header` checks a dict, not the YAML you typed, so a single
+   Then **read the file back** — `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type market-brief` (or `--type marketing-strategy`) —
+   and fix whatever it reports: this reads the file, so it sees the YAML you typed, and a single
    malformed value (a flow sequence with prose after it, an unquoted `:`) leaves an artifact the
    next phase cannot read (ADR 0096).
 4. **Adversarial claims pass (bounded).** Fork a fresh `reviewer`/skeptic (via `Task`) to attack
@@ -81,20 +80,17 @@ The failure mode of generated marketing is confident, low-signal fluff. So every
    **no invented figures**, competitors named specifically, **no unsupported superlatives** — then
    fix what it flags worst-first. This is the guard against the fluff failure mode above.
    **External reviewer lens (on by default, ADR 0057/0062):** when `external_reviewer.enabled`
-   (settings), also run the external reviewer over the deliverable — call
-   `external_review.review(deliverable_text, "marketing", command=<cfg>)` from
-   `${CLAUDE_PLUGIN_ROOT}/lib` (repo-side equivalent: `${CLAUDE_PLUGIN_ROOT}/bin/external_review.py --target <the
-   deliverable> --kind marketing`); codex attacks the same evidence discipline as an
+   (settings), also run the external reviewer over the deliverable —
+   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/external_review.py" --target <worktree>/<the deliverable> --repo <worktree> --kind marketing`; codex attacks the same evidence discipline as an
    independent-model lens and its `findings` fold into the same worst-first revision. It **degrades
    gracefully** (absent/disabled codex is skipped, not a failure) and its findings are **advisory**
    (prompt-injectable) — verify before acting. **Persist each round** — one `review-<artifact>-<iteration>.md` per round under `docs/sdlc/<feature-slug>/`, aggregating **both** lenses; on `proceed` keep only the final round, on `escalate` keep them all (naming + lifecycle: [review-loop.md](../../patterns/review-loop.md)). **Exit criterion (the shared, tested rule):** each
-   round, compute `handoff.review_loop_decision(verdict, iteration, cap=3, gate_green=<the gate
-   below>)` (see [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
+   round, compute `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" review-decision --verdict <verdict> --iteration <n> --gate-green <yes if the gate below, else no>` (see [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
    [review-loop.md](../../patterns/review-loop.md)) — `revise` (loop back and fix worst-first),
    `escalate` (still `changes` at N = 3 → **commit nothing; mark the feature PR a draft** (the merge gate already refuses a draft); for a typed handoff **set `status` to `in-review`**, surface the unresolved claims and stop; don't ship), or
    `proceed` (**commit this phase's artifact and push — opening or updating the feature PR per [doc-delivery](../../patterns/doc-delivery.md)**; `approve` **and** the gate → the deliverable is done). **The gate depends on what this
    sub-area produced:** for a typed handoff (`market-brief` / `marketing-strategy`) it is step 3's
-   `handoff.validate_header`; for the untyped deliverables (offer doc, content files, audit report)
+   read-back; for the untyped deliverables (offer doc, content files, audit report)
    there is no schema, so it is the evidence discipline itself — every claim cited or labelled, no
    bare figure stated as fact. Don't ship a deliverable whose claims aren't sourced.
 
@@ -108,7 +104,7 @@ at N = 3) surfaces them and stops; it does **not** ship fluff.
 
 ## Definition of done
 
-- The claims loop exited on `proceed` (`review_loop_decision`): `approve` **and** the sub-area's
+- The claims loop exited on `proceed` (`review-decision`): `approve` **and** the sub-area's
   gate (schema validation, or the evidence discipline for an untyped deliverable) — not `escalate`.
 - The right sub-area procedure was followed; the output is the expected handoff/content.
 - Every market/competitor claim is cited or labelled an assumption; nothing is fabricated;

@@ -32,7 +32,7 @@ def _runs(*runs: dict) -> str:
         ({"status": "completed", "conclusion": "failure"}, "failing"),
         ({"status": "completed", "conclusion": "timed_out"}, "failing"),
         ({"status": "completed", "conclusion": "startup_failure"}, "failing"),
-        ({"status": "completed", "conclusion": "cancelled"}, "passing"),  # not a failure
+        ({"status": "completed", "conclusion": "cancelled"}, "cancelled"),  # not a pass either
         ({"status": "completed", "conclusion": "skipped"}, "passing"),
         ({"status": "in_progress"}, "running"),
         ({"status": "queued"}, "queued"),

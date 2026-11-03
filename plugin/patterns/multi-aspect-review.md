@@ -1,5 +1,7 @@
 # Pattern: multi-aspect code review
 
+`${CLAUDE_PLUGIN_ROOT}` below is the plugin's directory, the one holding `skills/` and `patterns/`, and is not normally set in a shell: if this file reached you unexpanded, use the path your skill's own commands show.
+
 Review a code change by fanning out **one reviewer per aspect** — correctness/bugs, security,
 integration + API, and style/lint/warnings — then verify and synthesize a single verdict with
 findings. It is [fan-out/fan-in](fan-out-fan-in.md) specialised for code, and it is the review
@@ -21,7 +23,7 @@ treats their output as evidence, not opinion.
 
 **External reviewer lens (on by default, ADR 0042 / 0057).** When `external_reviewer.enabled`
 (settings — on by default), add the external CLI (`codex`) as one more lens over the same diff via
-`external_review.review(diff, "code")` / `${CLAUDE_PLUGIN_ROOT}/bin/external_review.py --kind code`. Its *different model*
+`python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/external_review.py" --target <a file holding the diff> --kind code`. Its *different model*
 catches what the same-family aspects miss. It runs **read-only**, **degrades gracefully** when the
 CLI is absent (skipped, not a failure), and its findings are **advisory** (prompt-injectable) —
 verify against the source, then fold them into the synthesis at their severity like any aspect.

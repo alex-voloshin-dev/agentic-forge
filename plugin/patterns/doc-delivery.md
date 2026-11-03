@@ -3,7 +3,12 @@
 The document phases produce reviewable artifacts, so they deliver them the way code is delivered:
 in an isolated worktree, as a pull request, merged through the same gate. Shared here rather than
 repeated in six skill bodies. Deterministic naming and argv live in `agentic_forge.doc_delivery`
-(ADR 0070).
+(ADR 0070), reached through `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py"` (ADR 0104). Its `doc-*` commands print
+commands as `{"argv", "shell"}` and run none: decode `shell` from JSON first (`\"` is `"`), then run
+it yourself, so that the guardrail hooks see it. Do not copy the JSON text onto a command line.
+
+`${CLAUDE_PLUGIN_ROOT}` below is the plugin's directory, the one holding `skills/` and `patterns/`, and is not normally set in a shell: if this file reached you unexpanded, use the path your skill's own commands show.
+
 
 ## The one rule that shapes everything
 
@@ -22,27 +27,32 @@ So every document phase working on `<feature-slug>` shares `../wt-docs-<slug>` o
 
 1. Skip all of this when there is no `<feature-slug>` — a one-off document written outside a feature
    flow belongs in the checkout, as before.
-2. Reuse or create the feature worktree: if `doc_delivery.worktree_dir(slug)` exists, work there;
-   otherwise `doc_delivery.add_worktree_argv(repo, slug, base)`. **Report the absolute path** — the
+2. Reuse or create the feature worktree: `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" doc-worktree --repo . --slug <slug> --base <base>`
+   gives its `worktree` path; if `exists`, work there; otherwise run its `add`. **Report the absolute path** — the
    user's editor is not pointed at it, and a conversational phase must not leave them hunting for
    the draft.
 3. Write the artifact under `<worktree>/docs/sdlc/<slug>/`, and read upstream artifacts from the
-   same worktree, so the chain resolves.
+   same worktree, so the chain resolves. With no `<feature-slug>`, `<worktree>` is the checkout.
 
 **After the review loop exits:**
 
-4. **`proceed`** — commit this phase's artifact only (`commit_argv`, message
-   `docs(<phase>): <slug>`), push (`push_argv` — plain, **never** `--force`), then:
-   - no open PR for `docs/<slug>` (`pr_view_argv` returns nothing) → open one (`pr_create_argv`),
+4. **`proceed`** — first set the artifact's `status` to `approved` and run `handoff-load` on it again
+   ([review-loop.md](review-loop.md)), or the next phase refuses it. Then
+   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" doc-proceed --worktree <worktree> --phase <phase> --slug <slug> --artifact <path>`
+   gives the `steps` for this repo: stage and commit this phase's artifact only (message
+   `docs(<phase>): <slug>`; `--artifact` repeats for more than one), push (plain, **never** `--force`).
+   When its `open_pr` is true, with the body written to a file outside the worktree,
+   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" doc-pr-argv --repo-slug <owner/repo> --slug <slug> --title <title> --body-file <file>`
+   gives `view` and `create` (a title takes letters, digits and `._:/()#+-` only), then:
+   - no open PR for `docs/<slug>` (`view` returns nothing) → open one (`create`),
      titled for the feature, body listing the artifacts delivered so far;
    - a PR already exists → the push updated it. Say so; do not open a second.
 
-   **A repo with no remote or no `gh` is not a failed phase.** Run `remote_argv` first: empty
-   output means nowhere to push — commit only and report `no remote: committed on docs/<slug>, not
-   pushed`; a remote but no `gh` on PATH (`gh_on_path()`) — push and report the branch for a
-   hand-opened PR. `proceed_plan(worktree, phase, slug, remotes=<output>, gh=gh_on_path())`
-   returns the argv to run, whether the PR steps apply, and the sentence to report.
-5. **`escalate`** — commit **nothing**. If the PR exists, mark it a draft (`pr_draft_argv`). This
+   **A repo with no remote or no `gh` is not a failed phase.** With nowhere to push, the
+   `steps` only commit and the `note` says `no remote: committed on docs/<slug>, not
+   pushed`; with a remote but no `gh` on PATH they push and the `note` gives the branch for a
+   hand-opened PR. The `note` is the sentence to report.
+5. **`escalate`** — commit **nothing**. If the PR exists, mark it a draft (`gh pr ready <n> -R <owner/repo> --undo`). This
    needs no new mechanism: the merge gate already refuses a `draft PR`, so an unresolved review
    stops the merge through the rail that is already tested.
 6. Report the PR URL. Monitoring and merge are **not** this phase's job — the PR-created hook

@@ -12,6 +12,7 @@ synthesise) belongs to the ``knowledge`` skill.
 from __future__ import annotations
 
 import errno
+import json
 import os
 import re
 from dataclasses import dataclass
@@ -40,6 +41,7 @@ __all__ = [
 
 VAULT_DIRNAME = "docs/knowledge"
 ROOT_MOC = "MOC"  # the root map-of-content note, MOC.md
+_MAX_NOTE_BYTES = 2 * 1024 * 1024  # what a handoff artifact may be: past it, not parsed
 
 # [[target]] | [[target|alias]] | [[target#heading]] | [[target#heading|alias]] -> target
 # (newlines excluded so a stray "[[" can't swallow text across lines into a bogus target)
@@ -157,6 +159,8 @@ def load_vault(repo: Path | str) -> Vault:
         if not state_io.readable(md, vpath):
             continue  # a linked file is another file: its frontmatter must not reach a session
         try:
+            if md.stat().st_size > _MAX_NOTE_BYTES:
+                continue
             text = md.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
@@ -214,8 +218,11 @@ def validate_vault(repo: Path | str) -> list[str]:
 
 
 def _render_note(title: str, body: str, *, type: str, tags: tuple[str, ...]) -> str:
-    tag_line = "[" + ", ".join(tags) + "]"
-    front = f"---\ntitle: {title}\ntype: {type}\ntags: {tag_line}\n---\n"
+    # Quoted, always: `a: b`, `*x`, `true`, `123` and `2026-01-01` are all something else plain,
+    # and a JSON string is a YAML string. Non-ASCII stays readable in the file.
+    quoted = json.dumps(title, ensure_ascii=False)
+    tag_line = "[" + ", ".join(json.dumps(tag, ensure_ascii=False) for tag in tags) + "]"
+    front = f"---\ntitle: {quoted}\ntype: {type}\ntags: {tag_line}\n---\n"
     return f"{front}\n# {title}\n\n{body.strip()}\n"
 
 
@@ -244,6 +251,21 @@ def _refuse_target(path: Path, vpath: Path, *, links_to: str | None = None) -> N
             raise state_io.StateWriteRefused(errno.EINVAL, "not UTF-8 text", str(path)) from None
     if not os.access(path, os.W_OK):
         raise state_io.StateWriteRefused(errno.EACCES, "the file is read-only", str(path))
+
+
+_RESERVED_NAMES = (ROOT_MOC.lower(), "readme")  # as a name, on a filesystem that folds case too
+_FRONT = re.compile(r"---[ \t]*\r?\n(.*?)\r?\n---", re.DOTALL)
+_TYPE_MOC = re.compile(r"(?m)^type:[ \t]*[\"']?moc[\"']?[ \t]*(?:#.*)?$")
+
+
+def _is_moc(path: Path) -> bool:
+    """True if the file's frontmatter says ``type: moc``. Read without PyYAML, which this write
+    path otherwise does not need."""
+    try:
+        front = _FRONT.match(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError):
+        return False
+    return bool(front and _TYPE_MOC.search(front.group(1)))
 
 
 def _refuse_outside(repo: Path | str) -> None:
@@ -335,6 +357,9 @@ def add_note(
     raises
     :class:`state_io.StateWriteRefused`, an ``OSError`` naming the path, before anything is written.
     The caller is a skill someone is watching, so this is meant to be seen: the note was NOT saved.
+    A name of ``moc`` or ``readme`` in any case is refused, as a note or a themed MOC, unless it is
+    the root MOC itself: they are the vault's own files. So is replacing a ``type: moc`` file with
+    a note, which would take its links with it (ADR 0104).
     A vault directory that resolves outside the repo is refused the same way, and the message gives
     the remedy; one that resolves inside it, through a link or not, works. The repo is the nearest
     directory up from ``repo`` holding a ``.git`` entry, so this works from a package directory.
@@ -342,8 +367,16 @@ def add_note(
     _refuse_outside(repo)
     vpath = vault_path(repo)
     note_path = vpath / f"{name}.md"
+    if name.lower() in _RESERVED_NAMES or (
+        moc and moc != ROOT_MOC and moc.lower() in _RESERVED_NAMES
+    ):
+        raise state_io.StateWriteRefused(errno.EINVAL, "a reserved vault name", str(note_path))
     # Before scaffold, so that "before anything is written" holds on a fresh vault too.
     _refuse_target(note_path, vpath)
+    if type != "moc" and note_path.is_file() and _is_moc(note_path):
+        raise state_io.StateWriteRefused(
+            errno.EINVAL, "that name is a map-of-content", str(note_path)
+        )
     if moc:
         _refuse_target(vpath / f"{moc}.md", vpath, links_to=name)
         if moc != ROOT_MOC:
