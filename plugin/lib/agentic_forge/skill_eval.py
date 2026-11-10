@@ -15,12 +15,18 @@ Two execution modes:
 - **On-listing skills** (``deep-review``, ``skill-factory``) are executed directly: the system
   prompt is the skill body, with the skill's own ``allowed-tools``, isolated iff it writes.
 
+A skill is resolved in the plugin first, then in each extra ``skill_roots`` directory — the
+repository's maintainer skills, ``<repo>/.claude/skills`` (ADR 0105), where ``skill-factory`` lives
+since it stopped shipping (:func:`resolve_skill_dir`). Everything else a run needs — the base role,
+``engineering-standards``, the grader, the eval cases' ``files`` — is resolved in the plugin.
+
 The model call is the shared :data:`agent_eval.Runner` seam, so the orchestration is unit-tested
 with stub runners; the real run uses the ``claude`` CLI (subscription) or the API.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -34,6 +40,7 @@ __all__ = [
     "STANDARDS_SKILL",
     "SkillReport",
     "discover_skills_with_tier2",
+    "resolve_skill_dir",
     "is_off_listing",
     "build_skill_system",
     "build_skill_baseline_system",
@@ -74,12 +81,26 @@ class SkillReport:
         return gate.tier2_evidence_lines(self.benchmark)
 
 
-def _skill_md(plugin_dir: Path, skill: str) -> Path:
-    return plugin_dir / "skills" / skill / "SKILL.md"
+def resolve_skill_dir(plugin_dir: Path, skill: str, skill_roots: Sequence[Path] = ()) -> Path:
+    """The skill's directory: ``<plugin>/skills/<skill>`` when it has a SKILL.md, else the first
+    ``<root>/<skill>`` that does, else the plugin path (so a missing skill is reported where a
+    shipped one would be). Plugin first: a shipped skill is never shadowed by a namesake — and
+    Tier-0 forbids the namesake (``validation.validate_maintainer_skills``)."""
+    shipped = plugin_dir / "skills" / skill
+    if (shipped / "SKILL.md").is_file():
+        return shipped
+    for root in skill_roots:
+        if (root / skill / "SKILL.md").is_file():
+            return root / skill
+    return shipped
 
 
-def _skill_evals(plugin_dir: Path, skill: str) -> Path:
-    return plugin_dir / "skills" / skill / "evals" / "evals.json"
+def _skill_md(plugin_dir: Path, skill: str, skill_roots: Sequence[Path] = ()) -> Path:
+    return resolve_skill_dir(plugin_dir, skill, skill_roots) / "SKILL.md"
+
+
+def _skill_evals(plugin_dir: Path, skill: str, skill_roots: Sequence[Path] = ()) -> Path:
+    return resolve_skill_dir(plugin_dir, skill, skill_roots) / "evals" / "evals.json"
 
 
 def _role_md(plugin_dir: Path, role: str) -> Path:
@@ -96,18 +117,25 @@ def _body(md_path: Path) -> str:
     return body.strip()
 
 
-def is_off_listing(plugin_dir: Path, skill: str) -> bool:
+def is_off_listing(plugin_dir: Path, skill: str, skill_roots: Sequence[Path] = ()) -> bool:
     """True if the skill is a loaded-on-demand knowledge skill (``disable-model-invocation``)."""
-    md = _skill_md(plugin_dir, skill)
+    md = _skill_md(plugin_dir, skill, skill_roots)
     if not md.is_file():
         return False
     return str(_frontmatter(md).get("disable-model-invocation", "")).strip().lower() == "true"
 
 
-def discover_skills_with_tier2(plugin_dir: Path) -> list[str]:
-    """Every skill (by dir name, sorted) whose contract declares a ``tier2_quality`` threshold."""
+def discover_skills_with_tier2(plugin_dir: Path, skill_roots: Sequence[Path] = ()) -> list[str]:
+    """Every skill (by dir name, sorted) whose contract declares a ``tier2_quality`` threshold —
+    in the plugin and in each extra ``skill_roots`` directory (a name counted once)."""
+    out: set[str] = set()
+    for skills_dir in (plugin_dir / "skills", *skill_roots):
+        out.update(_tier2_in(skills_dir))
+    return sorted(out)
+
+
+def _tier2_in(skills_dir: Path) -> list[str]:
     out: list[str] = []
-    skills_dir = plugin_dir / "skills"
     if not skills_dir.is_dir():
         return out
     for skill_dir in sorted(p for p in skills_dir.iterdir() if p.is_dir()):
@@ -123,26 +151,28 @@ def discover_skills_with_tier2(plugin_dir: Path) -> list[str]:
     return out
 
 
-def build_skill_system(plugin_dir: Path, skill: str) -> str:
+def build_skill_system(plugin_dir: Path, skill: str, skill_roots: Sequence[Path] = ()) -> str:
     """The system prompt that executes the skill under test (see the module docstring)."""
-    if is_off_listing(plugin_dir, skill):
+    if is_off_listing(plugin_dir, skill, skill_roots):
         parts = [
             _body(_role_md(plugin_dir, BASE_ROLE)),
             _body(_skill_md(plugin_dir, STANDARDS_SKILL)),
         ]
         if skill != STANDARDS_SKILL:
-            parts.append(_body(_skill_md(plugin_dir, skill)))
+            parts.append(_body(_skill_md(plugin_dir, skill, skill_roots)))
         return "\n\n".join(parts)
-    return _body(_skill_md(plugin_dir, skill))
+    return _body(_skill_md(plugin_dir, skill, skill_roots))
 
 
-def build_skill_baseline_system(plugin_dir: Path, skill: str) -> str:
+def build_skill_baseline_system(
+    plugin_dir: Path, skill: str, skill_roots: Sequence[Path] = ()
+) -> str:
     """The without-skill A-B baseline (ADR 0036): the SAME executor with the skill under test
     removed, so the with/without delta isolates the skill's marginal contribution rather than a
     model swap. For an off-listing knowledge skill that's the base role (+ engineering-standards,
     unless the skill under test *is* engineering-standards); for an on-listing skill it's the bare
     base model (empty system)."""
-    if is_off_listing(plugin_dir, skill):
+    if is_off_listing(plugin_dir, skill, skill_roots):
         parts = [_body(_role_md(plugin_dir, BASE_ROLE))]
         if skill != STANDARDS_SKILL:
             parts.append(_body(_skill_md(plugin_dir, STANDARDS_SKILL)))
@@ -150,26 +180,27 @@ def build_skill_baseline_system(plugin_dir: Path, skill: str) -> str:
     return ""
 
 
-def skill_tools(plugin_dir: Path, skill: str) -> str:
+def skill_tools(plugin_dir: Path, skill: str, skill_roots: Sequence[Path] = ()) -> str:
     """The tools the executing component needs (software-engineer's for knowledge skills)."""
-    if is_off_listing(plugin_dir, skill):
+    if is_off_listing(plugin_dir, skill, skill_roots):
         return str(_frontmatter(_role_md(plugin_dir, BASE_ROLE)).get("tools", _DEFAULT_ROLE_TOOLS))
-    return str(_frontmatter(_skill_md(plugin_dir, skill)).get("allowed-tools", "Read, Grep, Glob"))
+    fm = _frontmatter(_skill_md(plugin_dir, skill, skill_roots))
+    return str(fm.get("allowed-tools", "Read, Grep, Glob"))
 
 
-def is_write_skill(plugin_dir: Path, skill: str) -> bool:
+def is_write_skill(plugin_dir: Path, skill: str, skill_roots: Sequence[Path] = ()) -> bool:
     """True if executing the skill writes files (so it MUST run isolated, never the real repo)."""
-    if is_off_listing(plugin_dir, skill):
+    if is_off_listing(plugin_dir, skill, skill_roots):
         return True  # runs the software-engineer, which writes code
-    tools = skill_tools(plugin_dir, skill)
+    tools = skill_tools(plugin_dir, skill, skill_roots)
     return "Write" in tools or "Edit" in tools
 
 
-def check_wiring(skill: str, plugin_dir: Path) -> list[str]:
+def check_wiring(skill: str, plugin_dir: Path, skill_roots: Sequence[Path] = ()) -> list[str]:
     """Return setup problems for a skill without invoking any model. Empty list means ready."""
     problems: list[str] = []
-    md = _skill_md(plugin_dir, skill)
-    evals_path = _skill_evals(plugin_dir, skill)
+    md = _skill_md(plugin_dir, skill, skill_roots)
+    evals_path = _skill_evals(plugin_dir, skill, skill_roots)
     if not md.is_file():
         problems.append(f"missing SKILL.md: {md}")
     if not evals_path.is_file():
@@ -182,7 +213,7 @@ def check_wiring(skill: str, plugin_dir: Path) -> list[str]:
     if "tier2_quality" not in (contract.get("thresholds") or {}):
         problems.append(f"{skill}: no tier2_quality threshold")
     problems += eval_case_problems(skill, contract.get("evals") or [], plugin_dir)
-    if is_off_listing(plugin_dir, skill):
+    if is_off_listing(plugin_dir, skill, skill_roots):
         # A knowledge skill is executed as the base role with engineering-standards loaded.
         if not _body(md):
             problems.append(f"{skill}: empty SKILL.md body (nothing to load into the executor)")
@@ -203,6 +234,7 @@ def run_skill(
     workdir: Path | None = None,
     isolate: bool = False,
     with_baseline: bool = False,
+    skill_roots: Sequence[Path] = (),
 ) -> SkillReport:
     """Run a skill's Tier-2 eval: N runs over its cases, graded, aggregated, and gated.
 
@@ -214,11 +246,13 @@ def run_skill(
     baseline (:func:`build_skill_baseline_system`) so the benchmark carries the A-B pass-rate lift
     and the time-overhead delta, which the contract can gate via ``min_lift`` /
     ``max_overhead_seconds`` (ADR 0036).
+
+    ``skill_roots``: where to look for the skill after the plugin (:func:`resolve_skill_dir`).
     """
-    contract = load_evals(_skill_evals(plugin_dir, skill))
-    system = build_skill_system(plugin_dir, skill)
+    contract = load_evals(_skill_evals(plugin_dir, skill, skill_roots))
+    system = build_skill_system(plugin_dir, skill, skill_roots)
     grader_body = _body(_role_md(plugin_dir, "grader"))
-    if not isolate and is_write_skill(plugin_dir, skill):
+    if not isolate and is_write_skill(plugin_dir, skill, skill_roots):
         isolate = True
     thresholds = contract.get("thresholds") or {}
     if runs is not None and runs <= 0:
@@ -226,7 +260,9 @@ def run_skill(
     contract_runs = (thresholds.get("tier2_quality") or {}).get("runs") or agent_eval.DEFAULT_RUNS
     n = runs if runs is not None else contract_runs
     cases = contract.get("evals") or []
-    baseline = build_skill_baseline_system(plugin_dir, skill) if with_baseline else None
+    baseline = (
+        build_skill_baseline_system(plugin_dir, skill, skill_roots) if with_baseline else None
+    )
     bench, result, gradings = agent_eval.run_eval_cases(
         system_body=system,
         grader_body=grader_body,

@@ -12,15 +12,20 @@ from agentic_forge.skill_eval import (
     discover_skills_with_tier2,
     is_off_listing,
     is_write_skill,
+    resolve_skill_dir,
     run_skill,
     skill_tools,
 )
 
-PLUGIN = Path(__file__).resolve().parents[1] / "plugin"
+REPO = Path(__file__).resolve().parents[1]
+PLUGIN = REPO / "plugin"
+# Maintainer skills (ADR 0105): resolved after the plugin, Tier-2-gated like a shipped skill.
+MAINTAINER_ROOT = REPO / ".claude" / "skills"
+MAINTAINER_TIER2 = {"skill-factory"}
 
+# The SHIPPED skills that declare tier2_quality.
 TIER2_SKILLS = {
     "deep-review",
-    "skill-factory",
     "engineering-standards",
     "knowledge",
     "python-patterns",
@@ -76,6 +81,12 @@ def test_discover_skills_with_tier2() -> None:
     assert set(discover_skills_with_tier2(PLUGIN)) == TIER2_SKILLS
 
 
+def test_discover_includes_the_maintainer_root() -> None:
+    found = discover_skills_with_tier2(PLUGIN, [MAINTAINER_ROOT])
+    assert set(found) == TIER2_SKILLS | MAINTAINER_TIER2
+    assert found == sorted(found) and len(found) == len(set(found))
+
+
 def test_discover_missing_skills_dir(tmp_path: Path) -> None:
     assert discover_skills_with_tier2(tmp_path) == []
 
@@ -88,7 +99,7 @@ def test_is_off_listing() -> None:
 
 def test_is_write_skill() -> None:
     assert is_write_skill(PLUGIN, "python-patterns") is True  # runs the software-engineer
-    assert is_write_skill(PLUGIN, "skill-factory") is True  # has Write/Edit
+    assert is_write_skill(PLUGIN, "skill-factory", [MAINTAINER_ROOT]) is True  # has Write/Edit
     assert is_write_skill(PLUGIN, "deep-review") is True  # deep-review grants Write/Edit too
 
 
@@ -196,6 +207,70 @@ def test_run_skill_rejects_nonpositive_runs(tmp_path: Path) -> None:
 def test_check_wiring_clean_on_real_skills() -> None:
     assert check_wiring("python-patterns", PLUGIN) == []
     assert check_wiring("deep-review", PLUGIN) == []
+    # the maintainer skill: its body from .claude/skills, its fixtures + grader from the plugin
+    assert check_wiring("skill-factory", PLUGIN, [MAINTAINER_ROOT]) == []
+
+
+# --- resolve_skill_dir (ADR 0105) --------------------------------------------
+
+
+def test_resolve_finds_a_maintainer_skill_after_the_plugin() -> None:
+    assert resolve_skill_dir(PLUGIN, "skill-factory", [MAINTAINER_ROOT]) == (
+        MAINTAINER_ROOT / "skill-factory"
+    )
+    assert resolve_skill_dir(PLUGIN, "deep-review", [MAINTAINER_ROOT]) == (
+        PLUGIN / "skills" / "deep-review"
+    )
+
+
+def test_resolve_prefers_the_plugin_over_a_namesake(tmp_path: Path) -> None:
+    _write(tmp_path, "plugin/skills/x/SKILL.md", "---\nname: x\ndescription: d\n---\n# p\n")
+    _write(tmp_path, "maint/x/SKILL.md", "---\nname: x\ndescription: d\n---\n# m\n")
+    _write(tmp_path, "maint/y/SKILL.md", "---\nname: y\ndescription: d\n---\n# m\n")
+    roots = [tmp_path / "maint"]
+    assert resolve_skill_dir(tmp_path / "plugin", "x", roots) == tmp_path / "plugin/skills/x"
+    assert resolve_skill_dir(tmp_path / "plugin", "y", roots) == tmp_path / "maint/y"
+    assert build_skill_system(tmp_path / "plugin", "y", roots) == "# m"
+
+
+def test_resolve_falls_back_to_the_plugin_path_when_nowhere(tmp_path: Path) -> None:
+    """A missing skill is reported where a shipped one would be, not in some extra root."""
+    assert resolve_skill_dir(tmp_path, "nope", [tmp_path / "m"]) == tmp_path / "skills" / "nope"
+    assert any("missing SKILL.md" in p for p in check_wiring("nope", tmp_path, [tmp_path / "m"]))
+
+
+def test_without_the_root_the_maintainer_skill_is_not_found() -> None:
+    assert "skill-factory" not in discover_skills_with_tier2(PLUGIN)
+    assert any("missing SKILL.md" in p for p in check_wiring("skill-factory", PLUGIN))
+
+
+def test_run_skill_executes_a_maintainer_skill_directly_and_isolated(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """skill-factory is on-listing in a maintainer session, so it runs as itself (its own body),
+    and it writes, so isolation is forced whatever the caller asked."""
+    seen: dict[str, object] = {}
+    real = skill_eval.agent_eval.run_eval_cases
+
+    def spy(**kw):
+        seen.update(kw)
+        return real(**kw)
+
+    monkeypatch.setattr(skill_eval.agent_eval, "run_eval_cases", spy)
+    rep = run_skill(
+        "skill-factory",
+        PLUGIN,
+        run_skill_fn=_runner("done"),
+        run_grader_fn=_grader(True),
+        runs=1,
+        workdir=tmp_path,
+        skill_roots=[MAINTAINER_ROOT],
+    )
+    assert rep.skill == "skill-factory" and rep.runs == 1
+    assert seen["isolate"] is True
+    assert "# Skill Factory" in str(seen["system_body"])
+    assert "base engineering role" not in str(seen["system_body"])
+    assert seen["plugin_dir"] == PLUGIN  # the eval cases' files resolve in the shipped tree
 
 
 def _write(root: Path, rel: str, content: str) -> None:

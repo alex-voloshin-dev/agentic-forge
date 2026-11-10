@@ -1,6 +1,6 @@
 ---
 name: research
-description: Investigate a feature or idea before it is specified or designed — gather inputs, fan out parallel research tracks (e.g. prior art / domain / engineering), synthesize, and produce a research-brief.md with cited sources and a recommendation. Use when asked to research, investigate, or compare options / approaches / prior art for a feature or idea, or recommend a direction BEFORE speccing or designing it. This phase PRODUCES the research brief and feeds product — but turning an existing brief INTO a PRD or product spec is product, not research. Not for defining requirements (product), the technical design itself (architecture), implementing (develop), market/competitor research (marketing), or recalling what we have ALREADY noted or decided (knowledge).
+description: Research a feature or idea before it is specified — fan out parallel tracks (prior art, domain, engineering), synthesize, and write a research-brief.md with cited sources and a recommendation. Use to research, investigate, or compare options, approaches or prior art and recommend a direction before speccing or designing. Turning a brief into a PRD is product; market or competitor research is marketing; recalling our own notes is knowledge.
 allowed-tools: Read, Grep, Glob, Bash, Task, Write, WebSearch, WebFetch
 ---
 

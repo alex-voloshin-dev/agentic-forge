@@ -6,6 +6,10 @@ plugin loaded, and scans the transcript for a ``Skill`` tool call naming that sk
 activation rate per skill and POOLED over the run; a MEASUREMENT by default — ``--min-activation``
 gates the pooled rate (per-skill n is 4-9, too small to gate; ADR 0093). Wiring dry-run needs no
 credentials.
+
+Shipped skills only: the stand is a temp fixture repo with `--plugin-dir`, where the repository's
+maintainer skills (`.claude/skills`, today `skill-factory`; ADR 0105) do not exist. Tier-1 measures
+them; this does not, and its dry run checks the shipped listing alone.
 """
 
 from __future__ import annotations
@@ -130,7 +134,7 @@ def main(argv: list[str]) -> int:
     from agentic_forge import tier1_runner
 
     if args.runner == "dry":
-        problems = tier1_runner.check_wiring(plugin_dir)
+        problems = tier1_runner.check_wiring(plugin_dir)  # no extra roots: shipped skills only
         for problem in problems:
             print(f"  - {problem}")
         print("\nDry-run:", "OK" if not problems else "problems found")

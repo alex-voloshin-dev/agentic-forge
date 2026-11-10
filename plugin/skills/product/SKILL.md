@@ -1,6 +1,6 @@
 ---
 name: product
-description: Produce PRODUCT REQUIREMENTS from research — take an existing research brief and turn it INTO a PRD / product spec (goals, non-goals, success metrics, acceptance criteria) with user stories, and assess the current product. Use to write a PRD, define requirements / goals / acceptance criteria, specify what to build, write user stories, or turn a research brief INTO a product spec. The brief is an INPUT that already exists — producing it is research; this is the speccing step that consumes it. Not the technical design (architecture), task planning (plan), implementing (develop), or market/competitor analysis and offer/pricing design (marketing).
+description: Product requirements — turn an existing research brief INTO a PRD (goals, non-goals, success metrics, acceptance criteria) with user stories, and assess the current product. Use to write a PRD, define requirements, goals or acceptance criteria, specify what to build, or write user stories. Producing the brief itself is research; not the technical design (architecture), task planning (plan), or market and pricing work (marketing).
 allowed-tools: Read, Grep, Glob, Bash, Task, Write
 ---
 

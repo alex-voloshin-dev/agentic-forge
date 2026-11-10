@@ -1,6 +1,6 @@
 ---
 name: plan
-description: Turn a technical design into a dependency-ordered WORK plan — the build order — break the work into implementation tasks with dependencies, checkpoints, and deferred items, written to plan.md. (A "test plan" or "QA plan" is NOT this — that's qa-test-strategy.) Use to plan or sequence the engineering WORK — break a design into tasks, order the build, make a work/implementation plan. Not the technical design (architecture), writing code (develop), requirements (product), or a test/QA plan (qa-test-strategy).
+description: Dependency-ordered WORK plan — break a technical design into implementation tasks with dependencies, checkpoints and deferred items, written to plan.md. Use to plan or sequence the engineering work, set the build order, or turn a design into a work plan. A test or QA plan is qa-test-strategy; not the design itself (architecture) or writing code (develop).
 allowed-tools: Read, Grep, Glob, Bash, Task, Write
 ---
 

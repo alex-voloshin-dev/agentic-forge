@@ -28,7 +28,9 @@ Skills auto-load from what you ask — you don't call them by hand. For example:
 - "Research how teams do X, then write a PRD" → `research` → `product`.
 - "Plan and implement this feature, then review it" → `plan` → `develop` → `code-review`.
 - "Audit these docs for contradictions and gaps" → `deep-review`.
-- "Build me a new skill that does Y" → `skill-factory` (contract → evals → implementation → gate).
+
+Building a new agentic-forge component is done from a session in the agentic-forge repository
+itself, with its maintainer skill `skill-factory` (not shipped in this plugin — ADR 0105).
 
 ## What's inside
 

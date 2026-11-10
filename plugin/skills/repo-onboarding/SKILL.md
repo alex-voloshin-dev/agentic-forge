@@ -1,6 +1,6 @@
 ---
 name: repo-onboarding
-description: Onboard to an unfamiliar or new CODEBASE / REPO — analyze its whole structure (components, entry points, conventions, risks) and seed the project knowledge vault from it, producing an onboarding map. Use to onboard to / get oriented in / understand a new or unfamiliar codebase or repo, or to analyze a repo and seed the knowledge base from it. Seeding the vault from a whole codebase is part of THIS skill; capturing or recalling a single decision or note is knowledge. Not feature/options research (research) or reviewing a change (code-review).
+description: Onboard to an unfamiliar codebase — map its structure, components, entry points, conventions and risks, and seed the project knowledge vault from it, producing an onboarding map. Use to get oriented in or understand a new repo, or to analyze a repo and seed the knowledge base. Capturing or recalling a single decision is knowledge; not feature research (research) or code review (code-review).
 allowed-tools: Read, Grep, Glob, Bash, Task, Write, Edit
 ---
 

@@ -38,6 +38,7 @@ __all__ = [
     "features",
     "build_index",
     "suggest",
+    "is_authoring_request",
     "render_context",
     "self_check",
 ]
@@ -50,6 +51,9 @@ __all__ = [
 # (ADR 0089): at 0.40 / 0.15 — recall 0.500, precision 0.955, wrong-skill 0, false-suggest 2. The
 # band 0.30-0.50 never routes to a WRONG skill above MARGIN 0.10; this point trades the last of
 # recall for the last of precision, because a wrong nudge on every prompt is the failure mode.
+# Re-measured after skill-factory left the shipped index (ADR 0105), over 80 trigger + 68
+# anti-trigger prompts, with the authoring veto: recall 0.463 (37/80), precision 0.974,
+# wrong-skill 1, false-suggest 0/68.
 MIN_SCORE = 0.40  # the profile must explain this share of the prompt's weighted meaning
 MARGIN = 0.15  # …and lead the runner-up skill by this much
 NEG_VETO = 0.50  # the skill's negative-only vocabulary explaining this much of the prompt vetoes
@@ -61,6 +65,40 @@ _STOP = frozenset(
     "make".split()
 )
 _TOKEN = re.compile(r"[a-z0-9][a-z0-9+#.-]*")
+
+# A request to BUILD a component ("create a skill for release notes", "scaffold an agent that
+# reviews diffs") names a domain only as the new component's purpose. Its owner, `skill-factory`,
+# is a maintainer skill in agentic-forge's own `.claude/skills/`, not in this index (ADR 0105),
+# so without this the domain word wins and the hook nudges to `release` / `code-review` — the
+# wrong-skill error it is tuned against. The shape: an authoring verb in any inflection, then
+# "a" / "an" / "new", at most two more words, then a component noun ("create a release notes
+# skill", "implementing a new subagent"). The article is what makes it narrow: "make the agent
+# faster", "build coding agents" and "make sure the skills listing fits" name an existing thing.
+# "plugin" is not a noun here: in this plugin's own prompts "build the plugin" is a release step,
+# and a whole new plugin is not skill-factory's job; "add a component to this plugin" still
+# matches on "component".
+# The separator excludes the hyphen. With `\W+` a hyphen fitted both the separator and a
+# `[\w-]+` modifier, so a pasted dash rule after "write a" could be split many ways and the search
+# backtracked super-linearly: 2,000 dashes took 24 s in a hook with a 5 s timeout (ADR 0105
+# review). With `[^\w-]+` every character has one place to go, so the match is linear. The prompt
+# is also capped: an authoring request states itself in its first sentence.
+_SEP = r"[^\w-]+"
+_AUTHORING_VERBS = (
+    r"creat(?:e|es|ed|ing)|scaffold(?:s|ed|ing)?|build(?:s|ing)?|built|add(?:s|ed|ing)?"
+    r"|mak(?:e|es|ing)|made|writ(?:e|es|ing|ten)|wrote|author(?:s|ed|ing)?"
+    rf"|generat(?:e|es|ed|ing)|implement(?:s|ed|ing)?|design(?:s|ed|ing)?|set(?:s|ting)?{_SEP}up"
+)
+_AUTHORING = re.compile(
+    rf"\b(?:{_AUTHORING_VERBS}){_SEP}(?:an?|new){_SEP}(?:[\w-]+{_SEP}){{0,2}}?"
+    r"(?:sub-?agents?|agents?|skills?|components?)\b",
+    re.IGNORECASE,
+)
+_AUTHORING_SCAN_CHARS = 2000
+
+
+def is_authoring_request(prompt: str) -> bool:
+    """True if ``prompt`` asks to create a skill / agent / component (see _AUTHORING)."""
+    return _AUTHORING.search(prompt[:_AUTHORING_SCAN_CHARS]) is not None
 
 
 def _stem(token: str) -> str:
@@ -260,7 +298,10 @@ def suggest(prompt: str, index: Index, *, _exclude: _Doc | None = None) -> Sugge
     Wins require all three: the skill's profile covers at least :data:`MIN_SCORE` of the prompt's
     weighted meaning; the skill's *negative-only* vocabulary does not cover :data:`NEG_VETO` of it
     (the prompt reads like what the skill is explicitly not for); and the skill leads the runner-up
-    by :data:`MARGIN`. Anything less abstains."""
+    by :data:`MARGIN`. Anything less abstains — and so does a request to author a component
+    (:func:`is_authoring_request`), whatever its purpose words would score."""
+    if is_authoring_request(prompt):
+        return None
     feats = frozenset(features(prompt))
     if not feats:
         return None

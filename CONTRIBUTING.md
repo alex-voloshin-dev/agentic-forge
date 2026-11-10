@@ -33,8 +33,10 @@ No component is built before its contract and its eval set exist. Order is alway
 4. **Gate** — pass Tier 0 (and the higher tiers the component declares).
 
 Use the **`skill-factory`** skill to scaffold a component the right way — it refuses to write
-a body before the evals exist. Load the plugin (`claude --plugin-dir plugin`) and describe
-what you want to build.
+a body before the evals exist. It is a maintainer skill of this repository
+(`.claude/skills/skill-factory/`, not shipped — ADR 0105): start a Claude Code session in the
+repo (or a worktree of it) and describe what you want to build; no `--plugin-dir` is needed for
+it. `python dev/validate.py` gates it like a shipped skill, outside the listing budget.
 
 ## The gate (run before every commit)
 

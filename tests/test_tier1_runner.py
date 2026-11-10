@@ -25,9 +25,14 @@ from agentic_forge.tier1_runner import (
     trailing_answer,
 )
 
-PLUGIN = Path(__file__).resolve().parents[1] / "plugin"
+REPO = Path(__file__).resolve().parents[1]
+PLUGIN = REPO / "plugin"
+# The repository's maintainer skills (ADR 0105): not shipped, listed beside the plugin's in a
+# maintainer session, measured by Tier-1 against that listing.
+MAINTAINER_ROOT = REPO / ".claude" / "skills"
+MAINTAINER_SKILLS = {"skill-factory"}
 
-# The nine on-listing router skills (the stack packs + engineering-standards are off-listing).
+# The SHIPPED on-listing router skills (the stack packs + engineering-standards are off-listing).
 ON_LISTING = {
     "research",
     "product",
@@ -36,7 +41,6 @@ ON_LISTING = {
     "develop",
     "code-review",
     "deep-review",
-    "skill-factory",
     "knowledge",
     # Stage 4 — quality & operations
     "qa-test-strategy",
@@ -58,8 +62,21 @@ ON_LISTING = {
 def test_load_listing_is_the_on_listing_skills() -> None:
     names = {c.name for c in load_listing(PLUGIN)}
     assert names == ON_LISTING
-    # off-listing packs must be excluded
+    # off-listing packs must be excluded, and a maintainer skill is not shipped (ADR 0105)
     assert "python-patterns" not in names and "engineering-standards" not in names
+    assert not names & MAINTAINER_SKILLS
+
+
+def test_load_listing_with_the_maintainer_root_is_what_a_maintainer_sees() -> None:
+    cards = load_listing(PLUGIN, [MAINTAINER_ROOT])
+    names = [c.name for c in cards]
+    assert set(names) == ON_LISTING | MAINTAINER_SKILLS
+    assert names == sorted(names)  # sorted in among the plugin's, not appended after them
+    assert all(c.description for c in cards)
+
+
+def test_load_listing_skips_a_missing_extra_root(tmp_path: Path) -> None:
+    assert load_listing(PLUGIN, [tmp_path / "nope"]) == load_listing(PLUGIN)
 
 
 def test_load_listing_descriptions_present() -> None:
@@ -98,7 +115,7 @@ def test_render_and_system_prompt() -> None:
     ],
 )
 def test_parse_selection(reply: str, expected: str) -> None:
-    names = sorted(ON_LISTING)
+    names = sorted(ON_LISTING | MAINTAINER_SKILLS)  # the maintainer's listing
     assert parse_selection(reply, names) == expected
 
 
@@ -235,6 +252,15 @@ def test_load_triggers_covers_the_on_listing_skills() -> None:
     for t in trigs.values():
         assert t.should_trigger and t.should_not_trigger
         assert not t.off_listing
+        assert not t.maintainer
+
+
+def test_load_triggers_with_the_maintainer_root_marks_its_skills() -> None:
+    trigs = {t.name: t for t in load_triggers(PLUGIN, [MAINTAINER_ROOT])}
+    assert set(trigs) == ON_LISTING | MAINTAINER_SKILLS
+    assert {n for n, t in trigs.items() if t.maintainer} == MAINTAINER_SKILLS
+    sf = trigs["skill-factory"]
+    assert sf.should_trigger and sf.should_not_trigger and not sf.off_listing
 
 
 def _oracle(plugin: Path):
@@ -256,6 +282,68 @@ def test_run_tier1_all_pass_with_perfect_router(tmp_path: Path) -> None:
     assert all_passed(reports), [r.summary_line() for r in reports if not r.passed]
 
 
+def _maintainer_oracle():
+    owner = {
+        p: t.name for t in load_triggers(PLUGIN, [MAINTAINER_ROOT]) for p in t.should_trigger
+    }
+    seen: list[str] = []
+
+    def run(system: str, prompt: str, workdir: Path) -> str:
+        seen.append(system)
+        return owner.get(prompt, "none")
+
+    return run, seen
+
+
+def test_run_tier1_with_the_maintainer_root_measures_it_on_the_maintainer_listing(
+    tmp_path: Path,
+) -> None:
+    run, seen = _maintainer_oracle()
+    reports = run_tier1(PLUGIN, run, runs=1, workdir=tmp_path, skill_roots=[MAINTAINER_ROOT])
+    assert {r.skill for r in reports} == ON_LISTING | MAINTAINER_SKILLS
+    assert all_passed(reports), [r.summary_line() for r in reports if not r.passed]
+    # every skill was measured with skill-factory in the listing — the condition the shipped
+    # skills' prompts were calibrated in before ADR 0105 moved it out of the plugin
+    assert seen and all("\n- skill-factory: " in system for system in seen)
+
+
+def test_run_tier1_without_the_root_never_lists_the_maintainer_skill(tmp_path: Path) -> None:
+    run, seen = _maintainer_oracle()
+    run_tier1(PLUGIN, run, skills=["release"], runs=1, workdir=tmp_path)
+    assert seen and not any("skill-factory" in system for system in seen)
+
+
+def test_condition_shows_a_maintainer_skill_bare_and_scores_its_bare_name(tmp_path: Path) -> None:
+    """A project skill is listed by its bare name in a live session; only the plugin's are
+    namespaced. Its bare name is the hit — and, like any `prefix:` spelling (eval audit C5), a
+    namespaced one still names it."""
+    seen: dict[str, str] = {}
+
+    def bare(system: str, prompt: str, workdir: Path) -> str:
+        seen["system"] = system
+        return "skill-factory"
+
+    (report,) = run_tier1(
+        PLUGIN, bare, skills=["skill-factory"], runs=1, workdir=tmp_path,
+        extra_cards=load_extra_listing(BUILTINS), namespace="agentic-forge",
+        skill_roots=[MAINTAINER_ROOT],
+    )
+    assert "\n- skill-factory: " in seen["system"]
+    assert "agentic-forge:skill-factory" not in seen["system"]
+    assert "- agentic-forge:research: " in seen["system"]  # the plugin's stay namespaced
+    assert report.recall == 1.0 and report.bare_collided == 0
+
+    def namespaced(system: str, prompt: str, workdir: Path) -> str:
+        return "agentic-forge:skill-factory"
+
+    (report,) = run_tier1(
+        PLUGIN, namespaced, skills=["skill-factory"], runs=1, workdir=tmp_path,
+        extra_cards=load_extra_listing(BUILTINS), namespace="agentic-forge",
+        skill_roots=[MAINTAINER_ROOT],
+    )
+    assert report.recall == 1.0
+
+
 def test_run_tier1_subset_and_bad_router(tmp_path: Path) -> None:
     def always_none(system: str, prompt: str, workdir: Path) -> str:
         return "none"
@@ -275,6 +363,20 @@ def test_run_tier1_rejects_nonpositive_runs(tmp_path: Path) -> None:
 
 def test_check_wiring_clean_on_real_plugin() -> None:
     assert check_wiring(PLUGIN) == []
+    assert check_wiring(PLUGIN, [MAINTAINER_ROOT]) == []
+
+
+def test_check_wiring_flags_a_missing_root_and_a_name_listed_twice(tmp_path: Path) -> None:
+    missing = tmp_path / "nope"
+    assert check_wiring(PLUGIN, [missing]) == [f"skill root not found: {missing}"]
+    _write_skill(
+        tmp_path / "dup",  # -> <tmp>/dup/skills/research
+        "research",
+        "name: research\ndescription: a namesake",
+        '{"skill_name":"research"}',
+    )
+    problems = check_wiring(PLUGIN, [tmp_path / "dup" / "skills"])
+    assert any(p.startswith("research: listed twice") for p in problems)
 
 
 def _write_skill(root: Path, name: str, frontmatter: str, evals: str) -> None:

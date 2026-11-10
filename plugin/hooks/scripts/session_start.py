@@ -23,9 +23,10 @@ from agentic_forge import diagnostics, observability, settings, vault  # noqa: E
 
 # The measured problem (ADR 0088): a session reaches for the matching skill on ~0.35 of the
 # requests squarely in its domain, and the rate falls the EASIER the task is to just do by hand —
-# `skill-factory` (no by-hand path) fires 1.000, `code-review` / `develop` fire 0.000. A skill's
-# description makes it findable; nothing told the model that finding it is the point. This line
-# does, in the one channel that reaches every session, and its whole cost is these two sentences.
+# `skill-factory` (no by-hand path; a maintainer skill since ADR 0105) fired 1.000, `code-review` /
+# `develop` fired 0.000. A skill's description makes it findable; nothing told the model that
+# finding it is the point. This line does, in the one channel that reaches every session, and its
+# whole cost is these two sentences.
 SKILL_ROUTING_NOTE = (
     "agentic-forge skills are WORKFLOWS, not reference material: each one runs a multi-step "
     "process (fan-out, review gates, handoff artifacts) that doing the task by hand skips. When a "

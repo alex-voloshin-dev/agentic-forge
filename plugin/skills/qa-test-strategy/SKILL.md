@@ -1,6 +1,6 @@
 ---
 name: qa-test-strategy
-description: Plan WHAT TO TEST for a change or feature — the test strategy / QA test plan covering risk areas, test levels (unit / integration / e2e / perf / security), and prioritized test cases — by delegating to the qa-engineer role, and record a test-strategy handoff. Use whenever the ask is about testing — "what's the test strategy", "plan how we should test X", "design a QA test plan", "what should we test, and at which levels". Here "plan" / "design" mean the TEST plan — not breaking work into a task plan (plan) or the technical design (architecture); not writing the tests (develop), reviewing existing code (code-review), or cutting a release (release).
+description: Test strategy for a change or feature — risk areas, test levels (unit, integration, e2e, perf, security) and prioritized test cases, via the qa-engineer role, recorded as a test-strategy handoff. Use whenever the ask is what or how to test — a test strategy, a QA or test plan, which levels to test at. Not a work plan (plan), writing the tests (develop), or reviewing code (code-review).
 allowed-tools: Read, Grep, Glob, Bash, Task, Write, Edit
 ---
 

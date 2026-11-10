@@ -68,7 +68,7 @@ recall/specificity on the live listing — see below); **skill Tier-2** `dev/run
 (see below); **Tier-3** `dev/run_spine_e2e.py`. The spine phase-workflow skills carry no
 skill-level Tier-2 — their quality is exercised end-to-end by the Tier-3 spine E2E plus the agent
 Tier-2 of the roles they fork. Every skill that declares a `tier2_quality` threshold (21 today — incl. `diagnostics-bundle` and `pr-watch`:
-`deep-review`, `skill-factory`, `knowledge`, `engineering-standards`, the nine `*-patterns` packs,
+`deep-review`, `skill-factory` (a maintainer skill — see below), `knowledge`, `engineering-standards`, the nine `*-patterns` packs,
 and the Stage-4–6 own-behavior skills `release`, `deploy-watch`, `incident-response`, `marketing`,
 `ux-design`, `repo-onboarding`) **is run by `run_skill_evals.py`** (ADR 0017) — no longer a manual
 step. (The fork-orchestrators `qa-test-strategy` / `security-review` carry no skill Tier-2 by design;
@@ -88,7 +88,24 @@ per-prompt routing rate** over N samples: recall = the mean rate of selecting th
 (The mean rate replaces the older per-prompt majority-of-N, which flickered around the 50% cliff
 and rubber-stamped barely-majority routing — ADR 0016, metric refined by ADR 0026.)
 It reuses the same transports — `--runner dry|claude|api` (the `claude` router call runs with
-tools disabled and one turn); `dry` verifies the listing/trigger wiring with no auth.
+`--tools ""`, so it has no tools at all, and a small turn cap); `dry` verifies the listing/trigger
+wiring with no auth. `--allowedTools ""` alone is not enough: it grants nothing but removes nothing,
+and a router that kept the `Skill` tool ran the skill it was asked to name, answered in prose, and
+left the prompt unmeasured (ADR 0105).
+
+**Maintainer skills (ADR 0105).** The listing is the one a *maintainer* session sees: the plugin's
+on-listing skills plus the repository's maintainer skills in `.claude/skills/` (today
+`skill-factory`, which does not ship), sorted in by name and shown by their bare name — a project
+skill is never namespaced, so under `--with-builtins` only the plugin's skills get the
+`agentic-forge:` prefix. The maintainer skills' triggers are measured too, and every shipped skill
+is measured with them present, as before the move. `run_tier1_evals.py` includes
+`<repo>/.claude/skills` by default when it exists and prints the split
+(`listing: 16 shipped + 1 maintainer skill(s) ...`); `--skill-root DIR` replaces that root and
+`--no-maintainer-skills` measures the shipped listing alone, which is what a user's session sees.
+The root is read only when the plugin sits in this repository (`validation.maintainer_root`); an
+explicit `--skill-root` that does not exist is an error, here and in `run_skill_evals.py`, and the
+`measuring:` line names the roots and marks an edit in them `+dirty` — each root checked in its own
+repository, and a check that fails (a root outside any repository) shows as `+status-unknown`.
 
 **When recall fails — the remediation playbook
 ([ADR 0029](architecture/decisions/0029-tier1-routing-remediation.md)):** diagnose *per-prompt*,
@@ -113,6 +130,11 @@ runner's core. Two execution modes:
   isolated (it writes code), graded against the skill's own assertions. This is the
   "exercised through the software-engineer's Tier-2" path, now real.
 - **On-listing skills** (`deep-review`, `skill-factory`, `knowledge`) run directly (own body + tools).
+
+A skill is resolved in the plugin first, then in the maintainer root `.claude/skills/`
+(`skill_eval.resolve_skill_dir`, ADR 0105) — so `skill-factory` is discovered and run although it
+does not ship; `--skill-root DIR` replaces that root. Its eval stand stays in
+`plugin/eval/fixtures/skill-factory/`: a contract's `files` resolve against the plugin dir.
 
 Each output is graded by the `grader` role, aggregated, and gated `mean − stddev ≥ 0.8` over the
 contract's `runs`. Same transports (`--runner dry|claude|api`). **It is the most expensive eval**
@@ -246,7 +268,7 @@ that path — the plugin root, `$HOME` (`--home` / `AGENTIC_FORGE_HOME`, ADR 009
 directory (a fresh sandbox, ADR 0090).
 
 **The run says what it measured (ADR 0098).** Every runner prints one provenance line first —
-`measuring: plugin=<root> version=<manifest> git=<sha[+dirty]> model=<m> home=<HOME> python=<v>` —
+`measuring: plugin=<root> version=<manifest> skill_roots=<dirs|none> git=<sha[+dirty][+status-unknown]> model=<m> home=<HOME> python=<v>` —
 and both Tier-2 CLIs store that dict on the benchmark under `provenance`, so a recorded history
 says which tree each number came from. A Tier-2 FAIL prints, under the summary, the assertions
 that failed (`failed N/M: …`, ADR 0096) and then **one failing case in its own words**
@@ -323,7 +345,7 @@ different sizes (ADR 0083):
 | job | when | what | cost |
 |---|---|---|---|
 | `wiring` | every trigger, no credentials | contracts, prompts and fixtures resolve | ~1 min, free |
-| `trigger` | **weekly cron** + dispatch + `eval` label | Tier-1 routing, gated at 0.9 | 17 skills x 5 runs |
+| `trigger` | **weekly cron** + dispatch + `eval` label | Tier-1 routing, gated at 0.9 | 16 shipped + 1 maintainer skill x 5 runs |
 | `quality` | dispatch + `eval` label **only** | Tier-2 (agents + skills) and Tier-3 E2E | ~360 agent sessions + 5 chains |
 
 Tier-1 is the scheduled one because the router listing is at its context ceiling: one description
@@ -337,9 +359,11 @@ are recorded under `tier1-builtins:` and are not the gate. `activation` runs **T
 each on-listing skill's should_trigger prompts through a real `claude -p --plugin-dir` session in a
 fresh fixture repo, scanning for a `Skill` call — the property the field reports are about. Locally:
 `python dev/run_activation_evals.py --runner claude [--ask-why] [--env K=V]`. Gated in CI at
-`--min-activation 0.80` on the rate **pooled over the run's 84 prompts** — not per skill: at 4-9
+`--min-activation 0.80` on the rate **pooled over the run's 80 prompts** (84 until `skill-factory`
+left the plugin: the stand is a fresh repo with `--plugin-dir`, where a maintainer skill does not
+exist, so Tier-1b measures shipped skills only — ADR 0105) — not per skill: at 4-9
 prompts a skill, a per-skill floor either flakes on a healthy plugin or misses a real drop (ADR
-0093). Baseline on the polished stand: 79/84 = 0.940. The per-skill lines and the `--ask-why`
+0093). Baseline on the polished stand: 79/84 = 0.940 (measured with `skill-factory` in the stand). The per-skill lines and the `--ask-why`
 answers are the lens. A session that never got a turn (a usage limit, a crash) is *undetermined*:
 out of the rate, listed with its error, and more than 10% of them fails a gated run as a run; a
 timed-out session keeps its partial transcript and shows as `T` in the progress line; a miss with

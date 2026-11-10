@@ -147,6 +147,7 @@ by-stack step. Prove the slice end to end, record Tier-1/2/3, then add
 9. ~~An automated skill-Tier-2 CLI.~~ Done — `dev/run_skill_evals.py` /
    `lib/agentic_forge/skill_eval.py` (ADR 0017): knowledge skills run as the software-engineer
    with them loaded, deep-review/skill-factory directly; graded + gated like agent Tier-2.
+   (`skill-factory` is resolved from the maintainer root `.claude/skills` since ADR 0105.)
 10. ~~Layer 3 (knowledge base).~~ Done — vault + `knowledge` skill + session-start hook (ADR 0018).
 11. ~~Layer 4 (guardrail hooks).~~ Done (ADR 0019). Remaining optional: with/without-skill delta
     for marginal-lift.

@@ -22,14 +22,17 @@ This file is the project constitution. Every contributor (human or agent) MUST f
    referencing the subagent role by name); hooks are guardrails.
 
 2. **Router discipline.** The skill listing has a hard context budget (~1% of the model
-   window); descriptions of rarely used skills get dropped. So we keep a SMALL set of
+   window), and it is ONE budget shared by every plugin and skill source the user has loaded; over
+   it, Claude Code keeps the names and drops the descriptions of the least-used skills (ADR 0105).
+   So we keep a SMALL set of
    always-on entry/router skills with sharp descriptions, and push depth into `references/`
    (loaded on demand, so it never sits in the listing). Note: `user-invocable: false` does
    *not* save listing budget — it only hides a skill from the user's `/` menu while keeping
    it model-invocable with its description still in the listing; `disable-model-invocation:
    true` is what drops a skill from the listing (manual `/name` only).
-   The on-listing set today is ~2,530 tokens (17 skills) — at/over the ~1% ceiling with no headroom,
-   so **adding an on-listing skill (or growing a description) requires a budget review** —
+   The shipped on-listing set today is 6,910 chars, ~1,730 tokens (16 skills, ADR 0105). Every
+   char of it is taken from the same budget as the user's other plugins, so **adding an on-listing
+   skill (or growing a description) requires a budget review** —
    enforced by Tier-0 since ADR 0095, as a *ratchet*: `validation.LISTING_BUDGET_CHARS` is today's
    size, `dev/validate.py` prints the figure on every run and fails on growth, and raising that
    constant **is** the budget review. To make room: tighten
@@ -47,7 +50,8 @@ This file is the project constitution. Every contributor (human or agent) MUST f
    Numeric thresholds are the definition of done.
 
 4. **The eval pyramid** (ADR 0003)**.**
-   - Tier 0 (static, always blocks): `dev/validate.py` (skills-ref-style validation), frontmatter
+   - Tier 0 (static, always blocks): `dev/validate.py` (skills-ref-style validation of the plugin
+     and of the maintainer skills in `.claude/skills/`, ADR 0105), frontmatter
      lint, body <= 500 lines, references resolve, doc-sync (the meta-core lib table + the ADR index
      match the tree), the always-on listing budget (ADR 0095), `pytest` green, `ruff` + `mypy`
      clean, script coverage >= 80%. (`validate.py`
@@ -77,7 +81,8 @@ This file is the project constitution. Every contributor (human or agent) MUST f
 
 ## Layers
 
-- L0 Meta-core: `skill-factory` + eval-harness + `lib/` + Tier-0 validator. Builds everything else.
+- L0 Meta-core: `skill-factory` (a maintainer skill in `.claude/skills/`, not shipped — ADR 0105) +
+  eval-harness + `lib/` + Tier-0 validator. Builds everything else.
 - L1 Engine: subagent roles + native patterns (router, fan-out/fan-in, multi-aspect/adversarial
   review, review loop, Ralph loop, worktree(-parallel), knowledge-recall, handoff).
 - L2 Workflow skills: a phase-workflow per SDLC phase (fan out → synthesize a handoff artifact), depth via references.
@@ -91,6 +96,7 @@ This file is the project constitution. Every contributor (human or agent) MUST f
 ## Repository layout
 
 ```
+.claude/skills/<name>/{SKILL.md, references/, assets/, evals/evals.json}  # maintainer skills (skill-factory) — NOT shipped (ADR 0105)
 plugin/
   .claude-plugin/plugin.json
   skills/<name>/{SKILL.md, references/, assets/, scripts/, evals/evals.json}

@@ -11,6 +11,10 @@ non-negotiable: **contract -> evals -> implementation -> gate**. Never write a
 component body before its `evals/evals.json` exists. Tier 0 enforces this; do not
 rely on it — lead with it.
 
+This is a maintainer skill of the agentic-forge repository (`.claude/skills/`, ADR 0105):
+it does not ship, and every path below is relative to the repository root. The components
+it builds ship in `plugin/`.
+
 ## When to use
 
 Use this when adding any new component to the plugin: a workflow/router skill, a

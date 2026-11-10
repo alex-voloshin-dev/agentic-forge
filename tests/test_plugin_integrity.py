@@ -8,9 +8,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agentic_forge.validation import validate_plugin
+from agentic_forge.validation import (
+    maintainer_skills_dir,
+    validate_maintainer_skills,
+    validate_plugin,
+)
 
-PLUGIN = Path(__file__).resolve().parents[1] / "plugin"
+REPO = Path(__file__).resolve().parents[1]
+PLUGIN = REPO / "plugin"
 
 SKILL_FACTORY_FILES = [
     "SKILL.md",
@@ -50,10 +55,22 @@ def test_validated_tiers_match_the_agent_set() -> None:
     assert set(models.VALIDATED_TIERS) == stems
 
 
+def test_maintainer_skills_pass_tier0() -> None:
+    report = validate_maintainer_skills(REPO, PLUGIN)
+    assert report.ok, report.render()
+
+
 def test_skill_factory_is_complete() -> None:
-    sf = PLUGIN / "skills" / "skill-factory"
+    sf = maintainer_skills_dir(REPO) / "skill-factory"
     missing = [rel for rel in SKILL_FACTORY_FILES if not (sf / rel).is_file()]
     assert not missing, f"skill-factory missing files: {missing}"
+
+
+def test_skill_factory_is_a_maintainer_skill_and_does_not_ship() -> None:
+    """ADR 0105: it builds THIS repository's components, so it lives in `.claude/skills/` and
+    is in no user's listing."""
+    assert (maintainer_skills_dir(REPO) / "skill-factory" / "SKILL.md").is_file()
+    assert not (PLUGIN / "skills" / "skill-factory").exists()
 
 
 def test_engine_roles_present_and_gated() -> None:

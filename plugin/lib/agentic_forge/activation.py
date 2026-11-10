@@ -17,10 +17,16 @@ the subprocess seam lives in the CLI, like the other tiers.
 The verdict is POOLED (:func:`pooled`): activated over prompts across the whole run, one binomial.
 A skill has 4-9 prompts, and at that n a per-skill floor either flakes on a healthy plugin or misses
 a real drop — at a true 0.93, a per-skill floor of 0.6 fails some skill in one run of seven, and a
-skill really at 0.6 gets flagged about a third of the time. Pooled over 84 prompts the same true
-rate sits four sigma above a 0.80 floor, and the note-off regime (0.571, ADR 0092) fails with
-certainty. The per-skill lines stay as the lens; the gate is one number (ADR 0093).
+skill really at 0.6 gets flagged about a third of the time. Pooled over 80 prompts (84 before ADR
+0105), sigma ≈ 0.029 and a true 0.93 sits 4.6 sigma above the 0.80 floor, and the note-off
+regime (0.571, ADR 0092) fails with certainty. The per-skill lines stay as the lens; the gate is
+one number (ADR 0093).
 ``run_activation`` reports; ``pooled`` gates when a floor is given and measures when none is.
+
+Shipped skills only. The stand loads the plugin into a fresh fixture repo, so a maintainer skill —
+``<repo>/.claude/skills``, which Claude Code loads only for a session in THIS repository (ADR 0105)
+— does not exist there, and ``skill-factory``'s prompts are not part of the pooled rate. Its
+routing is measured by Tier-1, against the listing a maintainer sees.
 """
 
 from __future__ import annotations
@@ -451,7 +457,10 @@ def run_activation(
     (see the CLI). One report per skill, a lens each; the verdict is :func:`pooled` over them
     (ADR 0093) — or no verdict at all, the measurement the first runs were (ADR 0088).
     ``builtins`` are the skill names Claude Code itself owns (the CLI loads them from the fixture
-    ``tier1_runner.load_extra_listing`` reads), so a bare call on one is scored as a collision."""
+    ``tier1_runner.load_extra_listing`` reads), so a bare call on one is scored as a collision.
+
+    The plugin's own skills only, deliberately: ``load_triggers`` is called without extra skill
+    roots, because a maintainer skill is absent from the stand (see the module docstring)."""
     work = workdir or plugin_dir
     triggers = [t for t in load_triggers(plugin_dir) if skills is None or t.name in skills]
     return [

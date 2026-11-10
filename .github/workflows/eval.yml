@@ -95,6 +95,7 @@ jobs:
       # the token — on a fork, or a dispatch from someone who has none. A POSITIVE list of the
       # inputs that mean "the gate" (the cron and the label carry no input): an exclusion list
       # ran the whole suite on the first unknown value once (ADR 0087, the quality job).
+      # The listing is the maintainer's: the plugin's skills plus .claude/skills (ADR 0105).
       - name: Skill Tier-1 trigger (subscription via claude)
         if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' && contains(fromJSON('["", "all", "trigger-only"]'), github.event.inputs.tiers) }}
         run: python dev/run_tier1_evals.py --runner claude --model "$EVAL_MODEL"
@@ -107,7 +108,8 @@ jobs:
 
       # Tier-1b, on demand (ADR 0088/0092): does a live session with the plugin loaded invoke the
       # skill unprompted? Each prompt runs in a fresh fixture repo.
-      # Gated on the rate POOLED over the run's 84 prompts, not per skill: at 4-9 prompts a skill a
+      # Shipped skills only: the stand is a fresh repo, which has no .claude/skills (ADR 0105).
+      # Gated on the rate POOLED over the run's 80 prompts, not per skill: at 4-9 prompts a skill a
       # per-skill floor flakes or misses (ADR 0093). 0.80 sits five sigma under the 0.940 baseline,
       # fails the note-off regime (0.571) with certainty and a drop to 0.75 seven runs in eight.
       - name: Skill Tier-1b activation (pooled gate, on demand)
@@ -162,7 +164,8 @@ jobs:
         run: python dev/run_agent_evals.py --runner claude --model "$EVAL_MODEL"
 
       # Knowledge skills (*-patterns / engineering-standards) run as the software-engineer with
-      # them loaded; deep-review / skill-factory run directly. A full coding session per case x N.
+      # them loaded; deep-review / skill-factory run directly — skill-factory resolved from the
+      # maintainer root .claude/skills (ADR 0105). A full coding session per case x N.
       - name: Skill Tier-2 quality (subscription via claude)
         if: ${{ env.CLAUDE_CODE_OAUTH_TOKEN != '' }}
         run: python dev/run_skill_evals.py --runner claude --model "$EVAL_MODEL"

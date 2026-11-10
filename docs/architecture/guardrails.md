@@ -101,7 +101,10 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
   a lexical classifier over each skill's description and its `evals.json` trigger prompts, no
   model call, a few milliseconds. Abstains unless one skill wins clearly (coverage ≥ 0.40, lead
   ≥ 0.15 over the runner-up, not vetoed by the skill's own anti-triggers); leave-one-out on the
-  plugin's own data: recall 0.488, precision 0.932, wrong-skill 1 (recalibrated in ADR 0092). It **suggests, never
+  plugin's own data: recall 0.463 (37/80), precision 0.974, wrong-skill 1, false-suggest 0/68 over the
+  16 shipped skills (re-measured in ADR 0105; thresholds recalibrated in ADR 0092). A request to author a
+  new skill, agent or component ("create a skill for X", an authoring verb, then "a" / "an" / "new") abstains outright: its owner `skill-factory` is a maintainer skill the
+  shipped index does not hold (ADR 0105). It **suggests, never
   invokes** — the line ends "if the request is really something else, ignore this" — because a
   hook that overrides the prompt is the ADR 0073 failure. **Off by default** (`pre_router.enabled`,
   `AGENTIC_FORGE_PRE_ROUTER=1` to opt in): measured at +0.095 over the session note — inside

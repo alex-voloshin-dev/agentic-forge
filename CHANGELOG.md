@@ -7,6 +7,63 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Changed
+
+- **The skill listing is a third shorter (ADR 0105).** Claude Code keeps one skill listing for every plugin together,
+  by default 1% of the context window. When it is over budget it drops descriptions, the least-used skills first. Ours
+  took 10,257 chars of it. Every on-listing description now leads with what the skill does and keeps only the
+  boundaries the routing eval tests. Synonym lists and repeated "Not for" tails are gone. Skill bodies are unchanged.
+  `deep-review`'s boundary reads "for a quick standard lint of a small diff use code-review", not "a quick lint of a
+  small diff is code-review": the pre-router scores words, not grammar, and the bigram `quick lint` in deep-review's
+  own description sent its own anti-trigger "Quick lint of this one-line change" to deep-review.
+- **The listing budget moved down to the new size (ADR 0105).** `validation.LISTING_BUDGET_CHARS` is 6,910, the
+  measured shipped listing (16 skills), down from 10,400, so the saved space cannot quietly fill again: a longer
+  description or a new on-listing skill now fails Tier-0 until the constant is raised on purpose.
+- **`skill-factory` is a maintainer skill and no longer ships (ADR 0105).** It builds components of agentic-forge
+  itself, and its paths only resolve in this repository, so it moved from `plugin/skills/skill-factory/` to
+  `.claude/skills/skill-factory/`. Claude Code loads a project's `.claude/skills/` for any session started in the
+  repository, worktrees included, so a maintainer still has it, model-invocable, under the bare name `skill-factory`; a
+  user's listing has 16 skills, not 17. Its gate is unchanged except Tier-1b, which no longer measures it (below).
+  Tier-0: `dev/validate.py` runs the same `validate_skill`
+  over `.claude/skills/*` (`validation.validate_maintainer_skills`), plus the inline-Python checks, and fails on a
+  maintainer skill that shares a name with a shipped one; the listing budget counts shipped skills only, and the run
+  prints a `maintainer skills:` line. Tier-1: `dev/run_tier1_evals.py` measures against the listing a maintainer sees,
+  the plugin's on-listing skills plus `.claude/skills` sorted in by bare name (`tier1_runner` `skill_roots`), and says
+  `listing: 16 shipped + 1 maintainer skill(s)`; `--no-maintainer-skills` measures the shipped listing alone, and a
+  `--skill-root` that does not exist is an error, in the Tier-2 runner too. The maintainer root is read only when the
+  plugin sits in this repository (`validation.maintainer_root` keys on `docs/architecture/meta-core.md`), so pointing
+  the tools at another plugin never reads a user's personal `~/.claude/skills`; the `measuring:` provenance line names
+  the skill roots and counts an edit in them as `+dirty`, checking the plugin and each root in its own repository and
+  printing `+status-unknown`, never clean, when a check fails. Tier-2:
+  `skill_eval.resolve_skill_dir` looks in the plugin first, then in the maintainer root, so `skill-factory` is still
+  discovered and run directly. Its eval stand stays in `plugin/eval/fixtures/skill-factory/`, because a contract's
+  `files` resolve against the plugin dir and its cases seed the real `plugin/schemas/evals.schema.json`. Tier-1b drops
+  it on purpose: the activation stand is a fresh repo with `--plugin-dir`, which has no `.claude/skills`, so the pooled
+  stand is 80 prompts, not 84. The pre-router hook ships and reads shipped skills only, so it no longer names
+  `skill-factory`.
+- **The pre-router abstains on a request to build a component (ADR 0105).** With `skill-factory` gone from the shipped
+  index, "create a skill for release notes" went to `release`, "scaffold an agent that reviews diffs for security" to
+  `code-review`: the purpose words won. `pre_router.is_authoring_request` now vetoes an authoring verb in any
+  inflection (create, scaffold, build, add, make, write, author, generate, implement, design, set up), then "a", "an"
+  or "new", at most two more words, then skill, subagent, agent or component: "creating a release notes skill",
+  "implement a new subagent". The article keeps it narrow: "build the plugin and cut a release" still goes to
+  `release`, and "make the agent faster" or "build coding agents" are not vetoed. "plugin" is not one of the nouns,
+  because "build the plugin" is a release step in this plugin's own prompts. No shipped trigger prompt matches, so the
+  leave-one-out self-check over the 16 shipped skills is unchanged by the veto: recall 0.463 (37/80), precision 0.974,
+  wrong-skill 1, false-suggest 0/68. The veto's separators exclude the hyphen and it reads the first 2,000 chars of a
+  prompt, so its time is linear: a first version backtracked on a pasted dash rule (24 s for 2,000 dashes, in a hook
+  with a 5 s timeout), caught in review before release.
+
+### Fixed
+
+- **The Tier-1 router could not be measured on some prompts (ADR 0105).** The router call passed `--allowedTools ""`,
+  which grants nothing but removes nothing, so the router kept Claude Code's default tools, the `Skill` tool among
+  them. On some prompts it ran the skill it was asked to name and answered in prose about an empty directory. That
+  scored "no decision", and a prompt whose five calls all went that way was left out as unmeasured: four prompts in a
+  full run, failing `code-review`, `deep-review` and `deploy-watch`, on the old descriptions and the new alike. The
+  router now also passes `--tools ""`, which takes the tools away. On those prompts: 5 of 12 calls without a decision
+  before, 0 of 12 after.
+
 ## [2026.11.5] - 2026-11-03
 
 ### Security

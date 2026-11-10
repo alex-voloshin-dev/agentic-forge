@@ -1,6 +1,6 @@
 ---
 name: deploy-watch
-description: Read CI/CD pipeline state and monitoring alerts, assess rollout health (healthy / degraded / failing), triage the alerts, and recommend an action — recorded as a deploy-status handoff. Use to check deploy / rollout / pipeline / cluster health or status (k8s — nodes, pods, events), watch a rollout, or assess CI/CD and alerts for an environment. Not for active incident handling (incident-response), cutting a release (release), or implementing a change (develop).
+description: Deploy and cluster health — read CI/CD pipeline state and monitoring alerts, assess a rollout or a k8s cluster (nodes, pods, events) as healthy, degraded or failing, triage the alerts, and recommend an action, recorded as a deploy-status handoff. Use to check deploy, rollout, pipeline or cluster health. Not an active incident (incident-response), cutting a release (release), or fixing code or manifests (develop).
 allowed-tools: Read, Grep, Glob, Bash, Write, Edit
 ---
 

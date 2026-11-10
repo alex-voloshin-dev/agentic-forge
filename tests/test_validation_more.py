@@ -5,19 +5,25 @@ from pathlib import Path
 
 from agentic_forge.validation import (
     LISTING_BUDGET_CHARS,
+    REPO_MARKER,
     Issue,
     Report,
     budget_line,
     listing_budget,
+    maintainer_root,
+    maintainer_skill_dirs,
+    maintainer_skills_dir,
     validate_agent,
     validate_listing_budget,
+    validate_maintainer_skills,
     validate_manifest,
     validate_plugin,
     validate_python_compat,
     validate_skill,
 )
 
-PLUGIN = Path(__file__).resolve().parents[1] / "plugin"
+REPO = Path(__file__).resolve().parents[1]
+PLUGIN = REPO / "plugin"
 
 AGENT_EVALS = {
     "skill_name": "foo",
@@ -287,8 +293,119 @@ def test_the_shipped_listing_is_within_its_recorded_budget() -> None:
     """The ratchet's own self-test: this is the number CLAUDE.md carried by hand for two years."""
     total, rows = listing_budget(PLUGIN)
     assert 0 < total <= LISTING_BUDGET_CHARS, f"{total} chars over {LISTING_BUDGET_CHARS}"
-    assert len(rows) == 17  # the on-listing set; growing it is a deliberate budget review
+    # the on-listing set; growing it is a deliberate budget review. 16 since skill-factory became
+    # a maintainer skill (ADR 0105).
+    assert len(rows) == 16
     assert validate_plugin(PLUGIN).ok
+
+
+def test_the_budget_counts_shipped_skills_only() -> None:
+    """A maintainer skill is in no user's listing, so it costs no listing budget (ADR 0105)."""
+    _, rows = listing_budget(PLUGIN)
+    names = {name for name, _ in rows}
+    maintainer = {p.name for p in maintainer_skill_dirs(REPO)}
+    assert maintainer == {"skill-factory"}
+    assert not names & maintainer
+    assert "skill-factory" not in budget_line(PLUGIN)
+
+
+# --- maintainer skills (ADR 0105) ---------------------------------------------------------
+
+
+def _maintainer_repo(tmp_path: Path, name: str, body: str, *, evals: dict | None) -> Path:
+    (tmp_path / REPO_MARKER).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / REPO_MARKER).write_text("# meta-core\n", encoding="utf-8")
+    plugin = tmp_path / "plugin"
+    (plugin / "schemas").mkdir(parents=True)
+    (plugin / "schemas" / "s.json").write_text("{}", encoding="utf-8")
+    skill = maintainer_skills_dir(tmp_path) / name
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: builds this repo\n---\n{body}\n", encoding="utf-8"
+    )
+    if evals is not None:
+        (skill / "evals").mkdir()
+        (skill / "evals" / "evals.json").write_text(json.dumps(evals), encoding="utf-8")
+    return plugin
+
+
+def _skill_evals(name: str, files: list[str]) -> dict:
+    return {
+        "skill_name": name,
+        "evals": [{"id": 1, "prompt": "p", "assertions": ["a"], "files": files}],
+        "component": {"id": name, "type": "skill", "purpose": "p"},
+        "thresholds": {"tier1_trigger": {"recall": 0.9, "specificity": 0.9}},
+    }
+
+
+def test_maintainer_skill_dirs_is_empty_without_the_root(tmp_path: Path) -> None:
+    assert maintainer_skill_dirs(tmp_path) == []
+    assert validate_maintainer_skills(tmp_path, tmp_path / "plugin").ok
+
+
+def test_maintainer_root_needs_this_repository(tmp_path: Path) -> None:
+    """A `.claude/skills` next to some other plugin is a user's personal skills dir, not ours."""
+    (maintainer_skills_dir(tmp_path) / "mine").mkdir(parents=True)
+    assert maintainer_root(tmp_path) is None and maintainer_skill_dirs(tmp_path) == []
+    (tmp_path / REPO_MARKER).parent.mkdir(parents=True)
+    (tmp_path / REPO_MARKER).write_text("# m\n", encoding="utf-8")
+    assert maintainer_root(tmp_path) == maintainer_skills_dir(tmp_path)
+    assert maintainer_root(REPO) == REPO / ".claude" / "skills"
+
+
+def test_a_valid_maintainer_skill_resolves_its_fixtures_in_the_plugin(tmp_path: Path) -> None:
+    plugin = _maintainer_repo(
+        tmp_path, "maint", "Body", evals=_skill_evals("maint", ["schemas/s.json"])
+    )
+    report = validate_maintainer_skills(tmp_path, plugin)
+    assert report.ok, report.render()
+    # …and the same contract checked as if it sat in the plugin would miss its fixture
+    assert not validate_skill(maintainer_skills_dir(tmp_path) / "maint").ok
+
+
+def test_a_broken_maintainer_skill_fails_tier0_at_a_repo_relative_location(tmp_path: Path) -> None:
+    plugin = _maintainer_repo(
+        tmp_path, "maint", "See [x](references/x.md).\n" + "line\n" * 500, evals=None
+    )
+    report = validate_maintainer_skills(tmp_path, plugin)
+    assert not report.ok
+    locations = {i.location for i in report.errors}
+    assert ".claude/skills/maint/SKILL.md" in locations
+    assert ".claude/skills/maint/evals/evals.json" in locations
+    messages = " ".join(i.message for i in report.errors)
+    assert "referenced file does not exist: references/x.md" in messages
+    assert "body is" in messages and "missing required eval contract" in messages
+
+
+def test_a_maintainer_skill_missing_its_fixture_fails(tmp_path: Path) -> None:
+    plugin = _maintainer_repo(
+        tmp_path, "maint", "Body", evals=_skill_evals("maint", ["eval/fixtures/gone.txt"])
+    )
+    (issue,) = validate_maintainer_skills(tmp_path, plugin).errors
+    assert "missing fixture file eval/fixtures/gone.txt" in issue.message
+
+
+def test_a_maintainer_skill_may_not_run_inline_python(tmp_path: Path) -> None:
+    plugin = _maintainer_repo(
+        tmp_path, "maint", "Run `python3 -c 'import os'`.", evals=_skill_evals("maint", [])
+    )
+    (issue,) = validate_maintainer_skills(tmp_path, plugin).errors
+    assert issue.location == ".claude/skills/maint/SKILL.md:5"
+    assert "inline Python" in issue.message
+
+
+def test_a_maintainer_skill_may_not_shadow_a_shipped_one(tmp_path: Path) -> None:
+    plugin = _maintainer_repo(tmp_path, "plan", "Body", evals=_skill_evals("plan", []))
+    (plugin / "skills" / "plan").mkdir(parents=True)
+    (issue,) = validate_maintainer_skills(tmp_path, plugin).errors
+    assert issue.location == ".claude/skills/plan/SKILL.md"
+    assert "shares its name with a shipped skill" in issue.message
+
+
+def test_the_real_maintainer_skills_pass_and_validate_plugin_ignores_them() -> None:
+    assert validate_maintainer_skills(REPO, PLUGIN).ok
+    report = validate_plugin(PLUGIN)  # a standalone-plugin check: no .claude/ location in it
+    assert not [i for i in report.issues if i.location.startswith(".claude/")]
 
 
 def test_budget_line_is_printed_pass_or_fail() -> None:

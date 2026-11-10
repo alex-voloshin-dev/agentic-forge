@@ -1,6 +1,6 @@
 ---
 name: incident-response
-description: Triage and drive an incident — classify severity (sev1-4), capture impact and timeline, coordinate mitigation, and draft a postmortem — recorded as an incident handoff. Use to start incident response, triage or classify an incident / outage / production issue, coordinate mitigation, or write a postmortem. Not for routine deploy / rollout monitoring (deploy-watch), cutting a release (release), or implementing a feature (develop).
+description: Drive a production incident — classify severity (sev1-4), capture impact and timeline, coordinate mitigation, and draft a postmortem, recorded as an incident handoff. Use for an outage or production issue, to triage or classify an incident, coordinate the response, or write a postmortem. Not routine deploy health checks (deploy-watch) or cutting a release (release).
 allowed-tools: Read, Grep, Glob, Bash, Task, Write, Edit
 ---
 

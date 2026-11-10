@@ -5,6 +5,9 @@ Usage:
     python dev/validate.py            # validate ./plugin
     python dev/validate.py <path>     # validate a specific plugin directory
 
+Beside the plugin, it validates the repository's maintainer skills, ``<plugin>/../.claude/skills/*``
+(ADR 0105), with the same per-skill checks; they are not counted in the listing budget.
+
 Exit code 0 if there are no errors, 1 otherwise. Warnings never fail the gate.
 """
 
@@ -29,10 +32,21 @@ def main(argv: list[str]) -> int:
     # Doc-sync checks need the repo root (docs/ lives a level above plugin/). Run them when the
     # plugin sits in a repo with the docs tree — skipped when validating a standalone plugin dir.
     repo_root = plugin_dir.parent
-    if (repo_root / "docs" / "architecture" / "meta-core.md").is_file():
+    if (repo_root / validation.REPO_MARKER).is_file():
         report.extend(validate_docs(repo_root))
+    # Maintainer skills (`<repo>/.claude/skills/*`, ADR 0105) do not ship, so they are outside
+    # validate_plugin and outside the listing budget — but they are gated like any skill. Only in
+    # this repository (validation.maintainer_root): never a user's personal ~/.claude/skills.
+    maintainer = validation.maintainer_skill_dirs(repo_root)
+    report.extend(validation.validate_maintainer_skills(repo_root, plugin_dir))
     print(report.render())
     print(validation.budget_line(plugin_dir))  # printed pass or fail: a measured guard is visible
+    if maintainer:
+        names = ", ".join(p.name for p in maintainer)
+        print(
+            f"maintainer skills: {len(maintainer)} validated, not shipped, not in the budget "
+            f"({names})"
+        )
     return 0 if report.ok else 1
 
 

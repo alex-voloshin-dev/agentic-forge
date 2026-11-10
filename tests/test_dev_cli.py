@@ -39,6 +39,67 @@ def test_validate_cli_missing_dir() -> None:
     assert validate_cli.main(["validate", "/no/such/plugin/dir"]) == 1
 
 
+def test_validate_cli_validates_maintainer_skills_outside_the_budget(capsys) -> None:
+    assert validate_cli.main(["validate"]) == 0
+    out = capsys.readouterr().out
+    assert "maintainer skills: 1 validated, not shipped, not in the budget (skill-factory)" in out
+    assert "16 on-listing skills)" in out  # the budget counts the shipped listing only
+
+
+def _repo_with_maintainer_skill(
+    tmp_path: Path, skill_md: str, evals: str | None, *, marker: bool = True
+) -> Path:
+    if marker:  # what makes tmp_path "this repository" (validation.REPO_MARKER)
+        (tmp_path / "docs" / "architecture").mkdir(parents=True)
+        (tmp_path / "docs" / "architecture" / "meta-core.md").write_text("# m\n", encoding="utf-8")
+    plugin = tmp_path / "plugin"
+    (plugin / ".claude-plugin").mkdir(parents=True)
+    (plugin / ".claude-plugin" / "plugin.json").write_text(
+        '{"name": "p", "version": "1"}', encoding="utf-8"
+    )
+    skill = tmp_path / ".claude" / "skills" / "maint"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text(skill_md, encoding="utf-8")
+    if evals is not None:
+        (skill / "evals").mkdir()
+        (skill / "evals" / "evals.json").write_text(evals, encoding="utf-8")
+    return plugin
+
+
+def test_validate_cli_fails_on_a_broken_maintainer_skill(tmp_path: Path, capsys) -> None:
+    plugin = _repo_with_maintainer_skill(
+        tmp_path, "---\nname: maint\ndescription: d\n---\nSee [x](references/x.md)\n", None
+    )
+    assert validate_cli.main(["validate", str(plugin)]) == 1
+    out = capsys.readouterr().out
+    assert ".claude/skills/maint/SKILL.md: referenced file does not exist" in out
+    assert ".claude/skills/maint/evals/evals.json: missing required eval contract" in out
+    assert "0 on-listing skills)" in out  # never counted in the shipped budget
+
+
+def test_validate_cli_never_reads_a_personal_claude_skills_dir(tmp_path: Path, capsys) -> None:
+    """`dev/validate.py ~/some-plugin` must not validate the user's own ~/.claude/skills: without
+    this repo's marker there are no maintainer skills."""
+    plugin = _repo_with_maintainer_skill(
+        tmp_path, "---\nname: maint\ndescription: d\n---\nSee [x](references/x.md)\n", None,
+        marker=False,
+    )
+    assert validate_cli.main(["validate", str(plugin)]) == 0
+    assert "maintainer skills:" not in capsys.readouterr().out
+
+
+def test_validate_cli_passes_a_standalone_plugin_without_maintainer_skills(
+    tmp_path: Path, capsys
+) -> None:
+    plugin = tmp_path / "plugin"
+    (plugin / ".claude-plugin").mkdir(parents=True)
+    (plugin / ".claude-plugin" / "plugin.json").write_text(
+        '{"name": "p", "version": "1"}', encoding="utf-8"
+    )
+    assert validate_cli.main(["validate", str(plugin)]) == 0  # no .claude/skills beside it
+    assert "maintainer skills:" not in capsys.readouterr().out
+
+
 def test_run_agent_evals_dry_ok() -> None:
     assert run_agent_evals.main(["run", "--runner", "dry"]) == 0
 
@@ -47,19 +108,70 @@ def test_run_spine_e2e_dry_ok() -> None:
     assert run_spine_e2e.main(["run", "--runner", "dry"]) == 0
 
 
-def test_run_tier1_evals_dry_ok() -> None:
-    # The real plugin's live listing + triggers are well-formed.
+def test_run_tier1_evals_dry_ok(capsys) -> None:
+    # The real plugin's live listing + triggers are well-formed — with the maintainer skills,
+    # which are included by default (ADR 0105).
     assert run_tier1_evals.main(["run", "--runner", "dry"]) == 0
+    root = _REPO / ".claude" / "skills"
+    assert f"listing: 16 shipped + 1 maintainer skill(s) (extra roots: {root})" in (
+        capsys.readouterr().out
+    )
 
 
-def test_run_skill_evals_dry_ok() -> None:
-    # Every tier2 skill (packs + engineering-standards + deep-review/skill-factory) is wired.
+def test_run_tier1_evals_dry_shipped_only(capsys) -> None:
+    assert run_tier1_evals.main(["run", "--runner", "dry", "--no-maintainer-skills"]) == 0
+    assert "listing: 16 shipped + 0 maintainer skill(s) (extra roots: none)" in (
+        capsys.readouterr().out
+    )
+
+
+def test_run_tier1_evals_rejects_a_missing_skill_root(tmp_path: Path, capsys) -> None:
+    missing = tmp_path / "nope"
+    assert run_tier1_evals.main(["run", "--runner", "dry", "--skill-root", str(missing)]) == 1
+    assert f"error: skill root not found: {missing}" in capsys.readouterr().err
+
+
+def test_resolve_skill_roots_default_override_and_marker(tmp_path: Path) -> None:
+    plugin = tmp_path / "plugin"
+    plugin.mkdir()
+    resolve = _eval_cli.resolve_skill_roots
+    (tmp_path / ".claude" / "skills").mkdir(parents=True)
+    assert resolve(plugin, None) == []  # .claude/skills, but not this repository: not ours
+    (tmp_path / "docs" / "architecture").mkdir(parents=True)
+    (tmp_path / "docs" / "architecture" / "meta-core.md").write_text("# m\n", encoding="utf-8")
+    assert resolve(plugin, None) == [tmp_path / ".claude" / "skills"]
+    assert resolve(plugin, [tmp_path]) == [tmp_path.resolve()]
+    assert resolve(plugin, [tmp_path], include=False) == []
+    with pytest.raises(ValueError, match="skill root not found"):
+        resolve(plugin, [tmp_path / "nope"])
+
+
+def test_run_skill_evals_dry_ok(capsys) -> None:
+    # Every tier2 skill (packs + engineering-standards + deep-review/skill-factory) is wired;
+    # skill-factory is found in the maintainer root by default (ADR 0105).
     assert run_skill_evals.main(["run", "--runner", "dry"]) == 0
+    assert "skill-factory: ready" in capsys.readouterr().out
+
+
+def test_run_skill_evals_skill_root_overrides_the_default(tmp_path: Path, capsys) -> None:
+    assert run_skill_evals.main(["run", "--runner", "dry", "--skill-root", str(tmp_path)]) == 0
+    assert "skill-factory" not in capsys.readouterr().out
+    assert _eval_cli.resolve_skill_roots(_REPO / "plugin", None) == [_REPO / ".claude" / "skills"]
+
+
+def test_run_skill_evals_rejects_a_missing_skill_root(tmp_path: Path, capsys) -> None:
+    """A typo'd --skill-root used to replace the default and be skipped: skill-factory then
+    silently dropped out of the run."""
+    missing = tmp_path / "nope"
+    assert run_skill_evals.main(["run", "--runner", "dry", "--skill-root", str(missing)]) == 1
+    assert f"error: skill root not found: {missing}" in capsys.readouterr().err
 
 
 def test_run_skill_evals_empty_discovery_returns_1(monkeypatch: pytest.MonkeyPatch) -> None:
     # nothing to evaluate must NOT be a vacuous exit 0 (a rename emptying discovery would hide it).
-    monkeypatch.setattr(run_skill_evals.skill_eval, "discover_skills_with_tier2", lambda d: [])
+    monkeypatch.setattr(
+        run_skill_evals.skill_eval, "discover_skills_with_tier2", lambda d, roots=(): []
+    )
     assert run_skill_evals.main(["run", "--runner", "dry"]) == 1
 
 
@@ -77,6 +189,31 @@ def test_build_runners_unknown_raises() -> None:
 def test_tier1_build_router_unknown_raises() -> None:
     with pytest.raises(ValueError, match="unknown runner"):
         run_tier1_evals._build_router("bogus", "m")
+
+
+def test_tier1_router_removes_every_tool(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`--allowedTools ""` only grants nothing; it removes nothing. A router that kept the default
+    tools ran the `Skill` it was asked to name and answered in prose, leaving prompts unmeasured
+    (ADR 0105). `--tools ""` is the flag that takes the tools away."""
+    import subprocess
+
+    captured: dict = {}
+
+    class _Done:
+        returncode = 0
+        stdout = '{"result": "research", "subtype": "success"}'
+        stderr = ""
+
+    def fake_run(cmd: list[str], **kw: object) -> _Done:
+        captured["cmd"] = cmd
+        return _Done()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    run_tier1_evals._build_router("claude", "m")("SYS", "P", _REPO)
+    cmd = captured["cmd"]
+    assert cmd[cmd.index("--tools") + 1] == ""
+    assert "--strict-mcp-config" in cmd  # and no MCP server tools either
+    assert "--system-prompt" in cmd  # still a classifier, not an agent (ADR 0064)
 
 
 def test_skill_build_runners_unknown_raises() -> None:
