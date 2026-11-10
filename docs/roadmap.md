@@ -40,6 +40,13 @@ schema, and the `skill-factory` meta-skill, with CI. See
 Exit criteria (met): `validate` clean, `pytest`/`ruff`/`mypy` green, `skill-factory` passes
 its own Tier-0, plugin-integrity test in place.
 
+**Update (ADR 0105):** `skill-factory` no longer ships. It builds components of *this*
+repository, so it moved from `plugin/skills/` to the repo's `.claude/skills/` as a maintainer
+skill — loaded for any session in the repo, absent from every user's listing — and keeps its full
+gate: Tier-0 (`validate_maintainer_skills`), Tier-1 against the plugin's listing plus the
+maintainer skills, Tier-2 resolved after the plugin. Tier-1b drops it (the activation stand has no
+`.claude/skills`), so the pooled stand is 80 prompts, not 84.
+
 ---
 
 ## Stage 1 — Engine foundations (minimal)

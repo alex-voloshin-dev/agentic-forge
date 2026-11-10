@@ -16,15 +16,17 @@ meta-core is built bottom-up and deterministically:
    (skill-creator), so our logic is unit-tested with plain data.
 3. **Contract schema** — `evals.json` superset; the readiness definition.
 4. **`skill-factory`** — the only component whose evals are hand-written (the bootstrap
-   exception). It is then dogfooded by using it to produce gate-passing components.
+   exception). It is then dogfooded by using it to produce gate-passing components. It is a
+   **maintainer skill**: it lives in this repository's `.claude/skills/`, not in the plugin, and
+   does not ship (ADR 0105).
 
 ## Repository layout (built)
 
 ```
+.claude/skills/skill-factory/         # the meta-skill (L0 deliverable) — a maintainer skill, NOT shipped (ADR 0105)
+  SKILL.md  references/  assets/  evals/evals.json
 plugin/
   .claude-plugin/plugin.json          # plugin manifest
-  skills/skill-factory/               # the meta-skill (L0 deliverable)
-    SKILL.md  references/  assets/  evals/evals.json
   lib/agentic_forge/                  # shared, importable, tested
     naming.py frontmatter.py evals.py validation.py benchmark.py gate.py
     handoff.py agent_eval.py          # L1/eval-harness additions
@@ -45,7 +47,7 @@ plugin/
     external_review.py pr_watch.py pr_hook.py   # external-reviewer seam (ADR 0042) + PR-watcher core (ADR 0044/0045/0063)
     ralph.py                          # bounded autonomous Ralph-loop core (ADR 0048)
   schemas/{evals,config}.schema.json  # the component contract schema (superset) + the config schema
-  eval/{README.md, fixtures/}         # harness architecture + agent eval fixtures (L1)
+  eval/{README.md, fixtures/}         # harness architecture + eval fixtures (incl. skill-factory's stand, fixtures/skill-factory/)
   hooks/{hooks.json, scripts/*.py}    # L3 session-start + L4 guardrail hooks (ADR 0018/0019)
 dev/{validate.py, run_agent_evals.py, run_skill_evals.py, run_tier1_evals.py, run_activation_evals.py, run_spine_e2e.py, hook_smoke.py, audit_digest.py, diagnostics_digest.py, ralph.py, sync_models.py}  # maintainer + eval CLIs — NOT shipped
 plugin/bin/{af.py, run_scheduled.py, pr_watch.py, external_review.py, state_migrate.py}  # runtime CLIs that DO ship to users (ADR 0072); af.py is what skills run (ADR 0104)
@@ -61,17 +63,17 @@ pyproject.toml                        # uv / pytest / ruff / mypy config
 | `naming.py` | Validate skill names against the standard (1–64 chars, `a-z0-9-`, no leading/trailing/doubled hyphen, matches directory). |
 | `frontmatter.py` | Parse YAML frontmatter into `(mapping, body)`; raise on missing/malformed blocks. |
 | `evals.py` | Load `evals.json` and validate it against `schemas/evals.schema.json` (Draft-07). `fixture_dest` maps a `files` entry to its sandbox path: basename, or the path below a `tree/` segment (ADR 0094). |
-| `validation.py` | Tier-0 checks for skills, agents, and the manifest; aggregate into a `Report`. `listing_budget`/`validate_listing_budget` measure the always-on listing (`- agentic-forge:<name>: <description>` per model-invocable skill) against `LISTING_BUDGET_CHARS` — a ratchet on growth, printed on every run, raised deliberately (ADR 0095). |
+| `validation.py` | Tier-0 checks for skills, agents, and the manifest; aggregate into a `Report`. `listing_budget`/`validate_listing_budget` measure the always-on listing (`- agentic-forge:<name>: <description>` per model-invocable skill) against `LISTING_BUDGET_CHARS` — a ratchet on growth, printed on every run, raised deliberately (ADR 0095). `validate_maintainer_skills` runs the same `validate_skill` (plus the inline-Python checks and a no-namesake rule) over the repo's `.claude/skills/*`, resolving their eval `files` in the plugin; they are not in the budget (ADR 0105). |
 | `benchmark.py` | Aggregate per-run `grading.json` pass rates into a `benchmark.json` shape (mean/stddev/n, delta). `passed_value` reads the grader's `passed` in its spellings (`true`/`"pass"`/`"passed"`); the `sessions` block counts undetermined/ungraded runs (ADR 0094). |
 | `gate.py` | Apply thresholds: `trigger_metrics`, `tier1_trigger`, `tier2_quality`, `evaluate`. Pure functions. `MAX_UNDETERMINED` (0.10): the share of sessions that never ran above which a gated run fails as a run, in every tier (ADR 0093/0094); `tier1_trigger` honours an optional contract `runs` floor. `tier2_evidence_lines` prints the failing assertions and one failing case's own words (ADR 0096/0098). |
 | `handoff.py` | Load + validate SDLC handoff artifacts (Markdown + frontmatter) against per-type header schemas (L1). |
 | `agent_eval.py` | Tier-2 quality runner for subagent roles, over a pluggable model seam (eval-harness; see ADR 0011); its `run_eval_cases` core is shared with the skill Tier-2 runner. `session_outcome` reads the `claude -p` envelope; `SessionUndetermined`/`TurnCapHit`/`SessionTimedOut` are raised at once (no retry for an answer, one for a timeout, backoff only for transport); an unparseable grading is *ungraded*, never a zero (ADR 0094). `sessions.failed_sample` keeps the first assertion-failing case's reply (run, case, 600 chars) so a FAIL says why without a re-run (ADR 0098). |
 | `spine_e2e.py` | Tier-3 end-to-end runner — a `Scenario` registry (the SDLC `spine` + the `quality-gate` / `ops-incident` / `product-inception` / `market-brief` domain scenarios) carried through their phases on an isolated fixture copy, with deterministic per-phase checkpoints (L2; ADR 0030). The fixture's test suite is bounded (`TEST_TIMEOUT`, a named failed checkpoint on expiry); an undetermined phase fails a named checkpoint and later phases still run (ADR 0094). |
 | `stacks.py` | Deterministic stack detection for target repos: `detect`/`primary` from hints/manifests plus the toolchain registry the spine's `develop`/`code-review` consume (by-stack; ADR 0015). `pack_path`/`pack_paths` resolve a pack to `skills/<pack>/SKILL.md`: off-listing packs are reached by `Read`, never by name (ADR 0094). |
-| `tier1_runner.py` | Tier-1 trigger runner on the **live** skill listing: classify each on-listing skill's trigger prompts via the router, gate recall/specificity (ADR 0016). An off-format reply is `INVALID` — dropped from the denominator and reported, never mined for a skill name; an all-invalid prompt is `unmeasured` and fails (ADR 0064). Gates on the pooled never-ran share (`MAX_UNDETERMINED`; the router's own non-answers are reported, not capped) instead of a per-prompt half-rule; a namespaced spelling of our skill is ours; `n=` on every line (ADR 0094). |
+| `tier1_runner.py` | Tier-1 trigger runner on the **live** skill listing: classify each on-listing skill's trigger prompts via the router, gate recall/specificity (ADR 0016). `skill_roots` adds extra skills dirs — the maintainer skills in `.claude/skills` — to the listing (bare names, sorted in) and to the skills measured (ADR 0105). An off-format reply is `INVALID` — dropped from the denominator and reported, never mined for a skill name; an all-invalid prompt is `unmeasured` and fails (ADR 0064). Gates on the pooled never-ran share (`MAX_UNDETERMINED`; the router's own non-answers are reported, not capped) instead of a per-prompt half-rule; a namespaced spelling of our skill is ours; `n=` on every line (ADR 0094). |
 | `activation.py` | **Tier-1b** activation runner (ADR 0088): run each skill's should_trigger prompts through a REAL Claude Code session with the plugin loaded and scan the transcript for a `Skill` tool call naming that skill — the fraction that fire unprompted, where Tier-1 only measures the router answering when asked. Gated on the rate **pooled** over the run (`pooled()`, `--min-activation 0.80` in CI — ADR 0093); the per-skill lines are a lens, since at 4-9 prompts a skill they cannot be a gate. A measurement when no floor is given. |
-| `pre_router.py` | Deterministic pre-router (ADR 0089): on each prompt, IDF-weighted coverage of the prompt by each skill's profile (description ∪ trigger prompts, minus other skills' trigger vocabulary — the contrastive-clause leak) names the clearly-matching skill in `additionalContext`. Abstains on ambiguity; `self_check` is the leave-one-out calibration (recall 0.488 / precision 0.932 / wrong-skill 1, recalibrated in ADR 0092 at 0.40 / 0.15). Suggests only, never invokes. |
-| `skill_eval.py` | Skill Tier-2 quality runner: knowledge skills run as the `software-engineer` with them loaded, others directly; reuses `agent_eval.run_eval_cases` (ADR 0017). |
+| `pre_router.py` | Deterministic pre-router (ADR 0089): on each prompt, IDF-weighted coverage of the prompt by each skill's profile (description ∪ trigger prompts, minus other skills' trigger vocabulary — the contrastive-clause leak) names the clearly-matching skill in `additionalContext`. Abstains on ambiguity; `self_check` is the leave-one-out calibration (thresholds 0.40 / 0.15, ADR 0089/0092; re-measured in ADR 0105 over the 80 trigger + 68 anti-trigger prompts of the 16 shipped skills: recall 0.463 (37/80) / precision 0.974 / wrong-skill 1 / false-suggest 0/68). A request to author a new skill, agent or component (an authoring verb, then "a" / "an" / "new" and the noun) abstains (`is_authoring_request`): its owner `skill-factory` is a maintainer skill, not in the index (ADR 0105). Suggests only, never invokes. |
+| `skill_eval.py` | Skill Tier-2 quality runner: knowledge skills run as the `software-engineer` with them loaded, others directly; reuses `agent_eval.run_eval_cases` (ADR 0017). `resolve_skill_dir` finds a skill in the plugin first, then in the extra `skill_roots` (the maintainer skills, ADR 0105). |
 | `vault.py` | L3 knowledge-vault core: parse/resolve `[[wikilinks]]`, load + validate the note graph, scaffold, add+link notes, rank recall candidates, build the session-start summary (ADR 0018). Writes go through `state_io` with the vault as anchor, so a linked note or MOC raises `StateWriteRefused`, and a linked or undecodable file is skipped when reading. A vault directory that resolves outside the repo (the nearest directory up holding a `.git` entry) is refused for writes and reads as empty, unless the user-level `knowledge.allow_external_vault` says otherwise; `outside_repo_notice` is the line session start prints then (ADR 0102). |
 | `guardrails.py` | L4 guardrail logic: dangerous-command deny-list, test-gate command choice, secret redaction + audit record, subagent-budget counter (ADR 0019). |
 | `gate_scope.py` | L4 commit-gate narrowing (ADR 0101): a strict matcher for simple `git add`/`commit`/`push` commands, git reads of what they change, and `narrow`, which leaves `choose_gate`'s gate as it is, skips it, or gives ruff the changed files. Anything uncertain leaves it as it is. |
@@ -164,6 +166,21 @@ contracts, so Tier-0 enforces "evals exist and are well-formed" before any body 
 
 ## `skill-factory` (the meta-skill)
 
+A **maintainer skill** (ADR 0105): it lives at `.claude/skills/skill-factory/` in this
+repository and does not ship. Claude Code loads a project's `.claude/skills/` for every session
+whose working directory is the repository (worktrees included), so a maintainer has it,
+model-invocable, under the bare name `skill-factory`; a user's project never sees it — its
+paths (`plugin/skills/<name>/`, `plugin/agents/`, `plugin/schemas/`) only resolve here, and its
+description no longer takes a share of the listing budget common to every plugin. Its gate is
+unchanged: Tier-0 validates it (`dev/validate.py` → `validate_maintainer_skills`, not counted in
+the budget); Tier-1 measures it against the listing a maintainer sees, the plugin's on-listing
+skills plus the maintainer skills (`dev/run_tier1_evals.py` includes `.claude/skills` by
+default); Tier-2 resolves it after the plugin and runs it directly. Its eval stand stays at
+`plugin/eval/fixtures/skill-factory/`, because a contract's `files` resolve against the plugin
+and its cases seed the real `plugin/schemas/evals.schema.json` beside the stand. Tier-1b does not
+measure it: the activation stand loads the plugin into a fresh repo, where the skill does not
+exist.
+
 A router-pattern skill: a lean `SKILL.md` (well under the 500-line cap) plus references per component type
 (`skill.md`, `agent.md`, `script.md`) and the `eval-loop.md` guide, with templates in
 `assets/`. It encodes the standing process — **contract → evals → implementation → gate** —
@@ -173,8 +190,8 @@ skills, subagents, and Python scripts.
 Its own `evals/evals.json` is hand-written (the bootstrap exception — every other component
 gets its evals via `skill-factory`). It declares the standard Tier-1/Tier-2 thresholds and
 is gated like any skill once the skill-creator loop is run against it; today it is enforced
-at Tier 0, and the plugin-integrity test dogfoods that the whole plugin passes its own
-Tier-0 gate.
+at Tier 0, and the plugin-integrity test dogfoods that the whole plugin — and the maintainer
+skills — pass their own Tier-0 gate.
 
 ## CI
 
@@ -195,8 +212,9 @@ Tier-0 gate.
 
 ## How to extend
 
-Use `skill-factory`: load the plugin in a Claude Code session (`claude --plugin-dir
-plugin`), then describe the component — `skill-factory` auto-loads and writes the contract
-and evals first, before you implement and run the gate (see
-[handoff-to-cli.md](../handoff-to-cli.md) §4). The plugin-integrity test guarantees nothing
-merges that breaks Tier-0.
+Use `skill-factory`: start a Claude Code session in this repository (or a worktree of it) and
+describe the component — `skill-factory` is a project skill there, so it auto-loads with no
+`--plugin-dir`, and writes the contract and evals first, before you implement and run the gate
+(see [handoff-to-cli.md](../handoff-to-cli.md) §4). Load the plugin too (`claude --plugin-dir
+plugin`) only when you want the session to use the plugin's own skills and hooks from the tree.
+The plugin-integrity test guarantees nothing merges that breaks Tier-0.

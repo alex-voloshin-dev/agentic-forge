@@ -28,7 +28,7 @@ actually experience.
 
 | Layer | Responsibility | Status |
 | --- | --- | --- |
-| L0 Meta-core | `skill-factory`, eval-harness, `lib/`, Tier-0 validator. Builds everything else. | **Built** |
+| L0 Meta-core | `skill-factory`, eval-harness, `lib/`, Tier-0 validator. Builds everything else. | **Built** — `skill-factory` is a maintainer skill in this repo's `.claude/skills/`, gated by every tier but not shipped (ADR 0105). |
 | L1 Engine | Subagent roles + native patterns (router, fan-out/fan-in, review loop, Ralph loop, worktree, file handoff). | **Built** — six roles + handoff schemas + fan-out-fan-in / multi-aspect-review / adversarial-review / review-loop / ralph / worktree / worktree-parallel / knowledge-recall patterns; **Ralph loop built** (bounded autonomous loop — ADR 0048; `lib/ralph.py` + `dev/ralph.py`). |
 | L2 Workflow skills | A phase-workflow per SDLC phase; each fans out subagents and synthesizes a handoff artifact; depth in references. | **Built** — six-phase spine (research → product → architecture → plan → develop → code-review), proven end-to-end (Tier-3); stack-parametric via `stacks.py` detection + nine `*-patterns` packs; **+ Stage-4 quality/ops domains** (qa-test-strategy, security-review, deploy-watch, incident-response, release) on the `ops`/`release` cores, Tier-1/Tier-2 gated (ADR 0021); **+ Stage-5 marketing domain** (one evidence-first `marketing` router, ADR 0022); **+ Stage-6 design & onboarding** (`ux-design` specs, `repo-onboarding` → seeds the Stage-3 vault, ADR 0023). |
 | L3 Knowledge base | Obsidian-format vault the plugin deploys, maintains, and reads for context. | **Built** — vault lib + `knowledge` recall/capture skill + session-start hook (ADR 0018). |

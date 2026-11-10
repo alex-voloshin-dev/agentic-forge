@@ -124,6 +124,25 @@ def test_run_activation_measures_all_and_a_subset(tmp_path: Path) -> None:
     assert [r.skill for r in one] == ["plan"]
 
 
+def test_activation_measures_shipped_skills_only(tmp_path: Path) -> None:
+    """The stand loads the plugin into a fresh fixture repo, where the repo's maintainer skills
+    (`.claude/skills`, ADR 0105) do not exist — so `skill-factory` is not in the pooled rate,
+    by construction rather than by accident. Tier-1 measures it instead."""
+    asked: list[str] = []
+
+    def never(system: str, prompt: str, workdir: Path) -> str:
+        asked.append(prompt)
+        return _stream(_bash("git status"))
+
+    reports = activation.run_activation(PLUGIN, never, workdir=tmp_path)
+    assert {r.skill for r in reports} == {t.name for t in load_triggers(PLUGIN)}
+    assert "skill-factory" not in {r.skill for r in reports}
+    factory = load_triggers(PLUGIN, [_REPO / ".claude" / "skills"])
+    (sf,) = [t for t in factory if t.name == "skill-factory"]
+    assert not set(sf.should_trigger) & set(asked)  # none of its prompts ran
+    assert activation.run_activation(PLUGIN, never, skills=["skill-factory"]) == []
+
+
 def test_summary_line_is_a_lens_without_a_verdict(tmp_path: Path) -> None:
     trig = next(t for t in load_triggers(PLUGIN) if t.name == "plan")
     run = _router({})

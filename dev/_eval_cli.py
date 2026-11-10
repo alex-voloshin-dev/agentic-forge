@@ -6,10 +6,11 @@ import json
 import os
 import subprocess
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Protocol
 
-from agentic_forge import agent_eval, benchmark, diagnostics, gate
+from agentic_forge import agent_eval, benchmark, diagnostics, gate, validation
 
 # The variables a skill body may reference as `${VAR}` and expect a live session to resolve. The
 # harness PINS these for every Tier-2 and Tier-3 session — to the tree under test, never to whatever
@@ -42,14 +43,61 @@ def _git(plugin_dir: Path, *args: str) -> str:
     return done.stdout.strip() if done.returncode == 0 else ""
 
 
-def provenance(plugin_dir: Path, model: str) -> dict[str, str]:
+def _git_dirty(path: Path) -> bool | None:
+    """Whether ``path`` differs from its own repository's HEAD: True / False, or None when the
+    status check itself failed (not a repository, git missing, a timeout). ``_git`` turns a failure
+    into "", which for `status --porcelain` reads as CLEAN — so a failure must never pass through
+    it. Run in ``path``'s own repository (``git -C <path>``), so a root outside the plugin's
+    worktree is judged by its own tree, not by a combined call that fails as a whole."""
+    try:
+        done = subprocess.run(
+            ["git", "-C", str(path), "status", "--porcelain", "--", str(path)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return None
+    if done.returncode != 0:
+        return None
+    return bool(done.stdout.strip())
+
+
+def resolve_skill_roots(
+    plugin_dir: Path, explicit: Sequence[Path] | None, *, include: bool = True
+) -> list[Path]:
+    """The extra skill roots an eval run reads beside the plugin (ADR 0105): none when ``include``
+    is off; else the explicit ``--skill-root`` dirs, each of which must exist (a typo must not
+    silently measure the shipped listing alone); else the repo's maintainer root when the plugin
+    sits in this repository (``validation.maintainer_root``)."""
+    if not include:
+        return []
+    if explicit:
+        roots = [p.resolve() for p in explicit]
+        for root in roots:
+            if not root.is_dir():
+                raise ValueError(f"skill root not found: {root}")
+        return roots
+    default = validation.maintainer_root(plugin_dir.parent)
+    return [default] if default is not None else []
+
+
+def provenance(
+    plugin_dir: Path, model: str, skill_roots: Sequence[Path] = ()
+) -> dict[str, str]:
     """What a run is actually measuring: the plugin root and its declared version, the git commit
     (with `+dirty` when the tree differs from it), the model, the home the session inherits, the
     interpreter. Printed at the top of every run and stored in the Tier-2 benchmark, because the
     seventh instance of "the check measured something else" (ADR 0097 — Tier-2 graded the
     INSTALLED plugin) would have been visible on its first run had the run said which plugin it
-    ran (ADR 0098)."""
+    ran (ADR 0098).
+
+    ``skill_roots`` are the extra skill dirs the run also reads — the maintainer skills (ADR
+    0105). They are part of what is measured, so they are named and an edit in one is `+dirty`.
+    The plugin and each root are checked on their own (:func:`_git_dirty`); a check that failed
+    adds `+status-unknown` — an unknown tree is never reported as clean."""
     root = plugin_dir.resolve()
+    roots = [r.resolve() for r in skill_roots]
     version = "?"
     try:
         manifest = json.loads((root / ".claude-plugin" / "plugin.json").read_text("utf-8"))
@@ -57,10 +105,15 @@ def provenance(plugin_dir: Path, model: str) -> dict[str, str]:
     except (OSError, ValueError):
         pass
     sha = _git(root, "rev-parse", "--short", "HEAD") or "?"
-    if sha != "?" and _git(root, "status", "--porcelain", "--", str(root)):
-        sha += "+dirty"
+    if sha != "?":
+        states = [_git_dirty(root), *(_git_dirty(r) for r in roots)]
+        if any(state is True for state in states):
+            sha += "+dirty"
+        if any(state is None for state in states):
+            sha += "+status-unknown"
     return {
         "plugin_root": str(root),
+        "skill_roots": ",".join(str(r) for r in roots) or "none",
         "plugin_version": version,
         "git": sha,
         "model": model,
@@ -72,6 +125,7 @@ def provenance(plugin_dir: Path, model: str) -> dict[str, str]:
 def provenance_line(prov: dict[str, str]) -> str:
     return (
         f"measuring: plugin={prov['plugin_root']} version={prov['plugin_version']} "
+        f"skill_roots={prov.get('skill_roots', 'none')} "
         f"git={prov['git']} model={prov['model']} home={prov['home']} python={prov['python']}"
     )
 

@@ -55,7 +55,9 @@ claude --plugin-dir ~/code/agentic-forge/plugin
 ```
 
 Confirm `skill-factory` is available: ask "What skills are available?" or type `/` and look
-for `agentic-forge:skill-factory`.
+for `skill-factory`. Since ADR 0105 it is a maintainer skill in the repo's `.claude/skills/`, not
+a plugin skill: it loads (under its bare name) for any session started in the repository, with or
+without `--plugin-dir`, and it is not in an installed user's listing.
 
 ## 5. Continue with Stage 1
 

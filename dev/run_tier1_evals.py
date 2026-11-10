@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
 """Tier-1 trigger eval runner for the on-listing router skills (research, product, architecture,
-plan, develop, code-review, deep-review, skill-factory) — measured on the LIVE skill listing.
+plan, develop, code-review, deep-review, ...) — measured on the LIVE skill listing.
 
 Usage:
     python dev/run_tier1_evals.py --runner dry            # verify wiring, no model calls
     python dev/run_tier1_evals.py --runner claude         # real run via your Claude subscription
     python dev/run_tier1_evals.py --runner api            # real run via API key (per-token)
     python dev/run_tier1_evals.py --skill research ...    # one skill (repeatable)
+    python dev/run_tier1_evals.py --no-maintainer-skills  # the shipped listing alone
+
+The listing is the one a MAINTAINER session sees (ADR 0105): the plugin's on-listing skills plus
+the repository's maintainer skills, `<repo>/.claude/skills/*` (today `skill-factory`), which Claude
+Code loads beside the plugin by their bare names and which are measured too. `--skill-root DIR`
+(repeatable) replaces that default root; `--no-maintainer-skills` drops it.
 
 `dry` needs no credentials and never calls a model: it checks that the live listing is
 well-formed and every tier1 skill is on-listing with trigger prompts. `claude` (recommended)
@@ -36,7 +42,14 @@ from agentic_forge import agent_eval, models, settings, tier1_runner  # noqa: E4
 def _build_router(runner: str, model: str) -> agent_eval.Runner:
     """Return the classification Runner for the chosen transport (tools off, capped turns).
 
-    Tools are disabled (`allowed_tools=""`) so the router can only answer with a skill name. The
+    Tools are removed (`tools=""`, the CLI's `--tools ""`) so the router can only answer with a
+    skill name. `allowed_tools=""` alone did not do that: `--allowedTools` only grants, so the
+    router kept the default tools — the `Skill` tool among them — and on some prompts it RAN the
+    skill and answered in prose about an empty directory. Those calls scored "no decision", and a
+    prompt whose five calls all went that way was unmeasured: four prompts in a full run, before
+    and after ADR 0105's description change alike. A/B on those prompts: 5 of 12 calls without a
+    decision without the flag, 0 of 12 with it (ADR 0105). `--tools` covers the built-in tools; the
+    operator's MCP servers are kept out by `--strict-mcp-config`, as for the PR fixer. The
     turn cap leaves room for the model's own thinking before its final text — `max_turns=1` cut
     reasoning models off mid-think ("Reached max turns (1)"); a small cap (4) lets them finish
     while tools-off keeps it a pure one-shot classification.
@@ -50,7 +63,12 @@ def _build_router(runner: str, model: str) -> agent_eval.Runner:
         return agent_eval.api_runner(model)
     if runner == "claude":
         return agent_eval.claude_cli_runner(
-            allowed_tools="", model=model, max_turns=4, replace_system=True
+            allowed_tools="",
+            tools="",
+            strict_mcp_config=True,
+            model=model,
+            max_turns=4,
+            replace_system=True,
         )
     raise ValueError(f"unknown runner {runner!r}")
 
@@ -69,12 +87,37 @@ def main(argv: list[str]) -> int:
         "as a live session shows them) and score a bare built-in name as a miss for us. A "
         "measurement of the production listing, recorded apart from the gate.",
     )
+    parser.add_argument(
+        "--skill-root",
+        action="append",
+        type=Path,
+        dest="skill_roots",
+        metavar="DIR",
+        help="an extra skills dir listed (bare names) and measured beside the plugin's. Default: "
+        "<repo>/.claude/skills when it exists — the maintainer skills (ADR 0105).",
+    )
+    parser.add_argument(
+        "--no-maintainer-skills",
+        action="store_true",
+        help="list and measure the shipped plugin skills only (what a user's session sees)",
+    )
     args = parser.parse_args(argv[1:])
 
     plugin_dir: Path = args.plugin.resolve()
+    try:
+        roots = _eval_cli.resolve_skill_roots(
+            plugin_dir, args.skill_roots, include=not args.no_maintainer_skills
+        )
+    except ValueError as exc:  # an explicit --skill-root that does not exist
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    shipped = len(tier1_runner.load_listing(plugin_dir))
+    extra = len(tier1_runner.load_listing(plugin_dir, roots)) - shipped
+    where = ", ".join(str(r) for r in roots) or "none"
+    print(f"listing: {shipped} shipped + {extra} maintainer skill(s) (extra roots: {where})")
 
     if args.skills:
-        known = {t.name for t in tier1_runner.load_triggers(plugin_dir)}
+        known = {t.name for t in tier1_runner.load_triggers(plugin_dir, roots)}
         for skill in args.skills:
             if skill not in known:
                 print(
@@ -83,7 +126,7 @@ def main(argv: list[str]) -> int:
                 )
 
     if args.runner == "dry":
-        problems = tier1_runner.check_wiring(plugin_dir)
+        problems = tier1_runner.check_wiring(plugin_dir, roots)
         for problem in problems:
             print(f"  - {problem}")
         print("\nDry-run:", "OK" if not problems else "problems found")
@@ -95,17 +138,17 @@ def main(argv: list[str]) -> int:
     model = models.model_for("router", models_cfg, default=args.model)
     run_fn = _build_router(args.runner, model)
     print(f"running Tier-1 via {args.runner} (model={model}, runs={args.runs})...", flush=True)
-    print(_eval_cli.provenance_line(_eval_cli.provenance(plugin_dir, model)), flush=True)
-    extra = namespace = None
+    print(_eval_cli.provenance_line(_eval_cli.provenance(plugin_dir, model, roots)), flush=True)
+    builtins = namespace = None
     component = "tier1-eval"
     if args.with_builtins:
-        extra = tier1_runner.load_extra_listing(
+        builtins = tier1_runner.load_extra_listing(
             plugin_dir / "eval" / "fixtures" / "claude-code-builtin-skills.json"
         )
         namespace = "agentic-forge"
         component = "tier1-builtins"  # a condition, not the gate: keep its records apart
         print(
-            f"condition: +{len(extra)} built-in skills, ours namespaced `{namespace}:`",
+            f"condition: +{len(builtins)} built-in skills, ours namespaced `{namespace}:`",
             flush=True,
         )
     try:
@@ -116,8 +159,9 @@ def main(argv: list[str]) -> int:
                 skills=args.skills,
                 runs=args.runs,
                 workdir=Path(tmp),
-                extra_cards=extra,
+                extra_cards=builtins,
                 namespace=namespace,
+                skill_roots=roots,
             )
     except Exception as exc:  # a crash (e.g. mis-wired plugin) — record it, then fail
         print(f"Tier-1 ERROR — {exc}", flush=True)

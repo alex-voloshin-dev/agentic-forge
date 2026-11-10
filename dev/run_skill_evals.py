@@ -3,6 +3,10 @@
 *-patterns packs + engineering-standards (knowledge skills, run as the software-engineer with
 them loaded) and deep-review / skill-factory (run directly).
 
+A skill is resolved in the plugin first, then in the repository's maintainer skills,
+`<repo>/.claude/skills` (ADR 0105) — where skill-factory lives, unshipped. `--skill-root DIR`
+(repeatable) replaces that default root.
+
 Usage:
     python dev/run_skill_evals.py --runner dry              # verify wiring, no model calls
     python dev/run_skill_evals.py --runner claude           # real run via your Claude subscription
@@ -39,17 +43,18 @@ from agentic_forge import agent_eval, models, settings, skill_eval  # noqa: E402
 
 
 def _build_runners(
-    runner: str, skill: str, plugin_dir: Path, model: str
+    runner: str, skill: str, plugin_dir: Path, model: str, skill_roots: list[Path] | None = None
 ) -> tuple[agent_eval.Runner, agent_eval.Runner]:
     """Build (skill_runner, grader_runner): resolve the executing component's tools (the
     software-engineer's for a knowledge skill, the skill's own otherwise), then delegate to the
     shared transport core in `_eval_cli` (one construction site for both runners)."""
+    roots = skill_roots or []
     return _eval_cli.build_runners(
         runner,
-        allowed_tools=skill_eval.skill_tools(plugin_dir, skill),
+        allowed_tools=skill_eval.skill_tools(plugin_dir, skill, roots),
         model=model,
         plugin_dir=plugin_dir,
-        skill_dir=plugin_dir / "skills" / skill,
+        skill_dir=skill_eval.resolve_skill_dir(plugin_dir, skill, roots),
     )
 
 
@@ -77,13 +82,27 @@ def main(argv: list[str]) -> int:
         default=None,
         help="history path (default: <repo>/.agentic-forge/benchmark-history.json)",
     )
+    parser.add_argument(
+        "--skill-root",
+        action="append",
+        type=Path,
+        dest="skill_roots",
+        metavar="DIR",
+        help="where to look for a skill after the plugin. Default: <repo>/.claude/skills when it "
+        "exists — the maintainer skills (ADR 0105).",
+    )
     args = parser.parse_args(argv[1:])
 
     plugin_dir: Path = args.plugin.resolve()
+    try:
+        roots = _eval_cli.resolve_skill_roots(plugin_dir, args.skill_roots)
+    except ValueError as exc:  # an explicit --skill-root that does not exist: never skipped
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     history_path = args.benchmark_history or (
         plugin_dir.parent / ".agentic-forge" / "benchmark-history.json"
     )
-    discovered = skill_eval.discover_skills_with_tier2(plugin_dir)
+    discovered = skill_eval.discover_skills_with_tier2(plugin_dir, roots)
     skills = args.skills or discovered
     for skill in skills:
         if skill not in discovered:
@@ -99,7 +118,7 @@ def main(argv: list[str]) -> int:
     if args.runner == "dry":
         ok = True
         for skill in skills:
-            problems = skill_eval.check_wiring(skill, plugin_dir)
+            problems = skill_eval.check_wiring(skill, plugin_dir, roots)
             if problems:
                 ok = False
                 print(f"{skill}: NOT READY")
@@ -114,13 +133,13 @@ def main(argv: list[str]) -> int:
 
     models_cfg = settings.resolve(plugin_dir.parent).models  # per-component tiers (ADR 0043)
     all_passed = True
-    prov = _eval_cli.provenance(plugin_dir, args.model)
+    prov = _eval_cli.provenance(plugin_dir, args.model, roots)
     print(_eval_cli.provenance_line(prov), flush=True)  # which tree this run is about (ADR 0098)
     for skill in skills:
         model = models.model_for(skill, models_cfg, default=args.model)
         print(f"[{skill}] running via {args.runner} (model={model})...", flush=True)
         try:
-            run_fn, grader_fn = _build_runners(args.runner, skill, plugin_dir, model)
+            run_fn, grader_fn = _build_runners(args.runner, skill, plugin_dir, model, roots)
             report = skill_eval.run_skill(
                 skill,
                 plugin_dir,
@@ -129,6 +148,7 @@ def main(argv: list[str]) -> int:
                 runs=args.runs,
                 workdir=args.workdir,
                 with_baseline=args.baseline,
+                skill_roots=roots,
             )
         except Exception as exc:  # keep going so one skill's failure doesn't lose the rest
             print(f"{skill}: ERROR — {exc}", flush=True)

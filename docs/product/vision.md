@@ -68,8 +68,9 @@ monitoring, code review, plus the knowledge base.
 - **Quality:** Tier-2 pass-rate lower bound (mean − σ over N≥5 runs) ≥ 0.8 per skill.
 - **Routing:** Tier-1 trigger recall ≥ 0.9 and specificity ≥ 0.9 — skills load when they
   should and stay quiet when they shouldn't.
-- **Throughput:** a new component can go contract → green gate using `skill-factory`
-  without hand-rolling structure or eval plumbing.
+- **Throughput:** a new component can go contract → green gate using `skill-factory` (the
+  maintainer skill a session in this repository loads from `.claude/skills/`, ADR 0105) without
+  hand-rolling structure or eval plumbing.
 - **Context budget:** the always-on skill listing stays within budget (router discipline),
   so auto-loading does not degrade as the catalog grows.
 

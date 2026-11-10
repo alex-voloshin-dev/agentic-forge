@@ -109,13 +109,16 @@ The `*-patterns` packs (python, typescript, javascript, go, rust, jvm, dotnet, r
 **Cross-cutting**
 - `knowledge` — recall/capture durable project knowledge in the Obsidian vault
 - `repo-onboarding` — analyze an unfamiliar repo + seed the vault → `onboarding`
-- `skill-factory` — create new components contract-first, evals-first
+
+**For maintainers of this repository** (not shipped; loaded from `.claude/skills/` in a session in
+this repo — ADR 0105)
+- `skill-factory` — create new agentic-forge components contract-first, evals-first
 
 ## Status
 
 All five layers are built and gated — Tier-0 blocks every commit, Tier-1 runs weekly and Tier-2/3
 on demand (ADR 0083): the
-**meta-core** (`skill-factory` + eval harness + shared `lib/`), the **engine** (six subagent roles +
+**meta-core** (the maintainer skill `skill-factory` + eval harness + shared `lib/`), the **engine** (six subagent roles +
 handoff schemas + the review / fan-out / worktree patterns), the **workflow skills** (the six-phase
 SDLC spine + quality/ops, marketing, and design/onboarding), the **knowledge base** (Obsidian vault +
 `knowledge` recall/capture + session-start hook), and the **guardrail & ops hooks** (security /

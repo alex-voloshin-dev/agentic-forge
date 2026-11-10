@@ -1,6 +1,6 @@
 ---
 name: ux-design
-description: Design the UX for a feature — the user flows, the screens and their states (empty / loading / error / success), accessibility requirements (WCAG — keyboard, focus, contrast, ARIA), and design-system component references — as a ux-spec handed to develop. Use to design the user experience / user flows / screens and states / wireframe specs / accessibility for a feature. Not the technical architecture (architecture), implementing it (develop), or the product requirements / PRD (product).
+description: UX design for a feature — user flows, screens and their states (empty, loading, error, success), accessibility requirements (WCAG keyboard, focus, contrast, ARIA) and design-system component references, as a ux-spec handed to develop. Use to design the user experience, flows, screens, wireframe specs or accessibility. Not the technical architecture (architecture), implementing it (develop), or the PRD (product).
 allowed-tools: Read, Grep, Glob, Bash, Task, Write, Edit
 ---
 

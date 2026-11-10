@@ -1,6 +1,6 @@
 ---
 name: architecture
-description: Turn an approved product spec (a PRD) into a TECHNICAL design — components, key decisions captured as ADRs, and risks — written to docs/sdlc/<feature>/. Use when asked to design the architecture or technical approach for a feature or module, decide how to build it, produce or write a tech design, or write an ADR. This is the design (the *how*) — not building the feature (that's develop), defining product requirements (product), or task breakdown (plan).
+description: Technical design for a feature or module — components, key decisions as ADRs, and risks, written to docs/sdlc/<feature>/ from an approved PRD. Use to design the architecture or technical approach, decide how to build it, write a tech design, or write an ADR. This is the how; not requirements (product), task breakdown (plan), or building it (develop).
 allowed-tools: Read, Grep, Glob, Bash, Write, Task
 ---
 

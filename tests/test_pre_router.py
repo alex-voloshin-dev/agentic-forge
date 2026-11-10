@@ -46,6 +46,128 @@ def test_index_covers_every_on_listing_skill(index: pre_router.Index) -> None:
     assert index.unknown_weight > 0  # a word no skill uses weighs as maximally specific
 
 
+def test_index_holds_shipped_skills_only() -> None:
+    """The hook ships, so it reads the plugin's skills alone: `skill-factory` became a maintainer
+    skill in the repo's `.claude/skills` (ADR 0105), which no user has — the hook must not name
+    it."""
+    index = pre_router.build_index(PLUGIN)
+    assert "skill-factory" not in index.skills
+    assert set(index.skills) == {
+        p.parent.name
+        for p in (PLUGIN / "skills").glob("*/SKILL.md")
+        if "disable-model-invocation: true" not in p.read_text(encoding="utf-8")
+    }
+
+
+_FACTORY_EVALS = _REPO / ".claude" / "skills" / "skill-factory" / "evals" / "evals.json"
+_AUTHORING_PROMPTS = [
+    *json.loads(_FACTORY_EVALS.read_text(encoding="utf-8"))["triggers"]["should_trigger"],
+    # measured on the shipped index before the veto: release / code-review / incident-response /
+    # marketing — a domain skill nudged for what is a request to BUILD a component (ADR 0105)
+    "Create a skill for release notes",
+    "Scaffold an agent that reviews diffs for security",
+    "Create a subagent for incident response",
+    "Make a skill for marketing copy",
+    # round 2 (still nudged before the veto was widened): three words between, an inflection,
+    # and verbs the first veto did not know
+    "Create a release notes skill",
+    "Creating a skill for release notes",
+    "Generate a skill for incident response",
+    "Implement a subagent that reviews diffs for security",
+    "Set up a new skill for deploy checks",
+]
+
+
+@pytest.mark.parametrize("prompt", _AUTHORING_PROMPTS)
+def test_a_request_to_author_a_component_is_never_nudged(
+    index: pre_router.Index, prompt: str
+) -> None:
+    """skill-factory owns these and does not ship, so the hook must abstain, not pick the domain."""
+    assert pre_router.is_authoring_request(prompt)
+    assert pre_router.suggest(prompt, index) is None
+
+
+@pytest.mark.parametrize(
+    ("prompt", "skill"),
+    [
+        # an authoring verb, but no component noun: still the domain skill
+        ("Cut a release and write the changelog for it", "release"),
+        # "build the plugin" is a release step here, not authoring (no article, and no "plugin"
+        # noun in the veto): the first veto blocked all three
+        ("Build the plugin and cut a release", "release"),
+        ("Build the plugin, bump the version and write the changelog", "release"),
+        ("Make the plugin release: bump the version and assemble the changelog", "release"),
+        ("Draft the launch marketing copy for this feature", "marketing"),
+        ("Design the UX flow for the signup screen", "ux-design"),
+    ],
+)
+def test_the_veto_leaves_domain_requests_alone(
+    index: pre_router.Index, prompt: str, skill: str
+) -> None:
+    assert not pre_router.is_authoring_request(prompt)
+    s = pre_router.suggest(prompt, index)
+    assert s is not None and s.skill == skill
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "build the search feature",
+        "review my agent code",
+        "Add tests for the agent module",  # three words between verb and noun: not authoring
+        "Make a plan for the agent rollout",
+        "Write a function to parse dates",
+        "Fix the agentic-forge skills listing",  # a noun, no authoring verb before it
+        # an authoring verb and a component noun, but an existing thing, not "a" new one
+        "Make the agent faster",
+        "Make sure the skills listing fits the budget",
+        "Research how teams build coding agents",
+        "Hire a skilled engineer",  # `skill` only as a word prefix
+    ],
+)
+def test_the_veto_is_narrow(prompt: str) -> None:
+    assert not pre_router.is_authoring_request(prompt)
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "Write a summary\n" + "-" * 5000,  # a pasted dash rule after a common opener
+        "Create a " + "- " * 5000 + "x",
+        "Add a " + "-" * 50_000,
+    ],
+)
+def test_the_veto_is_linear_on_dash_runs(prompt: str) -> None:
+    """The hook runs it on every prompt under a 5 s timeout; with `\\W+` separators a hyphen fit
+    two classes and 2,000 dashes took 24 s (ADR 0105). Generous bound: a backtracking regex takes
+    seconds here, a linear one milliseconds."""
+    import time
+
+    start = time.perf_counter()
+    assert not pre_router.is_authoring_request(prompt)
+    assert time.perf_counter() - start < 0.5
+
+
+def test_the_veto_reads_only_the_start_of_a_prompt() -> None:
+    assert pre_router.is_authoring_request("Create a skill for release notes. " + "x " * 5000)
+    assert not pre_router.is_authoring_request("x " * 5000 + "Create a skill for release notes")
+
+
+def test_no_shipped_trigger_prompt_is_an_authoring_request() -> None:
+    """The veto must not take a single prompt the shipped skills are measured on — that is why
+    the self-check reads the same with it and without it."""
+    hits = [
+        (f.parent.parent.name, prompt)
+        for f in sorted((PLUGIN / "skills").glob("*/evals/evals.json"))
+        for kind in ("should_trigger", "should_not_trigger")
+        for prompt in (json.loads(f.read_text(encoding="utf-8")).get("triggers") or {}).get(
+            kind, []
+        )
+        if pre_router.is_authoring_request(prompt)
+    ]
+    assert hits == []
+
+
 def test_index_skips_off_listing_skills(tmp_path: Path) -> None:
     sk = tmp_path / "skills" / "hidden"
     (sk / "evals").mkdir(parents=True)
@@ -115,7 +237,7 @@ def test_hook_crash_is_recorded_and_announced(tmp_path: Path, monkeypatch, capsy
         ("Do a thorough adversarial review of these architecture docs", "deep-review"),
         ("Cut a release and write the changelog for it", "release"),
         ("What's the test strategy for this feature?", "qa-test-strategy"),
-        ("Scaffold a new skill for release notes", "skill-factory"),
+        ("We have a production incident, the API is down", "incident-response"),
     ],
 )
 def test_suggest_clear_requests(index: pre_router.Index, prompt: str, skill: str) -> None:
@@ -234,3 +356,93 @@ def test_unknown_words_count_against_coverage(index: pre_router.Index) -> None:
     """`Run the app and screenshot it` scored 0.60 on the single word `app` when unknown words
     weighed nothing. They now weigh the most."""
     assert pre_router.suggest("Run the app and screenshot it", index) is None
+
+
+# --- the hook as a real process (ADR 0105) ----------------------------------------------------
+
+
+def _hook_timeout() -> float:
+    """The budget Claude Code gives the hook — read from hooks.json, not restated here."""
+    config = json.loads((PLUGIN / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+    (timeout,) = [
+        h["timeout"]
+        for group in config["hooks"]["UserPromptSubmit"]
+        for h in group["hooks"]
+        if "pre_router.py" in h["command"]
+    ]
+    return float(timeout)
+
+
+def _run_hook(prompt: str, tmp_path: Path) -> tuple[str, float]:
+    """Run hooks/scripts/pre_router.py the way Claude Code does: a fresh interpreter, the payload on
+    stdin, no PYTHONPATH (the script finds its own lib). Opted in; state and scratch in tmp."""
+    import os
+    import subprocess
+    import time
+
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    env.update(
+        AGENTIC_FORGE_PRE_ROUTER="1",
+        AGENTIC_FORGE_STATE_HOME=str(tmp_path),
+        TMPDIR=str(tmp_path),
+    )
+    payload = {"hook_event_name": "UserPromptSubmit", "prompt": prompt, "cwd": str(tmp_path)}
+    start = time.perf_counter()
+    done = subprocess.run(
+        [sys.executable, str(PLUGIN / "hooks" / "scripts" / "pre_router.py")],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+        env=env,
+        timeout=60,
+    )
+    elapsed = time.perf_counter() - start
+    assert done.returncode == 0, done.stderr
+    assert done.stderr == ""
+    return done.stdout.strip(), elapsed
+
+
+def test_hook_process_suggests_on_a_clear_match(tmp_path: Path) -> None:
+    """The control for the two below: the same process, opted in, does nudge — so their silence
+    is the veto, not a hook that never speaks."""
+    out, elapsed = _run_hook("Cut a release and write the changelog for it", tmp_path)
+    context = json.loads(out)["hookSpecificOutput"]["additionalContext"]
+    assert "agentic-forge:release" in context
+    assert elapsed < _hook_timeout()
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "Create a skill for release notes",
+        "Scaffold an agent that reviews diffs for security",
+        "Set up a new skill for deploy checks",
+    ],
+)
+def test_hook_process_abstains_on_an_authoring_request(tmp_path: Path, prompt: str) -> None:
+    """skill-factory is not in a user's listing, so the hook must neither name it nor hand the
+    request to the domain its purpose words point at (ADR 0105)."""
+    out, elapsed = _run_hook(prompt, tmp_path)
+    assert out == ""
+    assert elapsed < _hook_timeout()
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "Write a summary\n" + "-" * 200_000,  # the pasted dash rule that once took 24 s at 2,000
+        "Write a " + "-" * 200_000,
+        "Create a " + "- " * 100_000 + "skill",
+        "write a " + "x-" * 100_000,  # one huge hyphenated token through features() too
+    ],
+    ids=["dash-rule", "dash-after-article", "spaced-dashes", "hyphen-token"],
+)
+def test_hook_process_finishes_a_huge_dash_prompt_inside_its_timeout(
+    tmp_path: Path, prompt: str
+) -> None:
+    """The whole hook — interpreter start, index build, veto, scoring — on a 200 KB prompt, held to
+    the timeout hooks.json declares. A hook that overruns is killed and fails open, silently."""
+    out, elapsed = _run_hook(prompt, tmp_path)
+    assert out == ""
+    assert elapsed < _hook_timeout(), f"{elapsed:.2f}s"

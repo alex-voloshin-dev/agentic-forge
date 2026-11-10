@@ -1,6 +1,6 @@
 ---
 name: develop
-description: Implement a planned or requested code change — write the code and tests (software-engineer role), gate them with a review, then harden the tests (qa-engineer role); isolation and review scale to the change's size. Use to implement, build, or write the code for a plan step, a feature, or a small change. Not for designing the approach (architecture), breaking work into tasks (plan), or reviewing existing code only (code-review).
+description: Implement a planned or requested code change — write the code and tests (software-engineer role), gate them with a review, then harden the tests (qa-engineer role), with isolation and review scaled to the change. Use to implement, build, or write the code for a plan step, a feature, or a small change. Not designing it (architecture), task breakdown (plan), or reviewing existing code only (code-review).
 allowed-tools: Read, Grep, Glob, Bash, Task, Write, Edit
 ---
 

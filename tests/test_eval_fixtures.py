@@ -1,8 +1,10 @@
 """Every eval contract's fixture wiring resolves on the real tree (audit C6b/C6d).
 
 `dev/validate.py` checks a skill contract's `files` exist; the Tier-2 runners check wiring only for
-the component they are about to run. This walks BOTH contract families up front: every `files`
-entry is a file under `plugin/`, no case lands two fixtures on one sandbox path, the `tree/`
+the component they are about to run. This walks BOTH contract families up front — the skills'
+including the maintainer skills in `.claude/skills` (ADR 0105), whose `files` resolve under
+`plugin/` too: every `files` entry is a file under `plugin/`, no case lands two fixtures on one
+sandbox path, the `tree/`
 layouts materialize as the prompts describe them, and no trigger prompt still carries a literal
 `X` placeholder (two did — a router cannot be measured on "prior art for X")."""
 
@@ -16,19 +18,24 @@ import pytest
 from agentic_forge.agent_eval import materialize_fixtures
 from agentic_forge.evals import eval_case_problems, fixture_dest, load_evals
 
-PLUGIN = Path(__file__).resolve().parents[1] / "plugin"
-CONTRACTS = sorted(PLUGIN.glob("skills/*/evals/evals.json")) + sorted(
-    PLUGIN.glob("agents/evals/*.evals.json")
+REPO = Path(__file__).resolve().parents[1]
+PLUGIN = REPO / "plugin"
+MAINTAINER_ROOT = REPO / ".claude" / "skills"
+CONTRACTS = (
+    sorted(PLUGIN.glob("skills/*/evals/evals.json"))
+    + sorted(PLUGIN.glob("agents/evals/*.evals.json"))
+    + sorted(MAINTAINER_ROOT.glob("*/evals/evals.json"))
 )
 PACKS = ("python", "typescript", "javascript", "go", "rust", "jvm", "dotnet", "php", "ruby")
 
 
 def _label(path: Path) -> str:
-    return path.relative_to(PLUGIN).as_posix()
+    return path.relative_to(REPO).as_posix()
 
 
 def test_contracts_were_found() -> None:
     assert len(CONTRACTS) > 20  # both families walked; an empty glob must not pass vacuously
+    assert MAINTAINER_ROOT / "skill-factory" / "evals" / "evals.json" in CONTRACTS
 
 
 @pytest.mark.parametrize("contract", CONTRACTS, ids=_label)
@@ -59,7 +66,7 @@ def test_tree_fixtures_seed_the_layout_the_prompts_describe(tmp_path: Path) -> N
     assert (wd / "Cargo.toml").is_file() and (wd / "src" / "lib.rs").is_file()
     assert (wd / "tests" / "parse.rs").is_file()
 
-    factory = load_evals(PLUGIN / "skills" / "skill-factory" / "evals" / "evals.json")["evals"]
+    factory = load_evals(MAINTAINER_ROOT / "skill-factory" / "evals" / "evals.json")["evals"]
     wd = tmp_path / "factory"
     wd.mkdir()
     for case in factory:

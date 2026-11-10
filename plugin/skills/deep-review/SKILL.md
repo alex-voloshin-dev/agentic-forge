@@ -1,6 +1,6 @@
 ---
 name: deep-review
-description: Deep, multi-perspective review of a NON-TRIVIAL target — a doc set, a design or architecture, a sizeable code change or PR, or the whole working tree — independent reviewers per lens, every finding verified against the source, one prioritized report with concrete fixes; the lens count scales to the target (a small one gets one or two). Use whenever the ask is for DEPTH — a deep / thorough / rigorous / adversarial review, an audit for everything wrong / contradictions / gaps / bugs / risks, or a second opinion — this wins even for a PR, diff, or code when the request asks to go deep. A SECURITY audit is security-review; for a quick standard lint of a small or single-file diff use the lighter code-review skill; not for running the app or writing code.
+description: Deep, multi-lens review of a non-trivial target (doc set, design, architecture, sizeable PR, or the working tree) — independent reviewers per lens, every finding verified against the source, one prioritized report with fixes. Use whenever the ask is for depth — a deep, thorough, rigorous or adversarial review, an audit for everything wrong, contradictions, gaps or risks, or a second opinion — even of a PR. A security audit is security-review; for a quick standard lint of a small diff use code-review.
 allowed-tools: Read, Grep, Glob, Bash, Edit, Write, Task
 ---
 

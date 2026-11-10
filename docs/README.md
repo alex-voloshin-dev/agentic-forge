@@ -11,7 +11,7 @@ documentation discipline in the root `CLAUDE.md`).
   - [Overview](architecture/overview.md) — the five layers, component taxonomy, patterns,
     the eval pyramid, constraints.
   - [Meta-core (Layer 0)](architecture/meta-core.md) — how the built foundation works:
-    validator, library, harness, gate, `skill-factory`, CI.
+    validator, library, harness, gate, the maintainer skill `skill-factory`, CI.
   - [Engine (Layer 1)](architecture/engine.md) — Stage 1 (implemented): roles,
     handoff artifacts, review loop, agent eval.
   - [SDLC spine (Layer 2)](architecture/spine.md) — the six-phase spine from idea to
@@ -48,9 +48,10 @@ documentation discipline in the root `CLAUDE.md`).
 1. Vision → 2. Architecture overview → 3. Roadmap → 4. Meta-core → 5. Engine (Layer 1) →
 6. ADRs as needed.
 
-When building a component or running evals: use `skill-factory` (install the plugin per the
-[README](../README.md#install), then describe the component in a Claude Code session), and
-see the [eval runbook](eval-runbook.md) and the [eval harness](../plugin/eval/README.md).
+When building a component or running evals: use `skill-factory` (a maintainer skill in
+`.claude/skills/` — start a Claude Code session in this repository and describe the component;
+ADR 0105), and see the [eval runbook](eval-runbook.md) and the
+[eval harness](../plugin/eval/README.md).
 
 ## Glossary
 

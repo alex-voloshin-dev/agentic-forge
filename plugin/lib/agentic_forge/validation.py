@@ -34,6 +34,12 @@ __all__ = [
     "validate_python_compat",
     "validate_plugin",
     "validate_docs",
+    "MAINTAINER_SKILLS_DIR",
+    "REPO_MARKER",
+    "maintainer_skills_dir",
+    "maintainer_root",
+    "maintainer_skill_dirs",
+    "validate_maintainer_skills",
 ]
 
 DESCRIPTION_MAX_LEN = 1024
@@ -146,8 +152,10 @@ class Report:
 # already at/over the ~1% guidance, so a number that failed "too big" would fail today and teach
 # nothing. It fails GROWTH instead: a new on-listing skill (~600 chars) or a description that puts
 # on weight trips it, an equal-length rewording does not. Raising the constant is the budget
-# review, visible in the diff.
-LISTING_BUDGET_CHARS = 10_400
+# review, visible in the diff. ADR 0105 moved it DOWN to the measured shipped listing (10,257 ->
+# 6,910 chars, 17 -> 16 skills: shorter descriptions, skill-factory no longer shipped), so the
+# saved space cannot quietly fill again. Only shipped skills count; maintainer skills do not.
+LISTING_BUDGET_CHARS = 6_910
 _LISTING_NAMESPACE = "agentic-forge:"
 _CHARS_PER_TOKEN = 4  # the usual English estimate; tiktoken is not a dependency of Tier-0
 
@@ -205,8 +213,13 @@ def validate_listing_budget(plugin_dir: Path) -> Report:
     return report
 
 
-def validate_skill(skill_dir: Path) -> Report:
-    """Run Tier-0 checks on a single skill directory."""
+def validate_skill(skill_dir: Path, *, plugin_dir: Path | None = None) -> Report:
+    """Run Tier-0 checks on a single skill directory.
+
+    ``plugin_dir`` is the base its eval cases' ``files`` resolve against — by default the plugin
+    the skill sits in (``<plugin>/skills/<name>``). A maintainer skill (ADR 0105) lives outside the
+    plugin but its eval stand and the real ``schemas/evals.schema.json`` are in it, so its caller
+    passes the plugin dir explicitly."""
     report = Report()
     rel = skill_dir.name
     skill_md = skill_dir / "SKILL.md"
@@ -279,7 +292,7 @@ def validate_skill(skill_dir: Path) -> Report:
         f"{rel}/evals/evals.json",
         report,
         "skill",
-        skill_dir.parent.parent,
+        plugin_dir if plugin_dir is not None else skill_dir.parent.parent,
     )
 
     return report
@@ -504,22 +517,87 @@ def validate_no_inline_python(plugin_dir: Path) -> Report:
     report = Report()
     for root in ("skills", "patterns", "agents"):
         for path in sorted((plugin_dir / root).rglob("*.md")):
-            text = path.read_text(encoding="utf-8")
-            lines = {text.count("\n", 0, m.start()) + 1 for m in _INLINE_PYTHON.finditer(text)}
-            for line in sorted(lines):
-                report.error(
-                    f"{path.relative_to(plugin_dir)}:{line}",
-                    "inline Python: a checkout could supply the module it imports; add a "
-                    "command to bin/af.py instead (ADR 0104)",
-                )
-            lines = {text.count("\n", 0, m.start()) + 1
-                     for m in _SCRIPT_WITHOUT_E.finditer(text)}
-            for line in sorted(lines):
-                report.error(
-                    f"{path.relative_to(plugin_dir)}:{line}",
-                    "a shipped script run without python3 -E: PYTHONPATH could reach the "
-                    "interpreter before the script does (ADR 0104)",
-                )
+            _inline_python_problems(path, path.relative_to(plugin_dir).as_posix(), report)
+    return report
+
+
+def _inline_python_problems(path: Path, loc: str, report: Report) -> None:
+    """The ADR 0104 checks on one markdown file, reported at ``<loc>:<line>``."""
+    text = path.read_text(encoding="utf-8")
+    lines = {text.count("\n", 0, m.start()) + 1 for m in _INLINE_PYTHON.finditer(text)}
+    for line in sorted(lines):
+        report.error(
+            f"{loc}:{line}",
+            "inline Python: a checkout could supply the module it imports; add a "
+            "command to bin/af.py instead (ADR 0104)",
+        )
+    lines = {text.count("\n", 0, m.start()) + 1 for m in _SCRIPT_WITHOUT_E.finditer(text)}
+    for line in sorted(lines):
+        report.error(
+            f"{loc}:{line}",
+            "a shipped script run without python3 -E: PYTHONPATH could reach the "
+            "interpreter before the script does (ADR 0104)",
+        )
+
+
+# --- maintainer skills (ADR 0105) ---------------------------------------------------------
+#
+# A skill that builds THIS repository (`skill-factory`) is useless in a user's project, and every
+# shipped description takes a share of one listing budget common to all plugins. So it lives in
+# the repo's `.claude/skills/`, which Claude Code loads for a session in this repo (bare name, no
+# namespace), and does not ship. Not shipping must not mean not gated: Tier-0 runs the same
+# `validate_skill` over it and the same body checks. What it does NOT get: the listing budget
+# (it is in no user's listing) and the 3.9 import rule (it is not run by a user's `python3`).
+MAINTAINER_SKILLS_DIR = Path(".claude") / "skills"
+# What makes a directory THIS repository (the doc-sync checks key on it too). Without it, a plugin
+# validated from `~/some-plugin` would treat the user's personal `~/.claude/skills` as ours.
+REPO_MARKER = Path("docs") / "architecture" / "meta-core.md"
+
+
+def maintainer_skills_dir(repo_root: Path) -> Path:
+    """Where a repository keeps its maintainer (project) skills: ``<repo>/.claude/skills``."""
+    return repo_root / MAINTAINER_SKILLS_DIR
+
+
+def maintainer_root(repo_root: Path) -> Path | None:
+    """The maintainer skills dir — or None unless ``repo_root`` is the agentic-forge repository
+    (it has :data:`REPO_MARKER`) and the dir exists. The one place the eval CLIs and the validator
+    decide whether there are maintainer skills to read."""
+    if not (repo_root / REPO_MARKER).is_file():
+        return None
+    root = maintainer_skills_dir(repo_root)
+    return root if root.is_dir() else None
+
+
+def maintainer_skill_dirs(repo_root: Path) -> list[Path]:
+    """Every maintainer skill directory, sorted; empty when there is no :func:`maintainer_root`."""
+    root = maintainer_root(repo_root)
+    if root is None:
+        return []
+    return sorted(p for p in root.iterdir() if p.is_dir())
+
+
+def validate_maintainer_skills(repo_root: Path, plugin_dir: Path) -> Report:
+    """Tier-0 for ``<repo>/.claude/skills/*``: the full ``validate_skill`` (eval ``files`` resolve
+    against ``plugin_dir``, where the eval stands live), the inline-Python checks on every markdown
+    file, and no name shared with a shipped skill — the Tier-2 resolver looks in the plugin first,
+    so a namesake would be silently shadowed. Locations are repo-relative."""
+    report = Report()
+    shipped = plugin_dir / "skills"
+    for skill_dir in maintainer_skill_dirs(repo_root):
+        sub = validate_skill(skill_dir, plugin_dir=plugin_dir)
+        rel = skill_dir.relative_to(repo_root).as_posix()
+        for issue in sub.issues:  # `<name>/SKILL.md` -> `.claude/skills/<name>/SKILL.md`
+            location = f"{MAINTAINER_SKILLS_DIR.as_posix()}/{issue.location}"
+            report.issues.append(Issue(issue.severity, location, issue.message))
+        if (shipped / skill_dir.name).is_dir():
+            report.error(
+                f"{rel}/SKILL.md",
+                f"maintainer skill '{skill_dir.name}' shares its name with a shipped skill "
+                f"(plugin/skills/{skill_dir.name}); the plugin one would shadow it in Tier-2",
+            )
+        for path in sorted(skill_dir.rglob("*.md")):
+            _inline_python_problems(path, path.relative_to(repo_root).as_posix(), report)
     return report
 
 

@@ -20,6 +20,7 @@ stub runners; the real run classifies via the ``claude`` CLI (subscription) or t
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -147,6 +148,9 @@ class SkillTrigger:
     should_trigger: list[str]
     should_not_trigger: list[str]
     off_listing: bool = False
+    # From an extra skill root (a repo's `.claude/skills`, ADR 0105), not the plugin: a live session
+    # shows it by its BARE name, never under the plugin's namespace.
+    maintainer: bool = False
 
 
 @dataclass
@@ -221,10 +225,21 @@ def _is_off_listing(fm: dict[str, Any]) -> bool:
     return str(fm.get("disable-model-invocation", "")).strip().lower() == "true"
 
 
-def load_listing(plugin_dir: Path) -> list[SkillCard]:
-    """The live always-on listing: model-invocable skills' name+description, sorted by name."""
+def load_listing(plugin_dir: Path, skill_roots: Sequence[Path] = ()) -> list[SkillCard]:
+    """The live always-on listing: model-invocable skills' name+description, sorted by name.
+
+    ``skill_roots`` are extra skills directories rendered beside the plugin's — a repository's
+    ``.claude/skills`` (ADR 0105), which a maintainer session lists next to the plugin. Each root is
+    a directory of ``<name>/SKILL.md``, like ``<plugin>/skills``. The default is the shipped
+    listing alone, what a user's session sees."""
+    cards = _cards_in(plugin_dir / "skills")
+    for root in skill_roots:
+        cards.extend(_cards_in(root))
+    return sorted(cards, key=lambda c: c.name)
+
+
+def _cards_in(skills_dir: Path) -> list[SkillCard]:
     cards: list[SkillCard] = []
-    skills_dir = plugin_dir / "skills"
     if not skills_dir.is_dir():
         return cards
     for skill_dir in sorted(p for p in skills_dir.iterdir() if p.is_dir()):
@@ -542,10 +557,18 @@ def selection_rate(
     return PromptRate(rate=(hits / valid) if valid else None, invalid=invalid, runs=runs, **detail)
 
 
-def load_triggers(plugin_dir: Path) -> list[SkillTrigger]:
-    """Every skill that declares a ``tier1_trigger`` threshold, with its trigger prompts."""
+def load_triggers(plugin_dir: Path, skill_roots: Sequence[Path] = ()) -> list[SkillTrigger]:
+    """Every skill that declares a ``tier1_trigger`` threshold, with its trigger prompts — the
+    plugin's, plus those of each extra ``skill_roots`` directory (marked ``maintainer``), sorted
+    by name. See :func:`load_listing`."""
+    out = _triggers_in(plugin_dir / "skills", maintainer=False)
+    for root in skill_roots:
+        out.extend(_triggers_in(root, maintainer=True))
+    return sorted(out, key=lambda t: t.name)
+
+
+def _triggers_in(skills_dir: Path, *, maintainer: bool) -> list[SkillTrigger]:
     out: list[SkillTrigger] = []
-    skills_dir = plugin_dir / "skills"
     if not skills_dir.is_dir():
         return out
     for skill_dir in sorted(p for p in skills_dir.iterdir() if p.is_dir()):
@@ -566,6 +589,7 @@ def load_triggers(plugin_dir: Path) -> list[SkillTrigger]:
                 should_trigger=list(triggers.get("should_trigger") or []),
                 should_not_trigger=list(triggers.get("should_not_trigger") or []),
                 off_listing=bool(off),
+                maintainer=maintainer,
             )
         )
     return out
@@ -688,6 +712,7 @@ def run_tier1(
     workdir: Path | None = None,
     extra_cards: list[SkillCard] | None = None,
     namespace: str | None = None,
+    skill_roots: Sequence[Path] = (),
 ) -> list[Tier1Report]:
     """Run Tier-1 for the on-listing skills (optionally a subset) against the live listing.
 
@@ -700,45 +725,69 @@ def run_tier1(
     ``code-review``) — ADR 0086's condition. A bare ``code-review`` reply counts as OURS and is
     reported as ambiguous (ADR 0087, corrected): the router drops the prefix for every skill, so a
     bare name is not a vote for the built-in.
+
+    ``skill_roots`` adds the skills of extra directories — a maintainer's ``.claude/skills``
+    (ADR 0105) — to the listing and to the skills measured. They are rendered by their bare name
+    even under ``namespace``, the way a live session shows a project skill, and sorted in among the
+    plugin's, so the listing a maintainer's router sees is the one measured.
     """
     if runs <= 0:
         raise ValueError(f"runs must be >= 1, got {runs}")
-    problems = check_wiring(plugin_dir)
+    problems = check_wiring(plugin_dir, skill_roots)
     if problems:
         raise ValueError("Tier-1 wiring problems: " + "; ".join(problems))
     bare = load_listing(plugin_dir)
-    ours = [SkillCard(f"{namespace}:{c.name}", c.description) for c in bare] if namespace else bare
+    extra_own = [c for root in skill_roots for c in _cards_in(root)]
+    shipped = {c.name for c in bare}
+    ours = [
+        SkillCard(f"{namespace}:{c.name}", c.description) if namespace and c.name in shipped else c
+        for c in sorted([*bare, *extra_own], key=lambda c: c.name)
+    ]
     # The parser knows BOTH spellings of our names under a namespace: the router answers with the
     # bare one for every skill (ADR 0087), and a bare answer is ours unless a built-in owns it too —
     # in which case it is still counted as ours and reported as ambiguous.
     names = [c.name for c in ours] + ([c.name for c in bare] if namespace else [])
     system = build_router_system([*ours, *(extra_cards or [])])
     work = workdir or plugin_dir
-    triggers = [t for t in load_triggers(plugin_dir) if skills is None or t.name in skills]
+    triggers = [
+        t for t in load_triggers(plugin_dir, skill_roots) if skills is None or t.name in skills
+    ]
     prefix = f"{namespace}:" if namespace else ""
-    collided = frozenset(c.name for c in (extra_cards or [])) & frozenset(c.name for c in bare)
+    collided = frozenset(c.name for c in (extra_cards or [])) & frozenset(
+        c.name for c in [*bare, *extra_own]
+    )
     return [
         eval_skill(
             t, names, run_fn, system, runs, work,
-            target=f"{prefix}{t.name}",
-            aliases=frozenset({t.name}) if namespace else frozenset(),
+            target=t.name if t.maintainer else f"{prefix}{t.name}",
+            aliases=frozenset({t.name}) if namespace and not t.maintainer else frozenset(),
             collided=collided,
         )
         for t in triggers
     ]
 
 
-def check_wiring(plugin_dir: Path) -> list[str]:
-    """Dry-run readiness: triggers present, on-listing, and the listing is well-formed."""
+def check_wiring(plugin_dir: Path, skill_roots: Sequence[Path] = ()) -> list[str]:
+    """Dry-run readiness: triggers present, on-listing, and the listing is well-formed. With
+    ``skill_roots``, also that each root exists and no name is listed twice (a duplicate makes a
+    routing answer unattributable)."""
     problems: list[str] = []
-    cards = load_listing(plugin_dir)
+    for root in skill_roots:
+        if not root.is_dir():
+            problems.append(f"skill root not found: {root}")
+    cards = load_listing(plugin_dir, skill_roots)
     listing_names = {c.name for c in cards}
     if not cards:
         problems.append("live listing is empty (no model-invocable skills found)")
+    seen: set[str] = set()
+    for card in cards:
+        if card.name in seen:
+            problems.append(f"{card.name}: listed twice (an extra skill root reuses the name)")
+        seen.add(card.name)
     for card in cards:
         if not card.description:
             problems.append(f"{card.name}: empty description (router can't route on it)")
-    for trig in load_triggers(plugin_dir):
+    for trig in load_triggers(plugin_dir, skill_roots):
         if trig.off_listing:
             problems.append(
                 f"{trig.name}: declares tier1_trigger but is disable-model-invocation (off-listing)"

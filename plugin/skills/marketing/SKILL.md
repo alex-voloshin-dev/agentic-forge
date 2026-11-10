@@ -1,6 +1,6 @@
 ---
 name: marketing
-description: Market and competitor research and analysis, go-to-market strategy and positioning, offer / pricing / packaging design, marketing content (landing copy, social, ad/paid), and GEO/SEO content audits — the outward-facing marketing domain, with cited evidence. Use for market research or a competitor analysis of the market landscape, GTM / positioning / channel strategy, designing or pricing an offer, writing landing / social / ad copy, or auditing a page for AI search readiness / citability / SEO. Not for product requirements or a PRD (product), researching the feature or technical options (research), or the technical design (architecture).
+description: Outward-facing marketing work with cited evidence — market and competitor analysis, go-to-market strategy and positioning, offer, pricing and packaging design, landing, social and ad copy, and GEO/SEO audits of a page for AI-search citability. Use for any of these. Not product requirements or a PRD (product), researching a feature or technical approach (research), or system design (architecture).
 allowed-tools: Read, Grep, Glob, Bash, Task, Write, Edit, WebSearch, WebFetch
 ---
 
