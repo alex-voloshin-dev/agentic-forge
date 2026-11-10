@@ -7,6 +7,8 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.11.6] - 2026-11-10
+
 ### Changed
 
 - **The skill listing is a third shorter (ADR 0105).** Claude Code keeps one skill listing for every plugin together,
