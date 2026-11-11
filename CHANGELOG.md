@@ -7,6 +7,8 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.11.7] - 2026-11-11
+
 ### Security
 
 - **The read-only roles are held by a hook, in every permission mode (ADR 0106).** A plugin agent's `tools:` line
