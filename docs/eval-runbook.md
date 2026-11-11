@@ -233,7 +233,7 @@ Locally, if you are already signed in to Claude Code (interactive `claude` login
 is mainly for CI/headless runs.
 
 Alternative — per-token billing: set `ANTHROPIC_API_KEY` and use `--runner api` (this path
-needs the optional `anthropic` SDK: `pip install -e ".[dev,eval]"`). Most users on a
+needs the optional `anthropic` SDK, 2.x since ADR 0108: `pip install -c constraints/ci.txt -e ".[dev,eval]"`). Most users on a
 subscription should use `--runner claude` instead.
 
 ## Fidelity levels (the runner seam)
@@ -289,7 +289,7 @@ grader replies and retries once on an unparseable response.
 
 Prerequisites: the `claude` CLI on `PATH` (`npm install -g @anthropic-ai/claude-code`) and
 the auth above. Install Python deps: `pip install -e ".[dev]"` (enough for the `dry`/`claude`
-runners; `--runner api` additionally needs the `eval` extra: `pip install -e ".[dev,eval]"`).
+runners; `--runner api` additionally needs the `eval` extra: `pip install -c constraints/ci.txt -e ".[dev,eval]"`).
 
 ```bash
 # Verify wiring only — no credentials, no model calls (also runs in CI on every eval job):

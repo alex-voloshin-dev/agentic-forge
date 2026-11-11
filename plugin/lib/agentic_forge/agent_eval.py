@@ -744,9 +744,9 @@ def api_runner(model: str, *, max_tokens: int = 4096) -> Runner:
             system=system,
             messages=[{"role": "user", "content": prompt}],
         )
-        text = "".join(
-            block.text for block in message.content if getattr(block, "type", None) == "text"
-        )
+        # `block.type == "text"` (not getattr) so the SDK's typed content union narrows to
+        # TextBlock under mypy once the eval extra is installed.
+        text = "".join(block.text for block in message.content if block.type == "text")
         if getattr(message, "stop_reason", None) == "max_tokens":
             raise SessionUndetermined(
                 "max_tokens", f"reply cut at max_tokens={max_tokens}; tail: {_flat(text[-200:])}"

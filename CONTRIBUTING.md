@@ -104,8 +104,9 @@ auto-merge is disabled. Because the rebase merge **rewrites commit SHAs**, the t
 
 The flow (precedent: PR #3, `v2026.7.1`):
 
-1. On a branch: the work commit(s), then a `Release <calver>` commit — bump
-   `plugin/.claude-plugin/plugin.json`, cut the `CHANGELOG.md` `[<calver>]` section (keep a fresh
+1. On a branch: the work commit(s), then a `Release <calver>` commit — bump the version in
+   `plugin/.claude-plugin/plugin.json` and in `.claude-plugin/marketplace.json` (Tier-0 checks they
+   match, ADR 0108), cut the `CHANGELOG.md` `[<calver>]` section (keep a fresh
    `[Unreleased]` above), and add the release handoff artifact
    (`docs/sdlc/agentic-forge-<calver>/release.md`, header valid per
    `handoff.validate_header(..., expected_type="release")`).

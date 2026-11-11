@@ -39,7 +39,7 @@ A dependency review on 2026-11-11 found:
 5. **The maintainer's local `.venv` is built on 3.15 with `uv`**, from the same constraints file.
 
 The optional `eval` extra (`anthropic>=0.39`, latest 2.x) is left out of this change. It needs an API-key run of
-`--runner api` to verify, and is a separate step.
+`--runner api` to verify, and is a separate step. It was done in [0108](0108-the-eval-extra-moves-to-anthropic-2.md).
 
 ## Consequences
 

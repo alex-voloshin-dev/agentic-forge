@@ -116,6 +116,9 @@ It fails on **inline Python**, or a shipped script run without `-E`, in any `.md
 `agents/` (`validate_no_inline_python`, ADR 0104): `python -c` takes the working directory's modules first, and
 `PYTHONPATH` reaches the interpreter before a script's first line, so what a skill needs from the library is a narrow
 command in `plugin/bin/af.py`, run as `python3 -E`.
+When the repository has `.claude-plugin/marketplace.json`, it also fails unless the marketplace's entry for the plugin
+carries the version in `plugin.json` (`validate_marketplace`, ADR 0108): a release bumps both, and 2026.11.8 shipped
+with the marketplace one release behind.
 
 Coverage and types are part of Tier 0 too, enforced in CI: `pytest --cov=agentic_forge
 --cov-fail-under=80`, `ruff`, and `mypy` (see [ci.yml](../../.github/workflows/ci.yml)).

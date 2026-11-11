@@ -618,6 +618,44 @@ def validate_manifest(plugin_dir: Path) -> Report:
     return report
 
 
+MARKETPLACE = Path(".claude-plugin") / "marketplace.json"
+
+
+def validate_marketplace(repo_root: Path, plugin_dir: Path) -> Report:
+    """The marketplace entry that lists this plugin carries the plugin's own version.
+
+    A release bumps both files. 2026.11.8 bumped only plugin.json, and the marketplace went on
+    advertising 2026.11.7 with nothing to catch it (ADR 0108). Skipped when the repo has no
+    marketplace file or the manifest is unreadable (validate_manifest reports that).
+    """
+    report = Report()
+    market = repo_root / MARKETPLACE
+    if not market.is_file():
+        return report
+    loc = MARKETPLACE.as_posix()
+    try:
+        data = json.loads(market.read_text(encoding="utf-8"))
+        plugin = json.loads((plugin_dir / ".claude-plugin" / "plugin.json").read_text("utf-8"))
+    except json.JSONDecodeError as exc:
+        report.error(loc, f"invalid JSON: {exc}")
+        return report
+    except OSError:
+        return report
+    name, version = plugin.get("name"), plugin.get("version")
+    entries = data.get("plugins") if isinstance(data, dict) else None
+    listed = [e for e in entries or [] if isinstance(e, dict) and e.get("name") == name]
+    if not listed:
+        report.error(loc, f"no plugins[] entry named '{name}'")
+    for entry in listed:
+        if entry.get("version") != version:
+            report.error(
+                loc,
+                f"'{name}' is listed at version {entry.get('version')!r}, but plugin.json is "
+                f"{version!r}; a release bumps both",
+            )
+    return report
+
+
 def validate_plugin(plugin_dir: Path) -> Report:
     """Validate the whole plugin: manifest, python compat, skills, agents."""
     report = Report()
