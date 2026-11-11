@@ -138,10 +138,10 @@ Full docs live in [`docs/`](docs/README.md): [product vision](docs/product/visio
 ## Develop
 
 ```bash
-uv venv && uv pip install -e ".[dev]"   # or: pip install -e ".[dev]"
+uv venv --python 3.15 && uv pip install -c constraints/ci.txt -e ".[dev]"   # or: pip install -c constraints/ci.txt -e ".[dev]"
 python dev/validate.py                   # Tier-0 gate
 pytest                                    # unit tests
-ruff check . && mypy plugin/lib plugin/hooks dev   # lint + types
+ruff check . && mypy plugin/lib plugin/hooks plugin/bin dev   # lint + types
 ```
 
 ## License

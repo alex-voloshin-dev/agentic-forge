@@ -197,7 +197,8 @@ skills — pass their own Tier-0 gate.
 
 ## CI
 
-- `ci.yml` runs the Tier-0 gate on every push/PR: `validate`, `pytest`, `ruff`, `mypy` — plus
+- `ci.yml` runs the Tier-0 gate on every push/PR: `validate`, `pytest`, `ruff`, `mypy`, on Python 3.11 and again
+  on 3.15 inside the one required job, with tools installed from the pinned `constraints/ci.txt` (ADR 0107) — plus
   `hooks-py39`, which compiles, imports and smoke-runs every hook under **Python 3.9** with nothing
   installed (`dev/hook_smoke.py`): the floor a stock macOS `python3` gives the field, tested rather
   than assumed, because a hook that cannot start fails open and silent (ADR 0094).

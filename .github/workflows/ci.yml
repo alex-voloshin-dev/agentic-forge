@@ -9,21 +9,31 @@ jobs:
   tier0:
     name: Tier 0 (static gate)
     runs-on: ubuntu-latest
+    # The dev tooling is gated on the oldest and the newest supported Python in ONE job, so the
+    # check name the branch rules require stays "Tier 0 (static gate)" (a matrix would rename it).
+    # Installs use the pinned constraints, so CI measures the code, not that day's tool releases
+    # (ADR 0107).
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
-      - name: Install
-        run: pip install -e ".[dev]"
-      - name: Validate plugin (skills-ref-style + contracts)
-        run: python dev/validate.py
-      - name: Unit tests (with coverage gate)
-        run: pytest -q --cov --cov-report=term-missing --cov-fail-under=80
-      - name: Lint
-        run: ruff check .
-      - name: Types
-        run: mypy plugin/lib plugin/hooks plugin/bin dev
+          python-version: |
+            3.15
+            3.11
+      - name: Gate on Python 3.11 (the floor)
+        run: |
+          python3.11 -m venv /tmp/v311
+          /tmp/v311/bin/pip install -q -c constraints/ci.txt -e ".[dev]"
+          /tmp/v311/bin/python dev/validate.py
+          /tmp/v311/bin/python -m pytest -q --cov --cov-report=term-missing --cov-fail-under=80
+          /tmp/v311/bin/ruff check .
+          /tmp/v311/bin/mypy plugin/lib plugin/hooks plugin/bin dev
+      - name: Gate on Python 3.15 (the newest)
+        run: |
+          python3.15 -m venv /tmp/v315
+          /tmp/v315/bin/pip install -q -c constraints/ci.txt -e ".[dev]"
+          /tmp/v315/bin/python dev/validate.py
+          /tmp/v315/bin/python -m pytest -q --cov --cov-fail-under=80
 
   # Hooks run under the user's bare `python3` — a stock macOS gives CPython 3.9.6 — and a hook that
   # fails to start fails OPEN, silently. So the floor is tested, not assumed: compile every shipped
@@ -35,8 +45,8 @@ jobs:
     # running. A floor test that cannot run proves nothing, so its image is chosen for the interpreter.
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.9"
       - name: Compile, import and smoke-run every hook (stdlib only)
