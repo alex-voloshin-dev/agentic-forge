@@ -42,12 +42,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - name: Install (Python deps)
-        run: pip install -e ".[dev]"
+        run: pip install -c constraints/ci.txt -e ".[dev]"
       - name: Agent Tier-2 wiring
         run: python dev/run_agent_evals.py --runner dry
       - name: Skill Tier-1 wiring
@@ -78,16 +78,16 @@ jobs:
         run: |
           echo "::error title=Weekly eval cannot measure::CLAUDE_CODE_OAUTH_TOKEN is not set, so the Tier-1 routing run would be SKIPPED and this job would report success having checked no threshold. Fix: run 'claude setup-token', then 'gh secret set CLAUDE_CODE_OAUTH_TOKEN'."
           exit 1
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "24"
       - name: Install (Python deps + Claude Code CLI)
         run: |
-          pip install -e ".[dev]"
+          pip install -c constraints/ci.txt -e ".[dev]"
           npm install -g @anthropic-ai/claude-code
 
       # Classifies each skill's trigger prompts against the LIVE listing, scored as the mean
@@ -146,16 +146,16 @@ jobs:
     env:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "24"
       - name: Install (Python deps + Claude Code CLI)
         run: |
-          pip install -e ".[dev]"
+          pip install -c constraints/ci.txt -e ".[dev]"
           npm install -g @anthropic-ai/claude-code
 
       # Each role on its fixtures, graded by the grader role, aggregated and gated mean-stddev.

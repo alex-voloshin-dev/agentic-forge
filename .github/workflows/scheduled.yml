@@ -17,12 +17,12 @@ jobs:
     name: Run due scheduled jobs
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - name: Install
-        run: pip install -e ".[dev]"
+        run: pip install -c constraints/ci.txt -e ".[dev]"
       - name: List due jobs (dry-run)
         run: python plugin/bin/run_scheduled.py --dry
       - name: Run due scheduled jobs

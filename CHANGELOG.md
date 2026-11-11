@@ -7,6 +7,21 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Changed
+
+- **CI measures the code, not the day's tool releases (ADR 0107).** CI used to install whatever versions were newest
+  that day, so a new ruff or mypy release could turn it red with no code change, and a green run did not record which
+  versions passed. Now:
+  - Every workflow installs from `constraints/ci.txt`, which pins every package the dev install pulls in.
+  - The file is generated with `uv pip compile --universal`, so one file serves Python 3.11 through 3.15.
+  - The floors in `pyproject.toml` are the tested lines (pytest 9.2, pytest-cov 7.1, mypy 2.4, jsonschema 4.26,
+    PyYAML 6.0.3, setuptools 80), and ruff is held to its 0.17 minor line, because a new minor adds rules.
+  - The required Tier-0 job runs the gate on Python 3.11 and again on 3.15, as two steps of the one job, so its
+    required check name is unchanged.
+  - `actions/checkout`, `setup-python` and `setup-node` move from v4/v5 to v7, and the Claude Code CLI's Node from 20
+    to 24.
+  - Nothing in the shipped plugin changes.
+
 ## [2026.11.7] - 2026-11-11
 
 ### Security

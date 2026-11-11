@@ -16,8 +16,13 @@ do **not** open a public issue — follow [SECURITY.md](SECURITY.md).
 
 ```bash
 git clone <repo> && cd agentic-forge
-uv venv && uv pip install -e ".[dev]"     # or: pip install -e ".[dev]"
+uv venv --python 3.15 && uv pip install -c constraints/ci.txt -e ".[dev]"   # or: pip install -c constraints/ci.txt -e ".[dev]"
 ```
+
+The dev tooling supports Python 3.11 through 3.15, and CI gates both ends. `constraints/ci.txt` pins the exact
+versions CI uses; installing with it gives you the same tools. To move a dependency, raise the floor in
+`pyproject.toml` if needed, regenerate the file with the command at its top, and run the gate on both interpreters
+(ADR 0107). Hook-reachable code still has to run on Python 3.9 (ADR 0094).
 
 The `claude` CLI is needed only to run the live LLM evals (Tier 1–2); see the
 [eval runbook](docs/eval-runbook.md).
@@ -46,7 +51,7 @@ Tier 0 is static and always blocks. Run it locally — CI runs the same:
 python dev/validate.py                                   # frontmatter, body ≤500 lines, refs, evals exist
 pytest -q --cov=agentic_forge --cov-fail-under=80        # tests + coverage ≥ 80%
 ruff check .                                              # lint
-mypy plugin/lib plugin/hooks dev                          # types
+mypy plugin/lib plugin/hooks plugin/bin dev               # types
 ```
 
 All four must be green. The higher tiers (Tier-1 trigger, Tier-2 quality, Tier-3 E2E) are
