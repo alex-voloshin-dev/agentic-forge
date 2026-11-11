@@ -44,6 +44,11 @@ itself, with its maintainer skill `skill-factory` (not shipped in this plugin â€
 | `eval/` | Eval-harness docs + agent eval fixtures. |
 | `schemas/` | JSON Schema for the `evals.json` contract. |
 
+The read-only roles (`reviewer`, `security-engineer`, `grader`, `architect`) are held to their tool
+scope by the `role_scope` hook in every permission mode, `bypassPermissions` included. An error inside
+the hook refuses the call for these roles; like every hook, one that fails to start (no `python3` on
+PATH, for one) fails open.
+
 ## Standard compliance
 
 Every skill conforms to the [Agent Skills](https://agentskills.io) open standard and passes

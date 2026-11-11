@@ -361,6 +361,18 @@ def test_hook_crash_records_without_the_toggle_and_announces_once(
     assert {e["severity"] for e in events} == {"blocker"}
 
 
+def test_hook_crash_says_when_the_hook_failed_closed(tmp_path: Path, monkeypatch) -> None:
+    """A guardrail that refuses what it could not check (the role-scope hook, ADR 0106) must not
+    tell the operator it failed open."""
+    monkeypatch.delenv("AGENTIC_FORGE_DIAGNOSTICS", raising=False)
+    out = diagnostics.hook_crash(
+        tmp_path, "role-scope-hook", RuntimeError("x"), session_id="s", failed_closed=True,
+    )
+    assert "role-scope hook crashed: RuntimeError: x — failing closed" in out["systemMessage"]
+    assert "failing open" not in out["systemMessage"]
+    assert "failing open" in diagnostics.hook_crash_notice("a-hook", "E", "log")
+
+
 def test_hook_crash_without_a_session_records_but_stays_quiet(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("AGENTIC_FORGE_DIAGNOSTICS", raising=False)
     out = diagnostics.hook_crash(tmp_path, "audit-hook", ValueError("x"), severity="major")

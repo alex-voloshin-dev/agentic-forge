@@ -24,7 +24,9 @@ def test_every_hook_has_a_smoke_payload() -> None:
 
 def test_hook_reachable_closure_is_the_3_9_contract() -> None:
     mods = hook_smoke.hook_reachable_modules()
-    assert {"guardrails", "diagnostics", "settings", "vault", "pre_router"} <= set(mods)
+    assert {"guardrails", "diagnostics", "settings", "vault", "pre_router", "role_scope"} <= set(
+        mods
+    )
     assert "agent_eval" not in mods  # the eval harness is dev-side, not on the hook path
 
 

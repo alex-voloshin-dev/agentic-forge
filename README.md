@@ -122,8 +122,9 @@ on demand (ADR 0083): the
 handoff schemas + the review / fan-out / worktree patterns), the **workflow skills** (the six-phase
 SDLC spine + quality/ops, marketing, and design/onboarding), the **knowledge base** (Obsidian vault +
 `knowledge` recall/capture + session-start hook), and the **guardrail & ops hooks** (security /
-test-gate / logging / budgets + scheduling & observability). Real provider connectors (GitHub
-Actions, Grafana, web research) plug into the ops/marketing seams.
+test-gate / logging / budgets / role scope + scheduling & observability). The read-only roles are
+held to their tool scope by a hook in every permission mode; a hook that fails to start fails open.
+Real provider connectors (GitHub Actions, Grafana, web research) plug into the ops/marketing seams.
 See the [roadmap](docs/roadmap.md) and [CHANGELOG](CHANGELOG.md).
 
 ## Documentation

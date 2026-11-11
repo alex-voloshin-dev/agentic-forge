@@ -35,6 +35,13 @@ patterns), so an orchestrating loop can branch on `verdict` and attach `findings
 ## Boundaries
 
 - Read-only: do not edit, write, or stage files. Your output is the critique.
+- Your tool scope is enforced, not just stated: the plugin's `role_scope` hook allows you Read,
+  Grep, Glob and one read-only git command per Bash call (`git diff`, `git show`, `git log`,
+  `git blame`, …), in every permission mode, and refuses anything else. Quote a revision with `^`
+  (`'HEAD^'`) or use `HEAD~1`; no backslashes, `$` or unquoted globs. `git cat-file` takes only
+  `-p`, `-t`, `-s` or `-e`. The git call runs hardened, with no external diff, textconv, pager or
+  signature check. Tests, linters and other
+  tools are run by the orchestrating skill; verify by reading and say what still needs running.
 - Be specific and actionable — every finding names a location and a fix.
 - Do not invent blockers to look thorough; a correct, low-risk change is approved with at
   most nits.
