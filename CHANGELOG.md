@@ -7,6 +7,8 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.11.9] - 2026-11-11
+
 ### Changed
 
 - **The `eval` extra moves to the anthropic 2.x SDK (ADR 0108).** Only `--runner api` uses it: the per-token transport of
@@ -15,7 +17,7 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
   SDK. 2.x sends API version 2026-10-21. Its breaking changes cover sampling parameters, documents, citations and Admin
   fields, and our one Messages call uses none of them. The runner now picks text blocks by `block.type`, so strict mypy
   passes with the SDK installed. Verified with a live `--runner api` run of the grader role. If a proxy in front of the
-  API reads only `X-Api-Key`, note that 2.x sends the key as `Authorization: Bearer`. Nothing in the shipped plugin
+  API reads only `X-Api-Key`, note that 2.x sends the key as `Authorization: Bearer`. No skill, agent or hook
   changes.
 
 ### Fixed
