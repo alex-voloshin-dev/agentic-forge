@@ -362,6 +362,75 @@ def test_redact_a_quoted_assignment(assignment: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("command", "secret"),
+    [
+        # field report (synthetic values): each of these reached the audit log in clear
+        ("F4AI_DB_PWD=hunter2xyz psql -h x", "hunter2xyz"),
+        ('export F4AI_BASTION_PWD="Zx9-secret"', "Zx9-secret"),
+        ("X_CREDENTIAL=abcdefgh1 tool", "abcdefgh1"),
+        ("DEPLOY_CREDS=abcdefgh2 tool", "abcdefgh2"),
+        ("SSH_PRIVATE_KEY=abcdefgh3 tool", "abcdefgh3"),
+        ("az login --password Sup3rS3cretValue", "Sup3rS3cretValue"),
+        ('az login --password "a b c d" --user x', "a b c d"),
+        ("tool --token abcdef123456 run", "abcdef123456"),
+        ("tool --api-key abcdef123457 run", "abcdef123457"),
+        ("tool --client-secret abcdef123458", "abcdef123458"),
+        ("sshpass -p MyPassw0rd ssh h", "MyPassw0rd"),
+        ('sshpass -e -p "My Pass" ssh h', "My Pass"),
+        ("sshpass -pMyPassw0rd2 ssh h", "MyPassw0rd2"),
+        ("mysql -u root -pS3cretVal db", "S3cretVal"),
+        ("mysqldump -h x -u r -p'S3c ret' db", "S3c ret"),
+        ("psql postgres://u:pw12345@h/db", "pw12345"),
+        # review: a shell word is all its glued parts, not just the first
+        ("tool --password 'first'secondsecret x", "secondsecret"),
+        ('tool --password "a\\"b"tailsecret x', "tailsecret"),
+        ("tool --token a\\ b\\ csecret next", "csecret"),
+        # review: sshpass options with an operand may come before -p
+        ("sshpass -P 'assword:' -p MyPassw0rd3 ssh h", "MyPassw0rd3"),
+        ("sshpass -d 3 -v -p MyPassw0rd4 ssh h", "MyPassw0rd4"),
+        # review: every attached -p of a MySQL client, not only the first
+        ("mysql -pfirstsecret -psecondsecret db", "secondsecret"),
+        # review: a separator inside a quoted password does not end the command
+        ('mysql -p"first;second" db', "second"),
+        ("mysql -u r -p'a|b&csecret' db", "csecret"),
+        ("mysql -u r -pa\\;bsecret db", "bsecret"),
+        # review: an attached sshpass value may start with a hyphen, and so may a separate one
+        ("sshpass -p-secretvalue ssh h", "secretvalue"),
+        ("sshpass -p -secretvalue2 ssh h", "secretvalue2"),
+        # review: a line continuation, and an option quoted as a whole word
+        ("mysql \\\n -psecretvalue3 db", "secretvalue3"),
+        ('mysql "-psecretvalue4" db', "secretvalue4"),
+    ],
+)
+def test_redact_secrets_passed_as_names_and_arguments(command: str, secret: str) -> None:
+    out = redact_secrets(command)
+    assert secret not in out and "[REDACTED]" in out
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "mysql -u root -p db",  # a bare -p prompts; `db` is the database name
+        "cd $(pwd) && ls",
+        "echo $PWD",
+        "git log -p --stat",
+        "grep -p foo bar",
+        "tool --token-file /tmp/x",
+        "tool --password-stdin < f",
+        "sshpass -f pwfile ssh h",
+        "sshpass -f pwfile ssh -p 2222 h",  # ssh's -p is a port, after sshpass's own options end
+        "mysql -u r db && ls -p x",  # -p after the MySQL command has ended
+    ],
+)
+def test_argument_redaction_leaves_look_alikes_alone(command: str) -> None:
+    assert redact_secrets(command) == command
+
+
+def test_a_secret_flag_keeps_its_name_in_the_log() -> None:
+    assert redact_secrets("az login --password hunter2xyz") == "az login --password [REDACTED]"
+
+
+@pytest.mark.parametrize(
     "code",
     [
         '{"token": token_value, "password": password}',

@@ -1000,18 +1000,52 @@ _SECRETS = [
     # (underscore-joined, no word boundary before "secret") is still caught. A quoted key, as in
     # JSON or a dict, needs a quoted value, so `{"token": token_value}` in ordinary code stays
     # readable. A quote may be escaped, as JSON inside a shell command's string has it.
+    # The names cover the `*_PWD` and `*_CRED…` spellings ops scripts use (`DB_PWD=…`,
+    # `X_CREDENTIAL=…`) and a private key's own name; a field report found both in clear.
     re.compile(
-        r"(?i)(api[_-]?key|secret\w{0,64}|access[_-]?key|token|password|passwd)"
+        r"(?i)(api[_-]?key|private[_-]?key|secret\w{0,64}|access[_-]?key|token|password|passwd"
+        r"|pwd|cred\w{0,32})"
         r"(?:\s*[:=]\s*(?:\\?['\"])?|\\?['\"]\s*[:=]\s*\\?['\"])[^\s'\"]{6,}"
     ),
 ]
+
+# A secret passed as a separate argument: the flag stays readable, its value goes. The value is
+# one whole shell word — quoted parts (spaces and escapes included), backslash escapes and bare
+# runs glued together, as the shell joins `'a'b"c"` into one argument — so no tail of it survives.
+# The `=` form of the same flags is already caught by the assignment rule above.
+_SHELL_WORD = r"(?:'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\"|\\[\s\S]|[^\s'\"\\;&|])+"
+_SECRET_ARGS = [
+    re.compile(
+        r"(?i)((?<![\w-])--(?:password|passwd|pwd|token|secret|api-key|client-secret"
+        rf"|access-key|secret-key)\s+)(?!-){_SHELL_WORD}"
+    ),
+    # sshpass: its own options come first, some with an operand (-P prompt, -f file, -d fd), and
+    # the password is `-p <value>` or attached `-p<value>`.
+    # sshpass always takes the word after `-p` as the password, a leading `-` included.
+    re.compile(
+        rf"(\bsshpass\b(?:\s+(?:-[Pfd](?:\s+|(?=\S)){_SHELL_WORD}|-[evhV]))*\s+-p"
+        rf"(?:\s+|(?=\S)))"
+        rf"{_SHELL_WORD}"
+    ),
+]
+# The MySQL clients: every ATTACHED `-p<value>` in the command is a password; a bare `-p` prompts,
+# and the word after it is a database name, so it stays. The command runs word by word, so a `;`
+# or `|` inside a quoted password does not end it.
+_MYSQL_COMMAND = re.compile(
+    rf"\b(?:mysql|mariadb|mysqldump|mysqladmin|mysqlimport)\b(?:(?:[ \t]|\\\n)+{_SHELL_WORD})*"
+)
+_MYSQL_PASSWORD = re.compile(rf"(?<=[\s'\"])(-p)(?=\S){_SHELL_WORD}")
 
 
 def redact_secrets(text: str) -> str:
     """Replace secret-looking substrings with a placeholder (for safe audit logging)."""
     for pattern in _SECRETS:
         text = pattern.sub("[REDACTED]", text)
-    return text
+    for pattern in _SECRET_ARGS:
+        text = pattern.sub(r"\1[REDACTED]", text)
+    return _MYSQL_COMMAND.sub(
+        lambda m: _MYSQL_PASSWORD.sub(r"\1[REDACTED]", m.group(0)), text
+    )
 
 
 def _redact_truncate(value: Any, max_len: int) -> Any:

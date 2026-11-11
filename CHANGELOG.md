@@ -7,6 +7,49 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Security
+
+- **The read-only roles are held by a hook, in every permission mode (ADR 0106).** A plugin agent's `tools:` line
+  does not restrict what a `Bash(...)` specifier names: `reviewer` and `security-engineer` declared `Bash(git diff:*)`
+  and got Bash, so outside `default` mode they were read-only only by their prompt, while reading untrusted diffs by
+  design. A new `PreToolUse` hook, `role_scope.py` over `agentic_forge.role_scope`, runs on every tool but Read, Grep
+  and Glob (its matcher excludes those three, so a tool added later is covered too). A tool call made inside a
+  subagent carries its `agent_type`; when that is one of the plugin's namespaced read-only roles, the hook decides by
+  the role's allowlist, and the `deny` it returns applies in every permission mode. `reviewer` and
+  `security-engineer` get Read, Grep, Glob and one read-only git command per Bash call: no shell operator,
+  substitution, `$`, backslash, redirection, line break or unquoted glob or expansion character; `git` first; only one
+  `-C <path>` (a working tree of the session's own repository, given without `~`) and `--no-pager` before a
+  subcommand from `diff`, `show`, `log`, `status`, `blame`, `ls-files`, `ls-tree`, `rev-parse`, `merge-base`,
+  `cat-file`, `grep`, `shortlog`, `describe`; and no option that writes a file, runs a configured program, changes
+  git's configuration or leaves the repository, abbreviations included. The hook rewrites the git command it allows
+  into a hardened form and returns that as the command to run: the words it checked, each single-quoted for the
+  shell, with the external diff, textconv, pager, hooks, fsmonitor, signature display, gpg programs and nested
+  submodule diffs turned off, the checkout's attributes too on git 2.41 and later, and the git environment variables
+  that redirect it or name a program cleared, so what runs is what was checked. `grader` gets Read, Grep, Glob and
+  `architect` those plus Write for Markdown design documents under `docs/` of the session's own working tree, outside
+  hidden directories, agent instruction files and skill definitions. Everything else is refused, with a reason that
+  names the role's scope and says tests, linters and other tools are run by the orchestrating skill; anything it
+  repeats from the command is redacted. The main session, and an agent that is not
+  the plugin's (a bare `reviewer` is a user's own), pass with no output. For a held role an internal error refuses
+  the call and is recorded (the hook fails closed); a payload it cannot parse names no role and is allowed silently,
+  and a hook that cannot start fails open, so it runs on the Python 3.9 floor and `dev/hook_smoke.py` smokes it. A
+  test keeps each allowlist equal to its role's `tools:` line. The role files say the hook enforces their scope.
+- **The audit log redacts more secret spellings.** It masked `PASSWORD`, `TOKEN`, `SECRET` and key names in an
+  assignment, and Authorization headers, but kept `*_PWD=`, `*_CRED…=` and a private key's own name in clear, and every
+  secret passed as a separate argument. Assignment names now include `PWD`, `CRED…` and `PRIVATE_KEY`; the value after
+  `--password`, `--passwd`, `--pwd`, `--token`, `--secret`, `--api-key`, `--client-secret`, `--access-key` and
+  `--secret-key` is masked, quoted or bare, with the flag kept readable; so are `sshpass -p <value>` and the attached
+  `-p<value>` of the MySQL clients (a bare `-p` prompts, and the word after it is a database name). Logs written before
+  this release keep what they hold: `audit.jsonl` and its `archive/` under the plugin's user-level state root
+  (`~/.agentic-forge/state/<repo>-<hash>/`, ADR 0072) are worth scrubbing if a session passed a credential inline.
+  Redaction is a best effort over text, not a shell parser: it reads whole shell words (quoted parts, escapes and
+  line continuations included), but an unusual mix of quoting and an assignment in one command can still leave part of
+  a value in clear. The audit log is not a place for credentials; pass them through a file or the environment.
+- **Behaviour change: a review lens no longer runs tests or tools.** A prompt that asks `reviewer` or
+  `security-engineer` to run tests, scripts or containers now gets a refusal it can read. `code-review` and
+  `deep-review` say that re-running a tool to verify a finding is the orchestrating session's job, and that a lens
+  verifies by reading: `git show <base>:<path>`, `git log`, `git blame`.
+
 ## [2026.11.6] - 2026-11-10
 
 ### Changed

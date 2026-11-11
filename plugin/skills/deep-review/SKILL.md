@@ -40,9 +40,11 @@ app, or writing code.
    five-way fan-out over a 24-line document is disproportionate. The full catalog is for "audit
    everything".
 3. **Verify** every substantive finding against the source yourself before accepting it —
-   open the file, re-run the check. Drop or downgrade what doesn't hold; keep a note of
-   notable false alarms with the reason. This step is non-negotiable: it is what keeps the
-   review trustworthy rather than a pile of guesses.
+   open the file, re-run the check. Re-running a check is this session's job: the `reviewer` and
+   `security-engineer` lenses are held to reading by the `role_scope` hook, so a lens verifies with
+   `git show <base>:<path>`, `git log` and `git blame`, and asks you for any run it needs. Drop
+   or downgrade what doesn't hold; keep a note of notable false alarms with the reason. This
+   step is non-negotiable: it is what keeps the review trustworthy rather than a pile of guesses.
 4. **Dedupe & prioritize** across lenses by severity.
 5. **Synthesize** one report (see Output). Note clean areas explicitly so silence reads as
    "checked", not "missed".

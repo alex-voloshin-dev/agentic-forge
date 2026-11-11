@@ -297,14 +297,18 @@ def hook_notice(event: str, message: str) -> dict[str, Any]:
     }
 
 
-def hook_crash_notice(component: str, message: str, log: Path | str) -> str:
-    """The one line for a hook that crashed: which hook, what raised, that it failed open, and
+def hook_crash_notice(
+    component: str, message: str, log: Path | str, *, failed_closed: bool = False
+) -> str:
+    """The one line for a hook that crashed: which hook, what raised, whether it failed open or
+    (``failed_closed``, a guardrail that refuses what it could not check) refused the call, and
     where the record is."""
     name = component[: -len("-hook")] if component.endswith("-hook") else component
-    return (
-        f"agentic-forge {name} hook crashed: {message} — failing open (the hook exited 0 and did "
-        f"not do its job for this call); see {log}"
+    outcome = (
+        "failing closed (the call it could not check was refused)" if failed_closed
+        else "failing open (the hook exited 0 and did not do its job for this call)"
     )
+    return f"agentic-forge {name} hook crashed: {message} — {outcome}; see {log}"
 
 
 def hook_crash(
@@ -315,6 +319,7 @@ def hook_crash(
     session_id: str | None = None,
     severity: str = "blocker",
     type_only: bool = False,
+    failed_closed: bool = False,
 ) -> dict[str, Any]:
     """Record a hook's own crash and return the JSON the hook should print (``{}`` once it has
     already said so this session).
@@ -328,7 +333,8 @@ def hook_crash(
     home is the operator's own to fix. The exception is state in the repo, where a checkout controls
     the path and could put a line on every tool call, so there it is not shown (ADR 0102). With
     ``type_only`` the notice names the exception's type and not its text, for a hook whose
-    exceptions can repeat what a repo's files say; the record keeps both. Never raises — the caller
+    exceptions can repeat what a repo's files say; the record keeps both. ``failed_closed`` says in
+    the notice that the call was refused instead of allowed. Never raises — the caller
     is an except-clause that must still exit 0."""
     try:
         message = guardrails.redact_secrets(f"{type(exc).__name__}: {exc}")[:_MAX_LEN]
@@ -341,7 +347,8 @@ def hook_crash(
         if once_per_session(cwd, marker, session_id, if_unsaved=not repo_controls_path):
             log = state_root(cwd) / DIAGNOSTICS_FILE
             shown = type(exc).__name__ if type_only else message
-            return {"systemMessage": hook_crash_notice(component, shown, log)}
+            notice = hook_crash_notice(component, shown, log, failed_closed=failed_closed)
+            return {"systemMessage": notice}
     except Exception:
         pass
     return {}

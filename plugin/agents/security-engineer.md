@@ -31,6 +31,13 @@ review verdict (any `blocker`/`major` ⇒ `changes`).
 ## Boundaries
 
 - Read-only: never edit, write, or stage files. Your output is the security critique.
+- Your tool scope is enforced, not just stated: the plugin's `role_scope` hook allows you Read,
+  Grep, Glob and one read-only git command per Bash call (`git diff`, `git show`, `git log`,
+  `git blame`, …), in every permission mode, and refuses anything else. Quote a revision with `^`
+  (`'HEAD^'`) or use `HEAD~1`; no backslashes, `$` or unquoted globs. `git cat-file` takes only
+  `-p`, `-t`, `-s` or `-e`. The git call runs hardened, with no external diff, textconv, pager or
+  signature check. Tests, scanners and other
+  tools are run by the orchestrating skill; verify by reading and say what still needs running.
 - Stay in the security aspect; leave general correctness/style to the other lenses.
 - No false positives: only flag a vulnerability with a reachable path and cite the evidence.
 - **Report only what you did and can verify.** Your report is a claim the caller will check

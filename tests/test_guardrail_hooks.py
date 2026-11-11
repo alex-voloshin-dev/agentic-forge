@@ -307,7 +307,7 @@ def test_hooks_json_registers_all_events() -> None:
     assert set(hooks) == {"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse"}
     _scripts = (
         "security.py", "commit_gate.py", "budget.py", "audit_log.py", "session_start.py",
-        "pre_router.py",
+        "pre_router.py", "role_scope.py",
     )
 
     def scripts_for(event: str, matcher: str | None) -> set[str]:
@@ -325,6 +325,9 @@ def test_hooks_json_registers_all_events() -> None:
     assert scripts_for("SessionStart", None) == {"session_start.py"}
     assert scripts_for("PreToolUse", "Bash") == {"security.py", "commit_gate.py"}
     assert scripts_for("PreToolUse", "Task") == {"budget.py"}
+    # ADR 0106: every tool but the three read tools, MCP tools and future tools included.
+    role_matcher = "^(?!(?:Read|Grep|Glob)$).*"
+    assert scripts_for("PreToolUse", role_matcher) == {"role_scope.py"}
     assert scripts_for("PostToolUse", "*") == {"audit_log.py"}
 
 

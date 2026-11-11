@@ -33,9 +33,9 @@ Follow [multi-aspect-review.md](../../patterns/multi-aspect-review.md):
    - **correctness / reuse** → [`reviewer`](../../agents/reviewer.md) role;
    - **security** → [`security-engineer`](../../agents/security-engineer.md) role;
    - **integration + API** → `reviewer` (or the relevant stack engineer);
-   - **style / lint / warnings** → run the detected stack's real tools (the `stacks` profile's
-     toolchain — ruff/mypy, eslint/tsc, go vet, … — preferring the repo's declared commands) and
-     treat their output as evidence.
+   - **style / lint / warnings** → run the detected stack's real tools yourself, in this session
+     (the `stacks` profile's toolchain — ruff/mypy, eslint/tsc, go vet, … — preferring the repo's
+     declared commands) and treat their output as evidence.
    - **concurrent-change conflicts** (ADR 0074) → whenever the diff adds or changes a **claim, lock, lease,
      dedup guard, or status transition**, check other in-flight branches and open PRs for the
      **same state transition** (`gh pr list` + grep the transition's enum values and the
@@ -44,9 +44,11 @@ Follow [multi-aspect-review.md](../../patterns/multi-aspect-review.md):
      cleanly, and pass both CI runs because each tests only its own entry point. Reconcile to one
      guard point before either lands; prefer claiming atomically **at the point of work**.
 3. **Verify** each finding against the source (open the file, re-run the tool) — drop or
-   downgrade what doesn't hold. When the question is *"what did the original do?"* — a migration,
-   a refactor, a faithful port — **read the original**: `git show <base>:<path>`. Do this before
-   sending any corrective that would change behaviour. Memory of an earlier partial read is not
+   downgrade what doesn't hold. Re-running a tool is this session's job: the lens roles are held
+   to reading by the `role_scope` hook, so a lens verifies with `git show <base>:<path>`,
+   `git log` and `git blame`, and you run the tests and linters. When the question is *"what did
+   the original do?"* — a migration, a refactor, a faithful port — **read the original**:
+   `git show <base>:<path>`. Do this before sending any corrective that would change behaviour. Memory of an earlier partial read is not
    ground truth, and neither is the pre-image of a truncated diff hunk.
 4. **Synthesize one verdict.** Aggregate across aspects: **any `blocker`/`major` → `changes`**,
    else `approve`; dedupe, and on a severity conflict keep the highest.

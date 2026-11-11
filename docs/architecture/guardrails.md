@@ -1,7 +1,7 @@
 # Layer 4 — Guardrails (hooks)
 
-Status: **Built** ([ADR 0019](decisions/0019-l4-guardrails.md)) — six deterministic guardrail
-hooks on tool use, on top of L3's session-start hook. **Scheduling & observability shipped
+Status: **Built** ([ADR 0019](decisions/0019-l4-guardrails.md)) — deterministic guardrail
+hooks on tool use (the role-scope hook added by [ADR 0106](decisions/0106-the-read-only-roles-are-held-by-a-hook.md)), on top of L3's session-start hook. **Scheduling & observability shipped
 separately** ([ADR 0024](decisions/0024-stage7-scheduling-observability.md),
 [scheduling-observability.md](scheduling-observability.md)); this doc covers only the hooks.
 
@@ -114,8 +114,17 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
   the crash.
 - **budgets** (`PreToolUse` / Task, `budget.py`) — a per-session subagent counter; **warns** over
   the soft cap and **blocks** over the hard cap (`AGENTIC_FORGE_SUBAGENT_SOFT` / `_HARD`).
+- **role scope** (`PreToolUse` / every tool but Read, Grep and Glob, `role_scope.py`) — holds the
+  read-only roles (`reviewer`, `security-engineer`, `grader`, `architect`) to their tool scope in
+  every permission mode, by allowlist, and runs a lens's git call in a hardened form; silent for
+  every other caller. See [Role scope](#role-scope) below (ADR 0106).
 - **logging** (`PostToolUse`, `audit_log.py`, gated by `logs.enabled` / `AGENTIC_FORGE_LOGS` — **on by default**, ADR 0078) — appends a secret-redacted JSONL audit line to
-  `~/.agentic-forge/state/<repo-slug>/audit.jsonl` (out of the project checkout — ADR 0072). Pure observability; **never blocks**. Each record also
+  `~/.agentic-forge/state/<repo-slug>/audit.jsonl` (out of the project checkout — ADR 0072). Redaction
+  (`guardrails.redact_secrets`) masks known token shapes, secret-named assignments (`*PASSWORD*`, `*TOKEN*`,
+  `*SECRET*`, `*KEY*` forms, `*PWD*`, `*CRED*`), the value after secret flags (`--password`, `--token`, `--api-key`,
+  …), `sshpass -p` and the MySQL clients' attached `-p<value>`, reading each value as a whole shell word. It is a best
+  effort over text, not a shell parser: unusual quoting can still leave part of a value in clear, so credentials
+  belong in files or the environment, not on a command line. Pure observability; **never blocks**. Each record also
   carries `error: true` when the tool call clearly failed (`guardrails.tool_errored`, additive —
   absent on success), so the digest can rank tools by *failure*, not just usage (ADR 0058). The log
   dir is the **main** working-tree root (`diagnostics.main_repo_root` resolves a linked worktree's
@@ -133,6 +142,145 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
   is the only mechanism that can fire automatically on PR creation — a skill cannot observe a command it did not run. It **only suggests**: it never spawns
   the watcher, because auto-merge sits downstream of that signal and a guardrail layer must not
   silently start an agent that can merge. Pure observability; **never blocks**.
+
+## Role scope
+
+A plugin agent's `tools:` list does not restrict what a `Bash(...)` specifier names: `reviewer` and
+`security-engineer` declared `Bash(git diff:*)` and got Bash. What kept them read-only was their
+prompt and, in `default` mode, the session's permission prompts; in `bypassPermissions` nothing did
+(ADR 0106 has the measurement). A lens reads untrusted content by design, the diff under review, so
+the boundary has to hold against that content, in every mode.
+
+**How the hook knows who is calling.** The `PreToolUse` payload of a tool call made inside a
+subagent carries `agent_type`, e.g. `"agentic-forge:reviewer"`; a call from the main session carries
+none. `role_scope.decide` (in `lib/agentic_forge/role_scope.py`, pure and fully tested) matches the
+**namespaced** form only. Claude Code names a plugin's agent `<plugin>:<agent>`, and a bare
+`reviewer` is a project's or a user's own agent, which this plugin has no business restricting. A
+test pins the namespace to the manifest's `name`. A call with no `agent_type`, or any other value, is
+allowed with no output, and so is the plugin's own other roles' (the script exits on any
+`agent_type` that is not a held role). It loads only `json` and `sys` before that exit, so the hook
+costs the main session one Python start and a JSON parse per call: 26 to 30 ms median, about 20 ms
+of it the interpreter's start, measured on WSL2 with CPython 3.12 (ADR 0106).
+
+**The allowlists.** Taken from each role's own `tools:` line (a test keeps the two equal):
+
+| Role | Allowed | Bash |
+| --- | --- | --- |
+| `reviewer`, `security-engineer` | Read, Grep, Glob, Bash | one read-only git command (below) |
+| `grader` | Read, Grep, Glob | refused |
+| `architect` | Read, Grep, Glob, Write (Markdown design documents under `docs/`, below) | refused |
+
+Any other tool is refused for these roles: Edit, MultiEdit, NotebookEdit, WebFetch, WebSearch,
+Agent/Task, Monitor, PowerShell, Skill, every MCP tool, and any tool added later. The matcher is the
+regular expression `^(?!(?:Read|Grep|Glob)$).*`, which Claude Code evaluates as a JavaScript regular
+expression: every tool name but those three exact ones reaches the hook, so the allowlist is not
+bounded by a list of names somebody has to keep current.
+
+An architect's Write is an allowlist that fits its contract, design documents. The resolved path
+(relative to the session's `cwd`, symlinks followed) must lie under `docs/` of a working tree of the
+session's repository, its checkout or a linked worktree (the same walk as `-C`; a submodule or a
+nested repository is not one); it must end in `.md`; no segment below that tree's top may start
+with `.`; and its name may not be `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `GEMINI.md` or
+`SKILL.md`, case-insensitively. So the user's shell and git configuration, `.mcp.json`,
+`~/.claude.json`, `.claude/agents/`, the agent instruction files and skill definitions are out, as
+is any file that is not a document. `docs/` is the role's contract directory: the `architecture`
+skill has it write `docs/sdlc/<slug>/*.md` in the feature's doc-delivery worktree, a linked worktree
+beside the repository. A later change may widen it to a repository's own feature folders, with its
+own detection. A `..` from one working tree into the hidden space around another (where linked
+worktrees and `.git` live) is refused as outside the session's working trees. Under it the first blocklist stays as a second layer, on the path as given and as resolved,
+case-insensitively: a `.git` component, `.claude/settings*.json`, `.agentic-forge/config.json`.
+
+**The read-only git rule** is an allowlist checked in this order, and the first failure is the
+reason given:
+
+1. **One simple command.** No `;`, `&`, `|`, `<`, `>`, backtick, `$` in any form, backslash, newline,
+   NUL, other control character or lone surrogate, anywhere in the string, quoted or not. With no
+   backslash, quoting is plain and `shlex`, bash and zsh agree on where a quote ends. Outside quotes
+   a word may hold only letters, digits and `_ . / : @ , = + % ~ -`, so no glob, brace, grouping,
+   history or zsh extended-glob character (`^`, `#`) reaches the shell, and it may not start with
+   `=` (zsh's `=cmd`), quote marks before it included. A quoted pathspec such as `-- 'src/*.py'` is
+   git's to match and is fine, as is a quoted `'HEAD^'`. The string is then tokenized with `shlex`
+   (POSIX rules, the same quote removal the shell does).
+2. **`git` is the first word**, exactly; no path, wrapper or environment assignment before it.
+3. **Global options:** only one `-C <path>` and `--no-pager`. A `-C` path must be the top of a working
+   tree of the session's own repository: its main checkout, a linked worktree or a submodule,
+   recognised by the `.git` entry it holds pointing into the session repository's git directory. A
+   directory that merely has a repository's shape is not one, so git is never pointed at a config
+   the reviewed change could supply. A second `-C` is refused (git resolves each relative `-C` from
+   the one before), and so is a `~` anywhere in the path (a quoted tilde reaches git literally);
+   the path is resolved as `chdir` resolves it, with no expansion.
+4. **The subcommand** is one of `diff`, `show`, `log`, `status`, `blame`, `ls-files`, `ls-tree`,
+   `rev-parse`, `merge-base`, `cat-file`, `grep`, `shortlog`, `describe`.
+5. **No option that writes a file or runs a configured program**, anywhere in the command:
+   `--output`, `-o`, `--ext-diff`, `--textconv`, `--filters`, `-c`, `--config-env`, `--exec-path`,
+   `--upload-pack`, `--paginate`, `--open-files-in-pager` (and `grep`'s `-O`, in a bundle too),
+   `--help`, `--no-index` (which takes git outside the repository), `--submodule` (its `diff` form
+   starts nested diffs that do not inherit `--no-ext-diff`) and `--show-signature` (gpg). A token is
+   refused when it is one of these, starts with one (`--output=f`), or, for a long option, is an
+   abbreviation of one, since git accepts a unique prefix. The prefix rule is deliberately coarse: it
+   also refuses the harmless `--output-indicator-new`, `-old` and `-context`, which a lens does not
+   need. `--text` passes only for `diff`, `show`, `log` and `grep`, whose man pages list it as its own
+   option; for any other subcommand git would read it as `--textconv`. Any signature placeholder
+   (`%`, an optional `+`, `-` or space modifier, then `G`) is refused, as a second layer under the
+   gpg settings below, and so is a `--pretty=`/`--format=` name that is not a built-in format (a
+   `pretty.<name>` alias from config could hold one). `cat-file` takes only `-p`, `-t`, `-s` and `-e`;
+   its other options run textconv or filters, or read object names from stdin, which a lens cannot
+   supply. `-p` after `log` or `show` is a patch and is fine; as a global option it is refused by
+   rule 3.
+
+**What runs is what was checked.** An allowed git call is not passed through. The hook answers with
+`permissionDecision: "allow"` and an `updatedInput` whose `command` is rebuilt from the checked words,
+every word single-quoted, prefix included, so neither bash nor zsh expands anything in it whatever
+its options, behind a fixed hardening: `/usr/bin/env -u <variables> GIT_NO_LAZY_FETCH=1 git
+-c safe.bareRepository=explicit -c core.fsmonitor=false -c core.hooksPath=/dev/null
+-c diff.submodule=log -c log.showSignature=false -c format.pretty=medium
+-c core.attributesFile=/dev/null -c gpg.program=/dev/null -c gpg.ssh.program=/dev/null
+-c gpg.x509.program=/dev/null --no-pager`, then `--attr-source=<the empty tree>` on git 2.41 and
+later, the resolved absolute `-C` path, the subcommand, `--no-ext-diff --no-textconv` for `diff`,
+`show` and `log` and `--no-textconv` for `blame` and `grep`, then the arguments. Command-line `-c`
+outranks every config file, an included one too, and reaches the git processes git starts.
+
+Turned off for the call: an external diff program, textconv, the pager, hooks, fsmonitor, nested
+submodule diffs (a submodule's change shows as a log), signature verification (`log.showSignature`,
+or a default format holding `%G`, would run gpg) and every signature program (set to `/dev/null`,
+which cannot run), the global attributes file, implicitly found bare
+repositories, the git variables cleared below, and on git 2.41 and later every attribute the
+checkout's `.gitattributes` sets, so no clean filter, diff driver or textconv is selected; on git
+2.44 and later, lazy fetching in a partial clone. The hook asks `git --version` once per call, with
+a 3 s timeout, of the `git` on its own `PATH` and only by an absolute path; an unknown version gets
+`--attr-source`, so a git that rejects it fails to start instead of running without it. The hook's
+`PATH` can differ from the shell's: a newer git in the hook and an older one in the shell fails
+closed; the reverse leaves the option out and that call has the old-git residual. Not turned off: on git older than 2.41, a checkout's
+`.gitattributes` can still select a clean filter the user's own config defines, which `status`, a
+worktree diff, `blame` or `describe --dirty` runs (refusing those would stop reviews on the git
+2.39 that Apple, Debian 12 and older Ubuntu releases ship; ADR 0106); attributes in
+`$GIT_DIR/info/attributes`; on git older than 2.44, lazy fetching.
+
+`env -u` clears the variables that point git at another repository, index, object store, attribute
+source or config, that name a program (diff, pager, editor, ssh, askpass, proxy, exec path) or that
+name a file git writes (the trace targets); the Bash tool's shell can set variables the hook's own
+environment never sees, which is why they are cleared rather than checked. `updatedInput` replaces the whole tool
+input, so the hook copies the call's other fields and drops only `dangerouslyDisableSandbox`;
+Claude Code still applies the user's deny and ask rules to the rewritten command. ADR 0106 records
+the contract and its source. The checks above stay as a second layer, and a rewritten command sent
+back is checked as the plain one and rewritten to the same text.
+
+**The refusal** is the `PreToolUse` `deny` decision on stdout (`hookSpecificOutput.permissionDecision`
+with exit 0), which Claude Code applies in every permission mode. Its reason names the role, says what
+the role may run, and says that tests, linters and other tools are run by the orchestrating skill, not
+by a review lens, which verifies by reading (`git show <base>:<path>`, `git log`, `git blame`). The
+only parts of the command it repeats are a short, secret-redacted excerpt (`guardrails.redact_secrets`)
+of the word it refused. With diagnostics on, a refusal is recorded as a `block` with its rule id.
+
+**Failure.** It fails closed for the roles it holds. A payload that does not parse names no role
+and exits 0 with no output, as every hook here does, and any caller that is not a held role exits
+before the library is imported. Once the payload names a held role, any error (a failed import, a
+path that cannot be encoded, a bug) refuses the call, is recorded, and is announced once per session
+as a crash that failed closed, naming the exception's type only. A hook that cannot start at all,
+or times out, fails open, silently: that is Claude Code's handling of a hook failure, which is why
+this is hook-reachable code under the Python 3.9 floor and `dev/hook_smoke.py` runs it. Where
+`/usr/bin/env` does not exist, the rewritten command fails to start: closed, at the cost of
+availability.
 
 ## Design notes
 
@@ -164,6 +312,25 @@ a determined adversary. Known, accepted limits:
   Code's `cwd`, not the hook. Don't point a session at an untrusted repo and then commit. The git
   reads that narrow it (ADR 0101) disable `core.fsmonitor`, refuse a directory merely shaped like a
   repo, compare no file content, and get an allowlisted environment.
+- **Role scope is the one allowlist.** Unlike the deny-lists above it refuses what it does not
+  recognise, and it is meant to hold against content written to mislead a lens. Its limits: it holds
+  only while the hook runs (a hook that fails to start or times out fails open); Read, Grep and Glob
+  read anything the user can, so a lens talked into it could quote a secret into its findings (they
+  cannot be confined to the repository, since the skills pass large diffs through scratch files
+  outside it); on git older than 2.44, read-only git in a partial clone may fetch missing objects
+  from the user's configured remote; on git older than 2.41, a checkout's `.gitattributes` can select
+  a clean filter the user's config defines, and that version is the one on the hook's `PATH`, which
+  can differ from the shell's; `env -u` was run here only with GNU `env`, and the macOS
+  BSD form is unverified; `env` finds `git` through `PATH`, so a relative `PATH` entry could resolve
+  `git` from the reviewed checkout, an exposure the main session's own Bash calls share; if another
+  hook also returns `updatedInput` for the same call, which one Claude Code applies is unverified,
+  and if it is the other one the command runs without this hardening, though it passed the checks
+  on its text; `architect`'s Write no longer reaches skill definitions or anything outside `docs/`,
+  but it may still overwrite any Markdown document under `docs/`, which this plugin's own repository
+  uses for its design documentation, and in a repository whose pytest runs `--doctest-glob='*.md'` a
+  document it writes there can run code when the tests next run;
+  and a session started as one of these roles (`claude --agent agentic-forge:reviewer`) is held to
+  that role's scope too.
 - **Redaction covers common token shapes** (`sk-…`/`sk-ant-…`, `gh*_`/`github_pat_`/`glpat-`,
   AWS/Google/Slack keys, JWTs, `user:pass@` URLs, Bearer/Authorization, `KEY=value`) but is not
   exhaustive — treat `audit.jsonl` as sensitive and keep it out of shared locations.
@@ -180,4 +347,4 @@ a determined adversary. Known, accepted limits:
 **observability** (the audit-log digest) are not guardrails, so they live outside L4 — now
 **built** in `schedule.py` / `observability.py` + the `run_scheduled` / `audit_digest` CLIs + a
 cron workflow ([ADR 0024](decisions/0024-stage7-scheduling-observability.md)). A richer
-observability dashboard remains an optional follow-on. L4 itself = the six hooks per CLAUDE.md.
+observability dashboard remains an optional follow-on. L4 itself = the hooks listed above.

@@ -44,6 +44,17 @@ phase-workflows fan out to — `security-engineer` (security lens; `Read, Grep, 
 diff:*)`) and `qa-engineer` (tests; `Read, Write, Edit, Bash, Grep, Glob`); see [spine.md](spine.md)
 — for a six-role roster.
 
+**What holds the narrowed roles** ([ADR 0106](decisions/0106-the-read-only-roles-are-held-by-a-hook.md)).
+A `Bash(git diff:*)` specifier in a plugin agent's `tools:` restricts nothing: the agent gets Bash.
+The `role_scope` hook ([guardrails.md](guardrails.md#role-scope)) enforces the four read-only roles
+in every permission mode: `reviewer` and `security-engineer` get Read, Grep, Glob and one read-only
+git command per Bash call, which the hook rewrites into a hardened form before it runs; `grader`
+gets Read, Grep, Glob; `architect` gets those plus Write for Markdown design documents under
+`docs/` of the session's own working tree. Every other tool, MCP tools included, is refused for them, and an error inside the
+hook refuses too. The `tools:` lines stay as documentation and
+match the hook's allowlists (a test pins them together). Tests and linters are the orchestrating
+skill's to run, not a lens's.
+
 ## Handoff artifact model
 
 Phases communicate by writing artifacts the next phase reads — auditable and decoupled.

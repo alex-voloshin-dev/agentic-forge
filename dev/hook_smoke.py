@@ -54,6 +54,10 @@ PAYLOADS: dict[str, dict[str, object]] = {
     "audit_log.py": {"hook_event_name": "PostToolUse", **_BASH, **_POST},
     "pr_created.py": {"hook_event_name": "PostToolUse", **_BASH, **_POST},
     "pre_router.py": {"hook_event_name": "UserPromptSubmit", "prompt": "hello"},
+    # A lens's read-only git call: it parses the command and allows it, answering with the
+    # hardened command as `updatedInput` (JSON on stdout).
+    "role_scope.py": {"hook_event_name": "PreToolUse", "agent_type": "agentic-forge:reviewer",
+                      **_BASH},
 }
 
 
