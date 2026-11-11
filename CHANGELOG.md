@@ -7,6 +7,8 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.11.8] - 2026-11-11
+
 ### Changed
 
 - **CI measures the code, not the day's tool releases (ADR 0107).** CI used to install whatever versions were newest
