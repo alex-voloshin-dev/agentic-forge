@@ -34,6 +34,7 @@ def main(argv: list[str]) -> int:
     repo_root = plugin_dir.parent
     if (repo_root / validation.REPO_MARKER).is_file():
         report.extend(validate_docs(repo_root))
+    report.extend(validation.validate_marketplace(repo_root, plugin_dir))
     # Maintainer skills (`<repo>/.claude/skills/*`, ADR 0105) do not ship, so they are outside
     # validate_plugin and outside the listing budget — but they are gated like any skill. Only in
     # this repository (validation.maintainer_root): never a user's personal ~/.claude/skills.

@@ -27,7 +27,8 @@ dev = [
 # recommended --runner claude uses the `claude` CLI (subscription auth) and needs no SDK.
 # Kept out of the default/dev install so the Tier-0 gate stays dependency-light.
 eval = [
-    "anthropic>=0.39",
+    # 2.x sends API version 2026-10-21 and needs Python >= 3.10 (ADR 0108).
+    "anthropic>=2.8,<3",
 ]
 
 # The importable package lives at plugin/lib/agentic_forge (not a flat top-level dir),
