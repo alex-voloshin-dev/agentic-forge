@@ -22,18 +22,20 @@ jobs:
             3.11
       - name: Gate on Python 3.11 (the floor)
         run: |
-          python3.11 -m venv /tmp/v311
-          /tmp/v311/bin/pip install -q -c constraints/ci.txt -e ".[dev]"
-          /tmp/v311/bin/python dev/validate.py
-          /tmp/v311/bin/python -m pytest -q --cov --cov-report=term-missing --cov-fail-under=80
-          /tmp/v311/bin/ruff check .
-          /tmp/v311/bin/mypy plugin/lib plugin/hooks plugin/bin dev
+          # Activated, not just called by path: the tests start the CLIs through `python3` from PATH,
+          # as a user's session does, so PATH must resolve to the interpreter that has the packages.
+          python3.11 -m venv /tmp/v311 && . /tmp/v311/bin/activate
+          pip install -q -c constraints/ci.txt -e ".[dev]"
+          python dev/validate.py
+          python -m pytest -q --cov --cov-report=term-missing --cov-fail-under=80
+          ruff check .
+          mypy plugin/lib plugin/hooks plugin/bin dev
       - name: Gate on Python 3.15 (the newest)
         run: |
-          python3.15 -m venv /tmp/v315
-          /tmp/v315/bin/pip install -q -c constraints/ci.txt -e ".[dev]"
-          /tmp/v315/bin/python dev/validate.py
-          /tmp/v315/bin/python -m pytest -q --cov --cov-fail-under=80
+          python3.15 -m venv /tmp/v315 && . /tmp/v315/bin/activate
+          pip install -q -c constraints/ci.txt -e ".[dev]"
+          python dev/validate.py
+          python -m pytest -q --cov --cov-fail-under=80
 
   # Hooks run under the user's bare `python3` — a stock macOS gives CPython 3.9.6 — and a hook that
   # fails to start fails OPEN, silently. So the floor is tested, not assumed: compile every shipped
