@@ -14,7 +14,8 @@ The rest of the field queue, items 7 to 15 (ADR 0110).
 - **`af.py pr-review` builds a GitHub review and prints the command that posts it.** It never posts by itself.
   - The review is pinned to the head you reviewed: the head is re-checked before and after reading the diff.
   - Comments go inline only on lines inside the diff; everything else goes in the body.
-  - Every `@` gets a zero-width space, code included, so no one is notified by accident.
+  - Every `@` that could start a mention gets a zero-width space, code included, so no one is notified by
+    accident.
   - An approve verdict posts as COMMENT unless asked otherwise. code-review uses this for a PR target, and keeps
     `review.md` for a local diff.
 - **`af.py artifact-home` finds where a feature's documents live.** It looks for the repository's own feature folder
