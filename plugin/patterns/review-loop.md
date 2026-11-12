@@ -75,13 +75,17 @@ but, for its untyped deliverables (content, offer doc, audit report), the eviden
   only when the gate is `yes`. The reviewer returns `approve` only when no `blocker` or `major` findings
   remain; `minor`/`nit` findings may be left as follow-ups. `approve` with the gate not yet green
   (e.g. QA surfaced a defect) is `revise`, not an exit, until the budget runs out.
-- **On `proceed`, set the artifact's `status` to `approved` and run `handoff-load` again before
-  staging it.** Its `status` may still say `draft`, which `ready` refuses, so the next phase would
-  reject the artifact this loop just passed.
+- **On `proceed`, set the artifact's `review_decision` to `proceed` and run `handoff-load` again
+  before staging it.** Without the field, `ready` falls back to `status`, which may say `draft` (or
+  whatever lifecycle label the repository uses), so the next phase would reject the artifact this
+  loop just passed. Leave `status` alone: it is the repository's field, not the loop's
+  ([handoff.md](handoff.md) has the readiness table).
 - **Budget exhausted → `escalate`** (still `changes` after N, or a gate still red after N): do **not**
   silently ship. Escalate =
-  persist the final `review.md` (verdict `changes`) and return it to the orchestrating skill,
-  which surfaces the unresolved findings to the user and stops — it never auto-merges.
+  persist the final `review.md` (verdict `changes`), set the artifact's `review_decision` to
+  `escalate` (it wins over any `status`, so the next phase refuses the artifact), and return it to
+  the orchestrating skill, which surfaces the unresolved findings to the user and stops — it never
+  auto-merges.
 - Address findings worst-first (blocker → major → minor → nit). A revision that only fixes
   nits while a blocker stands will not converge.
 

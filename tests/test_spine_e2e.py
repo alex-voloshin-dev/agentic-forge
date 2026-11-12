@@ -425,3 +425,49 @@ def test_an_undetermined_phase_fails_on_a_named_checkpoint_and_the_rest_still_ru
     assert "[FAIL] session undetermined (error_max_turns) — num_turns=40" in str(cp)
     assert results[5].phase == "code-review" and results[5].passed
     assert not all_passed(results)
+
+
+# --- readiness reads review_decision, not the repo's lifecycle in status -----------------
+
+
+def test_the_seeded_spine_artifacts_are_ready_by_review_decision() -> None:
+    from agentic_forge import handoff
+
+    for name, kind in (
+        ("research-brief", "research-brief"), ("prd", "prd"),
+        ("tech-design", "tech-design"), ("plan", "plan"),
+    ):
+        path = PLUGIN / "eval" / "fixtures" / "spine" / f"{name}.md"
+        art = handoff.load_artifact(path, expected_type=kind)
+        assert handoff.handoff_readiness(art.header) == (True, "review_decision"), name
+    # The plan fixture carries a repo lifecycle status that the legacy rule would refuse.
+    plan_path = PLUGIN / "eval" / "fixtures" / "spine" / "plan.md"
+    plan = handoff.load_artifact(plan_path, expected_type="plan")
+    assert plan.header["status"] == "in-progress"
+
+
+@pytest.mark.parametrize(
+    ("status_line", "decision_line", "passed"),
+    [
+        ("status: in-progress", "review_decision: proceed", True),
+        ("status: approved", "review_decision: escalate", False),
+        ("status: approved", "", True),  # legacy artifact
+        ("status: draft", "", False),
+    ],
+)
+def test_plan_checkpoint_follows_review_decision(
+    tmp_path: Path, status_line: str, decision_line: str, passed: bool
+) -> None:
+    repo = prepare_scenario(PLUGIN, tmp_path, SPINE)
+    sdlc = repo / "docs" / "sdlc" / "task-priorities"
+    sdlc.mkdir(parents=True, exist_ok=True)
+    header = f"{status_line}\n{decision_line}\n" if decision_line else f"{status_line}\n"
+    (sdlc / "plan.md").write_text(PLAN_MD.replace("status: approved\n", header), encoding="utf-8")
+    assert check_plan(repo)[0].passed is passed
+
+
+def test_readiness_checked_prompts_ask_for_review_decision_not_an_approved_status() -> None:
+    for phase in ("research", "product", "architecture", "plan"):
+        prompt = spine_e2e._phase_prompt(phase)
+        assert "review_decision: proceed" in prompt, phase
+        assert "status: approved" not in prompt, phase

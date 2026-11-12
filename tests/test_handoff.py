@@ -446,3 +446,106 @@ def test_review_loop_decision_unknown_verdict_fails_safe() -> None:
 
 def test_review_loop_decision_verdict_is_case_insensitive() -> None:
     assert handoff.review_loop_decision("APPROVE", 1) == "proceed"
+
+
+# --- readiness: review_decision, else the legacy status rule ----------------------------
+
+
+@pytest.mark.parametrize(
+    ("decision", "ready"), [("proceed", True), ("revise", False), ("escalate", False)]
+)
+def test_review_decision_decides_readiness(decision: str, ready: bool) -> None:
+    header = {**VALID_HEADERS["plan"], "review_decision": decision}
+    assert handoff.handoff_readiness(header) == (ready, "review_decision")
+    assert handoff.is_handoff_ready(header) is ready
+
+
+@pytest.mark.parametrize(
+    ("status", "ready"),
+    [
+        ("approved", True),
+        ("final", True),
+        (" Approved ", True),
+        ("draft", False),
+        ("in-review", False),
+        ("in-progress", False),
+        ("complete", False),
+        ("", False),
+    ],
+)
+def test_without_review_decision_the_legacy_status_rule_decides(status: str, ready: bool) -> None:
+    # Artifacts written before review_decision existed keep handing off exactly as before.
+    header = {**VALID_HEADERS["plan"], "status": status}
+    assert handoff.handoff_readiness(header) == (ready, "status")
+
+
+def test_a_missing_status_without_review_decision_is_not_ready() -> None:
+    assert handoff.handoff_readiness({"type": "plan"}) == (False, "status")
+
+
+@pytest.mark.parametrize("status", ["in-progress", "draft", "building", "complete"])
+def test_a_repo_lifecycle_status_does_not_block_a_proceeded_artifact(status: str) -> None:
+    # The field report: a repo runs its own lifecycle in `status`; a plan being built
+    # (`in-progress`) that the review loop passed must hand off without anyone rewriting status.
+    header = {**VALID_HEADERS["plan"], "status": status, "review_decision": "proceed"}
+    assert validate_header(header) == []
+    assert handoff.handoff_readiness(header) == (True, "review_decision")
+
+
+@pytest.mark.parametrize("status", ["approved", "final"])
+@pytest.mark.parametrize("decision", ["revise", "escalate"])
+def test_review_decision_wins_when_it_disagrees_with_status(status: str, decision: str) -> None:
+    header = {**VALID_HEADERS["prd"], "status": status, "review_decision": decision}
+    assert handoff.handoff_readiness(header) == (False, "review_decision")
+
+
+@pytest.mark.parametrize("value", [None, "", "approved", "yes", True])
+def test_an_unknown_or_empty_review_decision_is_not_ready_and_never_falls_back(
+    value: object,
+) -> None:
+    # Present but not `proceed` -> not ready, even with a status the legacy rule would pass.
+    header = {**VALID_HEADERS["prd"], "status": "approved", "review_decision": value}
+    assert handoff.handoff_readiness(header) == (False, "review_decision")
+
+
+def test_review_decision_is_read_case_and_space_insensitively() -> None:
+    header = {**VALID_HEADERS["prd"], "review_decision": " Proceed "}
+    assert handoff.is_handoff_ready(header) is True
+
+
+def test_the_review_decision_vocabulary_is_the_loop_decisions() -> None:
+    assert handoff.REVIEW_DECISION_FIELD == "review_decision"
+    for artifact_type, schema in SCHEMAS.items():
+        if "status" in schema["properties"]:
+            prop = schema["properties"]["review_decision"]
+            assert prop == {"enum": list(handoff.LOOP_DECISIONS)}, artifact_type
+
+
+@pytest.mark.parametrize(
+    "artifact_type", [t for t in VALID_HEADERS if "status" in VALID_HEADERS[t]]
+)
+@pytest.mark.parametrize("decision", ["proceed", "revise", "escalate"])
+def test_schema_accepts_each_review_decision(artifact_type: str, decision: str) -> None:
+    header = {**VALID_HEADERS[artifact_type], "review_decision": decision}
+    assert validate_header(header) == []
+
+
+@pytest.mark.parametrize("value", ["approved", "Proceed", "", None, True, 1])
+def test_schema_rejects_a_review_decision_outside_the_vocabulary(value: object) -> None:
+    errors = validate_header({**VALID_HEADERS["plan"], "review_decision": value})
+    assert any(e.startswith("review_decision:") for e in errors), errors
+
+
+def test_schema_still_accepts_any_lifecycle_status_beside_review_decision() -> None:
+    for status in ("in-progress", "draft", "shipped", "approved"):
+        header = {**VALID_HEADERS["incident"], "status": status, "review_decision": "proceed"}
+        assert validate_header(header) == []
+
+
+def test_parse_artifact_of_an_in_progress_plan_that_proceeded_is_ready() -> None:
+    text = _artifact_text(
+        "type: plan\nfeature: search\nstatus: in-progress\nreview_decision: proceed\n"
+        "tasks:\n  - id: T1"
+    )
+    art = parse_artifact(text, expected_type="plan")
+    assert handoff.is_handoff_ready(art.header) is True

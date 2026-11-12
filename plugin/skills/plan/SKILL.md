@@ -29,7 +29,7 @@ requirements (`product`), or implementation (`develop`).
 > no `gh`) still commits — on `docs/<slug>`, reported as not pushed / no PR — never a failed phase.
 
 1. **Read the inputs.** Load `tech-design.md`
-   (`python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type tech-design`; **refuse to plan from it unless its `ready` is true**) and the `prd.md` for acceptance
+   (`python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type tech-design`; **refuse to plan from it unless its `ready` is true**, and never edit its `status` to make it so) and the `prd.md` for acceptance
    context. Pick the `<feature-slug>`. **If `tech-design.md` (or `prd.md`) is absent** (check
    that the file exists first — `handoff-load` fails on a missing file): plan from the request + the
    repo, treat the request's components as the design, record the assumptions and the missing
@@ -66,7 +66,7 @@ requirements (`product`), or implementation (`develop`).
    (the shared, tested rule):** each round, compute `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" review-decision --verdict <verdict> --iteration <n> --gate-green <yes if step 5 passes, else no>` (see
    [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
    [review-loop.md](../../patterns/review-loop.md)) — `revise` (loop back and fix worst-first),
-   `escalate` (still `changes` at N = 3 → **commit nothing; mark the feature PR a draft** (the merge gate already refuses a draft), set the artifact's `status` to `in-review`, surface the unresolved gaps and stop; the status is what makes "don't hand off" enforceable — the file is already on disk), or
+   `escalate` (still `changes` at N = 3 → **commit nothing; mark the feature PR a draft** (the merge gate already refuses a draft), set the artifact's `review_decision` to `escalate` (never touch its `status`, the repo's lifecycle field), surface the unresolved gaps and stop; that field is what makes "don't hand off" enforceable — the file is already on disk), or
    `proceed` (**commit this phase's artifact and push — opening or updating the feature PR per [doc-delivery](../../patterns/doc-delivery.md)**; `approve` **and** the plan validates → the plan is done). Don't hand off a plan that
    leaves a design component uncovered or a checkpoint unverifiable.
 

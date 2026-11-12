@@ -950,7 +950,8 @@ def test_review_decision(
 def test_the_handoff_pattern_says_exit_3_stops_the_loop() -> None:
     text = " ".join((_PLUGIN / "patterns" / "handoff.md").read_text(encoding="utf-8").split())
     assert "That means stop" in text
-    assert "`in-review`" in text and "commit nothing" in text and "--gate-green unknown" in text
+    assert "Do not write `review_decision: proceed`" in text
+    assert "commit nothing" in text and "--gate-green unknown" in text
 
 
 def test_review_decision_refuses_a_count_from_zero(tmp_path: Path) -> None:
@@ -2077,16 +2078,58 @@ def test_the_loop_and_develop_say_the_same() -> None:
 @pytest.mark.parametrize("pattern", ["review-loop", "doc-delivery"])
 def test_a_phase_that_proceeds_marks_its_artifact_for_the_next(pattern: str) -> None:
     text = " ".join((_PLUGIN / "patterns" / f"{pattern}.md").read_text("utf-8").split())
-    assert "`status` to `approved`" in text and "`handoff-load`" in text
+    assert "`review_decision` to `proceed`" in text and "`handoff-load`" in text
+    assert "`review_decision` to `escalate`" in text
+    assert "`status` to `approved`" not in text  # status is the repo's, never the loop's
+
+
+@pytest.mark.parametrize("skill", ["research", "product", "architecture", "plan", "ux-design"])
+def test_an_escalating_phase_marks_review_decision_not_status(skill: str) -> None:
+    text = " ".join((_PLUGIN / "skills" / skill / "SKILL.md").read_text("utf-8").split())
+    assert "set the artifact's `review_decision` to `escalate`" in text
+    assert "`status` to `in-review`" not in text
 
 
 def test_a_draft_that_proceeded_is_refused_until_marked_and_read_again(tmp_path: Path) -> None:
     path = tmp_path / "prd.md"
-    path.write_text(_ARTIFACT.replace("approved", "draft"), encoding="utf-8")
+    draft = _ARTIFACT.replace("approved", "draft")
+    path.write_text(draft, encoding="utf-8")
     args = ("handoff-load", "--path", "prd.md", "--type", "prd")
     assert _ok(*args, cwd=tmp_path)["ready"] is False
-    path.write_text(_ARTIFACT, encoding="utf-8")
+    marked = draft.replace("status: draft\n", "status: draft\nreview_decision: proceed\n")
+    path.write_text(marked, encoding="utf-8")
     assert _ok(*args, cwd=tmp_path)["ready"] is True
+
+
+@pytest.mark.parametrize(
+    ("status", "decision", "ready", "ready_from"),
+    [
+        ("in-progress", "proceed", True, "review_decision"),  # the field report
+        ("draft", "proceed", True, "review_decision"),
+        ("approved", "revise", False, "review_decision"),
+        ("approved", "escalate", False, "review_decision"),  # disagreement: the new field wins
+        ("approved", None, True, "status"),  # legacy artifact, no review_decision
+        ("final", None, True, "status"),
+        ("in-progress", None, False, "status"),
+    ],
+)
+def test_handoff_load_reports_readiness_and_the_field_that_decided_it(
+    tmp_path: Path, status: str, decision: str | None, ready: bool, ready_from: str
+) -> None:
+    extra = f"review_decision: {decision}\n" if decision else ""
+    text = _ARTIFACT.replace("status: approved\n", f"status: {status}\n{extra}")
+    name = _write(tmp_path / "prd.md", text)
+    result = _ok("handoff-load", "--path", name, "--type", "prd", cwd=tmp_path)
+    assert (result["ready"], result["ready_from"]) == (ready, ready_from)
+    assert result["header"]["status"] == status  # read, never rewritten
+
+
+def test_handoff_load_refuses_a_review_decision_outside_the_vocabulary(tmp_path: Path) -> None:
+    text = _ARTIFACT.replace("status: approved\n", "status: approved\nreview_decision: done\n")
+    name = _write(tmp_path / "prd.md", text)
+    assert "review_decision" in _refused(
+        "handoff-load", "--path", name, "--type", "prd", cwd=tmp_path
+    )
 
 
 # --- the small ones (ADR 0104) --------------------------------------------------------------------

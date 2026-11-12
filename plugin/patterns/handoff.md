@@ -38,6 +38,24 @@ slug is a short kebab-case name for the feature (e.g. `search`, `oauth-login`).
 (the schema accepts any non-empty string). `verdict` is
 `approve | changes`. Finding `severity` is `blocker | major | minor | nit`.
 
+**`status` belongs to the repository; `review_decision` belongs to the review loop.** Every
+artifact that carries `status` (all of the above but `review` and `deploy-status`) may also carry
+`review_decision: proceed | revise | escalate` — the decision `af.py review-decision` printed when
+the phase's review loop exited, copied verbatim. It is a closed vocabulary (any other value fails
+the schema) and it is what readiness reads, so a repository is free to run its own lifecycle in
+`status` (`in-progress`, `complete`, …) and a phase never rewrites that field to hand off:
+
+| Header | `ready` | `ready_from` |
+| --- | --- | --- |
+| `review_decision: proceed` (any `status`, even `draft` or `in-progress`) | true | `review_decision` |
+| `review_decision: revise` or `escalate` (any `status`, even `approved`) | false | `review_decision` |
+| no `review_decision`, `status: approved` or `final` | true | `status` |
+| no `review_decision`, any other or no `status` | false | `status` |
+
+When both are present and disagree, `review_decision` wins: it records the loop that gates the
+handoff, and `status` may mean anything in the repository's vocabulary. The `status` row is the
+legacy rule, kept so an artifact written before `review_decision` existed still hands off.
+
 Each `findings[]` element (the canonical review-finding shape) has: `severity`, `location`,
 `issue` (what's wrong — some review docs label this the `description`), and `suggestion` (the
 suggested fix). Verify-based reviews (deep-review, adversarial, multi-aspect) additionally
@@ -82,15 +100,16 @@ command loads a file and validates its header against the type's schema:
 python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path docs/sdlc/search/prd.md --type prd
 ```
 
-It prints `{"path", "type", "ready", "header"}`; read the body from the file. `ready` is true only
-for a status that means the artifact's review loop reached `proceed`. It exits 1, with the reason on
+It prints `{"path", "type", "ready", "ready_from", "header"}`; read the body from the file. `ready`
+is true only when the artifact's review loop reached `proceed`, by the table above, and `ready_from`
+names the field that decided it (`review_decision`, or `status` for an artifact without one). It exits 1, with the reason on
 stderr, on a missing file, malformed frontmatter, or a header that fails its schema (wrong `type`,
 missing required field, bad enum). `${CLAUDE_PLUGIN_ROOT}` is the plugin's directory, the one holding
 `skills/` and `patterns/`, and is not normally set in a shell: if this file reached you unexpanded,
 use the path your skill's own commands show.
 
 **It exits 3 when this `python3` lacks PyYAML or jsonschema** (ADR 0104). That means stop: nothing was
-validated. Keep the artifact's status `in-review`, commit nothing, do not call it valid, and report the
+validated. Do not write `review_decision: proceed`, commit nothing, do not call it valid, and report the
 missing package. In a review loop the gate is then `--gate-green unknown`, which escalates, since `no`
 would revise for ever on a machine that can never turn it green. Installing a package is the user's
 decision.

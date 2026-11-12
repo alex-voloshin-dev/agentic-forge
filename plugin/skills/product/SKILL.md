@@ -30,7 +30,7 @@ acceptance criteria, user stories. Not for *what exists* (`research`), *how to b
 > no `gh`) still commits — on `docs/<slug>`, reported as not pushed / no PR — never a failed phase.
 
 1. **Digest the inputs.** Load `research-brief.md`
-   (`python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type research-brief`; **refuse to build on it unless its `ready` is true — an escalated upstream run leaves a schema-valid but rejected artifact on disk**) and assess the current product
+   (`python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type research-brief`; **refuse to build on it unless its `ready` is true — an escalated upstream run leaves a schema-valid but rejected artifact on disk**; never edit its `status` to make it so) and assess the current product
    (repo, existing docs). Pick the `<feature-slug>`. **If `research-brief.md` is absent** (check
    that the file exists first — `handoff-load` fails on a missing file): build the PRD from the
    request + the repo + its existing docs, record the assumptions and that no brief existed in the
@@ -67,7 +67,7 @@ acceptance criteria, user stories. Not for *what exists* (`research`), *how to b
    `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" review-decision --verdict <verdict> --iteration <n> --gate-green <yes if prd.md validates, else no>` (see
    [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
    [review-loop.md](../../patterns/review-loop.md)) — `revise` (loop back and fix worst-first),
-   `escalate` (still `changes` at N = 3 → **commit nothing; mark the feature PR a draft** (the merge gate already refuses a draft), set the artifact's `status` to `in-review`, surface the unresolved gaps and stop; the status is what makes "don't hand off" enforceable — the file is already on disk), or
+   `escalate` (still `changes` at N = 3 → **commit nothing; mark the feature PR a draft** (the merge gate already refuses a draft), set the artifact's `review_decision` to `escalate` (never touch its `status`, the repo's lifecycle field), surface the unresolved gaps and stop; that field is what makes "don't hand off" enforceable — the file is already on disk), or
    `proceed` (**commit this phase's artifact and push — opening or updating the feature PR per [doc-delivery](../../patterns/doc-delivery.md)**; `approve` **and** the PRD validates → the doc is done). Don't hand off a PRD with
    untestable acceptance criteria.
 

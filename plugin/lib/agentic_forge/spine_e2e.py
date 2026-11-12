@@ -217,7 +217,7 @@ def _artifact_checkpoint(
     path = _sdlc(repo, slug) / filename
     art = _load(path, artifact_type)
     ok = art is not None and handoff.is_handoff_ready(art.header)
-    return Checkpoint(f"{filename} exists, validates and is handed off (status ready)", ok)
+    return Checkpoint(f"{filename} exists, validates and is handed off (ready)", ok)
 
 
 def check_research(repo: Path, slug: str = FEATURE_SLUG) -> list[Checkpoint]:
@@ -386,25 +386,28 @@ def _phase_prompt(phase: str) -> str:
         "research": (
             f"Your working directory is a checkout of the target repo. Read FEATURE_REQUEST.md and "
             f"the code, research the feature (prior art / options / feasibility), and write "
-            f"{sdlc}research-brief.md (frontmatter type: research-brief, feature, status: "
-            f"approved, date, "
+            f"{sdlc}research-brief.md (frontmatter type: research-brief, feature, status, "
+            f"review_decision: proceed, date, "
             "sources[]) with synthesized findings and a recommendation. No code changes."
         ),
         "product": (
             f"Read {sdlc}research-brief.md and the code. Write the product spec to {sdlc}prd.md "
-            "(frontmatter type: prd, feature, status: approved, goals[], non_goals[], metrics[], "
+            "(frontmatter type: prd, feature, status, review_decision: proceed, goals[], "
+            "non_goals[], metrics[], "
             "acceptance[]) with user stories. Requirements only — no design or code."
         ),
         "architecture": (
             f"Read {sdlc}prd.md and the code, and produce the technical design: write "
-            f"{sdlc}tech-design.md (frontmatter type: tech-design, feature, status: approved, "
+            f"{sdlc}tech-design.md (frontmatter type: tech-design, feature, status, "
+            "review_decision: proceed, "
             f"decisions, "
             "components, risks) and at least one adr-*.md (Context/Decision/Alternatives/"
             "Consequences) in that directory. Design only — no code changes."
         ),
         "plan": (
             f"Read {sdlc}tech-design.md. Write the work plan to {sdlc}plan.md (frontmatter "
-            "type: plan, feature, status: approved, tasks[] with id+deps, checkpoints[], "
+            "type: plan, feature, status, review_decision: proceed, tasks[] with id+deps, "
+            "checkpoints[], "
             "deferred[]). "
             "A plan only — no code."
         ),
@@ -668,13 +671,14 @@ def _product_inception() -> Scenario:
             Phase(
                 "research",
                 f"Research the app's domain and write {sdlc}research-brief.md (frontmatter type: "
-                "research-brief, feature, status: approved, date, sources[]).",
+                "research-brief, feature, status, review_decision: proceed, date, sources[]).",
                 lambda repo: check_research(repo, slug),
             ),
             Phase(
                 "product",
                 f"Read {sdlc}research-brief.md and write {sdlc}prd.md with YAML frontmatter "
-                "containing ALL of: type: prd, feature, status: approved, a non-empty goals list, "
+                "containing ALL of: type: prd, feature, status, review_decision: proceed, a "
+                "non-empty goals list, "
                 "non_goals, "
                 "metrics, and a non-empty acceptance list. Add user stories in the body.",
                 lambda repo: check_product(repo, slug),
@@ -692,7 +696,8 @@ def _product_inception() -> Scenario:
                 "architecture",
                 f"Read {sdlc}prd.md and {sdlc}ux-spec.md and write {sdlc}tech-design.md with VALID "
                 "YAML frontmatter (quote any value containing a colon) holding type: tech-design, "
-                "feature, status: approved, a non-empty decisions list, a non-empty components "
+                "feature, status, review_decision: proceed, a non-empty decisions list, a "
+                "non-empty components "
                 "list, and "
                 "risks; plus at least one adr-*.md.",
                 lambda repo: check_architecture(repo, slug),

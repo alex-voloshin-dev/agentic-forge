@@ -53,19 +53,33 @@ __all__ = [
     "blocks_approve",
     "review_loop_decision",
     "READY_STATUSES",
+    "REVIEW_DECISION_FIELD",
+    "handoff_readiness",
     "is_handoff_ready",
 ]
 
-# Recommended status vocabulary for feature artifacts (documented guidance, NOT enforced — the
-# schema accepts any non-empty status string, since real artifacts use varied lifecycle labels
-# such as "complete"/"ready"). Downstream phases that branch on status should map liberally.
+# A suggested `status` vocabulary for feature artifacts. It is NOT enforced and NOT read for
+# readiness when the artifact carries `review_decision`: `status` belongs to the repository, which
+# may run its own lifecycle in it (`in-progress`, `complete`, …), so the schema accepts any
+# non-empty string there and no phase may rewrite it to make an artifact hand off.
 STATUSES = ["draft", "in-review", "approved", "final", "superseded"]
 
-# The statuses that mean "this artifact's review loop reached `proceed`" — the only ones a
-# downstream phase should build on. A phase whose loop `escalate`s writes `in-review` instead, which
-# is what makes "escalate does not hand off" enforceable: before ADR 0067 the artifact was already
-# on disk and schema-valid, so the next phase consumed a rejected one and Tier-3 scored the run
-# green (its checkpoints assert only "exists and validates").
+# Bounded-review-loop exit decisions (review-loop.md). `proceed` is the success exit (the artifact
+# is done); `revise` loops back to the writer; `escalate` is the budget-exhausted exit (surface the
+# unresolved findings, do NOT ship).
+LOOP_DECISIONS = ("proceed", "revise", "escalate")
+
+# The header field a phase writes when its review loop exits: the decision `review-decision`
+# printed, verbatim, from the closed vocabulary LOOP_DECISIONS. It is the readiness signal — only
+# `proceed` hands off — and it has a field of its own so that readiness never competes with the
+# repository's lifecycle in `status`.
+REVIEW_DECISION_FIELD = "review_decision"
+
+# The legacy readiness rule, read only when an artifact has no `review_decision` (one written
+# before that field existed): these statuses meant "the review loop reached `proceed`". Before ADR
+# 0067 an escalated artifact was already on disk and schema-valid, so the next phase consumed a
+# rejected one and Tier-3 scored the run green; readiness is what makes "escalate does not hand
+# off" enforceable.
 READY_STATUSES = ("approved", "final")
 
 # Review verdict vocabulary. `approve` is the early-exit signal for the bounded review loop.
@@ -80,11 +94,6 @@ BLOCKING_SEVERITIES = ("blocker", "major")
 # The canonical bounded review-loop budget N (review-loop.md / ADR 0040 / 0057). One home for the
 # constant so the loop logic here, the non-convergence scan (diagnostics), and the skills agree.
 REVIEW_LOOP_BUDGET = 3
-
-# Bounded-review-loop exit decisions (review-loop.md). `proceed` is the success exit (the artifact
-# is done); `revise` loops back to the writer; `escalate` is the budget-exhausted exit (surface the
-# unresolved findings, do NOT ship).
-LOOP_DECISIONS = ("proceed", "revise", "escalate")
 
 # Incident severities (operations), most to least serious — distinct from review-finding
 # SEVERITIES: sev1 = critical (outage / data loss), sev2 = major (degraded, no workaround),
@@ -131,6 +140,10 @@ _FINDINGS: dict[str, Any] = {
     },
 }
 
+# The review outcome, optional: a closed vocabulary, unlike `status`. A misspelt value is refused
+# rather than read as "not ready", so the writer hears about it instead of the next phase.
+_REVIEW_DECISION: dict[str, Any] = {"enum": list(LOOP_DECISIONS)}
+
 
 def _feature_schema(
     type_id: str,
@@ -142,8 +155,9 @@ def _feature_schema(
     properties: dict[str, Any] = {
         "type": {"const": type_id},
         "feature": {"type": "string", "minLength": 1},
-        # Any non-empty status string — real artifacts use labels beyond the recommended set.
+        # Any non-empty status string: the repository's own lifecycle label, never readiness.
         "status": {"type": "string", "minLength": 1},
+        REVIEW_DECISION_FIELD: _REVIEW_DECISION,
     }
     properties.update(properties_extra)
     return {
@@ -231,6 +245,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
             "type": {"const": "incident"},
             "severity": {"enum": INCIDENT_SEVERITIES},
             "status": {"type": "string", "minLength": 1},
+            REVIEW_DECISION_FIELD: _REVIEW_DECISION,
             "impact": {"type": "string", "minLength": 1},
             "timeline": _NONEMPTY_LIST,  # ≥1 entry (at least the detection event)
             "remediation": _LIST,
@@ -410,16 +425,35 @@ def review_loop_decision(
     return "revise" if iteration < cap else "escalate"
 
 
+def handoff_readiness(header: dict[str, Any]) -> tuple[bool, str]:
+    """Whether an artifact may be handed off, and the header field that decided it.
+
+    Returns ``(ready, field)`` where ``field`` is :data:`REVIEW_DECISION_FIELD` or ``"status"``:
+
+    - **``review_decision`` present** — it alone decides: ready iff it is ``proceed``. ``status``
+      is not read at all, so a repository's lifecycle label (``in-progress``, ``draft``, even
+      ``approved``) can neither block nor grant a handoff. When the two disagree the review outcome
+      wins, because it is the record of the loop that gates the handoff and ``status`` is not.
+    - **absent** — the legacy rule, for artifacts written before the field existed: ready iff
+      ``status`` is one of :data:`READY_STATUSES`.
+
+    Conservative both ways: any other value, an empty one, or a missing status reads as not ready.
+    The key's presence is what counts, so an empty ``review_decision:`` never falls back to a
+    ``status`` that would pass.
+    """
+    if REVIEW_DECISION_FIELD in header:
+        decision = str(header[REVIEW_DECISION_FIELD] or "").strip().lower()
+        return decision == "proceed", REVIEW_DECISION_FIELD
+    return str(header.get("status", "")).strip().lower() in READY_STATUSES, "status"
+
+
 def is_handoff_ready(header: dict[str, Any]) -> bool:
     """True if an artifact's header says its review loop reached ``proceed`` (ADR 0067).
 
     A consuming phase calls this on the artifact it loaded. Schema validation is not enough: an
     escalated run leaves a **schema-valid** artifact on disk (it is written before the loop runs),
     so without this check "escalate stops the handoff" is unenforceable the moment anyone starts the
-    next phase.
-
-    Deliberately conservative — an unknown or missing status reads as **not ready**. `STATUSES` is
-    documented guidance rather than a schema constraint, so real artifacts carry varied labels; a
-    phase that means to hand off must say so explicitly with one of :data:`READY_STATUSES`.
+    next phase. The rule — ``review_decision`` when present, else the legacy ``status`` mapping — is
+    :func:`handoff_readiness`.
     """
-    return str(header.get("status", "")).strip().lower() in READY_STATUSES
+    return handoff_readiness(header)[0]

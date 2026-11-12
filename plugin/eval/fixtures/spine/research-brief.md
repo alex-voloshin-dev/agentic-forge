@@ -2,6 +2,7 @@
 type: research-brief
 feature: task-priorities
 status: final
+review_decision: proceed
 date: "2026-06-21"
 sources:
   - https://example.com/task-app-priority-ux
