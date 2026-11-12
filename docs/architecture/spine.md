@@ -1,7 +1,7 @@
 # Stage 2 — SDLC spine
 
 Status: **Built** — the six-phase spine is implemented and proven end-to-end (Tier-3), and
-by-stack ships a `*-patterns` pack for every registered language stack. Workflow model; decisions in
+by-stack ships a `*-patterns` pack for every registered stack. Workflow model; decisions in
 [ADR 0013](decisions/0013-spine-workflow-chain.md) (which supersedes the earlier "thin router"
 ADR 0012). Builds on the Stage 1 engine ([engine.md](engine.md)), the handoff contract
 ([patterns/handoff.md](../../plugin/patterns/handoff.md)), and reuses ideas from the ancestor
@@ -195,7 +195,7 @@ stack-parametric. Mechanism (see [ADR 0015](decisions/0015-by-stack-detection-an
     `gradle check`. The wrapper is looked for beside the build file, then at the repo root, and
     written as a path from the profile's `dir` (`../gradlew check`). Maven wins when a directory
     has both build tools.
-  - Terraform (detection only, no pack yet; specificity 0, so any language stack beside it is the
+  - Terraform (pack `terraform-patterns`; specificity 0, so any language stack beside it is the
     primary): format `terraform fmt -recursive` (applies, like every stack's format), typecheck
     `terraform init -backend=false && terraform validate`, and `terraform test` only when
     `tests/*.tftest.hcl` or a root `*.tftest.hcl` exists. The typecheck is a shell command (the
@@ -214,10 +214,14 @@ stack-parametric. Mechanism (see [ADR 0015](decisions/0015-by-stack-detection-an
   (`${CLAUDE_PLUGIN_ROOT}/skills/<pack>/SKILL.md`, resolved by `stacks.pack_paths`), because an
   off-listing skill cannot be invoked by name and is absent from the model's listing (ADR 0094).
 
-**Status:** detection ships for the common stacks, and **every registered language stack ships
-a `*-patterns` pack** — python, typescript, javascript, go, rust, jvm, dotnet, ruby, php.
-`terraform` is the first *detection-only* stack: it falls back to `engineering-standards` + its
-toolchain until a pack ships. An **unrecognized** repo (`unknown`) falls back to
+**Status:** detection ships for the common stacks, and **every registered stack ships a
+`*-patterns` pack** — python, typescript, javascript, go, rust, jvm, dotnet, ruby, php, and
+terraform. `terraform` shipped detection-only first and gained `terraform-patterns` after a field
+report (an Azure Policy change ran with no IaC conventions): the agent plans and a human applies,
+tests run on mock providers with no cloud credentials, inputs are refused by `validation` blocks,
+secrets stay out of tfvars, outputs and git, and documents built in HCL (`jsonencode`, policies)
+are reviewed in the rendered plan JSON (`terraform show -json plan.out`), not only in the HCL.
+An **unrecognized** repo (`unknown`) falls back to
 `engineering-standards` only (logged, not silent).
 New stacks get a pack as they are introduced.
 
@@ -274,7 +278,7 @@ by-stack step. Prove the slice end to end, record Tier-1/2/3, then add
 5. ~~Complete spine: `research`, `product`, `plan`.~~ Done — all six phase skills built + gated.
 6. ~~Extend the Tier-3 scenario to all six phases.~~ Done — full six-phase E2E proven.
 7. ~~The by-stack mechanism + non-Python stacks.~~ Done — a `*-patterns` pack for every
-   registered stack (ADR 0015).
+   registered stack, terraform included (ADR 0015).
 8. ~~A real Tier-1 runner on live skill descriptions.~~ Done — `dev/run_tier1_evals.py` /
    `lib/agentic_forge/tier1_runner.py` (ADR 0016); scored as the mean per-prompt routing rate
    (ADR 0026), replacing the earlier ad-hoc router sim.

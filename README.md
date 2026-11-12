@@ -89,8 +89,8 @@ in `~/` for every project), or set `AGENTIC_FORGE_ROUTING_NOTE=0`. See
 
 ## Skills by stage
 
-The `*-patterns` packs (python, typescript, javascript, go, rust, jvm, dotnet, ruby, php) and
-`engineering-standards` are read by file path on demand for the repo's detected stack — they don't appear in the menu.
+The `*-patterns` packs (python, typescript, javascript, go, rust, jvm, dotnet, ruby, php,
+terraform) and `engineering-standards` are read by file path on demand for the repo's detected stack — they don't appear in the menu.
 
 **Frame & design**
 - `research` — investigate options / prior art before speccing → `research-brief`

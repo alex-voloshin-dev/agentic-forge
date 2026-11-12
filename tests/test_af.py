@@ -1065,6 +1065,24 @@ def test_stack_detect(tmp_path: Path) -> None:
     assert result["declared_gate_sources"] == []
 
 
+def test_stack_detect_on_a_terraform_root_reads_the_terraform_pack(tmp_path: Path) -> None:
+    """Thread 08647177 part 2: an IaC change ran on the standards alone; the profile now names
+    `terraform-patterns`, and the path a role reads is the shipped pack file."""
+    (tmp_path / "main.tf").write_text("", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "plan.tftest.hcl").write_text("", encoding="utf-8")
+    result = _ok("stack-detect", "--repo", ".", cwd=tmp_path)
+    assert result["primary"]["stack_id"] == "terraform"
+    assert result["primary"]["pack"] == "terraform-patterns"
+    assert result["pack_paths"] == [
+        str(_PLUGIN / "skills" / "engineering-standards" / "SKILL.md"),
+        str(_PLUGIN / "skills" / "terraform-patterns" / "SKILL.md"),
+    ]
+    assert all(Path(p).is_file() for p in result["pack_paths"])
+    assert "pack=terraform-patterns" in result["summary"]
+    assert result["primary"]["toolchain"]["test"] == "terraform test"
+
+
 def test_stack_detect_on_an_unknown_repo_reads_the_standards_only(tmp_path: Path) -> None:
     result = _ok("stack-detect", cwd=tmp_path)
     assert result["primary"]["stack_id"] == "unknown"

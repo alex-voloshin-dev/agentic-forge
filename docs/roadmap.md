@@ -18,7 +18,7 @@ architecture before we invest in breadth.
 | --- | --- | --- |
 | 0 | Meta-core (L0) | **Done** |
 | 1 | Engine foundations (L1, minimal) | **Done** — see [engine.md](architecture/engine.md) |
-| 2 | SDLC spine vertical slice (L2) | Built — six-phase spine proven E2E; by-stack complete: detection + a `*-patterns` pack for every registered language stack (9; Terraform is detected without a pack) + wiring |
+| 2 | SDLC spine vertical slice (L2) | Built — six-phase spine proven E2E; by-stack complete: detection + a `*-patterns` pack for every registered stack (10: nine languages + Terraform) + wiring |
 | 3 | Knowledge base (L3) | Built — vault lib + `knowledge` skill + session-start hook (ADR 0018) |
 | 4 | Quality & operations domains | Built — 5 skills (qa-test-strategy, security-review, deploy-watch, incident-response, release) + ops/release lib cores; Tier-1/Tier-2 gated (ADR 0021, [quality-ops.md](architecture/quality-ops.md)) |
 | 5 | Product & marketing domains | Built — product already covered by the `product` spine skill; `marketing` router skill (market-research / strategy / content) shipped, evidence-first, Tier-1/Tier-2 gated (ADR 0022, [product-marketing.md](architecture/product-marketing.md)) |
@@ -101,8 +101,8 @@ skill, and the fan-out/multi-aspect-review patterns. The **full six-phase spine 
 carried a feature from `FEATURE_REQUEST` through all six phases on a fixture repo — each handoff
 schema-valid, code passing the repo suite, review approved; see CHANGELOG). The **by-stack
 mechanism is built** (ADR 0015): deterministic `stacks.detect`, a `*-patterns` pack for **every
-registered language stack** (python, typescript, javascript, go, rust, jvm, dotnet, ruby, php;
-`terraform` is detected and runs on the standards until its pack ships), and
+registered stack** (python, typescript, javascript, go, rust, jvm, dotnet, ruby, php, and
+terraform — its pack shipped after the profile), and
 `develop`/`code-review`/roles consuming the stack profile; the E2E fixture is detected as Python.
 The **Tier-1 trigger runner on live descriptions is built** (ADR 0016): `dev/run_tier1_evals.py`
 gates every on-listing router skill's recall/specificity ≥ 0.9 against the real listing

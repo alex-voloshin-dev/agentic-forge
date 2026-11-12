@@ -212,12 +212,12 @@ STACKS: dict[str, StackSpec] = {
         pack="php-patterns",
         specificity=1,
     ),
-    # Detection only, no pack yet: the standards apply. `typecheck` is a compound shell command
-    # (validate needs an initialised working dir; `-backend=false` touches no state). Callers that
-    # run a toolchain command run it through a shell; the commit gate runs only `lint` (None here)
-    # and refuses any command with shell syntax. `test` is dropped when no *.tftest.hcl exists.
-    # `format` applies, like every stack's. Specificity 0: *.tf beside any language manifest is
-    # that service's infra, not its stack.
+    # `typecheck` is a compound shell command (validate needs an initialised working dir;
+    # `-backend=false` touches no state). Callers that run a toolchain command run it through a
+    # shell; the commit gate runs only `lint` (None here) and refuses any command with shell syntax.
+    # `test` is dropped when no *.tftest.hcl exists. `format` applies, like every stack's.
+    # Specificity 0: *.tf beside any language manifest is that service's infra, not its stack.
+    # The pack (`terraform-patterns`) carries the IaC conventions: plan, never apply.
     "terraform": StackSpec(
         id="terraform",
         display="Terraform",
@@ -227,7 +227,7 @@ STACKS: dict[str, StackSpec] = {
             typecheck="terraform init -backend=false && terraform validate",
             format="terraform fmt -recursive",
         ),
-        pack=None,
+        pack="terraform-patterns",
         specificity=0,
     ),
 }

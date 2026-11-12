@@ -37,6 +37,7 @@ TIER2_SKILLS = {
     "dotnet-patterns",
     "ruby-patterns",
     "php-patterns",
+    "terraform-patterns",
     # Stage 4 own-behavior (qa-test-strategy / security-review are Tier-1-only fork-orchestrators)
     "release",
     "deploy-watch",
