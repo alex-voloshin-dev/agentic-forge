@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tier-2 quality eval runner for SKILLS that declare a tier2_quality contract — the nine
+"""Tier-2 quality eval runner for SKILLS that declare a tier2_quality contract — the ten
 *-patterns packs + engineering-standards (knowledge skills, run as the software-engineer with
 them loaded) and deep-review / skill-factory (run directly).
 

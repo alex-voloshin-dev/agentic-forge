@@ -26,7 +26,9 @@ CONTRACTS = (
     + sorted(PLUGIN.glob("agents/evals/*.evals.json"))
     + sorted(MAINTAINER_ROOT.glob("*/evals/evals.json"))
 )
-PACKS = ("python", "typescript", "javascript", "go", "rust", "jvm", "dotnet", "php", "ruby")
+PACKS = (
+    "python", "typescript", "javascript", "go", "rust", "jvm", "dotnet", "php", "ruby", "terraform",
+)
 
 
 def _label(path: Path) -> str:
@@ -78,6 +80,16 @@ def test_tree_fixtures_seed_the_layout_the_prompts_describe(tmp_path: Path) -> N
     assert (wd / "evals.schema.json").read_text(encoding="utf-8") == (
         PLUGIN / "schemas" / "evals.schema.json"
     ).read_text(encoding="utf-8")
+
+
+def test_terraform_fixture_lands_as_a_module_with_its_tests_dir(tmp_path: Path) -> None:
+    """`terraform test` looks for `tests/*.tftest.hcl` beside the root module, so the case must
+    seed `tests/policy.tftest.hcl`, not a basename at the top."""
+    case = load_evals(PLUGIN / "skills" / "terraform-patterns" / "evals" / "evals.json")["evals"][0]
+    materialize_fixtures(PLUGIN, case["files"], tmp_path)
+    for name in ("versions.tf", "variables.tf", "main.tf", "tests/policy.tftest.hcl"):
+        assert (tmp_path / name).is_file(), name
+    assert "mock_provider" in (tmp_path / "tests" / "policy.tftest.hcl").read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("pack", PACKS)

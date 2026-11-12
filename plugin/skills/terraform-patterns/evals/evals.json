@@ -1,0 +1,48 @@
+{
+  "skill_name": "terraform-patterns",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "With terraform-patterns loaded, add an optional input `exempt_resource_types` (a list of Azure resource types such as `Microsoft.Network/networkSecurityGroups`, default empty) to the allowed-locations policy module: resources of an exempt type are not subject to the location rule. Reject a malformed type at plan time. The module (versions.tf, variables.tf, main.tf) and its tests (tests/policy.tftest.hcl) are in your working directory. Leave the change ready for a human to plan and apply.",
+      "expected_output": "A scoped change that validates the new input with a variable validation block, renders the exemption into the jsonencode'd policy rule, extends the mock-provider terraform test with plan-only runs that assert on the RENDERED rule (jsondecode of policy_rule) for an empty and a non-empty list plus an expect_failures run for a malformed type, runs no apply/destroy, and tells the reviewer to check the rendered plan JSON (terraform show -json of a saved plan), not only the HCL.",
+      "files": [
+        "eval/fixtures/terraform-patterns/tree/versions.tf",
+        "eval/fixtures/terraform-patterns/tree/variables.tf",
+        "eval/fixtures/terraform-patterns/tree/main.tf",
+        "eval/fixtures/terraform-patterns/tree/tests/policy.tftest.hcl"
+      ],
+      "assertions": [
+        "The new input is checked by a `validation` block on the variable (rejecting a malformed resource type at plan time), not by a runtime workaround or a comment",
+        "The tests run under `terraform test` with the existing `mock_provider` (no cloud credentials) and cover an empty list, a non-empty list, and a malformed type via `expect_failures`",
+        "The tests assert on the rendered policy document (e.g. `jsondecode(...policy_rule)`), not only on the input variables",
+        "No `terraform apply` or `terraform destroy` was run against real infrastructure and none is presented as done; applying is left to a human after reviewing a plan",
+        "The report tells the reviewer to check the rendered plan JSON (`terraform show -json` of a saved plan) for the policy document, not only the HCL",
+        "No existing test is weakened, skipped, or deleted, and the provider version pin in versions.tf is left intact"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "With terraform-patterns loaded, refactor a Terraform module whose `aws_s3_bucket.team` resources are created with `count = length(var.teams)` (teams is a list of names) so that removing a team from the middle of the list no longer replaces the others, and add a per-team database password that the module passes to a downstream module and exposes as an output. Existing state must keep working.",
+      "expected_output": "for_each over a set or map keyed by team name, `moved` blocks mapping the old count indexes to the new keys (not `terraform state mv` instructions), the password as a sensitive variable/output with no default and no committed tfvars value, VCS hygiene for .terraform/, state and secret-bearing tfvars while the lock file stays committed, and no autonomous apply.",
+      "files": [],
+      "assertions": [
+        "The resources use `for_each` keyed by a stable value (the team name), not `count`",
+        "Existing state is migrated with `moved` blocks (old `[index]` addresses to the new keys), not with `terraform state mv` or other state surgery",
+        "The password variable and every output carrying it are marked `sensitive = true`; no secret appears as a default, in a committed `*.tfvars`, or in a non-sensitive output",
+        "`.terraform/`, state files (`*.tfstate*`) and secret-bearing `*.tfvars` are kept out of version control, while `.terraform.lock.hcl` is committed",
+        "No `terraform apply` or `terraform destroy` is run or presented as done; the change is handed off for a human to review the plan and apply"
+      ]
+    }
+  ],
+  "component": {
+    "id": "terraform-patterns",
+    "type": "skill",
+    "purpose": "The Terraform/IaC conventions and toolchain the software-engineer/qa-engineer (and the code-review lint aspect) apply when the detected stack is Terraform — plan-never-apply, mock-provider tests, validation blocks, secret and state hygiene, rendered-plan review; a lean, loaded-on-demand knowledge pack exercised through the software-engineer's Tier-2.",
+    "loaded_by": "develop, code-review and the software-engineer / qa-engineer roles, by READING ${CLAUDE_PLUGIN_ROOT}/skills/terraform-patterns/SKILL.md when stacks.detect reports the terraform profile (stacks.pack_paths / af.py stack-detect `pack_paths` lists it after engineering-standards); never invoked by name (disable-model-invocation: true, off the listing).",
+    "inputs": "A task in a Terraform root or module (*.tf, .terraform.lock.hcl, tests/*.tftest.hcl) plus the terraform stack profile's fallback toolchain (format `terraform fmt -recursive`, typecheck `terraform init -backend=false && terraform validate`, test `terraform test` when tests exist); the repo's own declared gate wins.",
+    "outputs": "No artifact of its own: conventions the loading role applies to its change and review — a gate it runs, idioms it follows, pitfalls it checks — and a hand-off that leaves `terraform apply` to a human."
+  },
+  "thresholds": {
+    "tier2_quality": { "min_pass_rate": 0.8, "runs": 5 }
+  }
+}

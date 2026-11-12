@@ -83,6 +83,7 @@ def test_single_manifest_stacks(
         ("App.csproj", "<Project/>", "dotnet-patterns"),
         ("Gemfile", "source 'x'\n", "ruby-patterns"),
         ("composer.json", "{}", "php-patterns"),
+        ("main.tf", "", "terraform-patterns"),
     ],
 )
 def test_profile_carries_pack(
@@ -216,8 +217,9 @@ def test_format_profile_unknown_and_no_pack() -> None:
 
 
 def test_shipped_packs() -> None:
-    # Every registered stack currently ships a `<id>-patterns` pack. Adding a *detection-only*
-    # stack later (pack=None) is allowed by design and simply won't appear here.
+    # Every registered stack currently ships a `<id>-patterns` pack, Terraform included since
+    # its pack shipped. Adding a *detection-only* stack later (pack=None) is allowed by design and
+    # simply won't appear here.
     packs = {sid: spec.pack for sid, spec in STACKS.items() if spec.pack}
     assert packs == {
         "python": "python-patterns",
@@ -229,6 +231,7 @@ def test_shipped_packs() -> None:
         "dotnet": "dotnet-patterns",
         "ruby": "ruby-patterns",
         "php": "php-patterns",
+        "terraform": "terraform-patterns",
     }
 
 
@@ -287,6 +290,28 @@ def test_every_registered_pack_ships_and_is_off_the_listing() -> None:
         assert path.is_file(), name
         fm, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
         assert fm.get("disable-model-invocation") is True, name
+
+
+@pytest.mark.parametrize(
+    "convention",
+    [
+        "terraform apply",  # plan, never apply: the human applies
+        "mock_provider",  # tests need no cloud credentials
+        "override_resource",
+        "validation",  # inputs refused at plan time
+        "precondition",
+        "sensitive = true",  # no secret in tfvars or outputs
+        ".terraform.lock.hcl",
+        "terraform show -json plan.out",  # review the rendered document, not only the HCL
+        "moved",  # refactor without state surgery
+        "for_each",
+    ],
+)
+def test_terraform_pack_carries_the_field_reports_conventions(convention: str) -> None:
+    # Thread 08647177: an Azure Policy change ran with no IaC conventions and would have been
+    # refused at assignment. The pack exists for these; trimming one out should fail loudly.
+    body = stacks.pack_path(PLUGIN, "terraform-patterns").read_text(encoding="utf-8")
+    assert convention in body
 
 
 # --- JavaScript / TypeScript: the declared manager, only what package.json declares -------------
@@ -529,14 +554,17 @@ def test_field_case_a_terraform_root_with_tests_is_terraform(tmp_path: Path) -> 
         "main.tf": "", "modules/net/main.tf": "", "tests/plan.tftest.hcl": "",
     })
     p = primary(repo)
-    assert (p.stack_id, p.pack, p.manifests) == ("terraform", None, ("main.tf",))
+    assert (p.stack_id, p.pack, p.manifests) == ("terraform", "terraform-patterns", ("main.tf",))
     assert p.toolchain == stacks.Toolchain(
         test="terraform test",
         lint=None,
         typecheck="terraform init -backend=false && terraform validate",
         format="terraform fmt -recursive",
     )
-    assert stacks.pack_paths("/root", p) == [Path("/root/skills/engineering-standards/SKILL.md")]
+    assert stacks.pack_paths("/root", p) == [
+        Path("/root/skills/engineering-standards/SKILL.md"),
+        Path("/root/skills/terraform-patterns/SKILL.md"),
+    ]
 
 
 @pytest.mark.parametrize(
