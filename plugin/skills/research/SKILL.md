@@ -44,7 +44,7 @@ art, market/competitors, user needs, technical feasibility. Not for deciding req
    the load-bearing claims against their sources (drop unsupported ones).
 5. **Analyse → recommend.** Draw conclusions and a recommendation for the `product` phase.
 6. **Write the brief.** Emit `research-brief.md` (frontmatter `type, feature, status, date,
-   sources[]`; body = findings, conclusions, recommendations; **valid YAML — quote any value
+   sources[]`, and `review_decision: revise` until the loop exits; body = findings, conclusions, recommendations; **valid YAML — quote any value
    containing a colon**, which a source URL always has, or the whole artifact fails to parse for
    `product`) under `docs/sdlc/<feature-slug>/`;
    validate it by reading it back.

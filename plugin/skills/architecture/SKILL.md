@@ -43,7 +43,8 @@ task breakdown (`plan`), or implementation (`develop`).
 3. **Weigh real alternatives** for each decision; honor stated constraints (a constraint that
    forces a trade-off becomes a risk).
 4. **Delegate the write-up** to the `architect` role (fork via the `Task` tool): it produces
-   `tech-design.md` (frontmatter `type`, `feature`, `status`, `decisions`, `components`, `risks`;
+   `tech-design.md` (frontmatter `type`, `feature`, `status`, `decisions`, `components`, `risks`,
+   and `review_decision: revise` until the loop exits;
    **valid YAML — quote any value containing a colon**, e.g. a risk describing `{"high": 0}`, or the
    whole artifact fails to parse for every downstream phase) plus one `adr-*.md` per
    decision (Context, Decision, Alternatives considered, Consequences), under
