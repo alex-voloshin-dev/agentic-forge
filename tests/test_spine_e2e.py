@@ -466,8 +466,20 @@ def test_plan_checkpoint_follows_review_decision(
     assert check_plan(repo)[0].passed is passed
 
 
-def test_readiness_checked_prompts_ask_for_review_decision_not_an_approved_status() -> None:
+def test_readiness_checked_prompts_ask_for_the_loop_exit_not_a_dictated_proceed() -> None:
+    # Dictating `review_decision: proceed` would make the checkpoint measure prompt obedience, not
+    # the loop: a real escalate must fail the readiness checkpoint.
     for phase in ("research", "product", "architecture", "plan"):
         prompt = spine_e2e._phase_prompt(phase)
-        assert "review_decision: proceed" in prompt, phase
-        assert "status: approved" not in prompt, phase
+        assert "review_decision (your review loop's exit decision)" in prompt, phase
+        assert "review_decision: proceed" not in prompt, phase
+
+
+def test_no_scenario_prompt_dictates_a_status_or_a_proceed() -> None:
+    for scenario in spine_e2e.SCENARIOS.values():
+        for phase in scenario.phases:
+            assert "status: approved" not in phase.prompt, (scenario.name, phase.skill)
+            assert "review_decision: proceed" not in phase.prompt, (scenario.name, phase.skill)
+            if phase.skill in ("research", "product", "architecture", "plan", "ux-design",
+                               "marketing"):
+                assert "review_decision (your" in phase.prompt, (scenario.name, phase.skill)

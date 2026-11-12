@@ -387,28 +387,26 @@ def _phase_prompt(phase: str) -> str:
             f"Your working directory is a checkout of the target repo. Read FEATURE_REQUEST.md and "
             f"the code, research the feature (prior art / options / feasibility), and write "
             f"{sdlc}research-brief.md (frontmatter type: research-brief, feature, status, "
-            f"review_decision: proceed, date, "
-            "sources[]) with synthesized findings and a recommendation. No code changes."
+            "review_decision (your review loop's exit decision), date, sources[]) with "
+            "synthesized findings and a recommendation. No code changes."
         ),
         "product": (
             f"Read {sdlc}research-brief.md and the code. Write the product spec to {sdlc}prd.md "
-            "(frontmatter type: prd, feature, status, review_decision: proceed, goals[], "
-            "non_goals[], metrics[], "
-            "acceptance[]) with user stories. Requirements only — no design or code."
+            "(frontmatter type: prd, feature, status, review_decision (your review loop's exit "
+            "decision), goals[], non_goals[], metrics[], acceptance[]) with user stories. "
+            "Requirements only — no design or code."
         ),
         "architecture": (
             f"Read {sdlc}prd.md and the code, and produce the technical design: write "
             f"{sdlc}tech-design.md (frontmatter type: tech-design, feature, status, "
-            "review_decision: proceed, "
-            f"decisions, "
-            "components, risks) and at least one adr-*.md (Context/Decision/Alternatives/"
+            "review_decision (your review loop's exit decision), decisions, components, risks) "
+            "and at least one adr-*.md (Context/Decision/Alternatives/"
             "Consequences) in that directory. Design only — no code changes."
         ),
         "plan": (
             f"Read {sdlc}tech-design.md. Write the work plan to {sdlc}plan.md (frontmatter "
-            "type: plan, feature, status, review_decision: proceed, tasks[] with id+deps, "
-            "checkpoints[], "
-            "deferred[]). "
+            "type: plan, feature, status, review_decision (your review loop's exit decision), "
+            "tasks[] with id+deps, checkpoints[], deferred[]). "
             "A plan only — no code."
         ),
         "develop": (
@@ -565,7 +563,7 @@ def _quality_gate() -> Scenario:
                 "qa-test-strategy",
                 f"Read {sdlc}prd.md and {sdlc}tech-design.md and the code. Plan the tests for the "
                 f"priority feature and write {sdlc}test-strategy.md (frontmatter type: "
-                "test-strategy, feature, status: approved, test_levels[], risks[], cases[]). No "
+                "test-strategy, feature, status, test_levels[], risks[], cases[]). No "
                 "code.",
                 lambda repo: check_test_strategy(
                     repo, slug, risk_keywords=("priorit", "invalid", "order")
@@ -586,7 +584,7 @@ def _quality_gate() -> Scenario:
             Phase(
                 "release",
                 f"Decide the next version from the commits since {tag} and write {sdlc}release.md "
-                "(frontmatter type: release, feature, status: approved, version, changelog[], "
+                "(frontmatter type: release, feature, status, version, changelog[], "
                 "breaking[]). "
                 "Aggregate the whole release's changelog.",
                 lambda repo: check_release(
@@ -633,7 +631,7 @@ def _ops_incident() -> Scenario:
             Phase(
                 "release",
                 f"Cut the hotfix release for the rollback. Write {sdlc}release.md with YAML "
-                "frontmatter containing ALL of: type: release, feature, status: approved, version "
+                "frontmatter containing ALL of: type: release, feature, status, version "
                 "(a semver "
                 "string such as 1.4.3), and a non-empty changelog list (e.g. '- Fixed: roll back "
                 "the failing deploy').",
@@ -660,7 +658,7 @@ def _product_inception() -> Scenario:
                 "repo-onboarding",
                 "Analyze this codebase (app.py, worker.py, README.md): map components, entry "
                 f"points, conventions, and risks and write {sdlc}onboarding.md (frontmatter type: "
-                "onboarding, feature, status: approved, components[], entry_points[], "
+                "onboarding, feature, status, components[], entry_points[], "
                 "conventions[], "
                 "risks[]). Seed the knowledge vault (docs/knowledge/) with linked notes via the "
                 "agentic_forge.vault helper (so it validates clean).",
@@ -671,35 +669,33 @@ def _product_inception() -> Scenario:
             Phase(
                 "research",
                 f"Research the app's domain and write {sdlc}research-brief.md (frontmatter type: "
-                "research-brief, feature, status, review_decision: proceed, date, sources[]).",
+                "research-brief, feature, status, review_decision (your review loop's exit "
+                "decision), date, sources[]).",
                 lambda repo: check_research(repo, slug),
             ),
             Phase(
                 "product",
                 f"Read {sdlc}research-brief.md and write {sdlc}prd.md with YAML frontmatter "
-                "containing ALL of: type: prd, feature, status, review_decision: proceed, a "
-                "non-empty goals list, "
-                "non_goals, "
-                "metrics, and a non-empty acceptance list. Add user stories in the body.",
+                "containing ALL of: type: prd, feature, status, review_decision (your review "
+                "loop's exit decision), a non-empty goals list, non_goals, metrics, and a "
+                "non-empty acceptance list. Add user stories in the body.",
                 lambda repo: check_product(repo, slug),
             ),
             Phase(
                 "ux-design",
                 f"Read {sdlc}prd.md and design the UX. Write {sdlc}ux-spec.md with VALID YAML "
                 "frontmatter (quote any value containing a colon) holding ALL of: type: ux-spec, "
-                "feature, status: approved, a non-empty flows list, screens, a non-empty "
-                "accessibility list, "
-                "and design_system.",
+                "feature, status, review_decision (your review loop's exit decision), a non-empty "
+                "flows list, screens, a non-empty accessibility list, and design_system.",
                 lambda repo: check_ux_spec(repo, slug),
             ),
             Phase(
                 "architecture",
                 f"Read {sdlc}prd.md and {sdlc}ux-spec.md and write {sdlc}tech-design.md with VALID "
                 "YAML frontmatter (quote any value containing a colon) holding type: tech-design, "
-                "feature, status, review_decision: proceed, a non-empty decisions list, a "
-                "non-empty components "
-                "list, and "
-                "risks; plus at least one adr-*.md.",
+                "feature, status, review_decision (your review loop's exit decision), a non-empty "
+                "decisions list, a non-empty components list, and risks; plus at least one "
+                "adr-*.md.",
                 lambda repo: check_architecture(repo, slug),
             ),
         ),
@@ -718,8 +714,8 @@ def _market_brief() -> Scenario:
             Phase(
                 "marketing",
                 f"Read market-notes.md and write {sdlc}market-brief.md (frontmatter type: "
-                "market-brief, feature, status: approved, segments[], competitors[], sizing, "
-                "sources[]). "
+                "market-brief, feature, status, review_decision (your claims loop's exit "
+                "decision), segments[], competitors[], sizing, sources[]). "
                 "Name the competitors from the notes, cite sources, and do not fabricate figures.",
                 lambda repo: check_market_brief(
                     repo, slug, competitors=("Algolia", "Elastic", "Typesense")

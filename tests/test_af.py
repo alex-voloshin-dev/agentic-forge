@@ -2106,6 +2106,30 @@ def test_a_phase_that_proceeds_marks_its_artifact_for_the_next(pattern: str) -> 
     assert "`status` to `approved`" not in text  # status is the repo's, never the loop's
 
 
+_LOOP_GATED = ["research", "product", "architecture", "plan", "ux-design", "marketing"]
+
+
+@pytest.mark.parametrize("skill", _LOOP_GATED)
+def test_a_loop_gated_phase_first_writes_review_decision_revise(skill: str) -> None:
+    # The field's presence switches off the status fallback, so nothing the phase writes is ready
+    # before its loop proceeds, whatever the repository keeps in `status`.
+    text = " ".join((_PLUGIN / "skills" / skill / "SKILL.md").read_text("utf-8").split())
+    assert "`review_decision: revise` until the loop exits" in text
+
+
+def test_the_handoff_pattern_starts_review_decision_at_revise_and_recommends_no_status() -> None:
+    text = " ".join((_PLUGIN / "patterns" / "handoff.md").read_text("utf-8").split())
+    assert "write it as `revise` when they first write the artifact" in text
+    assert "`review_decision: revise` on this first write" in text
+    assert "`status` is recommended" not in text
+    for row in ("`type, feature, status, review_decision, goals[]",
+                "`type, feature, status, review_decision, tasks[]",
+                "`type, feature, status, review_decision, flows[]"):
+        assert row in text
+    loop = " ".join((_PLUGIN / "patterns" / "review-loop.md").read_text("utf-8").split())
+    assert "`review_decision: revise` from its first write" in loop
+
+
 @pytest.mark.parametrize("skill", ["research", "product", "architecture", "plan", "ux-design"])
 def test_an_escalating_phase_marks_review_decision_not_status(skill: str) -> None:
     text = " ".join((_PLUGIN / "skills" / skill / "SKILL.md").read_text("utf-8").split())

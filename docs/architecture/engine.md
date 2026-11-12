@@ -76,11 +76,12 @@ against small per-type JSON Schemas, reusing `frontmatter.py`. It exposes `load_
 
 **Readiness has a field of its own.** A consuming phase builds only on an artifact whose review
 loop reached `proceed`; `handoff_readiness(header)` decides that and returns `(ready, field)`. When
-the header carries `review_decision` (closed vocabulary `proceed | revise | escalate`, the decision
-`af.py review-decision` printed, which the producing phase copies in when its loop exits) that field
-alone decides: ready iff `proceed`, whatever `status` says. Without it the legacy rule applies —
-ready iff `status` is `approved` or `final` — so artifacts written before the field existed still
-hand off. `status` is therefore free for the repository's own lifecycle (`in-progress`, `draft`,
+the header carries `review_decision` (closed vocabulary `proceed | revise | escalate`) that field
+alone decides: ready iff it is exactly `proceed`, whatever `status` says. A loop-gated phase writes
+`revise` when it first writes the artifact and replaces it with the decision `af.py
+review-decision` printed when its loop exits, so nothing the plugin writes is ready before its loop
+proceeds. Without the field the legacy rule applies — ready iff `status` is `approved` or `final` —
+so hand-written artifacts, and those written before the field existed, still hand off. `status` is therefore free for the repository's own lifecycle (`in-progress`, `draft`,
 `complete`, …): before the split, a repo whose plans said `status: in-progress` while being built
 had them refused by `develop`, or saw a session rewrite its lifecycle field to `approved`. `af.py
 handoff-load` reports both, as `ready` and `ready_from`, so a caller can see which field decided.

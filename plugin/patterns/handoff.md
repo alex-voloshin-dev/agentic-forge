@@ -19,31 +19,34 @@ slug is a short kebab-case name for the feature (e.g. `search`, `oauth-login`).
 
 | Artifact | Produced by | Key header fields |
 | --- | --- | --- |
-| `research-brief.md` | `research` skill → built-in `Explore` | `type, feature, status, date, sources[]` |
-| `prd.md` | `product` skill | `type, feature, status, goals[], non_goals[], metrics[], acceptance[]` |
-| `tech-design.md` + `adr-*.md` | `architecture` skill → `architect` | `type, feature, status, decisions[], components[], risks[]` |
-| `plan.md` | `plan` skill → built-in `Plan` | `type, feature, status, tasks[] (id, deps), checkpoints[], deferred[]` |
+| `research-brief.md` | `research` skill → built-in `Explore` | `type, feature, status, review_decision, date, sources[]` |
+| `prd.md` | `product` skill | `type, feature, status, review_decision, goals[], non_goals[], metrics[], acceptance[]` |
+| `tech-design.md` + `adr-*.md` | `architecture` skill → `architect` | `type, feature, status, review_decision, decisions[], components[], risks[]` |
+| `plan.md` | `plan` skill → built-in `Plan` | `type, feature, status, review_decision, tasks[] (id, deps), checkpoints[], deferred[]` |
 | `review.md` | `code-review` / `security-review` → `reviewer` | `type, target, iteration, verdict, findings[]` |
 | `test-strategy.md` | `qa-test-strategy` skill → `qa-engineer` | `type, feature, status, test_levels[], scope, risks[], cases[]` |
 | `release.md` | `release` skill | `type, feature, status, version, changelog[], breaking[]` |
 | `incident.md` | `incident-response` skill | `type, severity, status, impact, timeline[], remediation[]` |
 | `deploy-status.md` | `deploy-watch` skill | `type, environment, pipeline, alerts, action` |
-| `market-brief.md` | `marketing` skill (research) | `type, feature, status, segments[], competitors[], sources[]` |
-| `marketing-strategy.md` | `marketing` skill (strategy) | `type, feature, status, positioning, channels[], messaging[], metrics[]` |
-| `ux-spec.md` | `ux-design` skill | `type, feature, status, flows[], screens[], accessibility[], design_system[]` |
+| `market-brief.md` | `marketing` skill (research) | `type, feature, status, review_decision, segments[], competitors[], sources[]` |
+| `marketing-strategy.md` | `marketing` skill (strategy) | `type, feature, status, review_decision, positioning, channels[], messaging[], metrics[]` |
+| `ux-spec.md` | `ux-design` skill | `type, feature, status, review_decision, flows[], screens[], accessibility[], design_system[]` |
 | `onboarding.md` | `repo-onboarding` skill | `type, feature, status, components[], entry_points[], conventions[], risks[]` |
 
-`status` is recommended to be one of `draft | in-review | approved | final | superseded`
-(the contract is deliberately open — ADR 0028)
-(the schema accepts any non-empty string). `verdict` is
+`status` is the repository's lifecycle label — whatever vocabulary the repo uses (`draft`,
+`in-progress`, `complete`, …); the schema accepts any non-empty string (the contract is
+deliberately open — ADR 0028), and no value of it means "ready". `verdict` is
 `approve | changes`. Finding `severity` is `blocker | major | minor | nit`.
 
 **`status` belongs to the repository; `review_decision` belongs to the review loop.** Every
 artifact that carries `status` (all of the above but `review` and `deploy-status`) may also carry
-`review_decision: proceed | revise | escalate` — the decision `af.py review-decision` printed when
-the phase's review loop exited, copied verbatim. It is a closed vocabulary (any other value fails
-the schema) and it is what readiness reads, so a repository is free to run its own lifecycle in
-`status` (`in-progress`, `complete`, …) and a phase never rewrites that field to hand off:
+`review_decision: proceed | revise | escalate`, a closed vocabulary (any other value fails the
+schema, and only the exact lowercase `proceed` is ready). The phases that run a review loop —
+`research`, `product`, `architecture`, `plan`, `ux-design`, `marketing`, the types listed with it
+above — **write it as `revise` when they first write the artifact**, and the loop's exit replaces it
+with the decision `af.py review-decision` printed: `proceed` or `escalate`. Because the field's
+presence switches off the `status` fallback, nothing the plugin writes is ready before its loop
+proceeds, and a phase never rewrites `status` to hand off:
 
 | Header | `ready` | `ready_from` |
 | --- | --- | --- |
@@ -53,8 +56,9 @@ the schema) and it is what readiness reads, so a repository is free to run its o
 | no `review_decision`, any other or no `status` | false | `status` |
 
 When both are present and disagree, `review_decision` wins: it records the loop that gates the
-handoff, and `status` may mean anything in the repository's vocabulary. The `status` row is the
-legacy rule, kept so an artifact written before `review_decision` existed still hands off.
+handoff, and `status` may mean anything in the repository's vocabulary. The `status` rows are the
+legacy rule, which now applies only to an artifact without the field — hand-written, or written
+before `review_decision` existed — so those still hand off as they did.
 
 Each `findings[]` element (the canonical review-finding shape) has: `severity`, `location`,
 `issue` (what's wrong — some review docs label this the `description`), and `suggestion` (the
@@ -70,7 +74,9 @@ named built-in agent (`Explore`/`Plan`) or engine role(s).
 
 Write the header first, then the body. Set `type` to the exact id above and `feature` to the
 slug — the file itself is named `<type>.md` (e.g. `incident.md`, `deploy-status.md`), so any
-artifact's on-disk name follows from its type. Use list fields for anything the next phase iterates over; keep prose in the body.
+artifact's on-disk name follows from its type. A loop-gated phase also writes
+`review_decision: revise` on this first write (its loop's exit sets the final value) and leaves
+`status` to the repository's lifecycle. Use list fields for anything the next phase iterates over; keep prose in the body.
 **Frontmatter is data, not prose.** Every value is a scalar, a list or a mapping — and nothing
 else. The failure this rule exists for, seen twice in two Tier-3 runs, is a list with a gloss
 after it:

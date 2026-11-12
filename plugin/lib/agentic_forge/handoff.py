@@ -69,10 +69,11 @@ STATUSES = ["draft", "in-review", "approved", "final", "superseded"]
 # unresolved findings, do NOT ship).
 LOOP_DECISIONS = ("proceed", "revise", "escalate")
 
-# The header field a phase writes when its review loop exits: the decision `review-decision`
-# printed, verbatim, from the closed vocabulary LOOP_DECISIONS. It is the readiness signal — only
-# `proceed` hands off — and it has a field of its own so that readiness never competes with the
-# repository's lifecycle in `status`.
+# The header field that carries the phase's review outcome, from the closed vocabulary
+# LOOP_DECISIONS. A loop-gated phase writes `revise` when it first writes the artifact and replaces
+# it with the decision `review-decision` printed when the loop exits (`proceed` or `escalate`). It
+# is the readiness signal — only `proceed` hands off — and it has a field of its own so that
+# readiness never competes with the repository's lifecycle in `status`.
 REVIEW_DECISION_FIELD = "review_decision"
 
 # The legacy readiness rule, read only when an artifact has no `review_decision` (one written
@@ -430,7 +431,9 @@ def handoff_readiness(header: dict[str, Any]) -> tuple[bool, str]:
 
     Returns ``(ready, field)`` where ``field`` is :data:`REVIEW_DECISION_FIELD` or ``"status"``:
 
-    - **``review_decision`` present** — it alone decides: ready iff it is ``proceed``. ``status``
+    - **``review_decision`` present** — it alone decides: ready iff it is exactly the string
+      ``proceed`` (lowercase, no padding — what the schema accepts, so a header read without
+      jsonschema is not judged more leniently than a validated one). ``status``
       is not read at all, so a repository's lifecycle label (``in-progress``, ``draft``, even
       ``approved``) can neither block nor grant a handoff. When the two disagree the review outcome
       wins, because it is the record of the loop that gates the handoff and ``status`` is not.
@@ -439,11 +442,12 @@ def handoff_readiness(header: dict[str, Any]) -> tuple[bool, str]:
 
     Conservative both ways: any other value, an empty one, or a missing status reads as not ready.
     The key's presence is what counts, so an empty ``review_decision:`` never falls back to a
-    ``status`` that would pass.
+    ``status`` that would pass — which is also why a loop-gated phase writes ``revise`` on its first
+    write: nothing it produces is ready before its loop proceeds.
     """
     if REVIEW_DECISION_FIELD in header:
-        decision = str(header[REVIEW_DECISION_FIELD] or "").strip().lower()
-        return decision == "proceed", REVIEW_DECISION_FIELD
+        decision = header[REVIEW_DECISION_FIELD]
+        return isinstance(decision, str) and decision == "proceed", REVIEW_DECISION_FIELD
     return str(header.get("status", "")).strip().lower() in READY_STATUSES, "status"
 
 

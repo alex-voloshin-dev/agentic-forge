@@ -43,7 +43,7 @@ the product requirements (`product`).
    template (tokens, variants, ALL states incl. focus/disabled/error, ARIA/keyboard) and the
    5-minute accessibility pass.
 6. **Write the `ux-spec`** with valid YAML frontmatter: `type` (= `ux-spec`), `feature`, `status`,
-   and the **list** fields `flows`, `screens`, `accessibility`, `design_system` (each a YAML list —
+   `review_decision: revise` until the loop exits, and the **list** fields `flows`, `screens`, `accessibility`, `design_system` (each a YAML list —
    not prose; quote any value containing a colon) — as `ux-spec.md` under
    `docs/sdlc/<feature-slug>/`, then validate it
    (the read-back below) — the input `develop` builds from.

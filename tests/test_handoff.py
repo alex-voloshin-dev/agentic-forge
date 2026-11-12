@@ -508,9 +508,13 @@ def test_an_unknown_or_empty_review_decision_is_not_ready_and_never_falls_back(
     assert handoff.handoff_readiness(header) == (False, "review_decision")
 
 
-def test_review_decision_is_read_case_and_space_insensitively() -> None:
-    header = {**VALID_HEADERS["prd"], "review_decision": " Proceed "}
-    assert handoff.is_handoff_ready(header) is True
+@pytest.mark.parametrize("value", ["Proceed", "PROCEED", " proceed", "proceed\n"])
+def test_review_decision_is_compared_exactly_like_the_schema(value: str) -> None:
+    # Without jsonschema the header is not validated; readiness must not be more lenient than the
+    # schema, which accepts only the exact lowercase `proceed`.
+    header = {**VALID_HEADERS["prd"], "review_decision": value}
+    assert handoff.handoff_readiness(header) == (False, "review_decision")
+    assert validate_header(header) != []
 
 
 def test_the_review_decision_vocabulary_is_the_loop_decisions() -> None:
