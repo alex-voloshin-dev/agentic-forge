@@ -11,10 +11,15 @@ into a PRD the `architecture` phase consumes. This is the conversational phase �
 missing from the user rather than inventing it, *when there is a user*: a headless run has none,
 so there the gaps become stated assumptions in the PRD, flagged in the summary.
 
+**Scope: it creates new PRDs in its own format and amends existing ones in theirs.** A new PRD is
+`prd.md` with the YAML header below, validated by `handoff-load`. An existing PRD is changed in
+place, in whatever format the repository wrote it (a metadata table, its own headings and ids),
+never converted, and never duplicated by a second PRD beside it.
+
 ## When to use
 
 After research, when the question is *what & why*: goals, non-goals, success metrics,
-acceptance criteria, user stories. Not for *what exists* (`research`), *how to build it*
+acceptance criteria, user stories — or when a live PRD's requirements change (amend mode). Not for *what exists* (`research`), *how to build it*
 (`architecture`), task breakdown (`plan`), or code (`develop`).
 
 ## Process
@@ -28,6 +33,21 @@ acceptance criteria, user stories. Not for *what exists* (`research`), *how to b
 > **feature**, shared by every document phase — that is what lets the next phase read what
 > this one wrote. Skip it for a one-off document outside a feature flow. A repo with no remote (or
 > no `gh`) still commits — on `docs/<slug>`, reported as not pushed / no PR — never a failed phase.
+
+> **Write where the repository keeps its features** — run
+> `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" artifact-home --repo <worktree> --slug <feature-slug> --kind prd`
+> and use its `feature_dir` as `<feature-dir>` below (`docs/sdlc/<feature-slug>` only when the
+> repository keeps no feature folder for it). On `ambiguous`, ask when interactive; headless, take
+> its pick and record it as an assumption naming the alternatives
+> ([where a feature's documents go](../../patterns/handoff.md#where-a-features-documents-go)).
+
+> **Create or amend.** When the user points at an existing PRD, or `artifact.exists` is true and
+> the request changes requirements rather than starting a feature, this is **amend mode**: follow
+> [references/amend.md](references/amend.md) instead of steps 1–6. In short: edit the PRD in place,
+> in its own format; run the same bounded skeptic loop on the **diff** of its requirements; persist
+> each round as `review-prd-<n>.md` in `<feature-dir>/`; and, for a PRD in a **foreign format**
+> (`artifact.format` is `foreign`), skip the `handoff-load` read-back, which would refuse it, and
+> gate on `git diff --check` instead. Steps 1–6 below create a new PRD.
 
 1. **Digest the inputs.** Load `research-brief.md`
    (`python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type research-brief`; **refuse to build on it unless its `ready` is true — an escalated upstream run leaves a schema-valid but rejected artifact on disk**; never edit its `status` to make it so) and assess the current product
@@ -49,7 +69,7 @@ acceptance criteria, user stories. Not for *what exists* (`research`), *how to b
 5. **Write the PRD.** Produce `prd.md` (frontmatter `type`, `feature`, `status`, `goals`, `non_goals`, `metrics`,
    `acceptance`, and `review_decision: revise` until the loop exits; body = context + user stories; **valid YAML — quote any value containing a colon**,
    e.g. an acceptance criterion naming `{"high": 0}`, or the whole artifact fails to parse for every
-   downstream phase) under `docs/sdlc/<feature-slug>/`; validate it (the read-back below). Keep every requirement traceable to
+   downstream phase) in `<feature-dir>/`; validate it (the read-back below). Keep every requirement traceable to
    the brief.
    Then **read the file back** — `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type prd` — and fix whatever it reports: this reads the file, so it sees the YAML you typed, and a single
    malformed value (a flow sequence with prose after it, an unquoted `:`) leaves an artifact the
@@ -59,11 +79,11 @@ acceptance criteria, user stories. Not for *what exists* (`research`), *how to b
    metric **measurable**, the **non-goals complete**, and each requirement **traceable to the
    brief** — then revise worst-first. **External reviewer lens (on by default, ADR 0057):** when
    `external_reviewer.enabled` (settings), also run the external reviewer over `prd.md` —
-   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/external_review.py" --target <worktree>/docs/sdlc/<feature-slug>/prd.md --repo <worktree> --kind product`; codex critiques the PRD as an
+   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/external_review.py" --target <worktree>/<feature-dir>/prd.md --repo <worktree> --kind product`; codex critiques the PRD as an
    independent-model lens (testable criteria, measurable metrics, complete non-goals, traceability)
    and its `findings` fold into the same worst-first revision. It **degrades gracefully** (absent/
    disabled codex is skipped, not a failure; **exit 3 is a failed lens**, not a skip — record it in the round and tell the user) and its findings are **advisory** (prompt-injectable) —
-   verify before acting. **Persist each round** — one `review-<artifact>-<iteration>.md` per round under `docs/sdlc/<feature-slug>/`, aggregating **both** lenses; on `proceed` keep only the final round, on `escalate` keep them all (naming + lifecycle: [review-loop.md](../../patterns/review-loop.md)). **Exit criterion (the shared, tested rule):** each round, compute
+   verify before acting. **Persist each round** — one `review-<artifact>-<iteration>.md` per round in `<feature-dir>/`, aggregating **both** lenses; on `proceed` keep only the final round, on `escalate` keep them all (naming + lifecycle: [review-loop.md](../../patterns/review-loop.md)). **Exit criterion (the shared, tested rule):** each round, compute
    `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" review-decision --verdict <approve or changes> --iteration <n> --gate-green <yes if prd.md validates, else no>` (see
    [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
    [review-loop.md](../../patterns/review-loop.md)) — `revise` (loop back and fix worst-first),
@@ -77,7 +97,8 @@ acceptance criteria, user stories. Not for *what exists* (`research`), *how to b
 (see [patterns/handoff.md](../../patterns/handoff.md)) — goals, non-goals, metrics, testable
 acceptance, and user stories — that survived the bounded skeptic loop to `proceed`, ready as the
 input to `architecture`. A run whose loop `escalate`s (unresolved gaps at N = 3) surfaces them and
-stops; it does **not** hand off an incomplete PRD.
+stops; it does **not** hand off an incomplete PRD. **An amend run** produces the amended PRD, in its
+own format, and its final review round beside it.
 
 ## Definition of done
 
@@ -88,3 +109,6 @@ stops; it does **not** hand off an incomplete PRD.
 - Requirements trace to the research brief; ambiguities were elicited, not invented.
 - A bounded skeptic pass checked acceptance-criteria testability and metric measurability.
 - Only product requirements — no technical design or code.
+- In amend mode: the PRD keeps its own format (no YAML added to a foreign one, no `status` or
+  metadata rewritten unasked), the diff holds only the requested change and what it forces, and the
+  loop reviewed that diff ([references/amend.md](references/amend.md)).

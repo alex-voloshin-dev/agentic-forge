@@ -705,6 +705,186 @@ def test_an_architect_write_without_a_usable_path_is_refused(file_path: Any) -> 
     assert decision.block and decision.rule == "role-write-path"
 
 
+# --- the architect outside docs/: the repository's own feature folders --------------------------
+
+
+def _feature_world(tmp_path: Path) -> Path:
+    """A monorepo that keeps features and decisions outside docs/, in the checkout and in a linked
+    worktree, beside the probe shapes the widening must not open."""
+    repo, _ = _architect_world(tmp_path)
+    for tree in (repo, repo / ".claude" / "worktrees" / "wt"):
+        files = {
+            "features/in-progress/foo/prd.md": "| **Status** | Draft |",
+            "features/in-progress/foo/README.md": "x",
+            "features/in-progress/bar/plan.md": "x",
+            "features/architecture/adr/adr-066-x.md": "x",
+            "features/architecture/adr/ADR-G14-y.md": "x",
+            "doc/adr/0001-record.md": "x",
+            "src/payments/notes.md": "x",
+            "lib/adr/README.md": "x",
+            "Feature Foo/prd.md": "x",
+            ".github/foo/prd.md": "x",
+            "features/in-progress/foo/.drafts/prd.md": "x",
+            "plan.md": "x",
+            "adr-001-top.md": "x",
+            "vendor/lib/features/foo/prd.md": "x",
+        }
+        for relative, text in files.items():
+            path = tree / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+        (tree / "features" / "in-progress" / "foo" / "adr").mkdir()
+    return repo
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "features/in-progress/foo/tech-design.md",  # a feature folder: holds prd.md
+        "features/in-progress/foo/prd.md",
+        "features/in-progress/foo/Design.md",
+        "features/in-progress/foo/adr-001-store.md",  # the unnumbered or numbered record name
+        "features/in-progress/foo/adr-datastore.md",
+        "features/in-progress/foo/adr/adr-001-store.md",  # an existing adr/ in a feature folder
+        "features/in-progress/foo/adr/ADR-001.md",
+        "features/in-progress/bar/tech-design.md",
+        "features/architecture/adr/adr-067-cache.md",  # a series directory
+        "features/architecture/adr/ADR-G15-z.md",
+        "doc/adr/0002-use-x.md",  # adr-tools numbering, by its series member name
+    ],
+)
+def test_the_architect_may_write_into_an_existing_feature_folder_or_adr_directory(
+    tmp_path: Path, relative: str
+) -> None:
+    repo = _feature_world(tmp_path)
+    wt = repo / ".claude" / "worktrees" / "wt"
+    for file_path, cwd in ((relative, repo), (str(repo / relative), repo),
+                           (relative, wt), (str(wt / relative), wt)):
+        assert role_scope.decide(_write(file_path, str(cwd))) == role_scope.ALLOW, file_path
+
+
+@pytest.mark.parametrize(
+    ("relative", "reason"),
+    [
+        # the right directory, the wrong name: the widening is the role's documents only
+        ("features/in-progress/foo/README.md", "not a feature document"),
+        ("features/in-progress/foo/notes.md", "not a feature document"),
+        ("features/architecture/adr/index.md", "not a feature document"),
+        ("doc/adr/README.md", "not a feature document"),
+        ("doc/adr/03-x.md", "not a feature document"),  # two digits: not adr-tools numbering
+        # a directory that is not one the repository keeps for these documents
+        ("features/in-progress/new-feature/prd.md", "outside the docs/ directory"),  # not there
+        ("features/in-progress/bar/adr/adr-001-x.md", "outside the docs/ directory"),  # no adr/
+        ("features/in-progress/foo/sub/tech-design.md", "outside the docs/ directory"),
+        ("src/payments/tech-design.md", "outside the docs/ directory"),
+        ("lib/adr/adr-001-x.md", "outside the docs/ directory"),  # an adr/ with no feature
+        ("Feature Foo/tech-design.md", "outside the docs/ directory"),  # not a slug's shape
+        ("tech-design.md", "outside the docs/ directory"),  # the top beside a plan.md
+        ("adr-002-top.md", "outside the docs/ directory"),  # the top beside a record
+        ("src/tech-design.md", "outside the docs/ directory"),
+        # every earlier refusal still applies inside a qualifying directory
+        (".github/foo/tech-design.md", "hidden"),
+        ("features/in-progress/foo/.drafts/tech-design.md", "hidden"),
+        ("features/in-progress/foo/CLAUDE.md", "agent instruction or skill file"),
+        ("features/in-progress/foo/AGENTS.md", "agent instruction or skill file"),
+        ("features/in-progress/foo/claude.local.md", "agent instruction or skill file"),
+        ("features/in-progress/foo/GEMINI.md", "agent instruction or skill file"),
+        ("features/in-progress/foo/SKILL.md", "agent instruction or skill file"),
+        ("features/in-progress/foo/tech-design.txt", "not a Markdown document"),
+        ("features/in-progress/foo/adr-001.sh", "not a Markdown document"),
+        ("vendor/lib/features/foo/tech-design.md", "outside this session's working trees"),
+    ],
+)
+def test_the_architect_outside_docs_is_refused_everything_else(
+    tmp_path: Path, relative: str, reason: str
+) -> None:
+    repo = _feature_world(tmp_path)
+    decision = role_scope.decide(_write(str(repo / relative), str(repo)))
+    assert decision.block and decision.rule == "role-write-path", relative
+    assert reason in decision.message, decision.message
+
+
+def test_a_symlinked_feature_document_does_not_open_its_directory(tmp_path: Path) -> None:
+    repo = _feature_world(tmp_path)
+    folder = repo / "features" / "linked"
+    folder.mkdir()
+    (folder / "prd.md").symlink_to(repo / "features" / "in-progress" / "foo" / "prd.md")
+    decision = role_scope.decide(_write(str(folder / "tech-design.md"), str(repo)))
+    assert decision.block and "outside the docs/ directory" in decision.message
+
+
+def test_a_link_cannot_lead_into_a_feature_folder_outside_the_repository(tmp_path: Path) -> None:
+    repo = _feature_world(tmp_path)
+    outside = tmp_path / "outside" / "foo"
+    outside.mkdir(parents=True)
+    (outside / "prd.md").write_text("x", encoding="utf-8")
+    (repo / "features" / "away").symlink_to(outside, target_is_directory=True)
+    (repo / "features" / "in-progress" / "foo" / "out.md").symlink_to(outside / "prd.md")
+    for relative in ("features/away/tech-design.md", "features/in-progress/foo/out.md"):
+        decision = role_scope.decide(_write(str(repo / relative), str(repo)))
+        assert decision.block and "outside this session's repository" in decision.message
+
+
+def test_a_link_inside_the_tree_is_judged_where_it_leads(tmp_path: Path) -> None:
+    """A linked directory resolves first; the rule applies to the real directory."""
+    repo = _feature_world(tmp_path)
+    (repo / "shortcut").symlink_to(repo / "features" / "in-progress" / "foo")
+    (repo / "to-src").symlink_to(repo / "src" / "payments")
+    allowed = role_scope.decide(_write(str(repo / "shortcut" / "tech-design.md"), str(repo)))
+    assert allowed == role_scope.ALLOW
+    refused = role_scope.decide(_write(str(repo / "to-src" / "tech-design.md"), str(repo)))
+    assert refused.block and "outside the docs/ directory" in refused.message
+
+
+def test_an_unreadable_directory_is_not_a_feature_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _feature_world(tmp_path)
+    real = os.scandir
+
+    def deny(path: Any) -> Any:
+        if str(path).endswith("foo"):
+            raise PermissionError(13, "denied")
+        return real(path)
+
+    monkeypatch.setattr(os, "scandir", deny)
+    target = repo / "features" / "in-progress" / "foo" / "tech-design.md"
+    decision = role_scope.decide(_write(str(target), str(repo)))
+    assert decision.block and "outside the docs/ directory" in decision.message
+
+
+def test_the_refusal_names_the_widened_scope() -> None:
+    message = role_scope.decide(_tool("Edit", ARCHITECT)).message
+    assert "in a feature folder or ADR directory it already keeps" in message
+
+
+def test_hook_process_lets_the_architect_write_into_a_feature_folder(tmp_path: Path) -> None:
+    repo = _feature_world(tmp_path)
+    target = repo / "features" / "in-progress" / "foo" / "tech-design.md"
+    payload = {**_tool("Write", ARCHITECT), "cwd": str(repo),
+               "tool_input": {"file_path": str(target), "content": "c"}}
+    done = _run_hook(json.dumps(payload), tmp_path)
+    assert (done.returncode, done.stdout, done.stderr) == (0, "", "")
+    payload["tool_input"]["file_path"] = str(target.with_name("README.md"))
+    done = _run_hook(json.dumps(payload), tmp_path)
+    assert json.loads(done.stdout)["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def test_the_feature_folder_check_failing_closes_the_hook(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """An error in the new check refuses, through the hook's fail-closed path."""
+    repo = _feature_world(tmp_path)
+    monkeypatch.setattr(role_scope.artifact_home, "is_feature_dir", _boom)
+    target = repo / "features" / "in-progress" / "foo" / "tech-design.md"
+    payload = {**_write(str(target), str(repo)), "session_id": "feature-boom"}
+    _stdin(monkeypatch, json.dumps(payload))
+    assert role_scope_hook.main() == 0
+    spec = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    assert spec["permissionDecision"] == "deny"
+    assert "could not be checked (RuntimeError)" in spec["permissionDecisionReason"]
+
+
 @pytest.mark.parametrize("tool", ["Bash", "Write", "Edit", "Agent", "mcp__x__y", "WebFetch"])
 def test_the_main_session_is_always_allowed(tool: str) -> None:
     """No agent_type: the main session. The hook has nothing to say about it."""

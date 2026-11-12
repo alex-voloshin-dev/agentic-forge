@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import guardrails, handoff, settings, state_io
+from . import artifact_home, guardrails, handoff, settings, state_io
 
 __all__ = [
     "DIAGNOSTICS_PATH",
@@ -63,6 +63,7 @@ __all__ = [
     "render",
     "load",
     "review_anomaly",
+    "review_paths",
     "scan_reviews",
 ]
 
@@ -71,7 +72,9 @@ DIAGNOSTICS_FILE = "diagnostics.jsonl"  # resolved under state_root() — ADR 00
 KINDS = ("block", "warning", "error", "anomaly")
 DEFAULT_REVIEW_CAP = handoff.REVIEW_LOOP_BUDGET  # canonical bounded review-loop budget (handoff.py)
 REVIEW_GLOB = "docs/sdlc/**/review*.md"  # review handoff artifacts: code-review's
-# `review.md` AND the per-round `review-<artifact>.md` the seven writer loops persist (0067)
+# `review.md` AND the per-round `review-<artifact>.md` the seven writer loops persist (0067). The
+# loops write them into a repository's own feature folder when it has one (artifact_home), so
+# `scan_reviews` also reads `review*.md` beside a feature document anywhere in the bounded walk.
 _MAX_LEN = 500  # cap each string so a giant traceback can't bloat the log
 _SEVERITY_ORDER = {"blocker": 0, "major": 1, "minor": 2, "nit": 3}
 # Volatile bits (hex/object ids, absolute paths, bare numbers) normalised out so the SAME problem
@@ -675,16 +678,28 @@ def review_anomaly(
     )
 
 
+def review_paths(repo: Path | str) -> list[Path]:
+    """Every review artifact the loops may have written: :data:`REVIEW_GLOB`, and the
+    ``review*.md`` files beside a feature document wherever the repository keeps its feature
+    folders (:func:`artifact_home.review_files`, a bounded walk that never follows a symlink)."""
+    root = Path(repo)
+    found = set(root.glob(REVIEW_GLOB))
+    walked = artifact_home.scan(str(root))
+    found.update(root.joinpath(*rel.split("/")) for rel in artifact_home.review_files(walked))
+    return sorted(found)
+
+
 def scan_reviews(
     repo: Path | str, *, cap: int = DEFAULT_REVIEW_CAP, now: str | None = None
 ) -> list[dict[str, Any]]:
-    """Walk the repo's ``review.md`` handoff artifacts and return a diagnostics anomaly for each
-    bounded review loop that exhausted its budget without converging (ADR 0040). Thin I/O over the
-    pure :func:`review_anomaly`; malformed / non-``review`` files are skipped, so it never raises.
-    The caller records the returned events (gated by :func:`enabled`)."""
+    """Walk the repo's ``review.md`` handoff artifacts (:func:`review_paths`) and return a
+    diagnostics anomaly for each bounded review loop that exhausted its budget without converging
+    (ADR 0040). Thin I/O over the pure :func:`review_anomaly`; malformed / non-``review`` files are
+    skipped, so it never raises. The caller records the returned events (gated by
+    :func:`enabled`)."""
     ts = now or datetime.now(timezone.utc).isoformat()
     events: list[dict[str, Any]] = []
-    for path in sorted(Path(repo).glob(REVIEW_GLOB)):
+    for path in review_paths(repo):
         try:
             artifact = handoff.load_artifact(path, expected_type="review")
         except Exception:

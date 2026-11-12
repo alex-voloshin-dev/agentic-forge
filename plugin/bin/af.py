@@ -342,6 +342,13 @@ def _handoff_load(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _artifact_home(args: argparse.Namespace) -> int:
+    from agentic_forge import artifact_home
+
+    _emit(artifact_home.home(_directory(args.repo), args.slug, args.kind))
+    return EXIT_OK
+
+
 def _review_decision(args: argparse.Namespace) -> int:
     from agentic_forge import handoff
 
@@ -922,6 +929,17 @@ def build_parser() -> argparse.ArgumentParser:
     sub = add("handoff-load", _handoff_load, "Read an artifact back and validate it.")
     sub.add_argument("--path", required=True)
     sub.add_argument("--type", required=True, help="the artifact type expected")
+
+    sub = add(
+        "artifact-home", _artifact_home,
+        "Where a feature's documents go: its existing folder and ADR series, or docs/sdlc/<slug>/.",
+    )
+    sub.add_argument("--repo", default=".", help="the work-tree root to search (default: .)")
+    sub.add_argument("--slug", required=True, help="the feature slug")
+    sub.add_argument(
+        "--kind", choices=("research", "prd", "design", "plan", "adr"),
+        help="also report this document's path, whether it exists and its format",
+    )
 
     sub = add("review-decision", _review_decision, "The review loop's next step.")
     sub.add_argument(

@@ -233,6 +233,45 @@ def test_scan_reviews_empty_repo(tmp_path: Path) -> None:
     assert diagnostics.scan_reviews(tmp_path) == []
 
 
+def _round(folder: Path, name: str, verdict: str, iteration: int) -> None:
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / name).write_text(
+        f"---\ntype: review\ntarget: {folder.name}/prd.md\niteration: {iteration}\n"
+        f"verdict: {verdict}\n---\nbody\n",
+        encoding="utf-8",
+    )
+
+
+def test_scan_reviews_reads_rounds_in_a_repositorys_own_feature_folders(tmp_path: Path) -> None:
+    """The loops write rounds where the feature lives (artifact_home); the scan follows them."""
+    feature = tmp_path / "features" / "in-progress" / "export"
+    _round(feature, "review-prd-3.md", "changes", 3)
+    (feature / "prd.md").write_text("| **Status** | Draft |\n", encoding="utf-8")
+    _round(tmp_path / "features" / "in-progress" / "done", "review-prd-1.md", "approve", 1)
+    (tmp_path / "features" / "in-progress" / "done" / "plan.md").write_text("x", encoding="utf-8")
+    _round(tmp_path / "notes" / "stray", "review-prd-3.md", "changes", 3)  # no feature document
+    _write_review(tmp_path, "feat-a", verdict="changes", iteration=3)  # the docs/sdlc glob stays
+    events = diagnostics.scan_reviews(tmp_path, now="t")
+    assert sorted(e["context"]["target"] for e in events) == ["export/prd.md", "feat-a.py"]
+    paths = diagnostics.review_paths(tmp_path)
+    assert feature / "review-prd-3.md" in paths
+    assert tmp_path / "notes" / "stray" / "review-prd-3.md" not in paths
+
+
+def test_scan_reviews_counts_a_round_once_and_never_through_a_link(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    sdlc = repo / "docs" / "sdlc" / "feat"
+    _round(sdlc, "review-plan-3.md", "changes", 3)
+    (sdlc / "plan.md").write_text("x", encoding="utf-8")  # found by the glob and by the walk
+    outside = tmp_path / "outside" / "feat"
+    _round(outside, "review-prd-3.md", "changes", 3)
+    (outside / "prd.md").write_text("x", encoding="utf-8")
+    (repo / "features").mkdir()
+    (repo / "features" / "linked").symlink_to(outside, target_is_directory=True)
+    assert diagnostics.review_paths(repo) == [sdlc / "review-plan-3.md"]
+    assert len(diagnostics.scan_reviews(repo, now="t")) == 1
+
+
 # --- main_repo_root: worktree-aware log placement (field fix) ---
 
 

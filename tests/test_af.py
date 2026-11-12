@@ -2399,11 +2399,175 @@ def test_doc_pr_argv_refuses(tmp_path: Path, args: list[str], says: str) -> None
 # --- the wording the coordinator's review pinned --------------------------------------------------
 
 
-@pytest.mark.parametrize("skill", ["architecture", "plan", "product", "research", "ux-design"])
-def test_a_doc_phase_reviews_the_file_in_its_worktree(skill: str) -> None:
+@pytest.mark.parametrize(
+    ("skill", "folder"),
+    [("architecture", "<feature-dir>"), ("plan", "<feature-dir>"), ("product", "<feature-dir>"),
+     ("research", "<feature-dir>"), ("ux-design", "docs/sdlc/<feature-slug>")],
+)
+def test_a_doc_phase_reviews_the_file_in_its_worktree(skill: str, folder: str) -> None:
     text = (_PLUGIN / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
-    assert "--target <worktree>/docs/sdlc/<feature-slug>/" in text
+    assert f"--target <worktree>/{folder}/" in text
     assert "--repo <worktree>" in text
+
+
+# --- where a feature's documents go: artifact-home ------------------------------------------------
+
+_HOME_PHASES = {"research": "research", "product": "prd", "architecture": "prd", "plan": "design"}
+
+
+def _prose(relative: str) -> str:
+    """A document's text as one line, blockquote markers removed, so wording reads across breaks."""
+    lines = (_PLUGIN / relative).read_text(encoding="utf-8").splitlines()
+    return " ".join(" ".join(re.sub(r"^\s*>\s?", "", line) for line in lines).split())
+
+
+def _monorepo(root: Path) -> None:
+    """The field report's repository: features in lifecycle folders, two ADR series side by side,
+    a feature-local adr/ folder, and a PRD that opens with a metadata table."""
+    files = {
+        "features/in-progress/export/prd.md": "# Export\n\n| **Status** | Draft |\n",
+        "features/implemented/old/prd.md": "x",
+        "features/implemented/old/adr/adr-001-x.md": "x",
+        "features/architecture/adr/adr-066-last.md": "x",
+        "features/architecture/adr/adr-001-first.md": "x",
+        "features/architecture/adr/ADR-G14-global.md": "x",
+    }
+    for relative, text in files.items():
+        (root / relative).parent.mkdir(parents=True, exist_ok=True)
+        (root / relative).write_text(text, encoding="utf-8")
+
+
+def _home_call(skill: str) -> str:
+    text = (_PLUGIN / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
+    calls = [c for _, c in _documented_calls() if c.startswith("artifact-home")
+             and f"skills/{skill}/" in _ and c in text]
+    assert len(calls) == 1, calls
+    return calls[0]
+
+
+@pytest.mark.parametrize(("skill", "kind"), sorted(_HOME_PHASES.items()))
+def test_each_document_phase_finds_its_home_before_it_writes(skill: str, kind: str) -> None:
+    call = _home_call(skill)
+    assert call == (
+        f"artifact-home --repo <worktree> --slug <feature-slug> --kind {kind}"
+    )
+    text = _prose(f"skills/{skill}/SKILL.md")
+    assert "use its `feature_dir` as `<feature-dir>` below" in text
+    assert (
+        "On `ambiguous`, ask when interactive; headless, take its pick and record it as an "
+        "assumption" in text
+    )
+    assert "in `<feature-dir>/`" in text
+    # the old hardcoded home survives only as the fallback the command itself returns
+    assert text.count("docs/sdlc/<feature-slug>") <= 2
+    assert "under `docs/sdlc/<feature-slug>/`" not in text
+
+
+@pytest.mark.parametrize("skill", sorted(_HOME_PHASES))
+def test_the_skills_artifact_home_call_as_written_finds_the_monorepos_folder(
+    tmp_path: Path, skill: str
+) -> None:
+    """The line itself, through a real shell, on the field report's layout."""
+    _monorepo(tmp_path)
+    call = _PREFIX + _home_call(skill)
+    line = call.replace("<worktree>", shlex.quote(str(tmp_path)))
+    line = line.replace("<feature-slug>", "export")
+    done = subprocess.run(
+        ["bash", "-c", line], cwd=tmp_path, env=_env(), capture_output=True, text=True, check=False
+    )
+    assert done.returncode == 0, done.stderr
+    result = json.loads(done.stdout)
+    assert result["feature_dir"] == "features/in-progress/export" and result["detected"] is True
+    assert result["adr"]["next_id"] == "adr-067" and result["ambiguous"] is True
+
+
+def test_artifact_home_in_a_greenfield_repository(tmp_path: Path) -> None:
+    result = _ok("artifact-home", "--slug", "search", "--kind", "plan", cwd=tmp_path)
+    assert result["feature_dir"] == "docs/sdlc/search" and result["detected"] is False
+    assert result["artifact"] == {
+        "kind": "plan", "path": "docs/sdlc/search/plan.md", "exists": False, "format": None,
+    }
+    assert result["adr"]["scope"] == "none" and result["ambiguous"] is False
+
+
+def test_artifact_home_reports_a_foreign_prd(tmp_path: Path) -> None:
+    _monorepo(tmp_path)
+    result = _ok("artifact-home", "--repo", str(tmp_path), "--slug", "export", "--kind", "prd",
+                 cwd=tmp_path)
+    assert result["artifact"]["exists"] is True and result["artifact"]["format"] == "foreign"
+    assert result["existing"] == ["prd.md"]
+
+
+@pytest.mark.parametrize(
+    ("args", "says"),
+    [(["--slug", "../x"], "invalid feature slug"), (["--slug", "Export"], "invalid feature slug"),
+     (["--slug", "x", "--repo", "missing"], "no such directory")],
+)
+def test_artifact_home_refuses(tmp_path: Path, args: list[str], says: str) -> None:
+    assert says in _refused("artifact-home", *args, cwd=tmp_path)
+
+
+def test_artifact_home_kinds_are_the_librarys() -> None:
+    from agentic_forge import artifact_home
+
+    parser = _subcommands()["artifact-home"]
+    kind = next(a for a in parser._actions if a.dest == "kind")
+    assert tuple(kind.choices) == artifact_home.KINDS
+
+
+def test_architecture_numbers_its_adrs_by_the_detected_series() -> None:
+    text = _prose("skills/architecture/SKILL.md")
+    assert "**in the detected series**: in `adr.dir`, the first named `adr.next_file`" in text
+    assert "never an id already taken" in text
+    assert "with no series (`adr.scope: none`), `adr-<decision>.md` beside the design" in text
+    assert (
+        "When `adr.create_dir` is true, create `adr.dir` first (`mkdir -p <worktree>/<adr.dir>`)"
+        in text
+    )
+    agent = _prose("agents/architect.md")
+    assert "the next ids of the repository's own decision series" in agent
+    assert "into a feature folder or ADR directory that already exists" in agent
+
+
+@pytest.mark.parametrize("skill", ["architecture", "plan"])
+def test_a_phase_reading_a_foreign_prd_builds_from_it_only_when_pointed_at(skill: str) -> None:
+    text = _prose(f"skills/{skill}/SKILL.md")
+    assert "foreign format" in text and "when the user points at it" in text
+    assert "say so in" in text
+
+
+def test_the_handoff_pattern_says_what_follows_a_foreign_prd() -> None:
+    text = _prose("patterns/handoff.md")
+    assert "### Where a feature's documents go" in (_PLUGIN / "patterns" / "handoff.md").read_text(
+        "utf-8"
+    )
+    assert "**When the predecessor is in a foreign format.**" in text
+    assert "`handoff-load` is not its gate" in text
+    assert "**builds from it when the user points at it**" in text
+    assert "`develop` reads only `plan.md` and `tech-design.md`" in text
+    assert "**`ambiguous`:** interactive, show the `ambiguities` and ask which; headless" in text
+
+
+def test_the_product_skill_states_its_scope_and_its_amend_mode() -> None:
+    text = _prose("skills/product/SKILL.md")
+    assert (
+        "**Scope: it creates new PRDs in its own format and amends existing ones in theirs.**"
+        in text
+    )
+    assert "follow [references/amend.md](references/amend.md) instead of steps 1–6" in text
+    assert "skip the `handoff-load` read-back, which would refuse it" in text
+    assert "`review-prd-<n>.md` in `<feature-dir>/`" in text
+
+
+def test_the_amend_reference_gates_a_foreign_prd_without_handoff_load() -> None:
+    text = _prose("skills/product/references/amend.md")
+    assert "**Foreign format:** `handoff-load` is **not** the gate" in text
+    assert "`git -C <worktree> diff --check -- <path>` exits 0" in text
+    assert "add no YAML frontmatter, convert no table" in text
+    assert "The `reviewer` gets the diff (`git -C <worktree> diff -- <path>`" in text
+    assert "**Each round** is `review-prd-<n>.md` in `<feature-dir>/`" in text
+    assert "A foreign PRD has no field to set and gets none" in text
+    assert "never renumber or reuse" in text
 
 
 @pytest.mark.parametrize(

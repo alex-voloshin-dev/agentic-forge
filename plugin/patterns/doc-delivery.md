@@ -31,8 +31,10 @@ So every document phase working on `<feature-slug>` shares `../wt-docs-<slug>` o
    gives its `worktree` path; if `exists`, work there; otherwise run its `add`. **Report the absolute path** — the
    user's editor is not pointed at it, and a conversational phase must not leave them hunting for
    the draft.
-3. Write the artifact under `<worktree>/docs/sdlc/<slug>/`, and read upstream artifacts from the
-   same worktree, so the chain resolves. With no `<feature-slug>`, `<worktree>` is the checkout.
+3. Write the artifact under `<worktree>/<feature-dir>/`, the feature folder `artifact-home` finds
+   (`docs/sdlc/<slug>/` when the repository keeps none; [handoff.md](handoff.md#where-a-features-documents-go)),
+   and read upstream artifacts from the same worktree, so the chain resolves. With no
+   `<feature-slug>`, `<worktree>` is the checkout.
 
 **After the review loop exits:**
 

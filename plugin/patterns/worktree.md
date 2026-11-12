@@ -37,7 +37,8 @@ If the target is not yet under git (e.g. a freshly copied fixture repo), the orc
 first runs `git init` and an initial commit, so the worktree and the `diff` base exist.
 
 Branch naming: `feature/<feature-slug>` mirrors the artifact slug under
-`docs/sdlc/<feature-slug>/`, so code, branch, and handoff artifacts line up.
+the feature's folder (`docs/sdlc/<feature-slug>/`, or the repository's own — see
+[handoff.md](handoff.md#where-a-features-documents-go)), so code, branch, and handoff artifacts line up.
 
 ## Contract with the software-engineer
 

@@ -2250,6 +2250,9 @@ _NOT_STATE_WRITERS = {
     "lib/agentic_forge/diag_bundle.py": "the zip, under the home directory, not state",
     "bin/external_review.py": "--out: its own no-follow and link refusal (ADR 0100)",
     "bin/af.py": "its one os.open is O_RDONLY, to refuse a link or a device (ADR 0104)",
+    "lib/agentic_forge/artifact_home.py": (
+        "its one os.open is O_RDONLY | O_NOFOLLOW, to read a document's first bytes for its format"
+    ),
 }
 _WRITE_METHODS = {"write_text", "write_bytes", "touch", "symlink_to", "hardlink_to"}
 _WRITE_FUNCTIONS = {

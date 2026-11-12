@@ -29,6 +29,13 @@ art, market/competitors, user needs, technical feasibility. Not for deciding req
 > this one wrote. Skip it for a one-off document outside a feature flow. A repo with no remote (or
 > no `gh`) still commits — on `docs/<slug>`, reported as not pushed / no PR — never a failed phase.
 
+> **Write where the repository keeps its features** — run
+> `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" artifact-home --repo <worktree> --slug <feature-slug> --kind research`
+> and use its `feature_dir` as `<feature-dir>` below (`docs/sdlc/<feature-slug>` only when the
+> repository keeps no feature folder for it). On `ambiguous`, ask when interactive; headless, take
+> its pick and record it as an assumption naming the alternatives
+> ([where a feature's documents go](../../patterns/handoff.md#where-a-features-documents-go)).
+
 1. **Scope & gather.** State the question; collect what's already on hand (the request, repo,
    any existing docs). Pick a `<feature-slug>`.
 2. **Plan tracks.** Choose the research directions that apply — e.g. prior art / market,
@@ -46,7 +53,7 @@ art, market/competitors, user needs, technical feasibility. Not for deciding req
 6. **Write the brief.** Emit `research-brief.md` (frontmatter `type, feature, status, date,
    sources[]`, and `review_decision: revise` until the loop exits; body = findings, conclusions, recommendations; **valid YAML — quote any value
    containing a colon**, which a source URL always has, or the whole artifact fails to parse for
-   `product`) under `docs/sdlc/<feature-slug>/`;
+   `product`) in `<feature-dir>/`;
    validate it by reading it back.
    Then **read the file back** — `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type research-brief` —
    and fix whatever it reports: this reads the file, so it sees the YAML you typed, and a single
@@ -59,11 +66,11 @@ art, market/competitors, user needs, technical feasibility. Not for deciding req
    findings** (not from the question's framing) — then revise worst-first. **External reviewer lens
    (on by default, ADR 0057/0061):** when `external_reviewer.enabled` (settings), also run the
    external reviewer over `research-brief.md` —
-   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/external_review.py" --target <worktree>/docs/sdlc/<feature-slug>/research-brief.md --repo <worktree> --kind research`;
+   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/external_review.py" --target <worktree>/<feature-dir>/research-brief.md --repo <worktree> --kind research`;
    codex critiques the brief as an independent-model lens (citation support, reconciled
    disagreements, a recommendation that follows) and its `findings` fold into the same worst-first
    revision. It **degrades gracefully** (absent/disabled codex is skipped, not a failure; **exit 3 is a failed lens**, not a skip — record it in the round and tell the user) and its
-   findings are **advisory** (prompt-injectable) — verify before acting. **Persist each round** — one `review-<artifact>-<iteration>.md` per round under `docs/sdlc/<feature-slug>/`, aggregating **both** lenses; on `proceed` keep only the final round, on `escalate` keep them all (naming + lifecycle: [review-loop.md](../../patterns/review-loop.md)). **Exit criterion (the
+   findings are **advisory** (prompt-injectable) — verify before acting. **Persist each round** — one `review-<artifact>-<iteration>.md` per round in `<feature-dir>/`, aggregating **both** lenses; on `proceed` keep only the final round, on `escalate` keep them all (naming + lifecycle: [review-loop.md](../../patterns/review-loop.md)). **Exit criterion (the
    shared, tested rule):** each round, compute `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" review-decision --verdict <approve or changes> --iteration <n> --gate-green <yes if research-brief.md validates, else no>` (see
    [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
    [review-loop.md](../../patterns/review-loop.md)) — `revise` (loop back and fix worst-first),
@@ -87,5 +94,7 @@ recommendation — that survived the bounded skeptic loop to `proceed`, ready as
 - Findings are synthesized across the tracks (not concatenated) and load-bearing claims are
   cited.
 - The brief ends with clear conclusions + a recommendation for the next phase.
+- `research-brief.md` sits in the repository's own feature folder when it has one
+  (`artifact-home`), not in a second home beside it.
 - A bounded skeptic pass (plus the external-reviewer lens when enabled) checked citation support and
   that the recommendation follows from the findings.
