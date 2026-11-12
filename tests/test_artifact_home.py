@@ -567,10 +567,20 @@ def test_a_numbered_record_is_not_mistaken_for_a_date() -> None:
 # --- a document the user named --------------------------------------------------------------------
 
 
+def _linked(checkout: Path, worktree: Path, name: str = "wt") -> None:
+    """What `git worktree add` lays down: a private git directory whose `commondir` points back."""
+    private = checkout / ".git" / "worktrees" / name
+    private.mkdir(parents=True)
+    (private / "commondir").write_text("../..\n", encoding="utf-8")
+    worktree.mkdir(parents=True, exist_ok=True)
+    (worktree / ".git").write_text(f"gitdir: {private}\n", encoding="utf-8")
+
+
 def test_a_checkout_path_maps_to_the_same_path_in_the_worktree(tmp_path: Path) -> None:
     checkout, worktree = tmp_path / "repo", tmp_path / "wt"
     _touch(checkout, ".git/HEAD", "features/foo/PRD-export.md", "features/foo/plan.md")
-    _touch(worktree, ".git", "features/foo/plan.md")
+    _linked(checkout, worktree)
+    _touch(worktree, "features/foo/plan.md")
     named = str(checkout / "features" / "foo" / "PRD-export.md")
     assert ah.relative_document(str(worktree), named) == "features/foo/PRD-export.md"
     result = ah.home(str(worktree), "foo", "prd", named)
@@ -618,3 +628,87 @@ def test_a_ux_spec_marks_a_feature_folder(tmp_path: Path) -> None:
     result = _home(tmp_path, kind="ux")
     assert result["feature_dir"] == "apps/web/features/foo"
     assert result["artifact"]["exists"] is True
+
+
+# --- review round 2 -------------------------------------------------------------------------------
+
+
+def test_a_path_from_another_repository_is_refused(tmp_path: Path) -> None:
+    """Same relative path, unrelated repository: mapping it would edit a file the user never
+    named. A separate clone has its own git directory, so it is another repository too."""
+    mine, other = tmp_path / "mine", tmp_path / "other"
+    _touch(mine, ".git/HEAD", "features/foo/prd.md")
+    _touch(other, ".git/HEAD", "features/foo/prd.md")
+    with pytest.raises(ValueError, match="in another repository than --repo"):
+        ah.relative_document(str(mine), str(other / "features" / "foo" / "prd.md"))
+    worktree = tmp_path / "wt"
+    _linked(other, worktree)
+    with pytest.raises(ValueError, match="in another repository than --repo"):
+        ah.relative_document(str(worktree), str(mine / "features" / "foo" / "prd.md"))
+    assert ah.relative_document(str(worktree), str(other / "features" / "foo" / "prd.md")) == (
+        "features/foo/prd.md"
+    )
+
+
+def test_a_path_cannot_be_mapped_into_a_directory_outside_any_repository(tmp_path: Path) -> None:
+    _touch(tmp_path, "repo/.git/HEAD", "repo/features/foo/prd.md")
+    loose = tmp_path / "loose"
+    loose.mkdir()
+    with pytest.raises(ValueError, match="in another repository"):
+        ah.relative_document(str(loose), str(tmp_path / "repo" / "features" / "foo" / "prd.md"))
+
+
+def test_an_unreadable_git_file_is_no_repository(tmp_path: Path) -> None:
+    _touch(tmp_path, "repo/.git/HEAD", "repo/features/foo/prd.md", "wt/.git", text="nonsense\n")
+    with pytest.raises(ValueError, match="in another repository"):
+        ah.relative_document(str(tmp_path / "wt"),
+                             str(tmp_path / "repo" / "features" / "foo" / "prd.md"))
+
+
+@pytest.mark.parametrize("slug", ["foo\n", "foo\nbar", "a\n"])
+def test_a_slug_with_a_trailing_newline_is_refused(tmp_path: Path, slug: str) -> None:
+    with pytest.raises(ValueError, match="invalid feature slug"):
+        _home(tmp_path, slug=slug)
+    assert ah.marks_feature(["prd.md"], slug) is False
+
+
+@pytest.mark.parametrize(("name", "directory"), [
+    ("adr-001.md\n", ""), ("ADR-G14-x.md\n", ""), ("0001-x.md\n", "decisions"),
+])
+def test_a_record_name_with_a_trailing_newline_is_not_one(name: str, directory: str) -> None:
+    assert ah.adr_file(name, directory) is None
+
+
+def test_the_fallback_is_checked_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ah, "FALLBACK_ROOT", "docs/s dlc")
+    with pytest.raises(ValueError, match="invalid feature slug"):
+        ah.resolve(ah.Scan({}), "foo")
+
+
+def test_rounds_are_listed_by_iteration_as_a_number(tmp_path: Path) -> None:
+    _touch(tmp_path, "features/foo/prd.md", "features/foo/review-prd-10.md",
+           "features/foo/review-prd-2.md", "features/foo/review-plan-1.md",
+           "features/foo/review.md", "features/foo/review-notes.md", "features/foo/REVIEW-prd-3.md")
+    rounds = _home(tmp_path)["rounds"]
+    assert [(r["artifact"], r["iteration"]) for r in rounds] == [
+        ("plan", 1), ("prd", 2), ("prd", 10),
+    ]
+    assert rounds[-1]["abs"] == str(tmp_path.resolve() / "features/foo/review-prd-10.md")
+    assert all("unsafe" not in r for r in rounds)
+
+
+def test_a_linked_round_is_never_offered(tmp_path: Path) -> None:
+    """The walk does not read through links, so a linked round is not listed for removal."""
+    _touch(tmp_path, "features/foo/prd.md", "elsewhere.md")
+    (tmp_path / "features" / "foo" / "review-prd-1.md").symlink_to(tmp_path / "elsewhere.md")
+    assert _home(tmp_path)["rounds"] == []
+
+
+def test_a_round_replaced_by_a_link_after_the_walk_is_unsafe(tmp_path: Path) -> None:
+    _touch(tmp_path, "features/foo/prd.md", "elsewhere.md", "features/foo/review-prd-1.md")
+    found = ah.scan(str(tmp_path), keep="foo")
+    (tmp_path / "features" / "foo" / "review-prd-1.md").unlink()
+    (tmp_path / "features" / "foo" / "review-prd-1.md").symlink_to(tmp_path / "elsewhere.md")
+    (round_,) = ah.resolve(found, "foo")["rounds"]
+    ah._on_disk(str(tmp_path.resolve()), round_, None)
+    assert round_["unsafe"].startswith("symlink")

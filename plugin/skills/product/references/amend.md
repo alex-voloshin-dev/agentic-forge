@@ -28,8 +28,8 @@ nobody and left behind in the user's tree.
   refused (exit 1): ask the user, or, headless, stop and report.
 - **Otherwise:** `documents.prd` from the preamble's call.
 - **Its `artifact` is what you work on**: `abs` (the worktree file), `arg` (that path, quoted) and
-  `commands` (`status`, `diff`, `diff_check`, `diff_stat`, `handoff_load`, `external_review`, each
-  with the path quoted). Run those verbatim; never type the path into a command yourself.
+  `commands` (`status`, `diff`, `diff_check`, `diff_stat`, `restore`, `handoff_load`,
+  `external_review`, each with the path quoted). Run those verbatim; never type the path into a command yourself.
 - **`exists: false`** means the worktree does not have the file: it is uncommitted or unmerged in the
   checkout, or on another branch. Interactive, say so and ask (commit or merge it first, or point at
   another file); headless, change nothing, stop and report. Do not copy it over from the checkout.
@@ -40,18 +40,27 @@ nobody and left behind in the user's tree.
 
 ## 2. Start clean, and clear the previous amendment's round
 
-Run `artifact-home`'s `commands.feature_status` (the feature folder's `git status --porcelain`).
+Run **both** status commands `artifact-home` printed: `commands.feature_status` (the feature
+folder's `git status --porcelain`) **and** `artifact.commands.status` (the PRD's own). A PRD named
+with `--path` can live outside the feature folder, where the first does not look; pending changes
+reported by **either** count.
 
-- **Nothing pending:** go on. If the folder holds a kept round of an earlier, finished amendment
-  (`review-prd-<n>.md` whose `verdict` is `approve`), delete it now — `git rm` it, and it is
-  committed with this amendment — so this loop's rounds start again at 1 and "the latest round"
-  always means this amendment's.
+Every file command below is one `artifact-home` printed, run from `<worktree>` (`git -C <worktree>`
+built in, every path quoted): never type a path into `git` or `rm` yourself. The feature folder's
+rounds are its `rounds` list (`review-<artifact>-<n>.md`, sorted by artifact, then iteration as a
+number), each with `commands.git_rm` (a committed round) and `commands.delete` (an uncommitted one).
+
+- **Nothing pending:** go on. If `rounds` holds a kept round of an earlier, finished amendment
+  (`artifact: prd` whose `verdict` is `approve`), delete it now with its `commands.git_rm`; the
+  removal is committed with this amendment, so this loop's rounds start again at 1 and "the latest
+  round" always means this amendment's.
 - **The plugin's own escalated leftover:** the only pending changes are this PRD and
   `review-prd-<n>.md` rounds, and the round with the **highest iteration** (compare the numbers, not
   the names) has `verdict: changes`. That is an earlier amendment that escalated and committed
   nothing. Interactive, show its unresolved findings and ask: resume from it (carry on at the next
-  iteration) or discard it (restore the PRD with `git checkout -- <path>` using `arg`, delete those
-  rounds). Headless, leave it as it is, stop and report: the user decides.
+  iteration) or discard it (`artifact.commands.restore` puts the PRD back as committed; each of
+  those rounds' `commands.delete` removes it). Headless, leave it as it is, stop and report: the
+  user decides.
 - **Anything else pending in the PRD or the folder:** it is someone else's edit. Interactive, ask;
   headless, change nothing, stop and report.
 

@@ -381,6 +381,7 @@ def _document_commands(repo: str, kind: str, entry: dict[str, Any]) -> dict[str,
         "diff": _command([*git, "diff", "--", rel]),
         "diff_check": _command([*git, "diff", "--check", "--", rel]),
         "diff_stat": _command([*git, "diff", "--stat", "--", rel]),
+        "restore": _command([*git, "checkout", "--", rel]),
     }
 
 
@@ -389,13 +390,23 @@ def _artifact_home(args: argparse.Namespace) -> int:
 
     result = artifact_home.home(_directory(args.repo), args.slug, args.kind, args.path)
     repo = result["repo"]
+    # Something other than a regular file at a path, or a link on the way: nothing to run on it.
     for kind, entry in result["documents"].items():
-        entry["arg"] = shlex.quote(entry["abs"])
-        entry["commands"] = _document_commands(repo, kind, entry)
-    if "artifact" in result:
-        result["artifact"]["arg"] = shlex.quote(result["artifact"]["abs"])
+        if not entry.get("unsafe"):
+            entry["arg"] = shlex.quote(entry["abs"])
+            entry["commands"] = _document_commands(repo, kind, entry)
+    for entry in result["rounds"]:
+        if not entry.get("unsafe"):
+            entry["arg"] = shlex.quote(entry["abs"])
+            entry["commands"] = {
+                "git_rm": _command(["git", "-C", repo, "rm", "-q", "--", entry["path"]]),
+                "delete": _command(["rm", "-f", "--", entry["abs"]]),
+            }
+    artifact = result.get("artifact")
+    if artifact is not None and not artifact.get("unsafe"):
+        artifact["arg"] = shlex.quote(artifact["abs"])
         if args.kind in result["documents"]:
-            result["artifact"]["commands"] = result["documents"][args.kind]["commands"]
+            artifact["commands"] = result["documents"][args.kind]["commands"]
     adr = result["adr"]
     adr["arg_dir"] = shlex.quote(adr["abs_dir"])
     adr["commands"] = {}
