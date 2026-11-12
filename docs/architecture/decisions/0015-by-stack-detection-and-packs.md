@@ -4,6 +4,8 @@ Status: Accepted
 
 > **Amended 2026-11-11 by [ADR 0109](0109-four-field-bugs.md):** JS/TS profiles read the declared package manager and scripts, a manifest-less root is scanned one level down, Go and JVM profiles use the packs' gates, and a Terraform profile exists.
 
+> **Amended 2026-11-12 by [ADR 0110](0110-the-field-queue-items-7-to-15.md):** a `terraform-patterns` pack now backs the terraform profile, which lints with `tflint --recursive` when `.tflint.hcl` is present.
+
 ## Context
 
 ADR 0014 decided *that* stack specialization lives in skills (one `software-engineer` base

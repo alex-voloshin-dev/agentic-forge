@@ -7,6 +7,8 @@ Corrects a claim in [0009](0009-engine-roles-and-handoff.md) (engine roles) and 
 `security-engineer` are read-only because their frontmatter says `tools: Read, Grep, Glob, Bash(git diff:*)`. Extends
 [0019](0019-l4-guardrails.md) (the guardrail hooks).
 
+> **Amended 2026-11-12 by [ADR 0110](0110-the-field-queue-items-7-to-15.md):** outside `docs/` the architect may also write `tech-design.md` into an existing slug-named feature folder and ADR records into its `adr/`/`adrs/`/`decisions/` or an existing ADR-series directory; every earlier refusal stays.
+
 ## Context
 
 A field report, sent privately, counted 813 Bash calls made by `reviewer` and `security-engineer` lenses over four

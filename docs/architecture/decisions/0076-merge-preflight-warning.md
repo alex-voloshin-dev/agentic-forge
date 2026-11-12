@@ -4,6 +4,8 @@
 **Date:** 2026-07-26
 **Evidence:** this repository's own development, not a downstream field report.
 
+> **Amended 2026-11-12 by [ADR 0110](0110-the-field-queue-items-7-to-15.md):** the preflight now BLOCKS a session's own `gh pr merge` that the PR watcher's gate would hold (draft, checks not SUCCESS, unresolved threads); its local git warnings still never block, and anything it cannot attribute fails open with a notice.
+
 ## Context
 
 `gh pr merge` does two things: it merges **on the server**, then updates the **local** checkout.

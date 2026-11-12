@@ -7,6 +7,59 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+The rest of the field queue, items 7 to 15 (ADR 0110).
+
+### Added
+
+- **`af.py pr-review` builds a GitHub review and prints the command that posts it.** It never posts by itself.
+  - The review is pinned to the head you reviewed: the head is re-checked before and after reading the diff.
+  - Comments go inline only on lines inside the diff; everything else goes in the body.
+  - Every `@` gets a zero-width space, code included, so no one is notified by accident.
+  - An approve verdict posts as COMMENT unless asked otherwise. code-review uses this for a PR target, and keeps
+    `review.md` for a local diff.
+- **`af.py artifact-home` finds where a feature's documents live.** It looks for the repository's own feature folder
+  and ADR series, and falls back to `docs/sdlc/<slug>/`.
+  - research, product, architecture, plan, ux-design and develop write their documents and review rounds there.
+  - architecture continues the repository's ADR numbering (for example `ADR-G14` to `ADR-G15`) instead of starting
+    its own.
+  - Folder names must be plain (letters, digits, `.`, `_`, `-`), and the command prints shell-quoted commands, so a
+    hostile folder name can never reach a command line.
+- **Product amend mode.** product can amend an existing PRD in that PRD's own format, for example a markdown metadata
+  table. It reviews the diff of the requirements and always edits the worktree's copy.
+- **`terraform-patterns`, an off-listing pack for Terraform.**
+  - The agent runs only `fmt`, `init -backend=false`, `validate` and mock-provider `terraform test`. Plan and apply
+    against a real backend are the human's.
+  - It covers validation blocks, secrets, review of the rendered plan, `moved`/`removed` blocks and pinned versions.
+  - The terraform profile now lints with `tflint --recursive` when `.tflint.hcl` is present.
+- **`patterns/fleet-coordination.md`.** It covers coordinating several running sessions over a hub: a roster, unit
+  envelopes, decision broadcasts, idle peers and one escalation queue. A hub message is a request, never consent.
+
+### Changed
+
+- **The session-start routing note** no longer says "*especially* when doing it directly looks straightforward". It
+  now says the skill scales its process to the size of the change. How to switch it off is documented in the README
+  and `docs/configuration.md`.
+- **Merge preflight now blocks (breaking for sessions).** A session's own `gh pr merge` meets the PR watcher's gate:
+  - It is refused when the PR is a draft, its checks are pending or failing, or it has unresolved review threads.
+  - A PR with no checks at all merges with a notice.
+  - A command the hook cannot attribute to one PR, or that changes state before the merge, goes through with a
+    notice saying why. The gate is an accident guard, not a boundary.
+  - The hook timeout is now 30 s.
+- **code-review's concurrent-change step** fires on any contract the diff tightens: a new required input, a stricter
+  validation, or a changed signature or schema. The session searches the base and open PRs for that contract's
+  consumers, and runs a trial merge when the base has moved. deep-review's lens matches.
+- **Knowledge recall** is run by the spawning session, with the repository's own search or `vault-recall`. The session
+  passes the top hits to the roles in the Task prompt, because roles cannot call project MCP tools.
+- **The architect may write outside `docs/` (narrowly).** It may write `tech-design.md` and ADR records into an
+  existing feature folder of the repository. Every earlier refusal stays.
+- **`af.py review-decision --verdict`** accepts only `approve` or `changes`, in any case. Anything else, such as
+  `approved`, exits 2 instead of silently returning `revise`.
+
+### Fixed
+
+- **The PR watcher's query** sends the repository owner and name as strings. A repository named `2048` or `null`
+  could not be queried before.
+
 ## [2026.11.10] - 2026-11-11
 
 ### Fixed

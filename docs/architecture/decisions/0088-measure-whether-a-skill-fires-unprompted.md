@@ -3,6 +3,8 @@
 Status: Accepted (implemented)
 Date: 2026-09-12
 
+> **Amended 2026-11-12 by [ADR 0110](0110-the-field-queue-items-7-to-15.md):** the routing note no longer says "*especially* when doing it directly looks straightforward"; it says the skill scales its process to the size of the change. Its activation lift was re-measured by Tier-1b for 2026.11.11.
+
 ## Context
 
 Four ADRs of instrumentation (0082–0087) drove the Tier-1 routing eval to a clean state: with the

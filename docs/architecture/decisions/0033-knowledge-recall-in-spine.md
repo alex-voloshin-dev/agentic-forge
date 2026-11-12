@@ -2,6 +2,8 @@
 
 Status: Accepted — **implemented** (6 spine phases + `patterns/knowledge-recall.md` + a presence guard).
 
+> **Amended 2026-11-12 by [ADR 0110](0110-the-field-queue-items-7-to-15.md):** the spawning session runs the recall (the repository's own search, else `vault-recall`) and passes the top hits in the Task prompt; roles receive hits.
+
 ## Context
 
 `CLAUDE.md` says the plugin "deploys and maintains an Obsidian-format markdown vault … **and reads

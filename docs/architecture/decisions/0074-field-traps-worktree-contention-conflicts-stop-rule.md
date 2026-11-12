@@ -5,6 +5,8 @@
 **Extends:** 0033/0034 (worktree + parallel worktree), the review lens catalog,
 `engineering-standards`.
 
+> **Amended 2026-11-12 by [ADR 0110](0110-the-field-queue-items-7-to-15.md):** the concurrent-change trigger covers any contract the diff tightens (a new required input, a stricter validation, a changed signature or schema, a removed default), with a consumer search in the base and in open PRs.
+
 ## Context
 
 Four P1 findings from the 2026-07-26 field report (**AF-07**, **AF-08**, **AF-09**, **AF-10**).

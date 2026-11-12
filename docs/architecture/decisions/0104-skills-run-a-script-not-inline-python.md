@@ -12,6 +12,8 @@ may reach a fixer to the path a session takes.
 
 > **Amended 2026-11-11 by [ADR 0109](0109-four-field-bugs.md):** a phase on `proceed` sets `review_decision: proceed`, not `status: approved`; exit 3 of `handoff-load` means do not mark it proceed.
 
+> **Amended 2026-11-12 by [ADR 0110](0110-the-field-queue-items-7-to-15.md):** two more commands, `pr-review` and `artifact-home`; the commands that need a repository path print it shell-quoted.
+
 ## Context
 
 The skills told the model to run the library inline. Two separate failures came out of that one form.

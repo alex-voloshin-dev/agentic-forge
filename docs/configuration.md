@@ -56,6 +56,8 @@ repo, those four reviewer keys, `state.in_repo`, `knowledge.allow_external_vault
 
 ### The session-start routing note
 
+Wording since ADR 0110 (amending ADR 0088).
+
 The `SessionStart` hook puts two sentences at the top of the session's context, before the vault map:
 
 > agentic-forge skills are WORKFLOWS, not reference material: each one runs a multi-step process
@@ -168,6 +170,8 @@ the repository does not get a say in what it does (ADR 0103).
   repo here, so that checkout's queue is dropped and its PRs get no fix pass.
 
 ### A session's own merge
+
+Since ADR 0110 (amending ADR 0076).
 
 A `gh pr merge` that a session runs itself, rather than the watcher, is held to the watcher's merge gate by the
 merge-preflight hook. It needs no setting and has none: it applies whether or not `pr_watcher` is enabled, and only
