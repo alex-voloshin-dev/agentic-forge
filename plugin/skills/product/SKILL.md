@@ -62,7 +62,7 @@ acceptance criteria, user stories. Not for *what exists* (`research`), *how to b
    `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/external_review.py" --target <worktree>/docs/sdlc/<feature-slug>/prd.md --repo <worktree> --kind product`; codex critiques the PRD as an
    independent-model lens (testable criteria, measurable metrics, complete non-goals, traceability)
    and its `findings` fold into the same worst-first revision. It **degrades gracefully** (absent/
-   disabled codex is skipped, not a failure) and its findings are **advisory** (prompt-injectable) —
+   disabled codex is skipped, not a failure; **exit 3 is a failed lens**, not a skip — record it in the round and tell the user) and its findings are **advisory** (prompt-injectable) —
    verify before acting. **Persist each round** — one `review-<artifact>-<iteration>.md` per round under `docs/sdlc/<feature-slug>/`, aggregating **both** lenses; on `proceed` keep only the final round, on `escalate` keep them all (naming + lifecycle: [review-loop.md](../../patterns/review-loop.md)). **Exit criterion (the shared, tested rule):** each round, compute
    `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" review-decision --verdict <verdict> --iteration <n> --gate-green <yes if prd.md validates, else no>` (see
    [adversarial-review.md](../../patterns/adversarial-review.md), bounded by

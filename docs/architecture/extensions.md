@@ -65,10 +65,28 @@ when `codex` is absent (the common case) — so it only reaches a third party wh
 installed. It sends the target to that third party, so **set `enabled: false` on secret-bearing
 repos**. Driver: `plugin/bin/external_review.py`.
 
-**Skips say why (ADR 0100).** `review_outcome` returns a `ReviewOutcome`: `reviewed` with the review,
-or `skipped` with a reason (`missing-cli`, `timeout`, `process-failure`, `invalid-output`,
-`isolation-unsupported`, `command-not-configured`, `disabled`) and a short detail, redacted before it is capped. A skip has no verdict, so
-it cannot read as approval. `review()` wraps it for the skills, which did not change. It runs nothing when
+**Skips and failures say why (ADR 0100).** `review_outcome` returns a `ReviewOutcome`: `reviewed` with
+the review; `skipped` with a reason in `SKIP_REASONS` (`missing-cli`, `command-not-configured`,
+`disabled`: there was no reviewer to ask); or `failed` with a reason in `FAILURE_REASONS` (`timeout`,
+`process-failure`, `invalid-output`, `isolation-unsupported`: the reviewer was there and enabled and the
+attempt produced no review). Each carries a short detail, redacted before it is capped. Neither a skip
+nor a failure has a verdict, so neither can read as approval. The difference is what the caller does
+with it: a skip is expected and the round goes on, while a failure is a lens that dropped out, so the
+CLI exits `3` for it (`0` for a skip, `1` for `changes`) and the workflows record it in the round and
+report it to the user instead of treating it as a skip.
+
+**How the call is made.** `_argv` builds `codex exec --sandbox read-only --skip-git-repo-check
+[isolation flags] [--model] [-c effort] -`, and `_run_cli` writes the prompt to the process's stdin
+(`subprocess.run(input=...)`), which `codex exec -` reads as the prompt. The prompt used to be the last
+argv element, which failed with `E2BIG` for a diff over 128 KiB, the Linux cap on one argument, and
+could not hold a NUL byte at all. Stdin has no such cap, and since it is a pipe holding only the prompt,
+the caller's own stdin still never reaches the reviewer. `--skip-git-repo-check` is there because codex
+refuses to start outside a trusted git repo, and `develop` writes the diff to a scratch directory and
+may run from anywhere. It does not loosen the sandbox or mark any directory trusted. `-C <dir>` was not
+added: the subprocess `cwd` already names the directory, and `-C` alone would not get past the same
+check. The `cwd` is still `--repo` (the caller's cwd by default), so a review run from the repo keeps the
+repo as context. codex echoes the prompt to stderr, so a failed run's detail drops every line that is
+also a prompt line before it is cut to its tail. `review()` wraps it for the skills, which did not change. It runs nothing when
 `enabled` is false (`disabled`), and refuses a `command` other than the configured one
 (`command-not-configured`) without running it. The operator's CLI calls `review_outcome` directly, so
 `--command` and `--force` still work. **Isolation is opt-in** (`external_reviewer.isolated`, with `model` and `effort`): it adds

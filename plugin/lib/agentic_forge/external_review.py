@@ -5,15 +5,24 @@ misses (adversarial-review.md). This is a **pure parser + a thin subprocess seam
 connectors style: it **never raises** and **degrades gracefully** when the CLI is absent. Gated by
 the ``external_reviewer.*`` settings (ADR 0041).
 
-:func:`review_outcome` says what happened: a review, or a skip with its reason (ADR 0100). A skip
-carries no verdict, so it can never read as approval. :func:`review` is what the skills call: it
-runs only the reviewer the settings name, and only if they enable it, and returns only the review or
-``None``. The operator's CLI calls :func:`review_outcome` directly, because its ``--command`` may
-name any program and its ``--force`` may override the opt-out.
+:func:`review_outcome` says what happened: a review, a skip, or a failure, with its reason (ADR
+0100). A **skip** means the reviewer was not there to ask: absent, disabled, or not the configured
+one. A **failure** means it was there and enabled, and the attempt produced no review: a timeout, a
+non-zero exit, a reply with no verdict, or isolation it cannot honour. Neither carries a verdict,
+so neither can read as approval, but a failure is a review lens that dropped out and must be
+reported as such. :func:`review` is what the skills call: it runs only the reviewer the settings
+name, and only if they enable it, and returns only the review or ``None``. The operator's CLI calls
+:func:`review_outcome` directly, because its ``--command`` may name any program and its ``--force``
+may override the opt-out.
+
+The prompt goes to the CLI on **stdin** (``codex exec ... -``), not as an argv element, so its size
+is bounded by the model's context and not by the OS limit on one argument (128 KiB on Linux), and a
+NUL byte in the target cannot stop the call. ``--skip-git-repo-check`` lets it run from a directory
+that is not a trusted git repo: the review reads a text it is given, under the read-only sandbox.
 
 Opt-in isolation (``external_reviewer.isolated``, ADR 0100) runs the CLI without the operator's user
-config and without persisting session files. A CLI that cannot honour it is skipped
-(``isolation-unsupported``), never run without it.
+config and without persisting session files. A CLI that cannot honour it is not run, and the
+attempt fails (``isolation-unsupported``); it is never run without it.
 
 A reply's verdict is decided by any review-shaped ``changes`` in it, because the reviewer may quote
 the target, and an approve is refused when the reply also says ``changes`` in a shape that did not
@@ -37,6 +46,7 @@ from typing import Any, Literal
 from . import guardrails, settings
 
 __all__ = [
+    "FAILURE_REASONS",
     "KINDS",
     "SKIP_REASONS",
     "ReviewOutcome",
@@ -94,24 +104,29 @@ Runner = Callable[[str, str, Path, int], str]
 # Capability-check seam: (command, timeout) -> the output of `<command> exec --help`.
 HelpProbe = Callable[[str, int], str]
 
-SkipReason = Literal[
-    "missing-cli",
+# Skipped: there was no reviewer to ask, so nothing ran. Not a problem with the review.
+SkipReason = Literal["missing-cli", "command-not-configured", "disabled"]
+SKIP_REASONS: tuple[str, ...] = ("missing-cli", "command-not-configured", "disabled")
+# Failed: the reviewer was present and enabled, and the attempt produced no review. The lens dropped
+# out of this round, which the caller must report rather than treat as a skip.
+FailureReason = Literal["timeout", "process-failure", "invalid-output", "isolation-unsupported"]
+FAILURE_REASONS: tuple[str, ...] = (
     "timeout",
     "process-failure",
     "invalid-output",
     "isolation-unsupported",
-    "command-not-configured",
-    "disabled",
-]
-SKIP_REASONS: tuple[str, ...] = (
-    "missing-cli",
-    "timeout",
-    "process-failure",
-    "invalid-output",
-    "isolation-unsupported",
-    "command-not-configured",
-    "disabled",
 )
+# Every reason, flat: a runtime `SkipReason | FailureReason` would fail on Python 3.9, which the
+# hooks reach this module from.
+Reason = Literal[
+    "missing-cli",
+    "command-not-configured",
+    "disabled",
+    "timeout",
+    "process-failure",
+    "invalid-output",
+    "isolation-unsupported",
+]
 
 # Both are required for an isolated run. `--ignore-rules` is deliberately NOT here: it would remove
 # execpolicy restrictions, which is the opposite of what isolation is for (ADR 0100).
@@ -161,11 +176,12 @@ class ReviewerOptions:
 @dataclass(frozen=True)
 class ReviewOutcome:
     """What one external review attempt produced. ``review`` is set only when ``status`` is
-    ``"reviewed"``; a ``"skipped"`` outcome has no review and so no verdict."""
+    ``"reviewed"``. A ``"skipped"`` outcome (a reason in :data:`SKIP_REASONS`) and a ``"failed"``
+    one (a reason in :data:`FAILURE_REASONS`) have no review and so no verdict."""
 
-    status: Literal["reviewed", "skipped"]
+    status: Literal["reviewed", "skipped", "failed"]
     review: dict[str, Any] | None = None
-    reason: SkipReason | None = None
+    reason: Reason | None = None
     detail: str = ""
 
 
@@ -181,17 +197,26 @@ def is_available(command: str) -> bool:
     return bool(command) and shutil.which(command) is not None
 
 
-def _argv(command: str, prompt: str, options: ReviewerOptions | None = None) -> list[str]:
+def _argv(command: str, options: ReviewerOptions | None = None) -> list[str]:
     """The reviewer CLI argv. For codex, ``exec --sandbox read-only`` runs it non-interactively and
     **read-only** — a reviewer must never mutate the repo (mirrors the read-only grader's tool
-    allowlist). Adjust here for a different CLI / codex version; the prompt is a single argv element
-    (no shell), so a hostile target can't shell-inject.
+    allowlist). Adjust here for a different CLI / codex version.
+
+    The prompt is not in it: the last element is ``-``, which tells ``codex exec`` to read the
+    prompt from stdin, and :func:`_run_cli` writes it there. One argv element is capped by the OS
+    (128 KiB on Linux, ``E2BIG``), and a review target is routinely larger. No shell is involved
+    either way.
+
+    ``--skip-git-repo-check`` makes the caller's cwd irrelevant: codex otherwise refuses to start
+    outside a trusted git repo, and the review needs no repo, only the text it is given. It does not
+    widen anything: the sandbox stays read-only, and it marks no directory trusted. ``-C`` is not
+    used: the cwd already names the same directory, and codex would still refuse it outside a repo.
 
     Every flag is fixed here: there is no free-form args setting, so no config can add one
     (ADR 0100). ``model`` / ``effort`` are re-checked at this last step, whoever built the options,
     so an invalid value is dropped rather than reaching argv."""
     opts = options or ReviewerOptions()
-    argv = [command, "exec", "--sandbox", "read-only"]
+    argv = [command, "exec", "--sandbox", "read-only", "--skip-git-repo-check"]
     if opts.isolated:
         argv.extend(_ISOLATION_FLAGS)
     model = settings.safe_cli_value(opts.model)
@@ -200,20 +225,25 @@ def _argv(command: str, prompt: str, options: ReviewerOptions | None = None) -> 
     effort = settings.safe_cli_value(opts.effort)
     if effort is not None:
         argv.extend(["-c", f'model_reasoning_effort="{effort}"'])
-    argv.append(prompt)
+    argv.append("-")  # the prompt: read from stdin
     return argv
 
 
 def _run_cli(
     command: str, prompt: str, workdir: Path, timeout: int, options: ReviewerOptions | None = None
 ) -> str:
-    """Shell out to the external reviewer CLI. Raises ``UnicodeDecodeError`` if it exits 0 and its
-    stdout is not UTF-8. Bytes rather than ``text=True``, which also decodes stderr: there a bad
-    byte would read as a bad reply, and would hide a non-zero exit."""
+    """Shell out to the external reviewer CLI, with the prompt on its stdin. Raises
+    ``UnicodeDecodeError`` if it exits 0 and its stdout is not UTF-8. Bytes rather than
+    ``text=True``, which also decodes stderr: there a bad byte would read as a bad reply, and would
+    hide a non-zero exit.
+
+    ``input`` makes stdin a pipe holding the prompt and nothing else, so the caller's own stdin
+    never reaches the CLI. It is written while the output is read, so a large prompt cannot
+    deadlock."""
     completed = subprocess.run(
-        _argv(command, prompt, options),
+        _argv(command, options),
         cwd=str(workdir),
-        stdin=subprocess.DEVNULL,  # codex appends piped stdin to the prompt
+        input=prompt.encode("utf-8"),
         capture_output=True,
         check=True,
         timeout=timeout,
@@ -396,14 +426,32 @@ def _detail(summary: str, tail: Any = "") -> str:
     return f"{head}: {flat[-room:]}" if flat and room > 0 else head
 
 
-def _failure_detail(exc: Exception, prefix: str = "") -> str:
+def _without_prompt(text: Any, prompt: str) -> str:
+    """``text`` without any line that is also a line of ``prompt``. codex echoes the prompt to
+    stderr before it starts, so the tail of a failed run's output can be the end of the target under
+    review, and that must not reach the detail. Done before any cut, on whole lines: blank lines
+    and lines the prompt does not hold stay. Best-effort: a target line the CLI rewrapped still
+    shows."""
+    if isinstance(text, bytes):
+        text = text.decode("utf-8", "replace")
+    raw = str(text if text is not None else "")
+    if not prompt or not raw:
+        return raw
+    held = {line.strip() for line in prompt.splitlines()} - {""}
+    return "\n".join(line for line in raw.splitlines() if line.strip() not in held)
+
+
+def _failure_detail(exc: Exception, prefix: str = "", prompt: str = "") -> str:
     """A failed call's detail. Never ``str(exc)`` for the subprocess errors: theirs embeds the whole
-    argv, and with it the target under review."""
+    argv, which held the target under review while the prompt was an argv element. The output tail
+    goes through :func:`_without_prompt`, because the CLI may echo the prompt."""
     if isinstance(exc, subprocess.TimeoutExpired):
-        return _detail(f"{prefix}no result within {exc.timeout}s", exc.stderr)
+        tail = _without_prompt(exc.stderr, prompt)
+        return _detail(f"{prefix}no result within {exc.timeout}s", tail)
     if isinstance(exc, subprocess.CalledProcessError):
-        return _detail(f"{prefix}exit status {exc.returncode}", exc.stderr or exc.stdout)
-    return _detail(f"{prefix}{type(exc).__name__}", exc)
+        tail = _without_prompt(exc.stderr or exc.stdout, prompt)
+        return _detail(f"{prefix}exit status {exc.returncode}", tail)
+    return _detail(f"{prefix}{type(exc).__name__}", _without_prompt(exc, prompt))
 
 
 def _isolation_problem(command: str, probe: HelpProbe) -> str:
@@ -426,6 +474,10 @@ def _skipped(reason: SkipReason, detail: str) -> ReviewOutcome:
     return ReviewOutcome(status="skipped", reason=reason, detail=_detail(detail))
 
 
+def _failed(reason: FailureReason, detail: str) -> ReviewOutcome:
+    return ReviewOutcome(status="failed", reason=reason, detail=_detail(detail))
+
+
 def _attempt(
     target: str,
     kind: str,
@@ -444,24 +496,25 @@ def _attempt(
     if opts.isolated:
         problem = _isolation_problem(command, help_probe or _probe_help)
         if problem:
-            return _skipped("isolation-unsupported", problem)
+            return _failed("isolation-unsupported", problem)
 
     def real_cli(cmd: str, prompt: str, cwd: Path, limit: int) -> str:
         return _run_cli(cmd, prompt, cwd, limit, opts)
 
     run = runner or real_cli
+    prompt = build_prompt(target, kind)
     try:
-        output = run(command, build_prompt(target, kind), Path(workdir), timeout)
+        output = run(command, prompt, Path(workdir), timeout)
     except subprocess.TimeoutExpired as exc:
-        return _skipped("timeout", _failure_detail(exc))
+        return _failed("timeout", _failure_detail(exc, prompt=prompt))
     except UnicodeDecodeError:  # it ran and answered, and the answer is not text
-        return _skipped("invalid-output", "the output is not UTF-8 text")
+        return _failed("invalid-output", "the output is not UTF-8 text")
     except Exception as exc:
-        return _skipped("process-failure", _failure_detail(exc))
+        return _failed("process-failure", _failure_detail(exc, prompt=prompt))
     parsed = parse_review(output)
     if parsed is None:
         why = "no review-shaped JSON, or an approve beside a `changes` that could not be read"
-        return _skipped("invalid-output", _detail(why, output))
+        return _failed("invalid-output", _detail(why, _without_prompt(output, prompt)))
     return ReviewOutcome(status="reviewed", review=parsed)
 
 
@@ -486,7 +539,7 @@ def review_outcome(
     try:
         return _attempt(target, kind, command, workdir, runner, help_probe, options, timeout)
     except Exception as exc:
-        return _skipped("process-failure", _failure_detail(exc))
+        return _failed("process-failure", _failure_detail(exc))
 
 
 def configured_review_outcome(
@@ -534,7 +587,7 @@ def configured_review_outcome(
             timeout=timeout,
         )
     except Exception as exc:
-        return _skipped("process-failure", _failure_detail(exc))
+        return _failed("process-failure", _failure_detail(exc))
 
 
 def review(
@@ -546,9 +599,9 @@ def review(
     runner: Runner | None = None,
 ) -> dict[str, Any] | None:
     """Get an external review of ``target`` (kind: any key of :data:`KINDS`) from the configured
-    reviewer. Returns a review-shaped dict, or ``None`` if the review was skipped for any reason
-    (see :func:`configured_review_outcome` for which one, including an opt-out and a ``command``
-    that is not the configured one)."""
+    reviewer. Returns a review-shaped dict, or ``None`` if the review was skipped or failed for any
+    reason (see :func:`configured_review_outcome` for which one, including an opt-out and a
+    ``command`` that is not the configured one)."""
     outcome = configured_review_outcome(
         target, kind, command=command, workdir=workdir, runner=runner
     )

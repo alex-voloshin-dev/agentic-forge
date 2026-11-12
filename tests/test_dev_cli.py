@@ -294,12 +294,23 @@ def _skip(reason: str, detail: str = "") -> object:
     )
 
 
+def _fail(reason: str, detail: str = "") -> object:
+    return external_review_cli.external_review.ReviewOutcome(
+        status="failed",
+        reason=reason,
+        detail=detail,
+    )
+
+
+_EXIT_FAILED = 3
+
+
 def _ext(monkeypatch: pytest.MonkeyPatch, *, available: bool, result: object) -> None:
     lib = external_review_cli.external_review
     outcome = (
         lib.ReviewOutcome(status="reviewed", review=result)
         if result is not None
-        else _skip("invalid-output", "no review-shaped JSON in the output")
+        else _fail("invalid-output", "no review-shaped JSON in the output")
     )
     monkeypatch.setattr(lib, "is_available", lambda c: available)
     monkeypatch.setattr(lib, "review_outcome", lambda *a, **k: outcome)
@@ -336,11 +347,12 @@ def test_external_review_verdict_exit_codes(
     assert _run_ext(tmp_path, "--force") == 1  # changes -> 1
 
 
-def test_external_review_unparseable_returns_1(
+def test_external_review_unparseable_is_a_failure_and_returns_3(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     _ext(monkeypatch, available=True, result=None)
-    assert _run_ext(tmp_path, "--force") == 1
+    assert _run_ext(tmp_path, "--force") == _EXIT_FAILED
+    assert external_review_cli.EXIT_FAILED == _EXIT_FAILED  # the documented contract
 
 
 def test_external_review_writes_valid_review_md(
@@ -698,7 +710,7 @@ def test_external_review_command_override_reaches_review(
 @pytest.mark.parametrize(
     "reason", ["timeout", "process-failure", "invalid-output", "isolation-unsupported"]
 )
-def test_external_review_prints_the_actual_skip_reason_and_exits_1(
+def test_external_review_prints_the_actual_failure_reason_and_exits_3(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture,
@@ -706,11 +718,12 @@ def test_external_review_prints_the_actual_skip_reason_and_exits_1(
 ) -> None:
     lib = external_review_cli.external_review
     monkeypatch.setattr(lib, "is_available", lambda c: True)
-    monkeypatch.setattr(lib, "review_outcome", lambda *a, **k: _skip(reason, "the detail"))
+    monkeypatch.setattr(lib, "review_outcome", lambda *a, **k: _fail(reason, "the detail"))
     out_file = tmp_path / "review.md"
-    assert _run_ext(tmp_path, "--force", "--out", str(out_file)) == 1
+    assert _run_ext(tmp_path, "--force", "--out", str(out_file)) == _EXIT_FAILED
     captured = capsys.readouterr()
-    assert f"({reason})" in captured.err and "the detail" in captured.err
+    assert f"failed ({reason})" in captured.err and "the detail" in captured.err
+    assert "not a skip" in captured.err and "skipped" not in captured.err
     assert "parseable" not in captured.err  # the old message claimed this even after a timeout
     assert "verdict" not in captured.out  # a skip must never read as a verdict
     assert not out_file.exists()  # and leaves no review.md that could
@@ -723,7 +736,8 @@ def test_external_review_cli_vanishing_mid_run_still_exits_0(
     monkeypatch.setattr(lib, "is_available", lambda c: True)
     monkeypatch.setattr(lib, "review_outcome", lambda *a, **k: _skip("missing-cli"))
     assert _run_ext(tmp_path, "--force") == 0
-    assert "(missing-cli)" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "skipped (missing-cli)" in err and "failed" not in err
 
 
 def _isolated_operator(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -961,7 +975,7 @@ def test_repo_config_cannot_set_the_operators_reviewer_flags(
     assert _run_ext(scene["repo"]) == 1
     captured = capsys.readouterr()
     argv = json.loads(scene["log"].read_text(encoding="utf-8"))
-    assert argv[:4] == ["codex", "exec", "--sandbox", "read-only"] and len(argv) == 5
+    assert argv == ["codex", "exec", "--sandbox", "read-only", "--skip-git-repo-check", "-"]
     for key in ("isolated", "model", "effort"):
         assert f"external_reviewer.{key}" in captured.err
     assert "weak-model" not in captured.err
@@ -1006,7 +1020,7 @@ def test_external_review_cli_honours_a_user_level_opt_out_over_the_repo(
     assert scene["log"].exists()
 
 
-def test_external_review_isolated_config_on_an_old_cli_skips_and_exits_1(
+def test_external_review_isolated_config_on_an_old_cli_fails_and_exits_3(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture
 ) -> None:
     import subprocess
@@ -1021,18 +1035,21 @@ def test_external_review_isolated_config_on_an_old_cli_skips_and_exits_1(
     lib = external_review_cli.external_review
     monkeypatch.setattr(lib.shutil, "which", lambda c: "/bin/" + c)
     monkeypatch.setattr(lib.subprocess, "run", run)
-    assert _run_ext(tmp_path) == 1
-    assert "(isolation-unsupported)" in capsys.readouterr().err
+    assert _run_ext(tmp_path) == _EXIT_FAILED
+    assert "failed (isolation-unsupported)" in capsys.readouterr().err
     assert calls == [["codex", "exec", "--help"]]
 
 
 # --- the shipped CLI against a real executable, nothing faked but PATH and HOME (ADR 0100) ------
 
 _STUB_BODY = """\
-import json, os, pathlib, sys, time
+import hashlib, json, os, pathlib, sys, time
 spec = json.loads(pathlib.Path(SPEC).read_text(encoding="utf-8"))
+stdin = sys.stdin.buffer.read()
+entry = {"argv": sys.argv[1:], "cwd": os.getcwd(), "stdin_len": len(stdin),
+         "stdin_sha256": hashlib.sha256(stdin).hexdigest()}
 with open(LOG, "a", encoding="utf-8") as log:
-    log.write(json.dumps({"argv": sys.argv[1:], "cwd": os.getcwd()}) + "\\n")
+    log.write(json.dumps(entry) + "\\n")
 part = spec["help" if sys.argv[1:] == ["exec", "--help"] else "run"]
 time.sleep(part["sleep"])
 sys.stdout.buffer.write(bytes.fromhex(part["stdout"]))
@@ -1119,7 +1136,7 @@ _HELP_CALL = ["exec", "--help"]
         (_part(_REPLY_APPROVE), _part(_HELP_BOTH, exit_code=2), True, "isolation-unsupported"),
     ],
 )
-def test_real_reviewer_skip_says_why_writes_nothing_and_exits_1(
+def test_real_reviewer_failure_says_why_writes_nothing_and_exits_3(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture,
@@ -1136,9 +1153,9 @@ def test_real_reviewer_skip_says_why_writes_nothing_and_exits_1(
         user_reviewer={"isolated": True} if isolated else None,
     )
     out = tmp_path / "review.md"
-    assert external_review_cli.main([*scene.argv, "--out", str(out)]) == 1
+    assert external_review_cli.main([*scene.argv, "--out", str(out)]) == _EXIT_FAILED
     captured = capsys.readouterr()
-    assert f"({reason})" in captured.err
+    assert f"failed ({reason})" in captured.err
     assert "verdict:" not in captured.out and not out.exists()
     assert _SECRET not in captured.err and "TARGET-MARKER" not in captured.err
     if isolated:  # never a fallback: the only program that ran was the capability check
@@ -1156,9 +1173,9 @@ def test_real_reviewer_that_hangs_is_a_timeout_and_is_killed(
     lib = external_review_cli.external_review
     monkeypatch.setattr(lib, "review_outcome", functools.partial(lib.review_outcome, timeout=1))
     out = tmp_path / "review.md"
-    assert external_review_cli.main([*scene.argv, "--out", str(out)]) == 1
+    assert external_review_cli.main([*scene.argv, "--out", str(out)]) == _EXIT_FAILED
     captured = capsys.readouterr()
-    assert "(timeout)" in captured.err and "no result within 1s" in captured.err
+    assert "failed (timeout)" in captured.err and "no result within 1s" in captured.err
     assert "TARGET-MARKER" not in captured.err  # TimeoutExpired's own text holds the argv
     assert "verdict:" not in captured.out and not out.exists()
 
@@ -1173,8 +1190,8 @@ def test_real_capability_check_that_hangs_is_unsupported_and_runs_no_review(
         user_reviewer={"isolated": True},
     )
     monkeypatch.setattr(external_review_cli.external_review, "_PROBE_TIMEOUT", 1)
-    assert external_review_cli.main(scene.argv) == 1
-    assert "(isolation-unsupported)" in capsys.readouterr().err
+    assert external_review_cli.main(scene.argv) == _EXIT_FAILED
+    assert "failed (isolation-unsupported)" in capsys.readouterr().err
     assert all(c["argv"] == _HELP_CALL for c in scene.calls())
 
 
@@ -1190,8 +1207,8 @@ def test_force_overrides_the_opt_out_but_not_isolation(
     )
     assert external_review_cli.main(scene.argv) == 0
     assert scene.calls() == []
-    assert external_review_cli.main([*scene.argv, "--force"]) == 1
-    assert "(isolation-unsupported)" in capsys.readouterr().err
+    assert external_review_cli.main([*scene.argv, "--force"]) == _EXIT_FAILED
+    assert "failed (isolation-unsupported)" in capsys.readouterr().err
     assert [c["argv"] for c in scene.calls()] == [_HELP_CALL]
 
 
@@ -1223,19 +1240,42 @@ def test_real_reply_with_an_approve_and_a_changes_is_changes_everywhere(
 @pytest.mark.parametrize(
     "content", ["y" * 4_000_000 + "TARGET-MARKER", "TARGET-MARKER\x00after a NUL"]
 )
-def test_target_that_cannot_be_an_argv_element_is_a_process_failure(
+def test_target_that_cannot_be_an_argv_element_is_reviewed_through_stdin(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture,
     content: str,
 ) -> None:
-    # docs/configuration.md names this case. The target must not come back in the detail.
+    # Regression: a target over Linux's 128 KiB cap on one argv element failed with E2BIG, and one
+    # holding a NUL could not be passed at all; both were reported as a skip. The prompt now goes on
+    # stdin, so a real program receives every byte of it.
+    import hashlib
+
     scene = _stub_reviewer(tmp_path, monkeypatch)
     scene.target.write_text(content, encoding="utf-8")
-    assert external_review_cli.main(scene.argv) == 1
-    err = capsys.readouterr().err
-    assert "(process-failure)" in err and "TARGET-MARKER" not in err
-    assert scene.calls() == []
+    assert external_review_cli.main(scene.argv) == 0
+    assert "verdict: approve" in capsys.readouterr().out
+    (call,) = scene.calls()
+    assert call["argv"] == ["exec", "--sandbox", "read-only", "--skip-git-repo-check", "-"]
+    prompt = external_review_cli.external_review.build_prompt(content, "code").encode("utf-8")
+    assert call["stdin_len"] == len(prompt)
+    assert call["stdin_sha256"] == hashlib.sha256(prompt).hexdigest()
+
+
+def test_reviewer_runs_from_a_cwd_that_is_no_git_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    # Regression: develop writes the diff to a scratch dir, and from a cwd outside a trusted git
+    # repo codex refused to start ("Not inside a trusted directory"), reported as a skip.
+    scene = _stub_reviewer(tmp_path, monkeypatch)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    monkeypatch.chdir(scratch)
+    assert external_review_cli.main(["x", "--target", str(scene.target)]) == 0
+    assert "verdict: approve" in capsys.readouterr().out
+    (call,) = scene.calls()
+    assert call["cwd"] == str(scratch.resolve())
+    assert "--skip-git-repo-check" in call["argv"] and "read-only" in call["argv"]
 
 
 def test_a_repo_disabling_the_reviewer_is_named_warned_about_and_still_exits_0(
@@ -1382,8 +1422,8 @@ def test_reviewer_that_exits_0_with_undecodable_stdout_is_invalid_output(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
 ) -> None:
     scene = _stub_reviewer(tmp_path, monkeypatch, run=_part(b"\xff\xfe not text"))
-    assert external_review_cli.main(scene.argv) == 1
-    assert "(invalid-output)" in capsys.readouterr().err
+    assert external_review_cli.main(scene.argv) == _EXIT_FAILED
+    assert "failed (invalid-output)" in capsys.readouterr().err
 
 
 def test_undecodable_stderr_neither_spoils_a_reply_nor_hides_a_failure(
@@ -1397,9 +1437,9 @@ def test_undecodable_stderr_neither_spoils_a_reply_nor_hides_a_failure(
     assert external_review_cli.main(scene.argv) == 1
     assert "real bug" in capsys.readouterr().out
     scene = _stub_reviewer(failed, monkeypatch, run=_part(exit_code=3, stderr_bytes=b"\xff died"))
-    assert external_review_cli.main(scene.argv) == 1
+    assert external_review_cli.main(scene.argv) == _EXIT_FAILED
     err = capsys.readouterr().err
-    assert "(process-failure)" in err and "exit status 3" in err and "died" in err
+    assert "failed (process-failure)" in err and "exit status 3" in err and "died" in err
 
 
 def test_diagnostics_digest_cli_empty(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:

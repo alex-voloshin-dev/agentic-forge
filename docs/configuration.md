@@ -39,7 +39,7 @@ repo, those four reviewer keys, `state.in_repo`, `knowledge.allow_external_vault
 | `review.passes` | int ≥ 1 | `3` | Calibrates the **scheduled non-convergence scan** (`diagnostics.scan_reviews`) — the iteration at which a still-`changes` loop is flagged. The in-skill loops use the constant `handoff.REVIEW_LOOP_BUDGET` (3) and do **not** read this; raising it above 3 only moves the detector's threshold (ADR 0067). |
 | `external_reviewer.enabled` | bool | `true` | Enable the external reviewer pass — on by default, auto-invoked as an extra lens in every workflow that writes a reviewable deliverable: `develop` (`--kind code`), `product` (`--kind product`), `architecture` (`--kind technical`), `plan` (`--kind plan`), `research` (`--kind research`), `ux-design` (`--kind ux`), `marketing` (`--kind marketing`) (ADR 0042 / 0057 / 0060 / 0061 / 0062). Degrades gracefully when the CLI is absent; set `false` to opt out (e.g. secret-bearing repos). **This key is an exception to the precedence above:** a user-level `false` holds whatever a repo config says, and that attempt is ignored with a warning, because content goes to a third party (ADR 0100). A repo can turn it off, with a warning if that overrides a user-level `true`, and can turn it on if there is no user-level `false`. A repo's `false` survives its file being dropped when it can still be read there; see below. With it off, the skills' `review()` runs nothing and returns `None` (`disabled`). The operator's `--force` on `plugin/bin/external_review.py` still overrides it. |
 | `external_reviewer.command` | string | `"codex"` | The reviewer executable name on PATH: a bare name, not a path or a shell line. **User-level only: set it in `~/.agentic-forge/config.json`.** A value in a repo file is ignored with a warning, because the operator chooses the program: a repo that chose it could have a program of its choosing run on your machine and forge the verdict (ADR 0100). There is no warning if it equals the value in effect, so copying the example into a repo stays quiet. At user level, anything but a bare name falls back to `codex` with a warning. The `--command` argument of `plugin/bin/external_review.py` is your own, so it may name a path, which is resolved against your current directory. The library's `review()`, which the skills call, runs only this configured value and refuses any other. |
-| `external_reviewer.isolated` | bool | `false` | Run the reviewer without your user config and without persisting session files: codex `exec --ignore-user-config --ephemeral`, on top of the read-only sandbox (ADR 0100). Applies to the skills' calls as well as `plugin/bin/external_review.py`. Before each isolated run the plugin checks `codex exec --help` for both flags; if either is missing, or the check fails, the review is **skipped** (`isolation-unsupported`), never run without them. This limits what the CLI loads from your home; it is not a stronger sandbox, and it does not change what is sent to the third party. **User-level only: set it in `~/.agentic-forge/config.json`.** A value in a repo file is ignored with a warning unless it equals the value in effect, because it would drop your whole `$CODEX_HOME/config.toml`, including provider or hardening settings (ADR 0100). **Recommended for repos that take outside contributions:** see below. |
+| `external_reviewer.isolated` | bool | `false` | Run the reviewer without your user config and without persisting session files: codex `exec --ignore-user-config --ephemeral`, on top of the read-only sandbox (ADR 0100). Applies to the skills' calls as well as `plugin/bin/external_review.py`. Before each isolated run the plugin checks `codex exec --help` for both flags; if either is missing, or the check fails, the review **fails** (`isolation-unsupported`, CLI exit `3`), never run without them. This limits what the CLI loads from your home; it is not a stronger sandbox, and it does not change what is sent to the third party. **User-level only: set it in `~/.agentic-forge/config.json`.** A value in a repo file is ignored with a warning unless it equals the value in effect, because it would drop your whole `$CODEX_HOME/config.toml`, including provider or hardening settings (ADR 0100). **Recommended for repos that take outside contributions:** see below. |
 | `external_reviewer.model` | string \| null | `null` | Passed as `--model`, isolated or not, only when set. Null leaves the choice to the CLI. **With `isolated` your configured model is not loaded, so set it here if you relied on it.** **User-level only**, like `isolated`: a repo must not choose the model that reviews it. |
 | `external_reviewer.effort` | string \| null | `null` | Passed as `-c model_reasoning_effort="<value>"`, isolated or not, only when set. Whether codex honours this key has **not been verified** against a real run; it does not appear in `codex exec --help`. The same applies: with `isolated`, your configured effort is not loaded. **User-level only**, like `isolated`. |
 | `models` | object | `{}` | Per-role / skill / `router` model tiers (ADR 0043) — each value is a tier (`default` / `simple` / `cheap`) or a model id. **Affects the eval/dev CLIs only** (`dev/run_*_evals.py`, `plugin/bin/pr_watch.py`, `dev/ralph.py`) — live-session role routing is the gate-validated agent frontmatter (ADR 0046), which this key does not change. Empty = the runner's default model everywhere. See the [eval runbook](eval-runbook.md). |
@@ -129,21 +129,38 @@ the repository does not get a say in what it does (ADR 0103).
   in a clone of that repo instead. An `origin` that is not a plain `github.com` URL, such as an SSH host alias, names no
   repo here, so that checkout's queue is dropped and its PRs get no fix pass.
 
-### Reviewer skip reasons and invalid values
+### Reviewer skip and failure reasons, and invalid values
 
-An external review that does not produce a verdict is a **skip**, and a skip is never an approval:
-it has no verdict and writes no `review.md`. `plugin/bin/external_review.py` prints the reason and a
-short redacted detail, and the skills' `review()` returns `None`.
+An external review that does not produce a verdict is either a **skip** or a **failure**, and neither
+is an approval: there is no verdict and no `review.md`. `plugin/bin/external_review.py` prints the
+reason and a short redacted detail, and the skills' `review()` returns `None`.
 
-| Reason | Meaning | CLI exit |
-|---|---|---|
-| `missing-cli` | The command is not on PATH. | `0` |
-| `timeout` | No result before the review timeout. | `1` |
-| `process-failure` | The CLI exited non-zero or could not be started. A target too large for one argv element ends here too. | `1` |
-| `invalid-output` | It exited 0, but its stdout was not UTF-8, held no review-shaped JSON, or could not prove an approve (see below). | `1` |
-| `isolation-unsupported` | `isolated` is on and the capability check did not find both flags. | `1` |
-| `command-not-configured` | `review()` was passed a `command` other than the configured one. It was not run. | Not reachable: the CLI does not go through this check. |
-| `disabled` | `review()` was called with `external_reviewer.enabled` false, at either config level. Nothing ran. | Not reachable: the CLI prints its own message and exits `0`, unless `--force` is passed. |
+- A **skip** means there was no reviewer to ask: it is absent, disabled, or not the configured one.
+  The review round goes on without the lens, and that is expected. Exit `0`.
+- A **failure** means the reviewer was there and enabled, and the attempt produced no review. The lens
+  dropped out of the round, so the workflow records it in the round (`external lens: failed
+  (<reason>)`) and tells you, rather than treating it as a skip. Exit `3`.
+
+| Reason | Kind | Meaning | CLI exit |
+|---|---|---|---|
+| `missing-cli` | skip | The command is not on PATH. | `0` |
+| `command-not-configured` | skip | `review()` was passed a `command` other than the configured one. It was not run. | Not reachable: the CLI does not go through this check. |
+| `disabled` | skip | `review()` was called with `external_reviewer.enabled` false, at either config level. Nothing ran. | Not reachable: the CLI prints its own message and exits `0`, unless `--force` is passed. |
+| `timeout` | failure | No result before the review timeout. | `3` |
+| `process-failure` | failure | The CLI exited non-zero or could not be started. | `3` |
+| `invalid-output` | failure | It exited 0, but its stdout was not UTF-8, held no review-shaped JSON, or could not prove an approve (see below). | `3` |
+| `isolation-unsupported` | failure | `isolated` is on and the capability check did not find both flags. | `3` |
+
+Exit `1` is a `changes` verdict, or a refused `--target` / `--out` (below). Exit `0` with a `verdict:`
+line is an approve.
+
+The review prompt, target included, goes to codex on **stdin** (`codex exec ... -`), not as an argument,
+so a large diff is not cut off by the operating system's limit on one argument (128 KiB on Linux), and a
+NUL byte in the target does not stop the call. Only the model's context bounds its size. codex runs with
+`--skip-git-repo-check`, so it works from any directory, including a scratch directory outside the repo:
+codex otherwise refuses to start outside a trusted git repo. The read-only sandbox is unchanged. codex
+echoes the prompt to its stderr, so before a failed run's output becomes the detail, every line that is
+also a line of the prompt is removed: the detail does not carry the target.
 
 A review has a verdict only if the reply holds a JSON object with `verdict` and a `findings` list. If any
 such object in the reply says `changes`, the verdict is `changes`, even if the reviewer was only quoting

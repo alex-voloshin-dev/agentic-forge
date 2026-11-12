@@ -46,14 +46,21 @@ def _on_path(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _fake_subprocess(
-    monkeypatch: pytest.MonkeyPatch, *, help_text: str = _HELP, stdout: str = _VALID
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    help_text: str = _HELP,
+    stdout: str = _VALID,
+    kwargs_seen: list[dict[str, Any]] | None = None,
 ) -> list[list[str]]:
     """Replace the real subprocess call and record every argv, so a test can prove which flags reach
-    the CLI (an injected ``runner`` sees no argv) and that no review ran at all."""
+    the CLI (an injected ``runner`` sees no argv) and that no review ran at all. ``kwargs_seen``
+    collects the keyword arguments of each call, such as what went to stdin."""
     calls: list[list[str]] = []
 
     def run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         calls.append(argv)
+        if kwargs_seen is not None:
+            kwargs_seen.append(kwargs)
         out = help_text if argv[1:] == ["exec", "--help"] else stdout
         return subprocess.CompletedProcess(argv, 0, stdout=out, stderr="")
 
@@ -173,10 +180,12 @@ def test_review_orchestration(monkeypatch: pytest.MonkeyPatch) -> None:
 # --- safety: read-only invocation + robust/sanitised parsing -----------------
 
 
-def test_argv_is_read_only() -> None:
-    argv = external_review._argv("codex", "PROMPT")
-    assert argv[0] == "codex" and "exec" in argv and "PROMPT" in argv
+def test_argv_is_read_only_and_reads_the_prompt_from_stdin() -> None:
+    argv = external_review._argv("codex")
+    assert argv[0] == "codex" and "exec" in argv
     assert "read-only" in argv  # a reviewer must never be able to mutate the repo
+    assert argv[-1] == "-"  # `codex exec -` reads the prompt from stdin
+    assert "--skip-git-repo-check" in argv  # the caller's cwd need not be a trusted git repo
 
 
 def test_parse_review_skips_leading_non_review_json() -> None:
@@ -288,7 +297,7 @@ def test_a_changes_that_did_not_decode_is_invalid_output(
     outcome = external_review.review_outcome(
         "t", "code", runner=lambda *_: reply, options=external_review.ReviewerOptions()
     )
-    assert (outcome.status, outcome.reason) == ("skipped", "invalid-output")
+    assert (outcome.status, outcome.reason) == ("failed", "invalid-output")
 
 
 def test_a_changes_that_did_not_decode_does_not_outrank_a_real_one() -> None:
@@ -559,7 +568,7 @@ def test_outcome_failed_call(
 ) -> None:
     _on_path(monkeypatch)
     outcome = external_review.review_outcome("t", "code", runner=_raiser(exc))
-    assert outcome.status == "skipped" and outcome.reason == reason
+    assert outcome.status == "failed" and outcome.reason == reason
     assert expected in outcome.detail
 
 
@@ -575,7 +584,7 @@ def test_outcome_isolation_unsupported(monkeypatch: pytest.MonkeyPatch) -> None:
     outcome = external_review.review_outcome(
         "t", "code", runner=_runner(_VALID), options=_ISOLATED, help_probe=lambda c, t: "nothing"
     )
-    assert outcome.reason == "isolation-unsupported"
+    assert (outcome.status, outcome.reason) == ("failed", "isolation-unsupported")
     assert "--ignore-user-config" in outcome.detail and "--ephemeral" in outcome.detail
 
 
@@ -583,16 +592,52 @@ def test_outcome_isolation_unsupported(monkeypatch: pytest.MonkeyPatch) -> None:
     "run",
     [_runner("garbage"), _raiser(RuntimeError("x")), _raiser(subprocess.TimeoutExpired("c", 1))],
 )
-def test_skipped_outcome_has_no_verdict_and_review_is_none(
+def test_failed_outcome_has_no_verdict_and_review_is_none(
     monkeypatch: pytest.MonkeyPatch, run: Any
 ) -> None:
-    # A skip must never read as approval: nothing in it carries a verdict.
+    # A failure must never read as approval: nothing in it carries a verdict.
     _on_path(monkeypatch)
     outcome = external_review.review_outcome("t", "code", runner=run)
+    assert outcome.status == "failed" and outcome.review is None
+    assert outcome.reason in external_review.FAILURE_REASONS
+    assert "verdict" not in dataclasses.asdict(outcome)
+    assert external_review.review("t", "code", runner=run) is None
+
+
+def test_skipped_outcome_has_no_verdict_and_review_is_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(external_review.shutil, "which", lambda c: None)
+    outcome = external_review.review_outcome("t", "code", runner=_runner(_VALID))
     assert outcome.status == "skipped" and outcome.review is None
     assert outcome.reason in external_review.SKIP_REASONS
     assert "verdict" not in dataclasses.asdict(outcome)
-    assert external_review.review("t", "code", runner=run) is None
+
+
+def test_skip_and_failure_reasons_partition_every_reason() -> None:
+    # A reason is one or the other: a caller decides "report it" from the status alone.
+    skips, failures = set(external_review.SKIP_REASONS), set(external_review.FAILURE_REASONS)
+    assert skips == {"missing-cli", "command-not-configured", "disabled"}
+    assert failures == {"timeout", "process-failure", "invalid-output", "isolation-unsupported"}
+    assert not skips & failures
+
+
+@pytest.mark.parametrize(
+    ("make", "status", "reason"),
+    [
+        (lambda m: _raiser(subprocess.TimeoutExpired("c", 1)), "failed", "timeout"),
+        (lambda m: _raiser(subprocess.CalledProcessError(1, "c")), "failed", "process-failure"),
+        (lambda m: _raiser(OSError(7, "Argument list too long")), "failed", "process-failure"),
+        (lambda m: _runner("no json here"), "failed", "invalid-output"),
+        (lambda m: _runner(_VALID), "reviewed", None),
+    ],
+)
+def test_a_present_enabled_reviewer_that_produces_no_review_has_failed(
+    monkeypatch: pytest.MonkeyPatch, make: Any, status: str, reason: str | None
+) -> None:
+    _on_path(monkeypatch)
+    outcome = external_review.review_outcome("t", "code", runner=make(monkeypatch))
+    assert (outcome.status, outcome.reason) == (status, reason)
 
 
 def test_outcome_never_raises_and_does_not_run_on_an_unreadable_config(
@@ -751,49 +796,45 @@ def test_detail_never_carries_the_argv_of_a_failed_call(monkeypatch: pytest.Monk
 # --- argv: defaults unchanged, isolation opt-in --------------------------------
 
 
-def test_default_argv_is_unchanged() -> None:
-    expected = ["codex", "exec", "--sandbox", "read-only", "P"]
-    assert external_review._argv("codex", "P") == expected
-    assert external_review._argv("codex", "P", ReviewerOptions()) == expected
+_BASE_ARGV = ["codex", "exec", "--sandbox", "read-only", "--skip-git-repo-check"]
+
+
+def test_default_argv() -> None:
+    expected = [*_BASE_ARGV, "-"]
+    assert external_review._argv("codex") == expected
+    assert external_review._argv("codex", ReviewerOptions()) == expected
 
 
 def test_isolated_argv() -> None:
     options = ReviewerOptions(isolated=True, model="gpt-5.1", effort="high")
-    assert external_review._argv("codex", "P", options) == [
-        "codex",
-        "exec",
-        "--sandbox",
-        "read-only",
+    assert external_review._argv("codex", options) == [
+        *_BASE_ARGV,
         "--ignore-user-config",
         "--ephemeral",
         "--model",
         "gpt-5.1",
         "-c",
         'model_reasoning_effort="high"',
-        "P",
+        "-",
     ]
 
 
 def test_model_and_effort_pass_without_isolation_only_when_set() -> None:
-    both = external_review._argv("codex", "P", ReviewerOptions(model="m", effort="low"))
-    assert both[4:] == ["--model", "m", "-c", 'model_reasoning_effort="low"', "P"]
+    both = external_review._argv("codex", ReviewerOptions(model="m", effort="low"))
+    assert both[5:] == ["--model", "m", "-c", 'model_reasoning_effort="low"', "-"]
     assert "--ignore-user-config" not in both and "--ephemeral" not in both
-    assert external_review._argv("codex", "P", ReviewerOptions(model="m"))[4:] == [
-        "--model",
-        "m",
-        "P",
-    ]
-    assert external_review._argv("codex", "P", ReviewerOptions(effort="low"))[4:] == [
+    assert external_review._argv("codex", ReviewerOptions(model="m"))[5:] == ["--model", "m", "-"]
+    assert external_review._argv("codex", ReviewerOptions(effort="low"))[5:] == [
         "-c",
         'model_reasoning_effort="low"',
-        "P",
+        "-",
     ]
 
 
 def test_ignore_rules_is_never_passed() -> None:
     # It would REMOVE restrictions (ADR 0100).
     options = ReviewerOptions(isolated=True, model="m", effort="e")
-    assert "--ignore-rules" not in external_review._argv("codex", "P", options)
+    assert "--ignore-rules" not in external_review._argv("codex", options)
 
 
 @pytest.mark.parametrize(
@@ -811,8 +852,8 @@ def test_ignore_rules_is_never_passed() -> None:
 )
 def test_invalid_model_and_effort_never_reach_argv(bad: str) -> None:
     # Options can be built by any caller, so the last step checks them too.
-    plain = ["codex", "exec", "--sandbox", "read-only", "P"]
-    assert external_review._argv("codex", "P", ReviewerOptions(model=bad, effort=bad)) == plain
+    plain = [*_BASE_ARGV, "-"]
+    assert external_review._argv("codex", ReviewerOptions(model=bad, effort=bad)) == plain
 
 
 def test_review_runs_the_default_argv_without_config(
@@ -821,14 +862,13 @@ def test_review_runs_the_default_argv_without_config(
     calls = _fake_subprocess(monkeypatch)
     got = external_review.review("t", "code", workdir=tmp_path)
     assert got is not None and got["verdict"] == "changes"
-    assert len(calls) == 1 and calls[0][:4] == ["codex", "exec", "--sandbox", "read-only"]
-    assert len(calls[0]) == 5  # no capability check and no extra flag
+    assert len(calls) == 1 and calls[0] == [*_BASE_ARGV, "-"]  # no capability check, no extra flag
 
 
 def test_run_external_is_the_plain_primitive(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = _fake_subprocess(monkeypatch)
     assert external_review.run_external("codex", "P", Path(".")) == _VALID
-    assert calls == [["codex", "exec", "--sandbox", "read-only", "P"]]
+    assert calls == [[*_BASE_ARGV, "-"]]
 
 
 # --- the settings reach the real call, including through the skills' review() ---
@@ -844,17 +884,15 @@ def test_review_honours_isolated_from_settings(
     got = external_review.review("t", "code", command="codex", workdir=tmp_path)
     assert got is not None
     assert calls[0] == ["codex", "exec", "--help"]
-    assert calls[1][:10] == [
-        "codex",
-        "exec",
-        "--sandbox",
-        "read-only",
+    assert calls[1] == [
+        *_BASE_ARGV,
         "--ignore-user-config",
         "--ephemeral",
         "--model",
         "gpt-5.1",
         "-c",
         'model_reasoning_effort="high"',
+        "-",
     ]
     assert len(calls) == 2
 
@@ -887,8 +925,7 @@ def test_repo_values_for_the_operators_settings_never_reach_the_call(
     _write_config(tmp_path, {"isolated": True, "model": "weak-model", "effort": "low"})
     calls = _fake_subprocess(monkeypatch)
     assert external_review.review("t", "code", workdir=tmp_path) is not None
-    assert len(calls) == 1 and len(calls[0]) == 5  # no capability check and no extra flag
-    assert calls[0][:4] == ["codex", "exec", "--sandbox", "read-only"]
+    assert calls == [[*_BASE_ARGV, "-"]]  # no capability check and no extra flag
 
 
 def test_repo_values_cannot_replace_the_operators_settings_in_the_call(
@@ -1073,22 +1110,93 @@ def test_capability_check_is_not_run_when_not_isolated(monkeypatch: pytest.Monke
     assert outcome.status == "reviewed"
 
 
-def test_real_subprocess_calls_close_stdin(monkeypatch: pytest.MonkeyPatch) -> None:
-    # codex appends piped stdin to the prompt, so the caller's stdin must not reach it. Covers the
-    # review call and the capability check, both through the default seams.
-    _on_path(monkeypatch)
-    seen: list[tuple[list[str], Any]] = []
-
-    def run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        seen.append((argv, kwargs.get("stdin", "inherited")))
-        out = _HELP if argv[1:] == ["exec", "--help"] else _VALID
-        return subprocess.CompletedProcess(argv, 0, stdout=out, stderr="")
-
-    monkeypatch.setattr(external_review.subprocess, "run", run)
+def test_real_subprocess_calls_never_inherit_stdin(monkeypatch: pytest.MonkeyPatch) -> None:
+    # codex reads piped stdin, so the caller's stdin must not reach it. The capability check gets
+    # none; the review gets the prompt and nothing else. Both through the default seams.
+    seen: list[dict[str, Any]] = []
+    calls = _fake_subprocess(monkeypatch, kwargs_seen=seen)
     outcome = external_review.review_outcome("t", "code", options=_ISOLATED)
-    assert outcome.status == "reviewed" and len(seen) == 2
-    assert seen[0][0] == ["codex", "exec", "--help"]
-    assert [stdin for _, stdin in seen] == [subprocess.DEVNULL, subprocess.DEVNULL]
+    assert outcome.status == "reviewed" and len(calls) == 2
+    assert calls[0] == ["codex", "exec", "--help"]
+    assert seen[0]["stdin"] == subprocess.DEVNULL and "input" not in seen[0]
+    assert "stdin" not in seen[1]
+    assert seen[1]["input"] == external_review.build_prompt("t", "code").encode("utf-8")
+
+
+# --- the prompt goes on stdin, and the cwd does not matter ------------------------------------
+
+_ARG_MAX_STRLEN = 128 * 1024  # Linux MAX_ARG_STRLEN: the most one argv element may hold
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "TARGET-MARKER " + "x" * (_ARG_MAX_STRLEN + 1),  # over the cap on one argv element
+        "TARGET-MARKER\x00after a NUL",  # a NUL cannot be in an argv element at all
+    ],
+)
+def test_the_prompt_goes_on_stdin_never_in_argv(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, target: str
+) -> None:
+    seen: list[dict[str, Any]] = []
+    calls = _fake_subprocess(monkeypatch, kwargs_seen=seen)
+    outcome = external_review.review_outcome(target, "code", workdir=tmp_path)
+    assert outcome.status == "reviewed"
+    (argv,) = calls
+    assert argv == [*_BASE_ARGV, "-"]
+    assert not any("TARGET-MARKER" in element for element in argv)
+    assert all(len(element) < 100 for element in argv)
+    sent = seen[0]["input"]
+    assert sent == external_review.build_prompt(target, "code").encode("utf-8")
+    assert target.encode("utf-8") in sent
+    assert seen[0]["cwd"] == str(tmp_path) and "stdin" not in seen[0]
+
+
+def test_the_plain_primitive_sends_its_prompt_on_stdin_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[dict[str, Any]] = []
+    calls = _fake_subprocess(monkeypatch, kwargs_seen=seen)
+    big = "P" * (_ARG_MAX_STRLEN + 1)
+    assert external_review.run_external("codex", big, Path(".")) == _VALID
+    assert calls == [[*_BASE_ARGV, "-"]] and seen[0]["input"] == big.encode("utf-8")
+
+
+def test_a_failure_detail_leaves_out_the_prompt_the_cli_echoed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # codex prints the prompt to stderr before it starts, so a failed run's stderr tail can be the
+    # end of the target. The argv no longer holds it, and the detail must not either.
+    _on_path(monkeypatch)
+    target = "def f():\n    return CONFIDENTIAL_TOKEN\n"
+    echoed = "user\n" + external_review.build_prompt(target, "code") + "\nerror: auth expired\n"
+    for exc in (
+        subprocess.CalledProcessError(1, ["codex"], stderr=echoed.encode("utf-8")),
+        subprocess.TimeoutExpired(["codex"], 1, stderr=echoed.encode("utf-8")),
+        RuntimeError(f"broke on {target}"),
+    ):
+        outcome = external_review.review_outcome(target, "code", runner=_raiser(exc))
+        assert outcome.status == "failed"
+        assert "CONFIDENTIAL" not in outcome.detail, outcome.detail
+    called = subprocess.CalledProcessError(1, ["codex"], stderr=echoed)
+    outcome = external_review.review_outcome(target, "code", runner=_raiser(called))
+    assert outcome.detail.endswith("error: auth expired")
+
+
+def test_an_invalid_reply_detail_leaves_out_a_quoted_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _on_path(monkeypatch)
+    target = "secret_line = CONFIDENTIAL_TOKEN"
+    reply = f"I could not decide.\n{target}\nSorry."
+    outcome = external_review.review_outcome(target, "code", runner=_runner(reply))
+    assert (outcome.status, outcome.reason) == ("failed", "invalid-output")
+    assert "CONFIDENTIAL" not in outcome.detail and "Sorry." in outcome.detail
+
+
+def test_without_prompt_keeps_lines_the_prompt_does_not_hold() -> None:
+    assert external_review._without_prompt("a\n\nb\nc", "b\n\n") == "a\n\nc"
+    assert external_review._without_prompt(b"kept", "x") == "kept"
+    assert external_review._without_prompt(None, "x") == ""
+    assert external_review._without_prompt("kept", "") == "kept"
 
 
 def test_real_probe_runs_exec_help_only(monkeypatch: pytest.MonkeyPatch) -> None:
