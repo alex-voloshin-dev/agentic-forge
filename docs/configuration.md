@@ -44,7 +44,7 @@ repo, those four reviewer keys, `state.in_repo`, `knowledge.allow_external_vault
 | `external_reviewer.effort` | string \| null | `null` | Passed as `-c model_reasoning_effort="<value>"`, isolated or not, only when set. Whether codex honours this key has **not been verified** against a real run; it does not appear in `codex exec --help`. The same applies: with `isolated`, your configured effort is not loaded. **User-level only**, like `isolated`. |
 | `models` | object | `{}` | Per-role / skill / `router` model tiers (ADR 0043) — each value is a tier (`default` / `simple` / `cheap`) or a model id. **Affects the eval/dev CLIs only** (`dev/run_*_evals.py`, `plugin/bin/pr_watch.py`, `dev/ralph.py`) — live-session role routing is the gate-validated agent frontmatter (ADR 0046), which this key does not change. Empty = the runner's default model everywhere. See the [eval runbook](eval-runbook.md). |
 | `pr_watcher.enabled` | bool | `false` | Enable the PR watcher's outward GitHub writes (ADR 0044/0045). **User-level only: set it in `~/.agentic-forge/config.json`.** A repo file can only turn it off, with `false`, which wins over your `true` and is reported. See [the PR watcher and the checkout](#the-pr-watcher-and-the-checkout). |
-| `pr_watcher.bot` | string | `"github-actions[bot]"` | The bot login whose review threads the watcher skips. **User-level only**, as is every key below in this section, except that a repo can set `auto_merge` or `auto_watch` to `false`. |
+| `pr_watcher.bot` | string | `"github-actions[bot]"` | The bot login whose review threads the watcher skips, and so does the merge gate on a session's own `gh pr merge` (see [A session's own merge](#a-sessions-own-merge)). **User-level only**, as is every key below in this section, except that a repo can set `auto_merge` or `auto_watch` to `false`. |
 | `pr_watcher.max_threads` | int ≥ 1 | `10` | Max review threads handled per run. |
 | `pr_watcher.trusted_reviewers` | string[] | `[]` | Logins of reviewer apps whose review threads may reach the fixer, such as `chatgpt-codex-connector` or `copilot-pull-request-reviewer`. An entry counts only for an author of type Bot (ADR 0103). |
 | `pr_watcher.repos` | string[] | `[]` | `owner/name` repos the scheduled hourly job watches, every open same-repo PR in each. Also what lets a queued PR through when it names a repo other than the checkout's `origin` (ADR 0103). |
@@ -165,6 +165,26 @@ the repository does not get a say in what it does (ADR 0103).
   only push to `origin`: if it has an open thread or a conflict, the refusal is recorded and the job fails. Run a clock
   in a clone of that repo instead. An `origin` that is not a plain `github.com` URL, such as an SSH host alias, names no
   repo here, so that checkout's queue is dropped and its PRs get no fix pass.
+
+### A session's own merge
+
+A `gh pr merge` that a session runs itself, rather than the watcher, is held to the watcher's merge gate by the
+merge-preflight hook. It needs no setting and has none: it applies whether or not `pr_watcher` is enabled, and only
+`pr_watcher.bot` is read, so that a thread the watcher skips does not hold a session's merge either.
+
+- **What is checked.** The hook lets `gh pr view` say which PR the command names (a number, a URL, a branch, or none for
+  the current branch's PR, with `-R`/`--repo`), then reads that PR with the watcher's own GraphQL query. It **blocks**
+  the merge when the PR is a draft, its checks are not green (pending, failing, or no checks at all), or a review thread is
+  unresolved. This is the case GitHub lets through: a PR whose `mergeStateStatus` is `UNSTABLE`, because the red check
+  is not a required one. `--auto` is held too, as auto-merge waits only for required checks. The message says why, in
+  the watcher's words (`merge gate: #12: merge held: checks: FAILURE; 1 unresolved review thread(s)`). A person who
+  means to merge it as it is can do so outside the session.
+- **When it lets the merge through unchecked**, with a one-line notice: `gh` is missing or not logged in, GitHub or the
+  network fails, `gh` does not answer within 12 s, its answer cannot be read, or the command cannot be attributed to
+  one PR (two merges in one command, a flag `gh pr merge` does not have, a `GH_HOST=` prefix, or a number or branch
+  after a `cd` whose target only a shell could work out).
+- **The cost** is two read-only `gh` calls on a `gh pr merge`, within 12 s together, and nothing on any other command.
+  The hook's timeout is 30 s.
 
 ### Reviewer skip and failure reasons, and invalid values
 

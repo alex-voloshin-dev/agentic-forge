@@ -33,6 +33,7 @@ __all__ = [
     "parse_pr",
     "actionable_threads",
     "merge_readiness",
+    "session_merge_gate",
     "reply_argv",
     "reply_file_argv",
     "author_checker",
@@ -396,6 +397,39 @@ def actionable_threads(state: PrState, *, bot: str) -> list[ReviewThread]:
     return [t for t in state.threads if not t.resolved and t.id and t.author != bot]
 
 
+def _hold_reasons(state: PrState, *, bot: str) -> list[str]:
+    """The clauses about the PR's own work, which hold a merge whoever runs it: a draft, checks not
+    green (``NONE`` included), unresolved actionable threads, and a thread list too long to read in
+    full. :func:`merge_readiness` and :func:`session_merge_gate` share them, so the reason a merge
+    is held reads the same from the watcher and from the merge-preflight hook."""
+    reasons: list[str] = []
+    if state.draft:
+        reasons.append("draft PR")
+    if not state.checks_green:
+        reasons.append(f"checks: {state.checks or 'NONE'}")
+    open_threads = actionable_threads(state, bot=bot)
+    if open_threads:
+        reasons.append(f"{len(open_threads)} unresolved review thread(s)")
+    if state.threads_truncated:
+        reasons.append("review threads truncated (>100) — cannot confirm all are resolved")
+    return reasons
+
+
+def session_merge_gate(state: PrState, *, bot: str) -> MergeDecision:
+    """The merge gate a session's own ``gh pr merge`` is held to (the merge-preflight hook).
+
+    GitHub lets a PR merge whose ``mergeStateStatus`` is ``UNSTABLE`` — a check that is not
+    required is red — and does not look at unresolved threads unless branch protection says so;
+    the watcher refuses both. This is the part of :func:`merge_readiness` that a merge someone
+    asked for should meet as well: not a draft, checks green, no unresolved thread. It is a subset
+    of the watcher's gate on purpose, so the hook never refuses a merge the watcher's gate opened.
+    The rest stays the watcher's: a fork, ``mergeable`` (which GitHub computes lazily and which
+    ``gh`` itself refuses on a conflict), a closed PR (``gh`` says so itself), and a review
+    requesting changes (which branch protection can require)."""
+    reasons = _hold_reasons(state, bot=bot)
+    return MergeDecision(ready=not reasons, reasons=reasons)
+
+
 def merge_readiness(state: PrState, *, bot: str) -> MergeDecision:
     """The merge gate (ADR 0063): may this PR be merged right now, and if not, why not?
 
@@ -420,15 +454,7 @@ def merge_readiness(state: PrState, *, bot: str) -> MergeDecision:
         reasons.append("from a fork")
     if state.state.upper() != "OPEN":
         reasons.append(f"state: {state.state or 'UNKNOWN'}")
-    if state.draft:
-        reasons.append("draft PR")
-    if not state.checks_green:
-        reasons.append(f"checks: {state.checks or 'NONE'}")
-    open_threads = actionable_threads(state, bot=bot)
-    if open_threads:
-        reasons.append(f"{len(open_threads)} unresolved review thread(s)")
-    if state.threads_truncated:
-        reasons.append("review threads truncated (>100) — cannot confirm all are resolved")
+    reasons.extend(_hold_reasons(state, bot=bot))
     if state.reviews_truncated:
         reasons.append("reviews truncated or unread — cannot confirm none is requesting changes")
     blocking = [s for s in state.review_states if s in BLOCKING_REVIEW_STATES]
