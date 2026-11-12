@@ -36,8 +36,9 @@ So every document phase working on `<feature-slug>` shares `../wt-docs-<slug>` o
 
 **After the review loop exits:**
 
-4. **`proceed`** — first set the artifact's `status` to `approved` and run `handoff-load` on it again
-   ([review-loop.md](review-loop.md)), or the next phase refuses it. Then
+4. **`proceed`** — first set the artifact's `review_decision` to `proceed` (leave its `status`, which is
+   the repository's) and run `handoff-load` on it again ([review-loop.md](review-loop.md)), or the next
+   phase refuses it. Then
    `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" doc-proceed --worktree <worktree> --phase <phase> --slug <slug> --artifact <path>`
    gives the `steps` for this repo: stage and commit this phase's artifact only (message
    `docs(<phase>): <slug>`; `--artifact` repeats for more than one), push (plain, **never** `--force`).
@@ -52,7 +53,7 @@ So every document phase working on `<feature-slug>` shares `../wt-docs-<slug>` o
    `steps` only commit and the `note` says `no remote: committed on docs/<slug>, not
    pushed`; with a remote but no `gh` on PATH they push and the `note` gives the branch for a
    hand-opened PR. The `note` is the sentence to report.
-5. **`escalate`** — commit **nothing**. If the PR exists, mark it a draft (`gh pr ready <n> -R <owner/repo> --undo`). This
+5. **`escalate`** — set the artifact's `review_decision` to `escalate` and commit **nothing**. If the PR exists, mark it a draft (`gh pr ready <n> -R <owner/repo> --undo`). This
    needs no new mechanism: the merge gate already refuses a `draft PR`, so an unresolved review
    stops the merge through the rail that is already tested.
 6. Report the PR URL. Monitoring and merge are **not** this phase's job — the PR-created hook

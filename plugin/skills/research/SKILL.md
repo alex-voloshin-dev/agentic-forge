@@ -67,7 +67,7 @@ art, market/competitors, user needs, technical feasibility. Not for deciding req
    shared, tested rule):** each round, compute `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" review-decision --verdict <verdict> --iteration <n> --gate-green <yes if research-brief.md validates, else no>` (see
    [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
    [review-loop.md](../../patterns/review-loop.md)) — `revise` (loop back and fix worst-first),
-   `escalate` (still `changes` at N = 3 → **commit nothing; mark the feature PR a draft** (the merge gate already refuses a draft), set the artifact's `status` to `in-review`, surface the unresolved gaps and stop; the status is what makes "don't hand off" enforceable — the file is already on disk), or
+   `escalate` (still `changes` at N = 3 → **commit nothing; mark the feature PR a draft** (the merge gate already refuses a draft), set the artifact's `review_decision` to `escalate` (never touch its `status`, the repo's lifecycle field), surface the unresolved gaps and stop; that field is what makes "don't hand off" enforceable — the file is already on disk), or
    `proceed` (**commit this phase's artifact and push — opening or updating the feature PR per [doc-delivery](../../patterns/doc-delivery.md)**; `approve` **and** the brief validates → the brief is done). Don't hand off a brief
    whose recommendation rests on uncited claims.
 

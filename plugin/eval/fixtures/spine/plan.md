@@ -1,7 +1,8 @@
 ---
 type: plan
 feature: task-priorities
-status: approved
+status: in-progress
+review_decision: proceed
 tasks:
   - id: T1
     title: Add a priority field to Task and to add()

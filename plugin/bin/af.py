@@ -94,7 +94,7 @@ def _need(command: str, *modules: str) -> None:
     if missing:
         raise _MissingPackage(
             f"{command} needs {', '.join(missing)}, which this python3 does not have, so nothing "
-            "was checked. Stop: do not treat the artifact as valid, keep its status in-review, "
+            "was checked. Stop: do not treat the artifact as valid, do not mark it proceed, "
             "commit nothing, and report the package. In a review loop pass --gate-green unknown. "
             "To enable it: python3 -m pip install pyyaml jsonschema"
         )
@@ -330,10 +330,12 @@ def _handoff_load(args: argparse.Namespace) -> int:
     from agentic_forge import handoff
 
     artifact = _load("handoff-load", args.path, args.type)
+    ready, ready_from = handoff.handoff_readiness(artifact.header)
     _emit({
         "path": args.path,
         "type": artifact.type,
-        "ready": handoff.is_handoff_ready(artifact.header),
+        "ready": ready,
+        "ready_from": ready_from,  # review_decision, or status for an artifact without one
         "header": artifact.header,
     })
     return EXIT_OK

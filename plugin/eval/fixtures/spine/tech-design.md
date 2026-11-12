@@ -2,6 +2,7 @@
 type: tech-design
 feature: task-priorities
 status: approved
+review_decision: proceed
 decisions:
   - Model priority as an ordered enum (low < normal < high) mapped to a sort rank
 components:

@@ -2,6 +2,7 @@
 type: prd
 feature: search
 status: approved
+review_decision: proceed
 goals:
   - Let users find documents by keyword in under 200ms p95
   - Rank results by relevance

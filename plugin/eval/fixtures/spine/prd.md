@@ -2,6 +2,7 @@
 type: prd
 feature: task-priorities
 status: approved
+review_decision: proceed
 goals:
   - Let a user assign a priority to a task
   - Let a user see open tasks ordered by priority

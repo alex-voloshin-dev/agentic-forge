@@ -23,7 +23,7 @@ designing (`architecture`), task breakdown (`plan`), or reviewing already-writte
 > [knowledge-recall](../../patterns/knowledge-recall.md)); factor them in, and skip if the vault is empty.
 
 1. **Read inputs; fix the slug; detect the stack.** Load `plan.md` if present
-   (`python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type plan`; **refuse to build from it unless its `ready` is true**) and/or `tech-design.md`; derive
+   (`python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type plan`; **refuse to build from it unless its `ready` is true**, and never edit its `status` to make it so — that is the repo's lifecycle field) and/or `tech-design.md`; derive
    `<feature-slug>` from the artifact's `feature` header. Pick the current step and the
    components it touches. **No plan and no design** (a direct "implement / build X" request):
    the request *is* the plan — one task, its scope and acceptance stated as `assumptions` in the
