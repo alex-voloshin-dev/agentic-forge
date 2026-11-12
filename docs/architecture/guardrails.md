@@ -182,7 +182,11 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
     gate: a merge through `gh api -X PUT repos/<o>/<r>/pulls/<n>/merge`, through `sh -c '…'` or
     a script, through a `gh` alias, inside a `case` arm or a function body, through `env -S`, or by
     any route that is not `gh pr merge` in command position. The `origin` whose host may be
-    contacted is the session's checkout, never a directory the command `cd`s into.
+    contacted is the session's checkout, never a directory the command `cd`s into. When the merge
+    names no repository, gh picks one from the remotes of the directory it runs in, so every remote
+    there must be github.com or that origin's host, or the gate asks nothing.
+    Every host the command names counts, not the first one found: a URL selector that is not a PR
+    URL gh accepts makes gh fall back to `-R`, `GH_HOST` or the remotes, so all of them must pass.
   - **Cost**: nothing for any other command — the check is the existing `is_pr_merge` parse, and
     `pr_watch` is imported only on a merge. On a merge, two `gh` calls (two API round trips)
     within one 12 s deadline; the git reads keep their own 12 s, and the hook's timeout in
