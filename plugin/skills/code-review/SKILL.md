@@ -36,13 +36,22 @@ Follow [multi-aspect-review.md](../../patterns/multi-aspect-review.md):
    - **style / lint / warnings** → run the detected stack's real tools yourself, in this session
      (the `stacks` profile's toolchain — ruff/mypy, eslint/tsc, go vet, … — preferring the repo's
      declared commands) and treat their output as evidence.
-   - **concurrent-change conflicts** (ADR 0074) → whenever the diff adds or changes a **claim, lock, lease,
-     dedup guard, or status transition**, check other in-flight branches and open PRs for the
-     **same state transition** (`gh pr list` + grep the transition's enum values and the
-     table/column it writes) — not merely the same files. *No textual conflict ≠ no semantic
-     conflict*: two independent guards on one precondition are usually mutually exclusive, merge
-     cleanly, and pass both CI runs because each tests only its own entry point. Reconcile to one
-     guard point before either lands; prefer claiming atomically **at the point of work**.
+   - **concurrent-change conflicts** (ADR 0074) → whenever the diff **tightens a contract**: adds
+     or changes a claim, lock, lease, dedup guard or status transition; adds a required
+     input, parameter or field; makes a validation stricter; changes a signature, schema or return
+     type; or removes a default. Look for that contract's **consumers**, not merely the same files:
+     (1) in the base (`git grep` the input, field, enum value or table/column name at `<base>`), and
+     in open PRs (`gh pr list --state open --limit 20 --json number,headRefName,baseRefName`, then
+     `gh pr diff <n>` for each and grep the same names; the 20 most recent are the bound, so say if
+     there were more). (2) When the base moved after the PR's CI ran, review a head that contains
+     the current base, or run the affected tests on a trial merge (a scratch worktree at the PR's
+     head, `git merge --no-commit --no-ff origin/<base>`, run them, remove it). *No textual conflict
+     ≠ no semantic conflict*: two guards on one precondition are usually mutually exclusive, and a
+     PR adding a caller that lacks a newly required input is green against the base it ran on; each
+     merges cleanly and passes its own CI. A check that is not required going red after the merge
+     shows the PR as UNSTABLE, which does not block a merge. A consumer that breaks is a finding
+     on this diff. For a state transition, reconcile to one guard point before either lands, and
+     prefer claiming atomically **at the point of work**.
 3. **Verify** each finding against the source (open the file, re-run the tool) — drop or
    downgrade what doesn't hold. Re-running a tool is this session's job: the lens roles are held
    to reading by the `role_scope` hook, so a lens verifies with `git show <base>:<path>`,
@@ -57,16 +66,35 @@ Follow [multi-aspect-review.md](../../patterns/multi-aspect-review.md):
    Then **read the file back** — `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type review` — and fix whatever it reports: this reads the file, so it sees the YAML you typed, and a single
    malformed value (a flow sequence with prose after it, an unquoted `:`) leaves an artifact the
    next phase cannot read (ADR 0096).
+   **For a pull request**, post the review on GitHub instead of writing `review.md` (which stays
+   the output for a local diff and the spine). Never hand-build a `gh api .../reviews` call. Write
+   the findings as JSON to a file (an array, or `{"verdict", "summary", "findings"}`), then:
+
+   ```bash
+   python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" pr-review --repo . --pr <n> --head <sha> --findings-json <file> --out <payload-file> --event request-changes
+   ```
+
+   `<sha>` is the head you reviewed (`gh pr view <n> --json headRefOid`). It re-reads the PR and
+   refuses (exit 1) when the head is no longer `<sha>`, the PR is closed or merged, or `gh` fails:
+   then review the new head, do not post. It pins `commit_id` to `<sha>`, puts a finding inline
+   only when its `file:line` is an added or context line of the diff (else in the body, saying
+   why), neutralises every `@mention`, and caps sizes. Run its `post.shell`, decoded from JSON,
+   straight away. An `approve` verdict posts as a COMMENT, since an APPROVE counts toward branch
+   protection's required reviews: pass `--event approve` only when the user asked for an
+   approval. `--event comment` posts any verdict as a comment.
 6. **In the develop loop:** a `changes` verdict loops back to implementation (bounded — see
    [patterns/review-loop.md](../../patterns/review-loop.md)); `approve` proceeds.
 
 ## Output
 
-A `review.md` handoff: an `approve`/`changes` verdict plus aspect-organized findings. Read-only
-on the code under review — it critiques, it does not edit.
+A `review.md` handoff: an `approve`/`changes` verdict plus aspect-organized findings; for a pull
+request, the same review posted on GitHub through `af.py pr-review`. Read-only on the code under
+review — it critiques, it does not edit.
 
 ## Definition of done
 
 - One explicit verdict, aggregating all aspects (any blocker/major ⇒ changes).
 - Every finding carries severity, location, and a concrete fix; findings verified, not guessed.
-- `review.md` validates against the review handoff schema. No code modified.
+- `review.md` validates against the review handoff schema, or, for a PR, the review was built
+  by `af.py pr-review` for the head that was reviewed and posted with its printed command. No
+  code modified.
