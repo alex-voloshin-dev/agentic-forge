@@ -195,6 +195,7 @@ def _documented_calls() -> list[tuple[str, str]]:
 def _as_argv(call: str) -> list[str]:
     """A documented call with its placeholders filled in, split the way a shell would."""
     filled = re.sub(r"--gate-green <[^>]*>", "--gate-green yes", call)
+    filled = re.sub(r"--verdict <[^>]*>", "--verdict approve", filled)
     filled = re.sub(r"--(iteration|number) <[^>]*>", r"--\1 1", filled)
     filled = re.sub(r"<[^>]*>", "x", filled)
     return shlex.split(filled)
@@ -931,7 +932,9 @@ def test_a_long_message_is_cut(tmp_path: Path) -> None:
         ("changes", 3, "yes", "escalate"),
         ("approve", 2, "no", "revise"),
         ("approve", 3, "no", "escalate"),  # a gate that stays red cannot revise for ever
-        ("garbled", 3, "yes", "escalate"),
+        # Either case: the orchestrator may echo the reviewer's `Approve`.
+        ("APPROVE", 1, "yes", "proceed"),
+        (" Changes ", 3, "yes", "escalate"),
         # The gate could not run. `no` would revise for ever on a machine that cannot turn it green.
         ("approve", 1, "unknown", "escalate"),
         ("changes", 1, "unknown", "escalate"),
@@ -952,6 +955,32 @@ def test_the_handoff_pattern_says_exit_3_stops_the_loop() -> None:
     assert "That means stop" in text
     assert "Do not write `review_decision: proceed`" in text
     assert "commit nothing" in text and "--gate-green unknown" in text
+
+
+@pytest.mark.parametrize("verdict", ["approved", "bogus", "ok", "", "approve changes"])
+def test_review_decision_refuses_a_verdict_it_does_not_know(tmp_path: Path, verdict: str) -> None:
+    """Field report: `--verdict approved` printed `revise` and exited 0, so a misspelt verdict spent
+    a round, and at the third escalated a change the reviewers approved. Bad usage, like argparse's
+    own choices: exit 2, nothing on stdout, and the valid values named."""
+    done = _run(
+        "review-decision", "--verdict", verdict, "--iteration", "3", "--gate-green", "yes",
+        cwd=tmp_path,
+    )
+    assert done.returncode == 2, (done.stdout, done.stderr)
+    assert done.stdout == ""
+    assert "Traceback" not in done.stderr
+    assert "argument --verdict" in done.stderr
+    assert "'approve'" in done.stderr and "'changes'" in done.stderr
+
+
+def test_the_command_line_verdicts_are_the_librarys() -> None:
+    assert list(_load_af()._VERDICTS) == handoff.VERDICTS
+
+
+def test_the_review_loop_pattern_documents_both_verdict_rules() -> None:
+    text = " ".join((_PLUGIN / "patterns" / "review-loop.md").read_text(encoding="utf-8").split())
+    assert "`--verdict` takes `approve` or `changes`" in text and "exits 2" in text
+    assert "still reads an unknown verdict as `changes`" in text
 
 
 def test_review_decision_refuses_a_count_from_zero(tmp_path: Path) -> None:

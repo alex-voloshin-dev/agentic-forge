@@ -26,13 +26,18 @@ from agentic_forge import diagnostics, observability, settings, vault  # noqa: E
 # `skill-factory` (no by-hand path; a maintainer skill since ADR 0105) fired 1.000, `code-review` /
 # `develop` fired 0.000. A skill's description makes it findable; nothing told the model that
 # finding it is the point. This line does, in the one channel that reaches every session, and its
-# whole cost is these two sentences.
+# whole cost is these two sentences. It used to add "*especially* when doing it directly looks
+# straightforward", which a fleet reported fighting `develop`'s own small-change path and project
+# rules like "subagents only when the work needs them": the skill sizes its process to the change,
+# so the note says that instead of pushing the full process onto a one-line fix. The hook runs on
+# every SessionStart source, compaction included; that re-injection is deliberate (it is what
+# keeps the routing alive in a long session).
 SKILL_ROUTING_NOTE = (
     "agentic-forge skills are WORKFLOWS, not reference material: each one runs a multi-step "
     "process (fan-out, review gates, handoff artifacts) that doing the task by hand skips. When a "
     "request matches an agentic-forge skill's description — reviewing a change, implementing a "
     "planned step, designing, planning, researching, cutting a release — invoke that skill rather "
-    "than doing the work directly, *especially* when doing it directly looks straightforward."
+    "than doing the work directly; the skill itself scales its process to the size of the change."
 )
 
 

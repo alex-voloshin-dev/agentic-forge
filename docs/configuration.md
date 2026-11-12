@@ -27,7 +27,7 @@ repo, those four reviewer keys, `state.in_repo`, `knowledge.allow_external_vault
 | `logs.max_bytes` | int | `10485760` | Rotate the audit log past this size. The live log is a **bounded rolling window**: one active repo reaches the default in 11-15 days (field measurement: ~950 tool calls/day). Raise it to keep more in the live log; the rotated-out records are archived rather than lost (ADR 0080/0081). |
 | `logs.keep_bytes` | int | `5242880` | Bytes of the newest records kept in the live log when rotating. |
 | `logs.archives` | int | `6` | How many gzipped archives of rotated-out records to keep in `<state root>/archive/` (`audit-<timestamp>.jsonl.gz`), oldest pruned first. `0` restores the pre-2026.9.1 behaviour of discarding them. A rotation announces the span it moved **in days**, and where (ADR 0081). |
-| `routing_note.enabled` | bool | `true` | The SessionStart note telling the session that agentic-forge skills are workflows to invoke (2026.9.3). Overridable with `AGENTIC_FORGE_ROUTING_NOTE` — the switch its own A/B uses (ADR 0092). |
+| `routing_note.enabled` | bool | `true` | The SessionStart note telling the session that agentic-forge skills are workflows to invoke (2026.9.3). Overridable with `AGENTIC_FORGE_ROUTING_NOTE` — the switch its own A/B uses (ADR 0092). See [The session-start routing note](#the-session-start-routing-note). |
 | `pre_router.enabled` | bool | `false` | The deterministic pre-router hook (ADR 0089): on each prompt, name the clearly-matching skill in the prompt's context. Suggests only; never invokes. **Off by default** — measured at +0.095 activation over the session note (inside single-run noise) on a stand ADR 0090 then found empty, so the null result is uninterpretable; it stays off because the honest baseline left it nothing to fix (ADR 0091). Overridable with `AGENTIC_FORGE_PRE_ROUTER`. |
 | `logs.enabled` | bool | `true` | Write a redacted audit record per tool call (ADR 0019/0078). **On by default** — it is the only record of what the agent did, and the substrate of the diagnostics bundle. Turning it off stops the writing; it does not move the file (that is ADR 0072's state root). Overridable with `AGENTIC_FORGE_LOGS`. |
 | `diagnostics.enabled` | bool | `false` | Turn on the self-diagnostics log `~/.agentic-forge/state/<repo-slug>/diagnostics.jsonl` (ADR 0072) — guardrail denials, pipeline failures (ADR 0039). **This is "the logger."** Hook crashes are recorded regardless of this switch and announced once per session (ADR 0094); the file is rotated at session start under the `logs.*` bounds. |
@@ -53,6 +53,36 @@ repo, those four reviewer keys, `state.in_repo`, `knowledge.allow_external_vault
 | `pr_watcher.auto_watch` | bool | `true` | Let the PR-created hook **enqueue** a new PR for the scheduled watch (ADR 0068/0069). On by default — but it requires `enabled` as well, so with the watcher off the queue file is never created and the plugin writes nothing into your repo. Merging still needs `auto_merge` (off). **A 10-minute tick needs a 10-minute external clock** (`*/10 * * * * python plugin/bin/run_scheduled.py`): the plugin has no daemon. |
 | `pr_watcher.max_ticks` | int ≥ 1 | `144` | How many drains one queued PR may consume before it is dropped (24 h at the 10-minute cadence). Nothing is watched forever. |
 | `pr_watcher.poll_seconds` | int ≥ 60 | `600` | Autonomous re-check cadence (10 min). **Also the window an external PR reviewer gets:** a freshly opened PR has `PENDING` checks, so the gate can't open before the first post-CI poll — shortening this shortens that window. Don't substitute the build duration for it (a static gate can finish in seconds). |
+
+### The session-start routing note
+
+The `SessionStart` hook puts two sentences at the top of the session's context, before the vault map:
+
+> agentic-forge skills are WORKFLOWS, not reference material: each one runs a multi-step process
+> (fan-out, review gates, handoff artifacts) that doing the task by hand skips. When a request matches
+> an agentic-forge skill's description — reviewing a change, implementing a planned step, designing,
+> planning, researching, cutting a release — invoke that skill rather than doing the work directly;
+> the skill itself scales its process to the size of the change.
+
+It exists because a session left alone picked the matching skill for about a third of the requests
+squarely in its domain, and least often for the ones that looked easy to do by hand (ADR 0088). It
+does not ask for the full process on a small change: the skill decides how much process the change
+needs (`develop`, for one, has a small-change path). Through 2026.11.10 it ended "*especially* when
+doing it directly looks straightforward", which read as overriding that path and project rules such
+as "use subagents only when the work needs them"; that clause is gone.
+
+The hook fires on every `SessionStart`, so the note is injected again after compaction; that is
+deliberate, because a compacted session has lost the first one and would otherwise stop routing.
+
+**To switch it off** for a project, add this to `.agentic-forge/config.json` in the repo (or in
+`~/.agentic-forge/config.json` for every project):
+
+```json
+{"routing_note": {"enabled": false}}
+```
+
+or set `AGENTIC_FORGE_ROUTING_NOTE=0` in the environment Claude Code starts with. The vault map and the
+once-per-session notices are still injected; only the note goes.
 
 ### What the test gate runs on
 

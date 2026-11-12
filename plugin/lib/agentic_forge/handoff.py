@@ -417,7 +417,10 @@ def review_loop_decision(
       the unresolved findings and stop; never auto-ship (review-loop.md / ADR 0040).
 
     Pure; ``iteration`` is 1-based. An unknown ``verdict`` is treated as ``changes`` (never a silent
-    ``proceed``) so a malformed reviewer reply fails safe."""
+    ``proceed``) so a malformed reviewer reply fails safe. That is for library callers: the command
+    line in front of it, ``af.py review-decision``, takes only :data:`VERDICTS` (either case) and
+    exits 2 on anything else, since there the verdict is typed by an orchestrator and a misspelling
+    would spend a round, then escalate an approved change."""
     approved = str(verdict).strip().lower() == "approve"
     if approved and gate_green:
         return "proceed"

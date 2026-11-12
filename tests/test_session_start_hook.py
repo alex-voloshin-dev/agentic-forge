@@ -23,6 +23,20 @@ def test_build_context_is_the_routing_note_when_there_is_no_vault(tmp_path: Path
     assert "invoke that skill" in ctx
 
 
+def test_the_routing_note_routes_without_overriding_a_small_change() -> None:
+    """Field report (2026.11): "*especially* when doing it directly looks straightforward" fought
+    `develop`'s small-change path and project rules that keep subagents for work that needs them.
+    The note still has to route (ADR 0088 measured 0.35 without it); it now says the skill sizes
+    the process instead of pushing the hard sell. It is injected at every start and compaction, so
+    it stays two sentences."""
+    note = session_start.SKILL_ROUTING_NOTE
+    assert "invoke that skill rather than doing the work directly" in note
+    assert "scales its process to the size of the change" in note
+    assert "especially" not in note.lower() and "straightforward" not in note.lower()
+    assert note.count(". ") == 1 and note.endswith(".")  # two sentences
+    assert len(note) <= 500
+
+
 def test_build_context_with_vault(tmp_path: Path) -> None:
     vault.add_note(tmp_path, "central", "Central idea", "the hub")
     ctx = session_start.build_context(str(tmp_path))
@@ -219,3 +233,50 @@ def test_routing_note_has_an_off_switch(tmp_path: Path, monkeypatch) -> None:
     vault.add_note(tmp_path, "central", "Central idea", "the hub")
     ctx = session_start.build_context(str(tmp_path))
     assert "Project knowledge" in ctx and session_start.SKILL_ROUTING_NOTE not in ctx
+
+
+@pytest.mark.parametrize("where", ["repo", "home"])
+def test_routing_note_is_switched_off_by_the_documented_config_key(
+    tmp_path: Path, monkeypatch, where: str
+) -> None:
+    """The off switch README and docs/configuration.md give a project owner:
+    `{"routing_note": {"enabled": false}}` in `.agentic-forge/config.json`, in the repo or in ~."""
+    monkeypatch.delenv("AGENTIC_FORGE_ROUTING_NOTE", raising=False)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    base = repo if where == "repo" else home
+    (base / ".agentic-forge").mkdir(parents=True)
+    (base / ".agentic-forge" / "config.json").write_text(
+        json.dumps({"routing_note": {"enabled": False}}), encoding="utf-8"
+    )
+    assert session_start.build_context(str(repo)) == ""
+
+
+def test_the_note_is_reinjected_after_compaction(tmp_path: Path, monkeypatch, capsys) -> None:
+    """Deliberate (field thread declined dropping it): the hook has no `source` matcher, so a
+    compacted session gets the routing note back."""
+    payload = {"cwd": str(tmp_path), "source": "compact", "session_id": "s1"}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    assert session_start.main() == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["hookSpecificOutput"]["additionalContext"] == session_start.SKILL_ROUTING_NOTE
+
+
+def test_the_off_switch_is_documented_where_a_project_owner_looks() -> None:
+    readme = " ".join((_REPO / "README.md").read_text(encoding="utf-8").split())
+    config = " ".join((_REPO / "docs" / "configuration.md").read_text(encoding="utf-8").split())
+    for text in (readme, config):
+        assert '{"routing_note": {"enabled": false}}' in text
+        assert "AGENTIC_FORGE_ROUTING_NOTE=0" in text
+        assert ".agentic-forge/config.json" in text
+    assert "after compaction" in config and "deliberate" in config
+
+
+def test_the_configuration_doc_quotes_the_note_verbatim() -> None:
+    text = (_REPO / "docs" / "configuration.md").read_text(encoding="utf-8")
+    section = text.split("### The session-start routing note", 1)[1].split("\n### ", 1)[0]
+    block = section.split("\n\n> ", 1)[1].split("\n\n", 1)[0]
+    quoted = " ".join(line.removeprefix(">").strip() for line in ("> " + block).splitlines())
+    assert quoted == session_start.SKILL_ROUTING_NOTE
