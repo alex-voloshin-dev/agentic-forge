@@ -85,8 +85,9 @@ Follow [multi-aspect-review.md](../../patterns/multi-aspect-review.md):
    ```
 
    `<sha>` is the head recorded in step 1, never a fresh lookup: a fresh one would pin the
-   review to a commit nobody reviewed. `<payload-file>` goes under the repository or the temp
-   directory (anywhere else, or through a linked directory, is refused). It re-reads the PR and
+   review to a commit nobody reviewed. `<payload-file>` is a `.json` file under the temp
+   directory, or under the repository outside any hidden directory (`.git`, `.github`, ...);
+   anywhere else, or through a linked directory, is refused. It re-reads the PR and
    refuses (exit 1) when the head is no longer `<sha>`, the PR is closed or merged, or `gh` fails:
    then review the new head, do not post. It pins `commit_id` to `<sha>`, puts a finding inline
    only when its `file:line` is an added or context line of the diff (else in the body, saying

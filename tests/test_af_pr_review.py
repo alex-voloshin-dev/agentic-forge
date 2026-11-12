@@ -452,3 +452,56 @@ def test_a_repo_whose_name_reads_as_a_number_or_null_is_asked_as_a_string(
     assert query[query.index("owner=o") - 1] == "-f"
     assert query[query.index("number=7") - 1] == "-F"
     assert json.loads(done.stdout)["post"]["argv"][4] == f"repos/o/{name}/pulls/7/reviews"
+
+
+@pytest.mark.parametrize("temp_holds_repo", [True, False])
+def test_an_existing_git_hook_cannot_become_the_payload(
+    tmp_path: Path, temp_holds_repo: bool
+) -> None:
+    """A write keeps an existing file's mode: a payload over `.git/hooks/pre-commit` would be an
+    executable hook holding PR text. Refused whether or not the repo sits in the temp dir."""
+    env = _stub_gh(tmp_path)
+    if not temp_holds_repo:
+        temp = tmp_path / "t"
+        temp.mkdir()
+        env["TMPDIR"] = str(temp)
+    repo = _checkout(tmp_path)
+    hook = repo / ".git" / "hooks" / "pre-commit"
+    hook.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    hook.chmod(0o755)
+    says = _refused(_run_out(tmp_path, env, hook, repo=repo))
+    assert ".json" in says
+    assert hook.read_text(encoding="utf-8") == "#!/bin/sh\nexit 0\n"
+    assert _gh_calls(tmp_path) == []
+
+
+@pytest.mark.parametrize(
+    "relative", [".husky/x.json", ".git/hooks/x.json", ".github/workflows/x.json", "a/.x.json"]
+)
+def test_a_hidden_component_under_the_repo_is_refused(tmp_path: Path, relative: str) -> None:
+    env = _stub_gh(tmp_path)
+    repo = _checkout(tmp_path)
+    out = repo / relative
+    says = _refused(_run_out(tmp_path, env, out, repo=repo))
+    assert "hidden" in says
+    assert not out.exists()
+    assert _gh_calls(tmp_path) == []
+
+
+@pytest.mark.parametrize("name", ["out.txt", "review", "x.json.sh"])
+def test_an_out_that_is_not_json_is_refused(tmp_path: Path, name: str) -> None:
+    env = _stub_gh(tmp_path)
+    says = _refused(_run_out(tmp_path, env, tmp_path / name))
+    assert "must be a .json file" in says
+    assert not (tmp_path / name).exists()
+    assert _gh_calls(tmp_path) == []
+
+
+@pytest.mark.parametrize("where", ["repo", "temp"])
+def test_a_plain_json_path_is_written(tmp_path: Path, where: str) -> None:
+    env = _stub_gh(tmp_path)
+    repo = _checkout(tmp_path)
+    out = repo / "reviews" / "x.json" if where == "repo" else tmp_path / "x.json"
+    done = _run_out(tmp_path, env, out, repo=repo)
+    assert done.returncode == 0, done.stderr
+    assert json.loads(out.read_text(encoding="utf-8"))["commit_id"] == _HEAD
