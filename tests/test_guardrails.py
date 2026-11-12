@@ -338,10 +338,15 @@ def test_choose_gate_never_scans_below_a_root_with_no_manifest(tmp_path: Path) -
 @pytest.mark.parametrize(
     ("files", "gate"),
     [
-        # The repo's own lint script, through the manager it declares.
-        ({"package.json": '{"scripts": {"lint": "x"}}', "yarn.lock": ""}, ["yarn", "run", "lint"]),
+        # The repo's own lint script, always through npm: `yarn`/`pnpm`/`bun run` can fail before
+        # the script starts (Yarn Berry not installed, corepack, ERR_PNPM_BAD_PM_VERSION) with an
+        # exit 1 the fail-open signatures do not know; npm runs any script with no install state.
+        ({"package.json": '{"scripts": {"lint": "x"}}', "yarn.lock": ""}, ["npm", "run", "lint"]),
+        ({"package.json": '{"packageManager": "yarn@4.12.0", "scripts": {"lint": "x"}}',
+          "yarn.lock": ""}, ["npm", "run", "lint"]),
         ({"package.json": '{"packageManager": "pnpm@9", "scripts": {"lint": "x"}}'},
-         ["pnpm", "run", "lint"]),
+         ["npm", "run", "lint"]),
+        ({"package.json": '{"scripts": {"lint": "x"}}', "bun.lockb": ""}, ["npm", "run", "lint"]),
         # No lint script: the gate used to run `npm run lint`, fail on the missing script and fail
         # open. A declared eslint is now a fallback for a person, never new blocking for the gate.
         ({"package.json": '{"devDependencies": {"eslint": "9"}}'}, None),
@@ -371,7 +376,9 @@ def test_choose_gate_only_narrows_what_it_ran(
         ("eslint $(cat files)", None),
         ("npm exec -- eslint .", None),
         ("yarn run eslint .", None),  # a bin through the manager, not the `lint` script
-        ("bun run lint", ["bun", "run", "lint"]),
+        ("bun run lint", ["npm", "run", "lint"]),
+        ("yarn run lint", ["npm", "run", "lint"]),
+        ("npm exec --no --package=eslint -- eslint .", None),
         ("golangci-lint run", ["go", "vet", "./..."]),
     ],
 )
@@ -823,3 +830,11 @@ def test_redacting_repeated_secret_words_is_not_quadratic() -> None:
     guardrails.redact_secrets("secret" * 20000)
     assert time.monotonic() - started < 5
     assert "[REDACTED]" in guardrails.redact_secrets("AWS_SECRET_ACCESS_KEY=abcdefghij")
+
+
+def test_choose_gate_reads_the_hint_as_before(tmp_path: Path) -> None:
+    """A multi-name hint gates by its first name; an unknown first name falls to the manifests."""
+    _files(tmp_path / "a", {"CLAUDE.md": "stack: cobol, rust\n", "pyproject.toml": ""})
+    assert choose_gate(tmp_path / "a") == ["ruff", "check", "."]
+    _files(tmp_path / "b", {"CLAUDE.md": "stack: go, python\n"})
+    assert choose_gate(tmp_path / "b") == ["go", "vet", "./..."]

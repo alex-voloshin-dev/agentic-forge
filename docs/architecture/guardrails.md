@@ -42,11 +42,14 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
 - **test-gate** (`PreToolUse` / Bash, `commit_gate.py`) — on `git commit`/`git push`, runs the
   **fast** gate (`dev/validate.py` if present, else the detected stack's lint via `stacks.py`) from
   the session's `cwd` and blocks on failure, so broken code isn't committed. The stack is the
-  cwd's own (`scan_subdirs=False`: the monorepo scan `stack-detect` does is off here), and the gate
-  keeps only lint shapes that cannot make it block where it used to pass (`guardrails._gate_argv`):
-  a JS/TS package's own `lint` script through its declared manager (no script, no gate — a
-  declared `eslint` stays a fallback for a person), `go vet ./...` even where the profile names
-  `golangci-lint`, and nothing with shell syntax. Skippable via
+  cwd's own, read as before the monorepo scan and multi-name hints (`stacks.gate_profile`: no
+  scan, a hint's first name, the hint file wherever it links), and the gate keeps only lint shapes
+  that cannot make it block where it used to pass (`guardrails._gate_argv`): a JS/TS package's own
+  `lint` script, always as `npm run lint` — npm needs no install state, while `yarn`/`pnpm`/`bun
+  run` can fail before the script starts (Yarn Berry not installed in a fresh worktree, a corepack
+  download, `ERR_PNPM_BAD_PM_VERSION`) with an exit 1 the fail-open signatures do not know; no
+  script, no gate, so a declared `eslint` stays a fallback for a person — `go vet ./...` even where
+  the profile names `golangci-lint`, and nothing with shell syntax. Skippable via
   `test_gate.skip` or `AGENTIC_FORGE_SKIP_TEST_GATE`;
   fails open on an infrastructure error (missing tool, timeout) **and when the gate can't run** —
   a non-zero exit whose output shows a missing lint script / uninstalled linter

@@ -74,13 +74,19 @@ stack-parametric. Mechanism (see [ADR 0015](decisions/0015-by-stack-detection-an
 - **Hints may name several stacks** — `stack: go, java` yields one profile per named stack, in
   the hint's order; unknown names are skipped, and a hint naming none falls through to manifests.
 - **Polyglot / monorepo roots** — when the root matches no manifest (and no hint), `detect` scans
-  the immediate subdirectories, one level only and bounded (at most 2,048 entries read and 64
-  directories examined, in name order; dot-dirs such as `.git` / `.claude/worktrees`, symlinked
-  directories and dependency or build output — `node_modules`, `vendor`, `target`, `build`,
-  `dist`, `out`, `bin`, `obj`, `venv`, `env`, `coverage`, … — are skipped), and returns one profile
-  per stack and directory. A hinted stack with no manifest at the root is located the same way.
-  `scan_subdirs=False` keeps detection to the root; the commit gate uses that, so a root with no
-  manifest stays ungated.
+  the immediate subdirectories, one level only, and returns one profile per stack and directory.
+  A hinted stack with no manifest at the root is located the same way. What is bounded: every
+  directory listing is one `os.scandir` cut off at 2,048 entries (the root's; each examined
+  directory's, for wildcard manifests such as `*.tf`; a `tests/`; a workflows directory) — below
+  the cap complete and sorted, past it whatever the filesystem returns first — and at most 64
+  subdirectories are examined, in name order. An exact manifest name is one `stat`, never a
+  listing. Skipped: a name that is not plain (`^[A-Za-z0-9][A-Za-z0-9._@+-]*$`, so every dot-dir
+  such as `.git` / `.claude/worktrees`, and any name with whitespace, quotes or shell syntax — the
+  name becomes `dir`, which a caller runs commands in), dependency or build output
+  (`node_modules`, `vendor`, `target`, `build`, `dist`, `out`, `bin`, `obj`, `venv`, `env`,
+  `coverage`, …), symlinked directories, and a directory this process cannot list (a bind-mounted
+  `pgdata` owned by another user); a directory that fails mid-scan yields no profile instead of
+  failing the repo. `scan_subdirs=False` keeps detection to the root.
 - **Stack profile input** — each profile carries `stack_id`, `display`, the `pack`
   (`*-patterns` skill name or `None`), a `toolchain` (`test`/`lint`/`typecheck`/`format`
   commands), its evidence `manifests`, its `source` and the `dir` it was found in (`.` = root;
@@ -88,7 +94,9 @@ stack-parametric. Mechanism (see [ADR 0015](decisions/0015-by-stack-detection-an
   workflow, AGENTS.md / CLAUDE.md, Makefile, package scripts) wins. `af.py stack-detect` says so
   in its `summary` line and its `toolchain_role: "fallback"` field, and lists the files present
   where such a gate is declared in `declared_gate_sources` (root and each profile's `dir`;
-  existence only, nothing is parsed or run).
+  existence only, nothing is parsed or run; a path part that is not a plain name, or a file
+  linking out of the repo, is left out). Those files are repo-written and untrusted: `develop`
+  takes only their test, lint, typecheck and build steps.
 - **Toolchains are resolved against the profile's directory**, not copied from the registry:
   - JavaScript / TypeScript: the package manager is the one the repo declares — the
     `packageManager` field (only `npm`/`yarn`/`pnpm`/`bun`; anything else is ignored, since the
@@ -96,19 +104,34 @@ stack-parametric. Mechanism (see [ADR 0015](decisions/0015-by-stack-detection-an
     `package-lock.json`), looked for in the profile's directory and then the repo root, else
     `npm`. Each command is listed only when `package.json` declares it: the repo's script
     (`test`, `lint`, `typecheck`/`type-check`, `format`) as `<pm> run <script>`, else a declared
-    (dev)dependency's binary through the manager (`npm exec --`, `yarn run`, `pnpm exec`,
-    `bun run` — `vitest run`/`jest`, `eslint .`, `tsc --noEmit` when a `tsconfig.json` is there,
-    `prettier --write .`), else `null`. `package.json` is read capped at 1 MiB, never through a
-    link that leaves the repo, and a malformed one declares nothing.
+    (dev)dependency's binary through the manager (`npm exec --no --package=<pkg> --`,
+    `yarn run`, `pnpm exec`, `bun run` — `vitest run`/`jest`, `eslint .`, `tsc --noEmit` when a
+    `tsconfig.json` is there, `prettier --write .`), else `null`. None of these downloads: without
+    a TTY `npm exec` assumes `--yes` and would install a missing binary from the registry (in a
+    fresh worktree `npm exec -- tsc` fetches the unrelated `tsc` package), so npm always gets `--no`
+    and the package the binary belongs to. `package.json` is read capped at 1 MiB, never through a
+    link that leaves the repo, integers parse to 0 (Python 3.9 parses a huge one quadratically), and
+    a malformed one declares nothing.
   - Go: `go test -race ./...`; lint is `golangci-lint run` when a `.golangci.{yml,yaml,toml,json}`
     sits beside `go.mod`, `go vet ./...` otherwise.
-  - JVM: the phase that includes integration tests — `./mvnw verify` (Maven wrapper) or
-    `mvn verify`; `./gradlew check` (Gradle wrapper) or `gradle check`. Maven wins when a
-    directory has both build files.
-  - Terraform (detection only, no pack yet): format `terraform fmt -check -recursive`, typecheck
-    `terraform init -backend=false && terraform validate` (a shell command; the commit gate
-    refuses any command with shell syntax and terraform names no lint), and `terraform test` only
-    when `tests/*.tftest.hcl` or a root `*.tftest.hcl` exists.
+  - JVM (`pom.xml`, `build.gradle[.kts]` or `settings.gradle[.kts]`, so the `gradle init` layout
+    with its build file in `app/` is found at the root): the phase that includes integration tests
+    — `./mvnw verify` (Maven wrapper) or `mvn verify`; `./gradlew check` (Gradle wrapper) or
+    `gradle check`. The wrapper is looked for beside the build file, then at the repo root, and
+    written as a path from the profile's `dir` (`../gradlew check`). Maven wins when a directory
+    has both build tools.
+  - Terraform (detection only, no pack yet; specificity 0, so any language stack beside it is the
+    primary): format `terraform fmt -recursive` (applies, like every stack's format), typecheck
+    `terraform init -backend=false && terraform validate`, and `terraform test` only when
+    `tests/*.tftest.hcl` or a root `*.tftest.hcl` exists. The typecheck is a shell command (the
+    commit gate refuses any command with shell syntax, and terraform names no lint), and it is not
+    read-only: `terraform init` downloads the providers and modules into `.terraform/` and may
+    rewrite `.terraform.lock.hcl` — review that file in the diff.
+- **The commit gate reads its own, narrower profile** (`stacks.gate_profile`): the cwd only (no
+  scan, so a root with no manifest stays ungated), a hint's first name only (an unknown first name
+  falls to the manifests), and the hint file read wherever it links, as before multi-name hints.
+  It runs a package's lint only as `npm run lint`, whatever manager the repo declares
+  ([guardrails](guardrails.md)).
 - **Stack reference packs** — off-listing (`disable-model-invocation: true`) `*-patterns`
   knowledge skills (toolchain, idioms, testing, layout, pitfalls), modelled on
   `engineering-standards`, read on demand by `develop` / `code-review` and the

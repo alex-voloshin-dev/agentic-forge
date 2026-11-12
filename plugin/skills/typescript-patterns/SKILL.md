@@ -20,7 +20,8 @@ field first, then the lockfile — `yarn.lock` → `yarn`, `pnpm-lock.yaml` → 
 `bun.lock`/`bun.lockb` → `bun`, `package-lock.json` → `npm` — and `npm` when nothing says
 otherwise (`<pm> run <script>`, `<pm> install`). The fallbacks `stack-detect` reports name only
 what `package.json` declares — the script, else a declared (dev)dependency run through the manager
-(`npm exec --` / `yarn run` / `pnpm exec` / `bun run`), else nothing:
+(`npm exec --no --package=<pkg> --` / `yarn run` / `pnpm exec` / `bun run` — never a download), else
+nothing:
 
 | Job | Fallback (with npm) | Gate |
 | --- | --- | --- |

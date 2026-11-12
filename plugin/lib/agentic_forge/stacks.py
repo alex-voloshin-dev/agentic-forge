@@ -28,6 +28,7 @@ does not read through a symlink that leaves the repo.
 
 from __future__ import annotations
 
+import fnmatch
 import itertools
 import json
 import os
@@ -48,6 +49,7 @@ __all__ = [
     "TOOLCHAIN_ROLE",
     "detect",
     "primary",
+    "gate_profile",
     "declared_gate_sources",
     "format_profile",
     "format_profiles",
@@ -128,8 +130,8 @@ STACKS: dict[str, StackSpec] = {
         toolchain=Toolchain(
             test="npm run test",
             lint="npm run lint",
-            typecheck="npm exec -- tsc --noEmit",
-            format="npm exec -- prettier --write .",
+            typecheck="npm exec --no --package=typescript -- tsc --noEmit",
+            format="npm exec --no --package=prettier -- prettier --write .",
         ),
         pack="typescript-patterns",
         specificity=3,
@@ -139,7 +141,9 @@ STACKS: dict[str, StackSpec] = {
         display="JavaScript (Node)",
         manifests=("package.json",),
         toolchain=Toolchain(
-            test="npm run test", lint="npm run lint", format="npm exec -- prettier --write ."
+            test="npm run test",
+            lint="npm run lint",
+            format="npm exec --no --package=prettier -- prettier --write .",
         ),
         pack="javascript-patterns",
         specificity=1,
@@ -171,12 +175,15 @@ STACKS: dict[str, StackSpec] = {
     "jvm": StackSpec(
         id="jvm",
         display="JVM (Java/Kotlin)",
-        manifests=("pom.xml", "build.gradle", "build.gradle.kts"),
+        manifests=(
+            "pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"
+        ),
         # JVM spans Maven/Gradle and has no single canonical formatter (spotless/ktlint/
         # checkstyle vary), so lint/format stay unset — jvm-patterns defers to the repo's
         # configured ones. The test command is the lifecycle phase that also runs integration
         # tests (`verify` runs failsafe's *IT, `test` does not; Gradle's `check` runs `test` and
-        # every verification task), through the wrapper when the repo ships one (`_jvm_toolchain`).
+        # every verification task), through the wrapper when the repo ships one — beside the build
+        # file, else at the repo root (`_jvm_toolchain`).
         toolchain=Toolchain(test="mvn verify"),
         pack="jvm-patterns",
         specificity=2,
@@ -209,7 +216,8 @@ STACKS: dict[str, StackSpec] = {
     # (validate needs an initialised working dir; `-backend=false` touches no state). Callers that
     # run a toolchain command run it through a shell; the commit gate runs only `lint` (None here)
     # and refuses any command with shell syntax. `test` is dropped when no *.tftest.hcl exists.
-    # Specificity 1: *.tf beside a language manifest is usually the service's infra, not the stack.
+    # `format` applies, like every stack's. Specificity 0: *.tf beside any language manifest is
+    # that service's infra, not its stack.
     "terraform": StackSpec(
         id="terraform",
         display="Terraform",
@@ -217,10 +225,10 @@ STACKS: dict[str, StackSpec] = {
         toolchain=Toolchain(
             test="terraform test",
             typecheck="terraform init -backend=false && terraform validate",
-            format="terraform fmt -check -recursive",
+            format="terraform fmt -recursive",
         ),
         pack=None,
-        specificity=1,
+        specificity=0,
     ),
 }
 
@@ -270,8 +278,19 @@ _SCAN_SKIP = frozenset({
     "node_modules", "vendor", "target", "build", "dist", "out", "bin", "obj", "venv", "env",
     "__pycache__", "coverage", "site-packages",
 })
-_SCAN_MAX_ENTRIES = 2048  # directory entries read from the root
+# Every directory listing here is ONE `os.scandir`, cut off at this many entries: the root's (for
+# the scan), each examined directory's (for wildcard manifests such as `*.tf`), a `tests/` and a
+# workflows directory. Below the cap the result is complete and sorted; past it, which entries are
+# seen is the filesystem's order. Exact manifest names are a `stat` each, never a listing.
+_SCAN_MAX_ENTRIES = 2048
 _SCAN_MAX_DIRS = 64  # subdirectories examined, in name order
+# A subdirectory name reaches `dir`, the summary, `declared_gate_sources` and the working directory
+# a caller runs commands in, so only a plain name passes: no whitespace, quotes or shell syntax, no
+# leading dot or dash (a dot-dir is never a service anyway).
+_SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@+-]{0,127}$")
+# The same shape for a path part of a declared gate source, which may also be a dot-name
+# (`.github`, `.gitlab-ci.yml`).
+_SAFE_SOURCE_PART = re.compile(r"^\.?[A-Za-z0-9][A-Za-z0-9._@+-]{0,127}$")
 
 _PACKAGE_JSON_MAX_BYTES = 1024 * 1024
 # The only package managers a profile ever names: the value reaches argv, so a `packageManager`
@@ -284,11 +303,11 @@ _LOCKFILES = (
     ("bun.lockb", "bun"),
     ("package-lock.json", "npm"),
 )
-# How each manager runs a dependency's binary (never a global one, never a download): `npm exec --`
-# keeps the tool's flags away from npm; yarn (classic and berry) and bun resolve a dependency's bin
-# with `run`.
-_PM_EXEC = {"npm": "npm exec --", "yarn": "yarn run", "pnpm": "pnpm exec", "bun": "bun run"}
+# How yarn (classic and berry), pnpm and bun run an installed dependency's binary; none of them
+# downloads a missing one. npm is `_exec`'s special case.
+_PM_RUN_BIN = {"yarn": "yarn run", "pnpm": "pnpm exec", "bun": "bun run"}
 _GOLANGCI_CONFIGS = (".golangci.yml", ".golangci.yaml", ".golangci.toml", ".golangci.json")
+_GRADLE_FILES = ("build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts")
 
 
 def _inside(root: Path, path: Path) -> bool:
@@ -300,16 +319,39 @@ def _inside(root: Path, path: Path) -> bool:
     return True
 
 
-def _read_head(root: Path, path: Path, cap: int) -> bytes | None:
-    """At most ``cap + 1`` bytes of a regular file inside ``root``, else None. ``is_file`` follows
-    the link and is false for a pipe or a device, so a name a repo points at one is never opened."""
+def _read_head(root: Path | None, path: Path, cap: int) -> bytes | None:
+    """At most ``cap + 1`` bytes of a regular file inside ``root`` (anywhere when ``root`` is
+    None), else None. ``is_file`` follows the link and is false for a pipe or a device, so a name a
+    repo points at one is never opened."""
     try:
-        if not path.is_file() or not _inside(root, path):
+        if not path.is_file() or (root is not None and not _inside(root, path)):
             return None
         with path.open("rb") as handle:
             return handle.read(cap + 1)
     except OSError:
         return None
+
+
+def _list_dir(where: Path) -> list[os.DirEntry[str]]:
+    """At most ``_SCAN_MAX_ENTRIES`` entries of ``where``, by name; [] if it cannot be read."""
+    try:
+        with os.scandir(where) as listing:
+            entries = list(itertools.islice(listing, _SCAN_MAX_ENTRIES))
+    except OSError:
+        return []
+    return sorted(entries, key=lambda entry: entry.name)
+
+
+def _file_names(where: Path) -> list[str]:
+    """The regular files (a link to one included, as ``Path.is_file``) in ``_list_dir(where)``."""
+
+    def is_file(entry: os.DirEntry[str]) -> bool:
+        try:
+            return entry.is_file()
+        except OSError:
+            return False
+
+    return [entry.name for entry in _list_dir(where) if is_file(entry)]
 
 
 def _normalize_hint(raw: str) -> str | None:
@@ -320,21 +362,24 @@ def _normalize_hint(raw: str) -> str | None:
     return _ALIASES.get(token)
 
 
-def _read_hint(repo: Path) -> list[str]:
+def _read_hint(repo: Path, *, follow_links: bool = False, first_only: bool = False) -> list[str]:
     """The canonical stack ids a `stack:` hint in CLAUDE.md / AGENTS.md names, in its order.
 
     Unknown names are skipped; a hint naming none falls through to the next file, then to [].
+    ``first_only`` reads the first name alone (unknown -> the next file), as the single-name hint
+    did; ``follow_links`` reads a hint file wherever it links, as the commit gate always has.
     """
     for name in ("CLAUDE.md", "AGENTS.md"):
-        data = _read_head(repo, repo / name, _HINT_MAX_BYTES)
+        data = _read_head(None if follow_links else repo, repo / name, _HINT_MAX_BYTES)
         if data is None:
             continue
         head = data[:_HINT_MAX_BYTES].decode("utf-8", errors="ignore")
         match = next(filter(None, map(_HINT_RE.match, head.splitlines())), None)
         if not match:
             continue
+        raw_names = match.group(1).split(",")
         ids: list[str] = []
-        for raw in match.group(1).split(","):
+        for raw in raw_names[:1] if first_only else raw_names:
             canonical = _normalize_hint(raw)
             if canonical and canonical not in ids:
                 ids.append(canonical)
@@ -343,34 +388,38 @@ def _read_hint(repo: Path) -> list[str]:
     return []
 
 
-def _matched_manifests(repo: Path, spec: StackSpec) -> tuple[str, ...]:
-    """Manifest filenames (relative, sorted) present in ``repo`` for ``spec``."""
+def _matched_manifests(
+    where: Path, spec: StackSpec, files: list[str] | None = None
+) -> tuple[str, ...]:
+    """Manifest filenames (relative, sorted) present in ``where`` for ``spec``. An exact name is a
+    stat; a wildcard is matched against ``files`` (one capped listing of ``where``)."""
     found: set[str] = set()
     for pattern in spec.manifests:
         if "*" in pattern:
-            found.update(p.name for p in repo.glob(pattern) if p.is_file())
-        elif (repo / pattern).is_file():
+            if files is None:
+                files = _file_names(where)
+            found.update(name for name in files if fnmatch.fnmatchcase(name, pattern))
+        elif (where / pattern).is_file():
             found.add(pattern)
     return tuple(sorted(found))
 
 
 def _subdirs(root: Path) -> list[Path]:
-    """The immediate subdirectories a monorepo scan examines: bounded, sorted, no symlinks."""
+    """The immediate subdirectories a monorepo scan examines: bounded, sorted, plain names only,
+    no symlinks, and only those this process can list (a bind-mounted `pgdata` owned by another
+    user is skipped rather than raising)."""
 
     def scannable(entry: os.DirEntry[str]) -> bool:
-        if entry.name.startswith(".") or entry.name in _SCAN_SKIP:
+        if not _SAFE_NAME.match(entry.name) or entry.name in _SCAN_SKIP:
             return False
         try:
-            return entry.is_dir(follow_symlinks=False)
+            if not entry.is_dir(follow_symlinks=False):
+                return False
         except OSError:
             return False
+        return os.access(entry.path, os.R_OK | os.X_OK)
 
-    try:
-        with os.scandir(root) as listing:
-            entries = list(itertools.islice(listing, _SCAN_MAX_ENTRIES))
-    except OSError:
-        return []
-    names = sorted(entry.name for entry in entries if scannable(entry))
+    names = [entry.name for entry in _list_dir(root) if scannable(entry)]
     return [root / name for name in names[:_SCAN_MAX_DIRS]]
 
 
@@ -378,12 +427,13 @@ def _subdirs(root: Path) -> list[Path]:
 
 
 def _package_json(root: Path, where: Path) -> dict[str, Any]:
-    """``where/package.json`` as a dict; {} when absent, oversized, outside the repo or invalid."""
+    """``where/package.json`` as a dict; {} when absent, oversized, outside the repo or invalid.
+    Integers parse to 0: Python 3.9 has no digit limit, and a huge one parses quadratically."""
     data = _read_head(root, where / "package.json", _PACKAGE_JSON_MAX_BYTES)
     if data is None or len(data) > _PACKAGE_JSON_MAX_BYTES:
         return {}
     try:
-        doc = json.loads(data.decode("utf-8", errors="replace"))
+        doc = json.loads(data.decode("utf-8", errors="replace"), parse_int=lambda _: 0)
     except (ValueError, RecursionError):
         return {}
     return doc if isinstance(doc, dict) else {}
@@ -410,6 +460,17 @@ def _package_manager(dirs: Iterable[Path], docs: Iterable[dict[str, Any]]) -> st
     return "npm"
 
 
+def _exec(pm: str, package: str, invocation: str) -> str:
+    """Run the installed binary of a declared dependency through ``pm`` — never a download.
+
+    Without a TTY `npm exec` assumes `--yes` and installs a missing package from the registry: in a
+    fresh worktree with no node_modules, `npm exec -- tsc` fetches and runs the unrelated `tsc`
+    package. `--no` refuses to install, and `--package` names the package the binary belongs to."""
+    if pm == "npm":
+        return f"npm exec --no --package={package} -- {invocation}"
+    return f"{_PM_RUN_BIN[pm]} {invocation}"
+
+
 def _js_toolchain(root: Path, where: Path, spec: StackSpec) -> Toolchain:
     """A command only for what package.json declares: the repo's script first, else a declared
     (dev)dependency's binary through the package manager, else None."""
@@ -431,7 +492,7 @@ def _js_toolchain(root: Path, where: Path, spec: StackSpec) -> Toolchain:
                 return f"{pm} run {script}"
         for package, invocation in tools:
             if package in deps:
-                return f"{_PM_EXEC[pm]} {invocation}"
+                return _exec(pm, package, invocation)
         return None
 
     has_tsconfig = (where / "tsconfig.json").is_file()
@@ -452,11 +513,22 @@ def _go_toolchain(root: Path, where: Path, spec: StackSpec) -> Toolchain:
     return spec.toolchain
 
 
+def _wrapper(root: Path, where: Path, name: str) -> str | None:
+    """A build wrapper in ``where``, else at the repo root (the `gradle init` layout keeps it there
+    beside settings.gradle), as a path to run from ``where``."""
+    for base in [where] if where == root else [where, root]:
+        if (base / name).is_file():
+            if base == where:
+                return f"./{name}"
+            return Path(os.path.relpath(base / name, where)).as_posix()
+    return None
+
+
 def _jvm_toolchain(root: Path, where: Path, spec: StackSpec) -> Toolchain:
     if (where / "pom.xml").is_file():
-        test = "./mvnw verify" if (where / "mvnw").is_file() else "mvn verify"
-    elif (where / "build.gradle").is_file() or (where / "build.gradle.kts").is_file():
-        test = "./gradlew check" if (where / "gradlew").is_file() else "gradle check"
+        test = f"{_wrapper(root, where, 'mvnw') or 'mvn'} verify"
+    elif any((where / name).is_file() for name in _GRADLE_FILES):
+        test = f"{_wrapper(root, where, 'gradlew') or 'gradle'} check"
     else:  # hinted, no build file here: the convention
         return spec.toolchain
     return replace(spec.toolchain, test=test)
@@ -464,8 +536,12 @@ def _jvm_toolchain(root: Path, where: Path, spec: StackSpec) -> Toolchain:
 
 def _terraform_toolchain(root: Path, where: Path, spec: StackSpec) -> Toolchain:
     tests = where / "tests"
-    has_tests = any(where.glob("*.tftest.hcl")) or (
-        tests.is_dir() and not tests.is_symlink() and any(tests.glob("*.tftest.hcl"))
+
+    def has_tftest(directory: Path) -> bool:
+        return any(fnmatch.fnmatchcase(name, "*.tftest.hcl") for name in _file_names(directory))
+
+    has_tests = has_tftest(where) or (
+        tests.is_dir() and not tests.is_symlink() and has_tftest(tests)
     )
     return spec.toolchain if has_tests else replace(spec.toolchain, test=None)
 
@@ -497,7 +573,10 @@ def _profile(
 
 def _manifest_matches(where: Path) -> list[tuple[StackSpec, tuple[str, ...]]]:
     """Every stack whose manifest is in ``where``; TypeScript supersedes a bare package.json."""
-    matches = [(spec, m) for spec in STACKS.values() if (m := _matched_manifests(where, spec))]
+    files = _file_names(where)
+    matches = [
+        (spec, m) for spec in STACKS.values() if (m := _matched_manifests(where, spec, files))
+    ]
     ids = {spec.id for spec, _ in matches}
     if "typescript" in ids and "javascript" in ids:
         matches = [(spec, m) for spec, m in matches if spec.id != "javascript"]
@@ -508,6 +587,18 @@ def _rank(profile: StackProfile) -> tuple[int, str, str]:
     return (-STACKS[profile.stack_id].specificity, profile.stack_id, profile.dir)
 
 
+def _below(root: Path, where: Path, spec: StackSpec | None) -> list[StackProfile]:
+    """The profiles one scanned subdirectory yields (only ``spec``'s when given). A directory that
+    stops being readable mid-scan yields none: an OSError there is not the whole repo's failure."""
+    try:
+        if spec is not None:
+            found = _matched_manifests(where, spec)
+            return [_profile(root, where, spec, found, "hint")] if found else []
+        return [_profile(root, where, s, m, "manifest") for s, m in _manifest_matches(where)]
+    except OSError:
+        return []
+
+
 def detect(repo: Path | str, *, scan_subdirs: bool = True) -> list[StackProfile]:
     """Detect the stack(s) in ``repo``, most-relevant first.
 
@@ -516,7 +607,7 @@ def detect(repo: Path | str, *, scan_subdirs: bool = True) -> list[StackProfile]
     manifest signature is at the root is returned, ranked by specificity (TypeScript supersedes a
     bare ``package.json``). A root that matches nothing is scanned one level down (bounded; see
     ``_subdirs``) and yields one profile per stack and directory. Nothing anywhere returns
-    ``[UNKNOWN]``. ``scan_subdirs=False`` keeps detection to the root — the commit gate's view.
+    ``[UNKNOWN]``. ``scan_subdirs=False`` keeps detection to the root.
     """
     root = Path(repo)
     subdirs: list[Path] | None = None
@@ -533,24 +624,15 @@ def detect(repo: Path | str, *, scan_subdirs: bool = True) -> list[StackProfile]
         for stack_id in hinted:
             spec = STACKS[stack_id]
             here = _matched_manifests(root, spec)
-            found = [] if here else [
-                (where, m) for where in below() if (m := _matched_manifests(where, spec))
-            ]
-            if found:
-                profiles.extend(_profile(root, where, spec, m, "hint") for where, m in found)
-            else:
-                profiles.append(_profile(root, root, spec, here, "hint"))
+            found = [] if here else [p for where in below() for p in _below(root, where, spec)]
+            profiles.extend(found or [_profile(root, root, spec, here, "hint")])
         return profiles
 
     found_at_root = _manifest_matches(root)
     if found_at_root:
         profiles = [_profile(root, root, spec, m, "manifest") for spec, m in found_at_root]
     else:
-        profiles = [
-            _profile(root, where, spec, m, "manifest")
-            for where in below()
-            for spec, m in _manifest_matches(where)
-        ]
+        profiles = [p for where in below() for p in _below(root, where, None)]
     if not profiles:
         return [UNKNOWN]
     return sorted(profiles, key=_rank)
@@ -561,6 +643,20 @@ def primary(repo: Path | str, *, scan_subdirs: bool = True) -> StackProfile:
     return detect(repo, scan_subdirs=scan_subdirs)[0]
 
 
+def gate_profile(cwd: Path | str) -> StackProfile:
+    """The profile the commit gate takes its lint from, read as it was before multi-name hints and
+    the monorepo scan, so a richer `stack-detect` cannot change what the gate runs: ``cwd`` only,
+    a hint's FIRST name only (unknown -> the next file, then manifests), and the hint file read
+    wherever it links (a regular file, capped) — it is the file the session itself reads."""
+    root = Path(cwd)
+    hinted = _read_hint(root, follow_links=True, first_only=True)
+    if hinted:
+        spec = STACKS[hinted[0]]
+        return _profile(root, root, spec, _matched_manifests(root, spec), "hint")
+    found = [_profile(root, root, spec, m, "manifest") for spec, m in _manifest_matches(root)]
+    return sorted(found, key=_rank)[0] if found else UNKNOWN
+
+
 # Where a repo declares its own gate, relative to a profile's directory. Existence only: these are
 # pointers for the reader, never parsed or run here.
 _GATE_SOURCE_FILES = (
@@ -568,9 +664,12 @@ _GATE_SOURCE_FILES = (
     "noxfile.py", ".pre-commit-config.yaml", ".gitlab-ci.yml", ".circleci/config.yml",
     "azure-pipelines.yml", "bitbucket-pipelines.yml", "Jenkinsfile",
 )
-_GATE_SOURCE_GLOBS = (".github/workflows/*.yml", ".github/workflows/*.yaml")
+_WORKFLOW_SUFFIXES = (".yml", ".yaml")
 _GATE_SOURCES_MAX = 32
-_GLOB_LIST_MAX = 256  # entries read from one workflows directory before sorting
+
+
+def _safe_dir(rel: str) -> bool:
+    return rel == "." or all(_SAFE_NAME.match(part) for part in rel.split("/"))
 
 
 def declared_gate_sources(
@@ -578,20 +677,29 @@ def declared_gate_sources(
 ) -> list[str]:
     """Files where ``repo`` may declare its own gate — CI workflows, agent docs, task runners,
     package scripts — at the root and in each profile's directory. Sorted repo-relative POSIX paths,
-    at most ``_GATE_SOURCES_MAX``; a file that resolves outside the repo is left out."""
+    at most ``_GATE_SOURCES_MAX``. A file that resolves outside the repo, or whose path has a part
+    that is not a plain name (``_SAFE_SOURCE_PART``), is left out; so is a directory that cannot be
+    read."""
     root = Path(repo)
     dirs = ["."]
-    dirs.extend(p.dir for p in profiles if p.dir not in dirs)
+    dirs.extend(p.dir for p in profiles if p.dir not in dirs and _safe_dir(p.dir))
     found: set[str] = set()
     for rel in dirs:
         where = root if rel == "." else root / rel
-        candidates = [where / name for name in _GATE_SOURCE_FILES]
-        for pattern in _GATE_SOURCE_GLOBS:
-            listed = sorted(itertools.islice(where.glob(pattern), _GLOB_LIST_MAX))
-            candidates.extend(listed[:_GATE_SOURCES_MAX])
-        for path in candidates:
-            if path.is_file() and _inside(root, path):
-                found.add(path.relative_to(root).as_posix())
+        try:
+            candidates = [where / name for name in _GATE_SOURCE_FILES]
+            workflows = where / ".github" / "workflows"
+            if workflows.is_dir():
+                names = [n for n in _file_names(workflows) if n.endswith(_WORKFLOW_SUFFIXES)]
+                candidates.extend(workflows / name for name in names[:_GATE_SOURCES_MAX])
+            for path in candidates:
+                if not path.is_file() or not _inside(root, path):
+                    continue
+                source = path.relative_to(root).as_posix()
+                if all(_SAFE_SOURCE_PART.match(part) for part in source.split("/")):
+                    found.add(source)
+        except OSError:
+            continue
     return sorted(found)[:_GATE_SOURCES_MAX]
 
 

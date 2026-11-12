@@ -64,13 +64,14 @@ what it changes (ADR 0101):
 |---|---|---|
 | `ruff check .` | skipped | `ruff check` on the changed `.py`, `.pyi`, `.pyw`, `.ipynb` files under cwd, skipped if there are none. Whole if the commit touches a ruff config, you have a user-level ruff config, a config on the path mentions `include`, `extend-include`, `extension` or `extend`, a tracked lintable name under cwd is a symlink, or a changed path is a directory, submodule or symlink |
 | `go vet ./...` | skipped | unchanged, if anything under cwd changed; otherwise skipped |
-| `dev/validate.py`, `<pm> run lint`, `cargo clippy`, `rubocop` | skipped | unchanged, whole |
+| `dev/validate.py`, `npm run lint`, `cargo clippy`, `rubocop` | skipped | unchanged, whole |
 
-The stack's lint comes from `stack-detect`'s profile for the cwd itself (never a subdirectory), and the gate runs a narrower
-set of it than the profile lists: a JavaScript/TypeScript package is gated only by its own `lint` script, through the package
-manager the repo declares (`npm`, `yarn`, `pnpm` or `bun`); with no `lint` script it is not gated, even if `eslint` is a
-dependency. A Go module with a golangci config is still gated by `go vet ./...`, not `golangci-lint`. A lint with shell syntax
-in it is never run.
+The stack's lint comes from the cwd itself (never a subdirectory; a `stack:` hint by its first name), and the gate runs a
+narrower set of it than `stack-detect` lists: a JavaScript/TypeScript package is gated only by its own `lint` script, and
+always as `npm run lint`, whatever package manager the repo declares — npm runs any `package.json` script with no install
+state, while `yarn`/`pnpm`/`bun run` can fail before the script starts. With no `lint` script it is not gated, even if `eslint`
+is a dependency. A Go module with a golangci config is still gated by `go vet ./...`, not `golangci-lint`. A lint with shell
+syntax in it is never run.
 
 *Simple* means an optional single `git add <literal paths>`, `git add -A` or `git add .` joined by `&&`, then `git commit`
 with only `-m`, `-a`, `-am`, `-qm`, `--allow-empty`, `--no-verify`, `-q` or `-s` (and their long forms), a heredoc message as
