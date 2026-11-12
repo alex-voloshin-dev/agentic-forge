@@ -8,6 +8,8 @@ seam) and its trust-boundary posture; builds on [0041](0041-plugin-settings.md) 
 (settings) and the [multi-aspect-review](../../../plugin/patterns/multi-aspect-review.md) /
 [adversarial-review](../../../plugin/patterns/adversarial-review.md) patterns.
 
+> **Amended 2026-11-11 by [ADR 0109](0109-four-field-bugs.md):** the prompt goes to codex on stdin, not as one argv element.
+
 ## Context
 
 ADR 0042 shipped the external reviewer (`codex`) as a pure seam plus a CLI, deliberately **off by

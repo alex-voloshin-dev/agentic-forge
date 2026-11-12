@@ -10,6 +10,8 @@ thing. Extends [0072](0072-shipped-cli-and-user-level-state.md) (runtime CLIs sh
 of [0045](0045-pr-watcher-1b.md) and [0103](0103-a-checkout-does-not-steer-the-watcher.md) on forks and on who
 may reach a fixer to the path a session takes.
 
+> **Amended 2026-11-11 by [ADR 0109](0109-four-field-bugs.md):** a phase on `proceed` sets `review_decision: proceed`, not `status: approved`; exit 3 of `handoff-load` means do not mark it proceed.
+
 ## Context
 
 The skills told the model to run the library inline. Two separate failures came out of that one form.

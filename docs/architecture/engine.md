@@ -74,7 +74,7 @@ against small per-type JSON Schemas, reusing `frontmatter.py`. It exposes `load_
 `schema_for`, plus the `status`, `verdict`, and `severity` vocabularies. See
 [ADR 0010](decisions/0010-handoff-schemas-and-pattern-references.md) for the schema rules.
 
-**Readiness has a field of its own.** A consuming phase builds only on an artifact whose review
+**Readiness has a field of its own (ADR 0109).** A consuming phase builds only on an artifact whose review
 loop reached `proceed`; `handoff_readiness(header)` decides that and returns `(ready, field)`. When
 the header carries `review_decision` (closed vocabulary `proceed | revise | escalate`) that field
 alone decides: ready iff it is exactly `proceed`, whatever `status` says. A loop-gated phase writes

@@ -33,6 +33,8 @@ Lives at `docs/knowledge/` in the target repo:
 
 ### How the vault is read
 
+Since ADR 0109 the vault is read from every folder, not only its top level.
+
 `load_vault` walks the vault breadth first, each folder's entries in name order (the entry cap
 below can stop partway through a folder, and which of its entries were looked at by then is the
 filesystem's listing order). It skips any
