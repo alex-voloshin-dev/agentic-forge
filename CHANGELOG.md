@@ -7,6 +7,8 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.11.10] - 2026-11-11
+
 ### Fixed
 
 Four bugs reported from real repositories (ADR 0109).
