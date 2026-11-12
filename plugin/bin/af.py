@@ -380,12 +380,17 @@ def _plan_batches(args: argparse.Namespace) -> int:
 def _stack_detect(args: argparse.Namespace) -> int:
     from agentic_forge import stacks
 
-    profiles = stacks.detect(_directory(args.repo))
+    repo = _directory(args.repo)
+    profiles = stacks.detect(repo)
     _emit({
         "primary": dataclasses.asdict(profiles[0]),
         "profiles": [dataclasses.asdict(profile) for profile in profiles],
         "pack_paths": [str(p) for p in stacks.pack_paths(_PLUGIN_ROOT, profiles[0])],
-        "summary": stacks.format_profile(profiles[0]),
+        # Every profile's toolchain is a fallback: the repo's declared gate wins, and these are the
+        # files where a repo declares one (CI workflows, agent docs, task runners, package scripts).
+        "toolchain_role": stacks.TOOLCHAIN_ROLE,
+        "declared_gate_sources": stacks.declared_gate_sources(repo, profiles),
+        "summary": stacks.format_profiles(profiles),
     })
     return EXIT_OK
 

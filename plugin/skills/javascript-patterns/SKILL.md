@@ -14,15 +14,17 @@ ADR 0015, by-stack detection + reference packs.)
 
 ## Toolchain
 
-**Prefer the repo's own scripts** (`package.json` `scripts`); use the package manager the
-**lockfile** implies (`package-lock.json` → `npm`, `pnpm-lock.yaml` → `pnpm`, `yarn.lock` →
-`yarn`, `bun.lock`/`bun.lockb` → `bun`). Defaults:
+**Prefer the repo's own scripts** (`package.json` `scripts`); use the package manager the repo
+**declares** (the `packageManager` field, then `yarn.lock` → `yarn`, `pnpm-lock.yaml` → `pnpm`,
+`bun.lock`/`bun.lockb` → `bun`, `package-lock.json` → `npm`; `npm` when nothing says otherwise).
+The fallbacks `stack-detect` reports name only what `package.json` declares — the script, else a
+declared (dev)dependency run through the manager, else nothing:
 
-| Job | Conventional command | Gate |
+| Job | Fallback (with npm) | Gate |
 | --- | --- | --- |
-| test | `npm test` (often `vitest`/`jest`) | green; new behaviour covered |
-| lint | `npm run lint` (or `eslint .`) | clean (no new `eslint-disable`) |
-| format | `prettier --write .` | applied |
+| test | `npm run test`, else `vitest run` / `jest` if declared | green; new behaviour covered |
+| lint | `npm run lint`, else `eslint .` if declared | clean (no new `eslint-disable`) |
+| format | `npm run format`, else `prettier --write .` if declared | applied |
 | types | `// @ts-check` + JSDoc (optionally `tsc --checkJs`) | no editor type errors |
 
 ## Idioms

@@ -75,7 +75,9 @@ def stand(tmp_path: Path) -> tuple[Path, Path, Path]:
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
-    (repo / "package.json").write_text('{"name": "x", "scripts": {}}', encoding="utf-8")
+    # A `lint` script, so the gate is `npm run lint` (a package with none is not gated), and npm is
+    # not on the hook's PATH: the gate fails open, which is the path that writes state.
+    (repo / "package.json").write_text('{"name": "x", "scripts": {"lint": "x"}}', encoding="utf-8")
     (repo / "f").write_text("x", encoding="utf-8")
     return repo, home, tmp_path
 

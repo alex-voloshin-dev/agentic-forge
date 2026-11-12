@@ -1,7 +1,7 @@
 # Stage 2 — SDLC spine
 
 Status: **Built** — the six-phase spine is implemented and proven end-to-end (Tier-3), and
-by-stack ships a `*-patterns` pack for every registered stack. Workflow model; decisions in
+by-stack ships a `*-patterns` pack for every registered language stack. Workflow model; decisions in
 [ADR 0013](decisions/0013-spine-workflow-chain.md) (which supersedes the earlier "thin router"
 ADR 0012). Builds on the Stage 1 engine ([engine.md](engine.md)), the handoff contract
 ([patterns/handoff.md](../../plugin/patterns/handoff.md)), and reuses ideas from the ancestor
@@ -69,11 +69,46 @@ stack-parametric. Mechanism (see [ADR 0015](decisions/0015-by-stack-detection-an
   `StackProfile`s from an explicit `stack:` hint (CLAUDE.md / AGENTS.md) or manifest signatures
   (`pyproject.toml` → python, `tsconfig.json` → typescript (suppressing a co-present bare
   `package.json`), bare `package.json` → javascript,
-  `go.mod` → go, `Cargo.toml` → rust, …). Detection is a tested fact, not an LLM guess.
+  `go.mod` → go, `Cargo.toml` → rust, `*.tf` / `.terraform.lock.hcl` → terraform, …). Detection
+  is a tested fact, not an LLM guess.
+- **Hints may name several stacks** — `stack: go, java` yields one profile per named stack, in
+  the hint's order; unknown names are skipped, and a hint naming none falls through to manifests.
+- **Polyglot / monorepo roots** — when the root matches no manifest (and no hint), `detect` scans
+  the immediate subdirectories, one level only and bounded (at most 2,048 entries read and 64
+  directories examined, in name order; dot-dirs such as `.git` / `.claude/worktrees`, symlinked
+  directories and dependency or build output — `node_modules`, `vendor`, `target`, `build`,
+  `dist`, `out`, `bin`, `obj`, `venv`, `env`, `coverage`, … — are skipped), and returns one profile
+  per stack and directory. A hinted stack with no manifest at the root is located the same way.
+  `scan_subdirs=False` keeps detection to the root; the commit gate uses that, so a root with no
+  manifest stays ungated.
 - **Stack profile input** — each profile carries `stack_id`, `display`, the `pack`
-  (`*-patterns` skill name or `None`), and a `toolchain` (`test`/`lint`/`typecheck`/`format`
-  commands). Profile commands are **conventional fallbacks**; the repo's declared commands
-  (CLAUDE.md / Makefile / scripts) win.
+  (`*-patterns` skill name or `None`), a `toolchain` (`test`/`lint`/`typecheck`/`format`
+  commands), its evidence `manifests`, its `source` and the `dir` it was found in (`.` = root;
+  run its commands there). Profile commands are **fallbacks**: the repo's declared gate (its CI
+  workflow, AGENTS.md / CLAUDE.md, Makefile, package scripts) wins. `af.py stack-detect` says so
+  in its `summary` line and its `toolchain_role: "fallback"` field, and lists the files present
+  where such a gate is declared in `declared_gate_sources` (root and each profile's `dir`;
+  existence only, nothing is parsed or run).
+- **Toolchains are resolved against the profile's directory**, not copied from the registry:
+  - JavaScript / TypeScript: the package manager is the one the repo declares — the
+    `packageManager` field (only `npm`/`yarn`/`pnpm`/`bun`; anything else is ignored, since the
+    name reaches argv), then the lockfile (`yarn.lock`, `pnpm-lock.yaml`, `bun.lock`/`bun.lockb`,
+    `package-lock.json`), looked for in the profile's directory and then the repo root, else
+    `npm`. Each command is listed only when `package.json` declares it: the repo's script
+    (`test`, `lint`, `typecheck`/`type-check`, `format`) as `<pm> run <script>`, else a declared
+    (dev)dependency's binary through the manager (`npm exec --`, `yarn run`, `pnpm exec`,
+    `bun run` — `vitest run`/`jest`, `eslint .`, `tsc --noEmit` when a `tsconfig.json` is there,
+    `prettier --write .`), else `null`. `package.json` is read capped at 1 MiB, never through a
+    link that leaves the repo, and a malformed one declares nothing.
+  - Go: `go test -race ./...`; lint is `golangci-lint run` when a `.golangci.{yml,yaml,toml,json}`
+    sits beside `go.mod`, `go vet ./...` otherwise.
+  - JVM: the phase that includes integration tests — `./mvnw verify` (Maven wrapper) or
+    `mvn verify`; `./gradlew check` (Gradle wrapper) or `gradle check`. Maven wins when a
+    directory has both build files.
+  - Terraform (detection only, no pack yet): format `terraform fmt -check -recursive`, typecheck
+    `terraform init -backend=false && terraform validate` (a shell command; the commit gate
+    refuses any command with shell syntax and terraform names no lint), and `terraform test` only
+    when `tests/*.tftest.hcl` or a root `*.tftest.hcl` exists.
 - **Stack reference packs** — off-listing (`disable-model-invocation: true`) `*-patterns`
   knowledge skills (toolchain, idioms, testing, layout, pitfalls), modelled on
   `engineering-standards`, read on demand by `develop` / `code-review` and the
@@ -81,10 +116,11 @@ stack-parametric. Mechanism (see [ADR 0015](decisions/0015-by-stack-detection-an
   (`${CLAUDE_PLUGIN_ROOT}/skills/<pack>/SKILL.md`, resolved by `stacks.pack_paths`), because an
   off-listing skill cannot be invoked by name and is absent from the model's listing (ADR 0094).
 
-**Status:** detection ships for the common stacks, and **every registered stack now ships a
-`*-patterns` pack** — python, typescript, javascript, go, rust, jvm, dotnet, ruby, php. An
-**unrecognized** repo (`unknown`) falls back to `engineering-standards` only (logged, not
-silent); a future *detection-only* stack would fall back to standards + its toolchain defaults.
+**Status:** detection ships for the common stacks, and **every registered language stack ships
+a `*-patterns` pack** — python, typescript, javascript, go, rust, jvm, dotnet, ruby, php.
+`terraform` is the first *detection-only* stack: it falls back to `engineering-standards` + its
+toolchain until a pack ships. An **unrecognized** repo (`unknown`) falls back to
+`engineering-standards` only (logged, not silent).
 New stacks get a pack as they are introduced.
 
 ## Trigger taxonomy

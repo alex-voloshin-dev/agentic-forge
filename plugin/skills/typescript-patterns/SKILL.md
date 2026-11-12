@@ -15,17 +15,19 @@ work to. (Mechanism: ADR 0015, by-stack detection + reference packs.)
 ## Toolchain
 
 **Prefer the repo's own scripts** — read `package.json` `scripts` (`test` / `lint` / `build` /
-`typecheck`) and run *those*. Use the package manager the **lockfile** implies:
-`package-lock.json` → `npm`, `pnpm-lock.yaml` → `pnpm`, `yarn.lock` → `yarn`,
-`bun.lock`/`bun.lockb` → `bun` (`<pm> run <script>`, `<pm> install`). Registry defaults are the
-fallback:
+`typecheck`) and run *those*. Use the package manager the repo **declares**: the `packageManager`
+field first, then the lockfile — `yarn.lock` → `yarn`, `pnpm-lock.yaml` → `pnpm`,
+`bun.lock`/`bun.lockb` → `bun`, `package-lock.json` → `npm` — and `npm` when nothing says
+otherwise (`<pm> run <script>`, `<pm> install`). The fallbacks `stack-detect` reports name only
+what `package.json` declares — the script, else a declared (dev)dependency run through the manager
+(`npm exec --` / `yarn run` / `pnpm exec` / `bun run`), else nothing:
 
-| Job | Conventional command | Gate |
+| Job | Fallback (with npm) | Gate |
 | --- | --- | --- |
-| test | `npm test` (often `vitest`/`jest` under the hood) | green; new behaviour covered |
-| lint | `npm run lint` (or `eslint .`) | clean (no new `eslint-disable`) |
-| types | `tsc --noEmit` | clean under `strict` (no new `@ts-ignore`/`@ts-expect-error`) |
-| format | `prettier --write .` | applied |
+| test | `npm run test`, else `vitest run` / `jest` if declared | green; new behaviour covered |
+| lint | `npm run lint`, else `eslint .` if declared | clean (no new `eslint-disable`) |
+| types | `npm run typecheck` / `type-check`, else `tsc --noEmit` if `typescript` is declared | clean under `strict` (no new `@ts-ignore`/`@ts-expect-error`) |
+| format | `npm run format`, else `prettier --write .` if declared | applied |
 
 Run the typecheck and lint on the change before declaring done; never silence a checker to
 pass — fix the cause or justify the suppression in the diff.

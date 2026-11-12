@@ -1030,12 +1030,35 @@ def test_stack_detect(tmp_path: Path) -> None:
     ]
     assert all(Path(p).is_file() for p in result["pack_paths"])
     assert "python" in result["summary"]
+    assert result["primary"]["dir"] == "."
+    assert result["toolchain_role"] == "fallback"
+    assert "declared gate wins" in result["summary"]
+    assert result["declared_gate_sources"] == []
 
 
 def test_stack_detect_on_an_unknown_repo_reads_the_standards_only(tmp_path: Path) -> None:
     result = _ok("stack-detect", cwd=tmp_path)
     assert result["primary"]["stack_id"] == "unknown"
     assert len(result["pack_paths"]) == 1
+
+
+def test_stack_detect_finds_a_monorepos_services_and_their_declared_gates(
+    tmp_path: Path,
+) -> None:
+    """The field repro: `mkdir -p r/svc && touch r/svc/pom.xml` was `unknown`."""
+    (tmp_path / "svc").mkdir()
+    (tmp_path / "svc" / "pom.xml").write_text("<project/>", encoding="utf-8")
+    (tmp_path / "api").mkdir()
+    (tmp_path / "api" / "go.mod").write_text("module x\n", encoding="utf-8")
+    (tmp_path / "api" / "Makefile").write_text("lint:\n", encoding="utf-8")
+    (tmp_path / "AGENTS.md").write_text("# agents\n", encoding="utf-8")
+    result = _ok("stack-detect", "--repo", ".", cwd=tmp_path)
+    found = [(p["stack_id"], p["dir"]) for p in result["profiles"]]
+    assert found == [("go", "api"), ("jvm", "svc")]
+    assert result["profiles"][1]["toolchain"]["test"] == "mvn verify"
+    assert result["pack_paths"][-1].endswith("go-patterns/SKILL.md")
+    assert result["declared_gate_sources"] == ["AGENTS.md", "api/Makefile"]
+    assert result["summary"].endswith("; also: jvm (svc)")
 
 
 def test_a_file_of_newlines_does_not_stall_the_hint(tmp_path: Path) -> None:
