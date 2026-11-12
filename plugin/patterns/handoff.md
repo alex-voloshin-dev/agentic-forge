@@ -38,10 +38,11 @@ It prints one JSON object (`path`s relative to `--repo`, `/`-separated; `abs` on
 | --- | --- |
 | `feature_dir`, `feature_abs` | Where the feature's documents go; the skills write it `<feature-dir>`. A directory named exactly `<slug>` that holds `prd.md`, `plan.md`, `design.md`, `tech-design.md`, `research-brief.md` or `ux-spec.md`; with several, the one holding the most, then the shallowest. With none, `docs/sdlc/<slug>`. |
 | `detected`, `existing` | Whether `feature_dir` already existed, and the feature documents in it. |
-| `documents` | One entry per kind (`research`, `prd`, `design`, `plan`, `ux`): `path` (the spelling on disk, e.g. `PRD.md`, else the plugin's name), `abs`, `arg` (`abs` quoted for a shell), `exists`, `format` (`handoff`: opens with a `---` frontmatter naming its `type`; `foreign`: anything else, a metadata table or another tool's header), `unsafe` when set, and `commands`: `handoff_load`, `external_review`, `status`, `diff`, `diff_check`, `diff_stat`, each `{"argv", "shell"}` with every path quoted. |
+| `documents` | One entry per kind (`research`, `prd`, `design`, `plan`, `ux`): `path` (the spelling on disk, e.g. `PRD.md`, else the plugin's name), `abs`, `arg` (`abs` quoted for a shell), `exists`, `format` (`handoff`: opens with a `---` frontmatter naming its `type`; `foreign`: anything else, a metadata table or another tool's header), `unsafe` when set, and `commands`: `handoff_load`, `external_review`, `status`, `diff`, `diff_check`, `diff_stat`, `restore` (`git checkout --`), each `{"argv", "shell"}` with every path quoted. An entry marked `unsafe` has no `arg` and no `commands`: there is nothing to run on it. |
 | `adr` | The decision series to continue: `dir`, `abs_dir`, `arg_dir`, `pattern`, `highest`, `next_id`, `next_file`, `scope` (`feature`: the feature's own; `shared`; `none`: no series, so `adr-<decision>.md` beside the design, as before), `create_dir` with `commands.mkdir`, `unsafe` when set, and the `series` seen, nearest first, with `series_count`. |
 | `ambiguous`, `ambiguities` | Why the pick is not the only reasonable one: several folders named `<slug>`, a folder skipped for its name, equally near ADR series, a shared series beside feature-local ones, several spellings of one document, or a walk cut short by a cap (`truncated`). |
 | `artifact` | With `--kind`: that document's entry (for `adr`, the next record's path). With `--path <file>` too, the document the user named, mapped into `--repo` (below). |
+| `rounds` | The review rounds in the feature folder (`review-<artifact>-<n>.md`), sorted by artifact, then iteration as a number, each with `path`, `abs`, `arg` and `commands`: `git_rm` (a committed round) and `delete` (an uncommitted one). |
 | `commands.feature_status` | `git status --porcelain` of the feature folder. |
 
 **An ADR series** is the files of one directory below the top sharing a numbering: `adr-001-x.md`,
@@ -68,7 +69,8 @@ The rules a phase follows:
   on the way to the path: never write through it; report it.
 - **A path the user names** goes through `--path <file>`: an absolute path in any checkout of the
   repository maps to the same relative path under `--repo` (the worktree), never the checkout's
-  copy; `exists: false` then means the worktree does not have it yet.
+  copy; `exists: false` then means the worktree does not have it yet. A path in another
+  repository (one that does not share `--repo`'s git common directory) is refused.
 - **`ambiguous`:** interactive, show the `ambiguities` and ask which; headless, there is no one to
   ask, so take the command's pick, record it in the artifact's body as an `assumption:` naming the
   alternatives, and flag it in the summary. Several series with one clearly nearest is not

@@ -2439,7 +2439,7 @@ def test_a_doc_phase_reviews_the_file_in_its_worktree(
 # --- where a feature's documents go: artifact-home ------------------------------------------------
 
 _HOME_PHASES = {
-    "research": "research", "product": "prd", "architecture": "design", "plan": "design",
+    "research": "research", "product": "prd", "architecture": "design", "plan": "plan",
     "ux-design": "ux",
 }
 
@@ -2503,7 +2503,15 @@ def test_develop_resolves_its_inputs_and_rounds_the_same_way() -> None:
     )
     assert "run its printed commands verbatim, never a path you typed" in text
     assert "`documents.plan.commands.handoff_load.shell`" in text
-    assert "per round in `<feature-dir>/` (`feature_abs`, from step 1" in text
+    assert (
+        "per round in the feature folder **of the integrated base**, never the main checkout's"
+        in text
+    )
+    assert (
+        "artifact-home --repo <integrated-base> --slug <feature-slug> --kind plan` against the "
+        "worktree the level was integrated into" in text
+    )
+    assert "plan-batches --plan <path>` (`<path>` = `documents.plan.arg` from step 1)" in text
     assert "under `docs/sdlc/<feature-slug>/`" not in text
 
 
@@ -2538,7 +2546,7 @@ def test_artifact_home_in_a_greenfield_repository(tmp_path: Path) -> None:
     assert (artifact["exists"], artifact["format"]) == (False, None)
     assert artifact["arg"] == shlex.quote(str(tmp_path.resolve() / "docs/sdlc/search/plan.md"))
     assert set(artifact["commands"]) == {
-        "handoff_load", "external_review", "status", "diff", "diff_check", "diff_stat",
+        "handoff_load", "external_review", "status", "diff", "diff_check", "diff_stat", "restore",
     }
     assert result["adr"]["scope"] == "none" and result["ambiguous"] is False
     assert result["adr"]["commands"] == {}
@@ -2623,7 +2631,8 @@ def test_a_user_named_checkout_path_maps_into_the_worktree(tmp_path: Path) -> No
     for root in (checkout, worktree):
         (root / "features" / "export").mkdir(parents=True)
         (root / "features" / "export" / "plan.md").write_text("x", encoding="utf-8")
-    (checkout / ".git").mkdir()
+    (checkout / ".git" / "worktrees" / "wt").mkdir(parents=True)
+    (checkout / ".git" / "worktrees" / "wt" / "commondir").write_text("../..\n", encoding="utf-8")
     (worktree / ".git").write_text("gitdir: ../repo/.git/worktrees/wt\n", encoding="utf-8")
     (checkout / "features" / "export" / "PRD-export.md").write_text("x", encoding="utf-8")
     named = str(checkout / "features" / "export" / "PRD-export.md")
@@ -2645,6 +2654,58 @@ def test_a_user_named_checkout_path_maps_into_the_worktree(tmp_path: Path) -> No
 )
 def test_artifact_home_refuses(tmp_path: Path, args: list[str], says: str) -> None:
     assert says in _refused("artifact-home", *args, cwd=tmp_path)
+
+
+def test_an_unsafe_document_has_nothing_to_run(tmp_path: Path) -> None:
+    (tmp_path / "features" / "export").mkdir(parents=True)
+    (tmp_path / "features" / "export" / "plan.md").write_text("x", encoding="utf-8")
+    (tmp_path / "elsewhere.md").write_text("x", encoding="utf-8")
+    (tmp_path / "features" / "export" / "prd.md").symlink_to(tmp_path / "elsewhere.md")
+    result = _ok("artifact-home", "--repo", str(tmp_path), "--slug", "export", "--kind", "prd",
+                 cwd=tmp_path)
+    for entry in (result["artifact"], result["documents"]["prd"]):
+        assert entry["unsafe"].startswith("symlink")
+        assert "commands" not in entry and "arg" not in entry
+    assert "commands" in result["documents"]["plan"]
+
+
+def test_the_restore_and_round_commands_run_from_anywhere(tmp_path: Path) -> None:
+    """What amend mode runs instead of a typed `git rm` or `git checkout`: `-C <worktree>` built
+    in, every path quoted, through a real shell from another directory."""
+    repo = tmp_path / "wt docs"
+    folder = repo / "features" / "export"
+    folder.mkdir(parents=True)
+    _git_repo(repo)
+    (folder / "prd.md").write_text("old\n", encoding="utf-8")
+    (folder / "review-prd-1.md").write_text("kept\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "x"], check=True, capture_output=True)
+    (folder / "prd.md").write_text("edited\n", encoding="utf-8")
+    (folder / "review-prd-2.md").write_text("leftover\n", encoding="utf-8")
+    result = _ok("artifact-home", "--repo", str(repo), "--slug", "export", "--kind", "prd",
+                 cwd=tmp_path)
+    first, second = result["rounds"]
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    for shell in (result["artifact"]["commands"]["restore"]["shell"],
+                  first["commands"]["git_rm"]["shell"], second["commands"]["delete"]["shell"]):
+        subprocess.run(["bash", "-c", shell], cwd=elsewhere, check=True, capture_output=True)
+    assert (folder / "prd.md").read_text(encoding="utf-8") == "old\n"
+    assert not (folder / "review-prd-1.md").exists() and not (folder / "review-prd-2.md").exists()
+    staged = subprocess.run(["git", "-C", str(repo), "diff", "--cached", "--name-status"],
+                            capture_output=True, text=True, check=True).stdout
+    assert staged.split() == ["D", "features/export/review-prd-1.md"]
+
+
+def test_a_path_in_another_repository_is_refused(tmp_path: Path) -> None:
+    for name in ("mine", "other"):
+        (tmp_path / name / ".git").mkdir(parents=True)
+        (tmp_path / name / "features" / "export").mkdir(parents=True)
+        (tmp_path / name / "features" / "export" / "prd.md").write_text("x", encoding="utf-8")
+    named = str(tmp_path / "other" / "features" / "export" / "prd.md")
+    says = _refused("artifact-home", "--repo", str(tmp_path / "mine"), "--slug", "export",
+                    "--kind", "prd", "--path", named, cwd=tmp_path)
+    assert "in another repository than --repo" in says
 
 
 def test_artifact_home_kinds_are_the_librarys() -> None:
@@ -2717,7 +2778,13 @@ def test_the_amend_reference_edits_the_worktree_and_gates_a_foreign_prd() -> Non
     assert "The `reviewer` gets the diff (`commands.diff`" in text
     # the rounds' lifecycle
     assert "**Each round** is `review-prd-<n>.md` in `<feature-dir>/` (`feature_abs`)" in text
-    assert "delete it now" in text and "this loop's rounds start again at 1" in text
+    assert "delete it now with its `commands.git_rm`" in text
+    assert "this loop's rounds start again at 1" in text
+    assert "Run **both** status commands" in text and "`artifact.commands.status`" in text
+    assert "pending changes reported by **either** count" in text
+    assert "`artifact.commands.restore` puts the PRD back as committed" in text
+    assert "never type a path into `git` or `rm` yourself" in text
+    assert "git checkout -- <path>" not in text and "`git rm` it" not in text
     assert "**The plugin's own escalated leftover:**" in text
     assert "the round with the **highest iteration** (compare the numbers, not the names)" in text
     assert "A handoff-format PRD gets `review_decision: escalate` (never its `status`)" in text

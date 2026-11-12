@@ -30,7 +30,7 @@ requirements (`product`), or implementation (`develop`).
 > no `gh`) still commits — on `docs/<slug>`, reported as not pushed / no PR — never a failed phase.
 
 > **Write where the repository keeps its features** — run
-> `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" artifact-home --repo <worktree> --slug <feature-slug> --kind design`.
+> `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" artifact-home --repo <worktree> --slug <feature-slug> --kind plan`.
 > Its `feature_dir` is `<feature-dir>` below (`docs/sdlc/<feature-slug>` only when the repository
 > keeps no feature folder for it), and `documents.<kind>` (`research`, `prd`, `design`, `plan`,
 > `ux`) gives each document's `abs` path. **Never put a path on a command line yourself:** run

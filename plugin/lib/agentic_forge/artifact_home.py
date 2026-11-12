@@ -129,11 +129,13 @@ _FORMAT_PROBE_BYTES = 64 * 1024
 # `adr-001-title.md`, `ADR-G14-title.md`, `adr_0042.md`. A letter prefix needs two digits or more,
 # so `adr-db2-migration.md` is a title, not series DB.
 _ADR_NAMED = re.compile(
-    r"^(?P<lead>adr)(?P<sep>[-_]?)(?P<prefix>[a-z]{0,3}?)(?P<num>\d+)(?P<rest>[-_.][^/]*)?\.md$",
+    r"^(?P<lead>adr)(?P<sep>[-_]?)(?P<prefix>[a-z]{0,3}?)(?P<num>\d+)(?P<rest>[-_.][^/]*)?\.md\Z",
     re.IGNORECASE,
 )
 # adr-tools' `0001-record-architecture-decisions.md`, only in a directory named for decisions.
-_ADR_BARE = re.compile(r"^(?P<num>\d{3,5})(?P<rest>[-_][^/]*)?\.md$", re.IGNORECASE)
+_ADR_BARE = re.compile(r"^(?P<num>\d{3,5})(?P<rest>[-_][^/]*)?\.md\Z", re.IGNORECASE)
+# A review loop's round, `review-prd-2.md`: the artifact it reviewed and its iteration.
+_ROUND = re.compile(r"^review-(?P<artifact>[a-z][a-z0-9-]*?)-(?P<iteration>\d{1,3})\.md\Z")
 # A dated note (`2024-01-15-x.md`, `2024_03-x.md`) is not a decision record's number.
 _DATED = re.compile(r"^\d{4}[-_]\d{1,2}(?:[-_.]|\Z)")
 
@@ -385,7 +387,10 @@ def _choose_feature(found: Scan, slug: str) -> tuple[str, bool, list[str], list[
     why = [_unsafe_reason(d, "a feature folder") for d in named if not is_safe_path(d)]
     candidates = [d for d in named if is_safe_path(d)]
     if not candidates:
-        return f"{FALLBACK_ROOT}/{slug}", False, [], why
+        fallback = f"{FALLBACK_ROOT}/{slug}"
+        if not is_safe_path(fallback):  # the slug is checked already: a second, local guard
+            raise ValueError(f"invalid feature slug {slug!r}")
+        return fallback, False, [], why
     ranked = sorted(
         candidates, key=lambda d: (-len(_artifacts(found.dirs[d])), _depth(d), d)
     )
@@ -486,10 +491,24 @@ def _spelling(found: Scan, feature_dir: str, kind: str, why: list[str]) -> str:
     return chosen
 
 
+def _rounds(found: Scan, feature_dir: str) -> list[dict[str, Any]]:
+    """The review rounds in the feature folder, by artifact, then iteration as a number (so the
+    latest is the highest iteration, not the last name)."""
+    out = []
+    for name in found.dirs.get(feature_dir, ()):
+        match = _ROUND.match(name)
+        if match:
+            out.append({
+                "path": _join(feature_dir, name), "artifact": match.group("artifact"),
+                "iteration": int(match.group("iteration")),
+            })
+    return sorted(out, key=lambda r: (r["artifact"], r["iteration"]))
+
+
 def resolve(found: Scan, slug: str, kind: str | None = None) -> dict[str, Any]:
     """Where ``slug``'s documents go, from a :class:`Scan`. Pure; the documents' on-disk state is
     added by :func:`home`."""
-    if not SLUG_RE.match(slug):
+    if not SLUG_RE.fullmatch(slug):
         raise ValueError(f"invalid feature slug {slug!r}: expected {SLUG_RE.pattern}")
     if kind is not None and kind not in KINDS:
         raise ValueError(f"unknown kind {kind!r}; expected one of: {', '.join(KINDS)}")
@@ -521,6 +540,7 @@ def resolve(found: Scan, slug: str, kind: str | None = None) -> dict[str, Any]:
         "ambiguous": bool(why),
         "ambiguities": why,
         "truncated": found.truncated or found.depth_capped,
+        "rounds": _rounds(found, feature_dir),
     }
     if kind == "adr":
         result["artifact"] = {"kind": kind, "path": _join(adr["dir"], adr["next_file"])}
@@ -601,16 +621,58 @@ def _work_tree_top(path: str) -> str | None:
         current = parent
 
 
+def _git_dir(top: str) -> str | None:
+    """The real path of the git directory ``top/.git`` names: a directory, or a ``.git`` file's
+    ``gitdir: <path>`` (a linked worktree)."""
+    dot_git = os.path.join(top, ".git")
+    if os.path.isdir(dot_git):
+        return os.path.realpath(dot_git)
+    try:
+        with open(dot_git, encoding="utf-8") as handle:
+            first = handle.readline(4096).strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    target = first[len("gitdir:"):].strip() if first.startswith("gitdir:") else ""
+    return os.path.realpath(os.path.join(top, target)) if target else None
+
+
+def _repository(top: str) -> str | None:
+    """The repository's shared git directory for the working tree at ``top``: a linked worktree's
+    git directory names it in its ``commondir`` file; a main checkout's is its own."""
+    git_dir = _git_dir(top)
+    if git_dir is None:
+        return None
+    try:
+        with open(os.path.join(git_dir, "commondir"), encoding="utf-8") as handle:
+            common = handle.readline(4096).strip()
+    except (OSError, UnicodeDecodeError):
+        return git_dir
+    return os.path.realpath(os.path.join(git_dir, common)) if common else git_dir
+
+
 def relative_document(root: str, path: str) -> str:
     """The repository-relative path of a document the user named: relative to ``root``, or, for an
     absolute path, relative to the working tree holding it (the main checkout's
-    ``/home/u/repo/features/x/prd.md`` is ``features/x/prd.md`` in any of its worktrees). Refused
-    unless every component is :data:`SAFE_COMPONENT` and it names a Markdown file."""
+    ``/home/u/repo/features/x/prd.md`` is ``features/x/prd.md`` in any of its worktrees). An
+    absolute path maps only between working trees of **one repository**: the two must share a git
+    common directory, git's own record that they are the same repository (a remote URL can be
+    absent, or shared by unrelated clones and forks; a root commit needs git run on a repository
+    the path chose). Refused unless every component is :data:`SAFE_COMPONENT` and it names a
+    Markdown file."""
     if os.path.isabs(path):
-        absolute = os.path.normpath(path)
+        absolute = os.path.join(
+            os.path.realpath(os.path.dirname(os.path.normpath(path))), os.path.basename(path)
+        )
         top = _work_tree_top(os.path.dirname(absolute))
         if top is None:
             raise ValueError(f"--path {_shown(path)} is not inside a git working tree")
+        here = _work_tree_top(os.path.realpath(root))
+        source = _repository(top)
+        if source is None or here is None or source != _repository(here):
+            raise ValueError(
+                f"--path {_shown(path)} is in another repository than --repo: name a document of "
+                "this repository (its checkout or one of its worktrees)"
+            )
         rel = os.path.relpath(absolute, top)
     else:
         rel = os.path.normpath(path)
@@ -655,6 +717,8 @@ def home(
     result["feature_abs"] = os.path.join(root, *result["feature_dir"].split("/"))
     for name, entry in result["documents"].items():
         _on_disk(root, entry, KIND_TYPES[name])
+    for entry in result["rounds"]:
+        _on_disk(root, entry, None)
     adr = result["adr"]
     adr["abs_dir"] = os.path.join(root, *adr["dir"].split("/"))
     exists, unsafe = _state(root, adr["dir"], want_dir=True)
@@ -695,7 +759,7 @@ def dir_names(directory: str) -> list[str] | None:
 def marks_feature(names: Sequence[str], directory_name: str) -> bool:
     """A directory called ``directory_name`` holding ``names`` is a feature folder: named like a
     slug, holding a feature document."""
-    return bool(SLUG_RE.match(directory_name)) and any(
+    return bool(SLUG_RE.fullmatch(directory_name)) and any(
         name.casefold() in FEATURE_ARTIFACTS for name in names
     )
 

@@ -45,7 +45,7 @@ designing (`architecture`), task breakdown (`plan`), or reviewing already-writte
    build** steps as the task's gate. Never run a step that deploys, publishes or releases, pushes,
    uses secrets or credentials, or downloads and runs a script (a remote script piped to a shell).
 2. **Batch the work; set up isolation.** Compute the plan's dependency levels with
-   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" plan-batches --plan <path>` — each level is a set of independent tasks. Process levels **in
+   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" plan-batches --plan <path>` (`<path>` = `documents.plan.arg` from step 1) — each level is a set of independent tasks. Process levels **in
    order**; within a level, **fan out one git worktree per task** and run their implementations
    **concurrently** (see [worktree-parallel.md](../../patterns/worktree-parallel.md) +
    [worktree.md](../../patterns/worktree.md)); a one-task level (or a plan with no parallelism) is
@@ -92,7 +92,7 @@ designing (`architecture`), task breakdown (`plan`), or reviewing already-writte
    verify each against the source before acting, like any finding. Aggregate all aspects (internal +
    external) to one approve/changes verdict. **Advance to the next dependency level only after this one integrates,
    is approved, and its QA is green.**
-5. **Loop back (bounded) — the exit criterion.** **Persist each round** — one `review-<artifact>-<iteration>.md` per round in `<feature-dir>/` (`feature_abs`, from step 1: `docs/sdlc/<feature-slug>/` unless the repository keeps its own feature folder), aggregating **both** lenses; on `proceed` keep only the final round, on `escalate` keep them all (naming + lifecycle: [review-loop.md](../../patterns/review-loop.md)). Compute the next action with the shared, tested
+5. **Loop back (bounded) — the exit criterion.** **Persist each round** — one `review-<artifact>-<iteration>.md` per round in the feature folder **of the integrated base**, never the main checkout's: run `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" artifact-home --repo <integrated-base> --slug <feature-slug> --kind plan` against the worktree the level was integrated into (step 6's integrated base) and write to its `feature_abs` (`docs/sdlc/<feature-slug>/` unless the repository keeps its own feature folder), so the rounds are committed with the change, aggregating **both** lenses; on `proceed` keep only the final round, on `escalate` keep them all (naming + lifecycle: [review-loop.md](../../patterns/review-loop.md)). Compute the next action with the shared, tested
    rule `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" review-decision --verdict <approve or changes> --iteration <n> --gate-green <yes if suite green + QA passed, else no>` (see [patterns/review-loop.md](../../patterns/review-loop.md)):
    - **`revise`** — verdict `changes` and iteration < 3: return the findings to step 3, fix
      worst-first, re-integrate, re-review.
