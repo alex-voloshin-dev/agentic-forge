@@ -12,7 +12,8 @@ ADR 0012). Builds on the Stage 1 engine ([engine.md](engine.md)), the handoff co
 Each SDLC phase is **itself a workflow** — a multi-stage procedure that gathers inputs, plans,
 **fans out subagents** across directions/components, synthesizes their results, and analyses
 to a conclusion. The spine is a **chain of these workflows** joined only by committed handoff
-artifacts in `docs/sdlc/<feature-slug>/`; it is deliberately **not** one mega-workflow (each
+artifacts in the feature's folder (`docs/sdlc/<feature-slug>/`, or the repository's own when it
+keeps one); it is deliberately **not** one mega-workflow (each
 phase runs, lands an artifact, and the next phase consumes it). Consequence vs Stage 1:
 **fan-out/fan-in is now a core, built pattern** (no longer deferred).
 

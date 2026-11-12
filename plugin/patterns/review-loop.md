@@ -39,9 +39,11 @@ if not approved:
 
 ## Persisting the loop (ADR 0071)
 
-Each round writes **one** review artifact — `review-<artifact>-<iteration>.md` under
-`docs/sdlc/<feature-slug>/` (`type: review`, `target`, `iteration`, `verdict`, `findings[]`; see
-[handoff.md](handoff.md)).
+Each round writes **one** review artifact — `review-<artifact>-<iteration>.md` in the feature
+folder, `<feature-dir>/`, which is `docs/sdlc/<feature-slug>/` unless the repository keeps its own
+([where a feature's documents go](handoff.md#where-a-features-documents-go)) — with `type: review`,
+`target`, `iteration`, `verdict` and `findings[]` (see [handoff.md](handoff.md)). The
+non-convergence scan reads rounds in either place.
 
 Three rules, because getting any of them wrong litters the user's repository:
 

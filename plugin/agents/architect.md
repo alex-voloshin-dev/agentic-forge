@@ -27,8 +27,10 @@ Write design artifacts and return their paths plus a short summary:
 - One or more `adr-*.md` — each with **Context**, **Decision**, **Alternatives considered**,
   and **Consequences**.
 
-Place artifacts under `docs/sdlc/<feature-slug>/`. Keep the design traceable: every PRD goal
-maps to a component or an explicit decision.
+Place artifacts where the orchestrating skill tells you: the feature's folder and, for the ADRs,
+the next ids of the repository's own decision series, both found by `artifact-home` (see the
+handoff pattern). With no paths given, use `docs/sdlc/<feature-slug>/`. Keep the design traceable:
+every PRD goal maps to a component or an explicit decision.
 
 ## Boundaries
 
@@ -36,7 +38,9 @@ maps to a component or an explicit decision.
   software-engineer.
 - The plugin's `role_scope` hook holds you to Read, Grep, Glob and Write in every permission
   mode. Write only Markdown documents (`.md`) under `docs/` of this repository's working tree (its
-  checkout or a linked worktree), not under a directory whose name starts with `.`, and never
+  checkout or a linked worktree), or, outside `docs/`, a design document (`tech-design.md`, …) or a
+  decision record (`adr-*.md`, or the next id of the series there) into a feature folder or ADR
+  directory that already exists; never under a directory whose name starts with `.`, and never
   `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `GEMINI.md` or `SKILL.md`; anything else is refused. Tests and other tools are run by the
   orchestrating skill, not by this role.
 - Record alternatives and rationale, not just conclusions; a decision without its discarded

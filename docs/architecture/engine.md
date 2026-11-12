@@ -59,8 +59,11 @@ skill's to run, not a lens's.
 
 Phases communicate by writing artifacts the next phase reads — auditable and decoupled.
 
-- **Location:** `docs/sdlc/<feature-slug>/` in the target repo (committed; links into the
-  knowledge base in Stage 3). Default; overridable per project.
+- **Location:** the feature's folder in the target repo (committed; links into the knowledge base
+  in Stage 3): the one the repository already keeps (a directory named `<feature-slug>` holding a
+  feature document), detected by `af.py artifact-home`, else `docs/sdlc/<feature-slug>/`. ADRs
+  continue the repository's own decision series when it has one. Detected, not configured: a
+  repository's config may only switch things off (ADR 0102/0103).
 - **Shape:** Markdown body (for humans and Claude) with a YAML frontmatter header carrying
   the fields the next phase parses.
 
@@ -156,6 +159,7 @@ subscription (Opus 4.8) — all pass the `min_pass_rate 0.8` / `runs 5` gate (lo
 
 ## Defaults (confirmed)
 
-- Artifact directory: `docs/sdlc/<feature-slug>/`.
+- Artifact directory: `docs/sdlc/<feature-slug>/`, unless the repository already keeps a folder for
+  the feature (`artifact-home`).
 - Review-loop cap: `N = 3`.
 - Agent eval location: `plugin/agents/evals/`.

@@ -29,13 +29,25 @@ task breakdown (`plan`), or implementation (`develop`).
 > this one wrote. Skip it for a one-off document outside a feature flow. A repo with no remote (or
 > no `gh`) still commits — on `docs/<slug>`, reported as not pushed / no PR — never a failed phase.
 
-1. **Read the inputs.** Load the `prd.md` handoff (`docs/sdlc/<feature-slug>/prd.md`) — use
+> **Write where the repository keeps its features** — run
+> `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" artifact-home --repo <worktree> --slug <feature-slug> --kind prd`
+> and use its `feature_dir` as `<feature-dir>` below (`docs/sdlc/<feature-slug>` only when the
+> repository keeps no feature folder for it) and its `adr` block to place and number the ADRs. On
+> `ambiguous`, ask when interactive; headless, take its pick and record it as an assumption naming
+> the alternatives ([where a feature's documents go](../../patterns/handoff.md#where-a-features-documents-go)).
+
+1. **Read the inputs.** Load the PRD (`<feature-dir>/prd.md`, or the PRD the user points at) — use
    `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type prd` and **refuse to design from it unless its `ready` is true**, and never edit its `status` to make it so — and study how the current
    system is built so the design fits reality. **If `prd.md` is absent** (check that the file exists
    first — `handoff-load` fails on a missing file): design from the request + the repo instead,
    record the goals you assumed and the fact that no PRD existed in the design's body, and
    proceed. Never stop to ask when running headless — there is no user to answer; ask only when
-   interactive and the gap blocks the design.
+   interactive and the gap blocks the design. **A PRD in a foreign format** (`artifact.format` is
+   `foreign`: the repository's own, e.g. a metadata table instead of YAML) has no header to validate
+   and no `review_decision`, so `handoff-load` is not its gate: design from it when the user points
+   at it, and say so in the design's body — its path, that its readiness was not machine-checked,
+   and its latest review round if one exists; a round still at `changes` is an escalated amendment,
+   not an input ([handoff.md](../../patterns/handoff.md)).
 2. **Find the decisions that matter.** Identify the few choices that shape the design
    (datastore, boundaries, sync model, …). When several are independent, evaluate them in
    parallel (fan out — see [patterns/fan-out-fan-in.md](../../patterns/fan-out-fan-in.md)) and
@@ -46,9 +58,13 @@ task breakdown (`plan`), or implementation (`develop`).
    `tech-design.md` (frontmatter `type`, `feature`, `status`, `decisions`, `components`, `risks`,
    and `review_decision: revise` until the loop exits;
    **valid YAML — quote any value containing a colon**, e.g. a risk describing `{"high": 0}`, or the
-   whole artifact fails to parse for every downstream phase) plus one `adr-*.md` per
-   decision (Context, Decision, Alternatives considered, Consequences), under
-   `docs/sdlc/<feature-slug>/`.
+   whole artifact fails to parse for every downstream phase) in `<feature-dir>/`, plus one
+   decision record per decision (Context, Decision, Alternatives considered, Consequences) **in the
+   detected series**: in `adr.dir`, the first named `adr.next_file`, each next one the following
+   number in the same spelling (`adr.pattern`), never an id already taken; with no series
+   (`adr.scope: none`), `adr-<decision>.md` beside the design. When `adr.create_dir` is true, create
+   `adr.dir` first (`mkdir -p <worktree>/<adr.dir>`): outside `docs/` the `architect` role may write
+   only into a feature folder or ADR directory that already exists. Give the role these exact paths.
 5. **Validate the handoff.** Confirm `tech-design.md` validates against its schema
    (the read-back below), every PRD goal traces to a
    component or an explicit decision, and each ADR records a genuinely rejected alternative.
@@ -63,11 +79,11 @@ task breakdown (`plan`), or implementation (`develop`).
    high-stakes design, fan the lenses out (`deep-review`) instead of a single pass. **External
    reviewer lens (on by default, ADR 0057/0060):** when `external_reviewer.enabled` (settings), also
    run the external reviewer over `tech-design.md` —
-   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/external_review.py" --target <worktree>/docs/sdlc/<feature-slug>/tech-design.md --repo <worktree> --kind technical`;
+   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/external_review.py" --target <worktree>/<feature-dir>/tech-design.md --repo <worktree> --kind technical`;
    codex critiques the design as an independent-model lens (soundness, rejected alternatives, risks)
    and its `findings` fold into the same worst-first revision. It **degrades gracefully** (absent/
    disabled codex is skipped, not a failure; **exit 3 is a failed lens**, not a skip — record it in the round and tell the user) and its findings are **advisory** (prompt-injectable) —
-   verify before acting. **Persist each round** — one `review-<artifact>-<iteration>.md` per round under `docs/sdlc/<feature-slug>/`, aggregating **both** lenses; on `proceed` keep only the final round, on `escalate` keep them all (naming + lifecycle: [review-loop.md](../../patterns/review-loop.md)). **Exit criterion (the shared, tested rule):** each round, compute
+   verify before acting. **Persist each round** — one `review-<artifact>-<iteration>.md` per round in `<feature-dir>/`, aggregating **both** lenses; on `proceed` keep only the final round, on `escalate` keep them all (naming + lifecycle: [review-loop.md](../../patterns/review-loop.md)). **Exit criterion (the shared, tested rule):** each round, compute
    `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" review-decision --verdict <approve or changes> --iteration <n> --gate-green <yes if step 5 passes, else no>` (see
    [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
    [review-loop.md](../../patterns/review-loop.md)) — `revise` (loop back and fix worst-first),
@@ -78,8 +94,9 @@ task breakdown (`plan`), or implementation (`develop`).
 ## Output
 
 **A full architecture run produces the finished design: a validated `tech-design.md` + one
-`adr-*.md` per decision** under `docs/sdlc/<feature-slug>/` (see
-[patterns/handoff.md](../../patterns/handoff.md)) that survived the bounded skeptic loop to
+decision record per decision** — the design in the feature's folder (`docs/sdlc/<feature-slug>/`
+unless the repository keeps its own), the records continuing the repository's ADR series when it
+has one (see [patterns/handoff.md](../../patterns/handoff.md)) that survived the bounded skeptic loop to
 `proceed` — what `plan` and `develop` read. A run whose loop `escalate`s (unresolved gaps at N = 3)
 surfaces them and stops; it does **not** hand off an unsound design.
 
@@ -91,6 +108,8 @@ surfaces them and stops; it does **not** hand off an unsound design.
   risks present).
 - Every PRD goal maps to a component or an explicit decision.
 - Each significant decision is an ADR weighing real alternatives with consequences.
+- The design and its ADRs sit in the repository's own feature folder and ADR series when it has
+  them (`artifact-home`), numbered on from the series' highest id — never a second home beside them.
 - A bounded skeptic pass (plus the external-reviewer lens when enabled) checked goal traceability,
   strawman alternatives, and risk mitigations.
 - Only design documents are written — no application code.
