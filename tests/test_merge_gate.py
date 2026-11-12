@@ -657,6 +657,10 @@ def test_github_com_is_named_too(gh: GhStub, work: Path) -> None:
         "gh pr merge -R attacker.example/o/r 1",
         "GH_HOST=attacker.example gh pr merge 1",
         "GH_HOST=ghe.example.com gh pr merge 1",  # the origin below is github.com
+        # gh (Go) lower-cases a URL's scheme, so any case is a URL
+        "gh pr merge HTTPS://attacker.example/o/r/pull/1",
+        "gh pr merge Http://attacker.example/o/r/pull/1",
+        "gh pr merge https:///o/r/pull/1",  # a URL with no readable host
     ],
 )
 def test_a_host_the_command_names_is_not_contacted(gh: GhStub, work: Path, command: str) -> None:
@@ -666,6 +670,23 @@ def test_a_host_the_command_names_is_not_contacted(gh: GhStub, work: Path, comma
     notice = _notice(_run_hook(command, work, GH_ENTERPRISE_TOKEN="secret-token"))
     assert "neither github.com nor this checkout's origin" in notice
     assert "attacker" not in notice and "secret" not in notice
+    assert gh.calls() == []
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "gh pr merge -R https://attacker.example/o/r 1",
+        "gh pr merge -R HTTPS://attacker.example/o/r 1",
+        "gh pr merge -R git@attacker.example:o/r 1",
+    ],
+)
+def test_a_url_shaped_repo_is_never_contacted(gh: GhStub, work: Path, command: str) -> None:
+    """gh's -R also takes a URL or git@host:; the gate fails open on those (with a notice) and
+    merge_host would refuse their host anyway: no call either way."""
+    _origin(work, "https://github.com/acme/infra.git")
+    notice = _notice(_run_hook(command, work, GH_ENTERPRISE_TOKEN="secret-token"))
+    assert notice and "secret" not in notice
     assert gh.calls() == []
 
 
@@ -845,3 +866,21 @@ def test_the_pr_query_sends_owner_and_name_as_strings() -> None:
     assert argv[argv.index("owner=2048") - 1] == "-f"
     assert argv[argv.index("name=null") - 1] == "-f"
     assert argv[argv.index("number=7") - 1] == "-F"
+
+
+@pytest.mark.parametrize(
+    ("selector", "repo", "host"),
+    [
+        ("HTTPS://Attacker.Example/o/r/pull/1", "", "attacker.example"),
+        ("hTtP://u:p@attacker.example:8443/o/r/pull/1", "", "attacker.example"),
+        ("7", "https://ghe.example.com/o/r", "ghe.example.com"),
+        ("7", "git@ghe.example.com:o/r", "ghe.example.com"),
+        ("7", "ghe.example.com/o/r", "ghe.example.com"),
+        ("https:///o/r/pull/1", "", "invalid.invalid"),
+        ("7", "o/r", ""),
+        ("feature-branch", "", ""),
+    ],
+)
+def test_merge_host_reads_every_url_form_gh_accepts(selector: str, repo: str, host: str) -> None:
+    target = guardrails.MergeTarget(selector, repo, ".")
+    assert guardrails.merge_host(target) == host
