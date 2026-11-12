@@ -19,8 +19,9 @@ as the spine's review step. Not for reviewing docs/design (use `deep-review`), w
 
 ## Process
 
-> **Recall first** — pull the project's relevant prior decisions from the knowledge vault (see
-> [knowledge-recall](../../patterns/knowledge-recall.md)); factor them in, and skip if the vault is empty.
+> **Recall first** — pull the project's relevant prior decisions with its own search, else the
+> knowledge vault (see [knowledge-recall](../../patterns/knowledge-recall.md)); factor them in, pass
+> the top hits (path + one line why) in every `Task` prompt you send, and skip if nothing is found.
 
 Follow [multi-aspect-review.md](../../patterns/multi-aspect-review.md):
 

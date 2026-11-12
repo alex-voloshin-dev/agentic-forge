@@ -24,6 +24,10 @@ fan out only the independent sub-parts.
    and a **structured return contract** (so results compose) — a minimal unit envelope is
    `{unit, status, result, gaps[]}`; specializations refine `result` (e.g. review findings).
    Run concurrently; cap concurrency to the budget below.
+   **Brief each unit with the recall hits:** the spawning session runs the recall itself (the
+   project's own search if it has one, else `vault-recall`) and passes the top 5-8 hits, each a
+   path plus one line on why, in the `Task` prompt — never whole files; the role may `Read` the
+   cited files (see [knowledge-recall.md](knowledge-recall.md)).
 3. **Collect** results; a unit that fails returns empty rather than aborting the batch — keep
    going and record the gap.
 4. **Synthesize** into one artifact: merge, dedupe, resolve conflicts, and reconcile

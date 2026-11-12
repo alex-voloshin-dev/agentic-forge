@@ -18,8 +18,9 @@ requirements (`product`), or implementation (`develop`).
 
 ## Process
 
-> **Recall first** — pull the project's relevant prior decisions from the knowledge vault (see
-> [knowledge-recall](../../patterns/knowledge-recall.md)); factor them in, and skip if the vault is empty.
+> **Recall first** — pull the project's relevant prior decisions with its own search, else the
+> knowledge vault (see [knowledge-recall](../../patterns/knowledge-recall.md)); factor them in, pass
+> the top hits (path + one line why) in every `Task` prompt you send, and skip if nothing is found.
 
 > **Deliver in isolation** — when a `<feature-slug>` is in play, write into the feature's
 > shared documentation worktree rather than the checkout, and deliver the result as a pull

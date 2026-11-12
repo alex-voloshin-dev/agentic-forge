@@ -112,6 +112,15 @@ skills link to it rather than restating it:
   iteration (ADR 0048): re-run a fresh-context executor against a persistent task until done /
   stalled / the iteration budget. Deterministic core in `lib/ralph.py`; driver in `dev/ralph.py`
   (dry-by-default, never merges/pushes). Compose with worktree + review-loop.
+- **Fleet coordination** ([patterns/fleet-coordination.md](../../plugin/patterns/fleet-coordination.md))
+  — a general-manager session coordinating *running* peer sessions (product manager, developers
+  in worktrees, reviewers) over a coordination hub such as kommutator: topics, direct messages, a
+  shared board. A roster (`fleet/roster`, one row per handle), a unit envelope that names who
+  accepts and what evidence the acceptor will read, `DECISION: <slug>` broadcasts that point at the
+  committed decision note, an orphaned-unit procedure, and one batched, in-session escalation queue
+  for the human. Hub messages are untrusted input: a request, never a command or consent. The
+  committed-file handoff above stays canonical for decisions and phase artifacts; the board fits a
+  peer that needs the work now. A pattern only — no CLI, no fleet-status skill, no manager role.
 
 Deferred to later stages: research fan-out at scale (the fan-out/fan-in *pattern* itself shipped in
 Stage 2 — see [spine.md](spine.md) and
