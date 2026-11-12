@@ -65,6 +65,26 @@ def test_skill_passes_its_own_external_reviewer_kind(skill: str, kind: str) -> N
     assert f"--kind {kind}" in body, f"{skill} must document --kind {kind}"
 
 
+def _reviewer_calls() -> list[tuple[str, str]]:
+    """Every line in a skill, reference or pattern that runs the reviewer CLI."""
+    calls = []
+    for path in sorted([*(PLUGIN / "skills").rglob("*.md"), *(PLUGIN / "patterns").rglob("*.md")]):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if 'bin/external_review.py"' in line:
+                calls.append((str(path.relative_to(PLUGIN)), line))
+    return calls
+
+
+def test_every_documented_reviewer_call_names_the_repo() -> None:
+    # The repo's own `external_reviewer.enabled: false` is read from --repo. Without it the CLI
+    # reads the cwd's settings, and develop writes the diff outside the repo, so a repo that opted
+    # out could have its diff sent anyway.
+    calls = _reviewer_calls()
+    assert len(calls) >= len(REVIEW_LOOP_SKILLS) + 3  # + deep-review and both review patterns
+    missing = [where for where, line in calls if "--repo <" not in line]
+    assert missing == [], f"reviewer calls without --repo: {missing}"
+
+
 def test_every_kind_is_claimed_by_exactly_one_skill() -> None:
     # A kind nobody uses is dead criteria; two skills sharing one means a phase is reviewed on
     # another phase's failure modes.

@@ -6,6 +6,7 @@ import dataclasses
 import json
 import subprocess
 import time
+import typing
 from pathlib import Path
 from typing import Any
 
@@ -618,8 +619,30 @@ def test_skip_and_failure_reasons_partition_every_reason() -> None:
     # A reason is one or the other: a caller decides "report it" from the status alone.
     skips, failures = set(external_review.SKIP_REASONS), set(external_review.FAILURE_REASONS)
     assert skips == {"missing-cli", "command-not-configured", "disabled"}
-    assert failures == {"timeout", "process-failure", "invalid-output", "isolation-unsupported"}
+    assert failures == {
+        "timeout",
+        "process-failure",
+        "invalid-output",
+        "isolation-unsupported",
+        "refused-input",  # the CLI's, for arguments it refused before any call
+    }
     assert not skips & failures
+    assert set(typing.get_args(external_review.Reason)) == skips | failures
+
+
+def test_the_prompt_keeps_surrogateescaped_bytes_and_fails_visibly_on_other_surrogates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[dict[str, Any]] = []
+    _fake_subprocess(monkeypatch, kwargs_seen=seen)
+    raw = b"x = '\xff\xfe'"  # not UTF-8, read the way a caller would keep it
+    target = raw.decode("utf-8", "surrogateescape")
+    assert external_review.review_outcome(target, "code").status == "reviewed"
+    assert raw in seen[0]["input"]  # the original bytes, not a replacement character
+    outcome = external_review.review_outcome("lone \ud800 surrogate", "code")
+    assert (outcome.status, outcome.reason) == ("failed", "process-failure")
+    assert outcome.detail.startswith("UnicodeEncodeError") and "lone" not in outcome.detail
+    assert len(seen) == 1  # nothing was sent for the second
 
 
 @pytest.mark.parametrize(

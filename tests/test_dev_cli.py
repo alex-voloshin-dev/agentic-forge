@@ -368,12 +368,14 @@ def test_external_review_writes_valid_review_md(
     assert art.header["findings"] and art.header["findings"][0]["severity"] == "major"  # in header
 
 
-def test_external_review_missing_target_returns_1(
+def test_external_review_missing_target_returns_3(
     tmp_path: Path, capsys: pytest.CaptureFixture
 ) -> None:
     missing = str(tmp_path / "nope.txt")
     rc = external_review_cli.main(["x", "--repo", str(tmp_path), "--target", missing, "--force"])
-    assert rc == 1 and "not found" in capsys.readouterr().err  # graceful, no crash
+    err = capsys.readouterr().err
+    assert rc == _EXIT_FAILED and "not found" in err  # graceful, no crash
+    assert "failed (refused-input)" in err and "not a skip" in err
 
 
 # --- --target and --out refuse a symlink (ADR 0100) ----------------------------
@@ -402,7 +404,7 @@ def test_external_review_refuses_a_symlinked_target(
     link = tmp_path / "diff.txt"
     link.symlink_to(secret)
     rc = external_review_cli.main(["x", "--repo", str(tmp_path), "--target", str(link), "--force"])
-    assert rc == 1
+    assert rc == _EXIT_FAILED
     err = capsys.readouterr().err
     assert "refusing --target" in err and "symlink" in err
 
@@ -420,7 +422,7 @@ def test_external_review_refuses_a_symlinked_out_before_running(
         victim.write_text("keep me", encoding="utf-8")
     link = tmp_path / "review.md"
     link.symlink_to(victim)
-    assert _run_ext(tmp_path, "--out", str(link), "--force") == 1
+    assert _run_ext(tmp_path, "--out", str(link), "--force") == _EXIT_FAILED
     err = capsys.readouterr().err
     assert "refusing --out" in err and "symlink" in err
     if dangling:
@@ -443,7 +445,7 @@ def test_external_review_refuses_an_out_symlink_that_appears_during_the_review(
 
     monkeypatch.setattr(lib, "is_available", lambda c: True)
     monkeypatch.setattr(lib, "review_outcome", plant)
-    assert _run_ext(tmp_path, "--out", str(out)) == 1
+    assert _run_ext(tmp_path, "--out", str(out)) == _EXIT_FAILED
     assert "could not write" in capsys.readouterr().err
     assert victim.read_text(encoding="utf-8") == "keep me"
 
@@ -477,7 +479,7 @@ def test_external_review_refuses_a_target_through_a_symlinked_directory_in_the_r
     # on the way into the repo must not read as being outside it.
     _forbid_review(monkeypatch)
     repo, _ = _repo_with_a_linked_directory(tmp_path)
-    assert _main_ext(repo, tmp_path / route) == 1
+    assert _main_ext(repo, tmp_path / route) == _EXIT_FAILED
     err = capsys.readouterr().err
     assert "refusing --target" in err and "symlink inside the repo" in err
 
@@ -488,7 +490,7 @@ def test_external_review_refuses_a_relative_target_through_a_linked_directory_in
     _forbid_review(monkeypatch)
     repo, _ = _repo_with_a_linked_directory(tmp_path)
     monkeypatch.chdir(repo)
-    assert _main_ext(Path("."), Path("docs/link/plan.md")) == 1
+    assert _main_ext(Path("."), Path("docs/link/plan.md")) == _EXIT_FAILED
     assert "symlink inside the repo" in capsys.readouterr().err
 
 
@@ -500,7 +502,7 @@ def test_external_review_refuses_a_target_through_a_link_when_the_repo_is_named_
     repo, _ = _repo_with_a_linked_directory(tmp_path)
     alias = tmp_path / "alias"
     alias.symlink_to(repo)
-    assert _main_ext(alias, alias / "docs" / "link" / "plan.md") == 1
+    assert _main_ext(alias, alias / "docs" / "link" / "plan.md") == _EXIT_FAILED
     assert "symlink inside the repo" in capsys.readouterr().err
 
 
@@ -511,7 +513,7 @@ def test_external_review_refuses_an_out_through_a_symlinked_directory_in_the_rep
     repo, outside = _repo_with_a_linked_directory(tmp_path)
     target = repo / "diff.txt"
     target.write_text("x", encoding="utf-8")
-    assert _main_ext(repo, target, "--out", str(repo / "docs/link/review.md")) == 1
+    assert _main_ext(repo, target, "--out", str(repo / "docs/link/review.md")) == _EXIT_FAILED
     assert "refusing --out" in capsys.readouterr().err
     assert not (outside / "review.md").exists()
 
@@ -533,7 +535,7 @@ def test_external_review_refuses_an_out_whose_parent_becomes_a_link_during_the_r
 
     monkeypatch.setattr(lib, "is_available", lambda c: True)
     monkeypatch.setattr(lib, "review_outcome", swap)
-    assert _main_ext(repo, target, "--out", str(repo / "out" / "review.md")) == 1
+    assert _main_ext(repo, target, "--out", str(repo / "out" / "review.md")) == _EXIT_FAILED
     assert "could not write" in capsys.readouterr().err
     assert not (outside / "review.md").exists()
 
@@ -586,7 +588,7 @@ def test_external_review_refuses_a_target_swapped_for_a_symlink_after_the_check(
     link = tmp_path / "diff.txt"
     link.symlink_to(secret)
     monkeypatch.setattr(Path, "is_symlink", lambda self: False)
-    assert _main_ext(tmp_path, link) == 1
+    assert _main_ext(tmp_path, link) == _EXIT_FAILED
     err = capsys.readouterr().err
     assert "refusing --target" in err and "Traceback" not in err
 
@@ -604,7 +606,7 @@ def test_external_review_refuses_a_target_that_is_not_a_regular_file_when_read(
     else:
         swapped.mkdir()
     monkeypatch.setattr(Path, "is_file", lambda self: True)
-    assert _main_ext(tmp_path, swapped) == 1
+    assert _main_ext(tmp_path, swapped) == _EXIT_FAILED
     err = capsys.readouterr().err
     assert "refusing --target" in err and "not a regular file" in err
 
@@ -615,7 +617,7 @@ def test_external_review_refuses_a_target_that_is_not_utf8(
     _forbid_review(monkeypatch)
     target = tmp_path / "diff.txt"
     target.write_bytes(b"\xff\xfe not text")
-    assert _main_ext(tmp_path, target) == 1
+    assert _main_ext(tmp_path, target) == _EXIT_FAILED
     err = capsys.readouterr().err
     assert "refusing --target" in err and "not UTF-8" in err and "Traceback" not in err
 
@@ -630,7 +632,7 @@ def test_external_review_reports_a_target_it_cannot_open(
         raise PermissionError(13, "Permission denied")
 
     monkeypatch.setattr(external_review_cli.os, "open", denied)
-    assert _main_ext(tmp_path, target) == 1
+    assert _main_ext(tmp_path, target) == _EXIT_FAILED
     assert "Permission denied" in capsys.readouterr().err
 
 
@@ -1050,6 +1052,12 @@ entry = {"argv": sys.argv[1:], "cwd": os.getcwd(), "stdin_len": len(stdin),
          "stdin_sha256": hashlib.sha256(stdin).hexdigest()}
 with open(LOG, "a", encoding="utf-8") as log:
     log.write(json.dumps(entry) + "\\n")
+here = pathlib.Path.cwd().resolve()
+in_git = any((d / ".git").exists() for d in (here, *here.parents))
+if sys.argv[1:] != ["exec", "--help"] and "--skip-git-repo-check" not in sys.argv and not in_git:
+    sys.stderr.write("Not inside a trusted directory and --skip-git-repo-check was not "
+                     "specified.\\n")
+    sys.exit(1)
 part = spec["help" if sys.argv[1:] == ["exec", "--help"] else "run"]
 time.sleep(part["sleep"])
 sys.stdout.buffer.write(bytes.fromhex(part["stdout"]))
@@ -1262,20 +1270,94 @@ def test_target_that_cannot_be_an_argv_element_is_reviewed_through_stdin(
     assert call["stdin_sha256"] == hashlib.sha256(prompt).hexdigest()
 
 
-def test_reviewer_runs_from_a_cwd_that_is_no_git_repo(
+def test_reviewer_runs_in_a_repo_dir_that_is_no_git_repo(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
 ) -> None:
-    # Regression: develop writes the diff to a scratch dir, and from a cwd outside a trusted git
-    # repo codex refused to start ("Not inside a trusted directory"), reported as a skip.
+    # Regression: outside a git repo codex refused to start ("Not inside a trusted directory"), and
+    # that was reported as a skip. The stub refuses the same way, so this fails without the flag.
     scene = _stub_reviewer(tmp_path, monkeypatch)
     scratch = tmp_path / "scratch"
     scratch.mkdir()
     monkeypatch.chdir(scratch)
-    assert external_review_cli.main(["x", "--target", str(scene.target)]) == 0
+    assert external_review_cli.main(["x", "--target", str(scene.target), "--repo", "."]) == 0
     assert "verdict: approve" in capsys.readouterr().out
     (call,) = scene.calls()
     assert call["cwd"] == str(scratch.resolve())
     assert "--skip-git-repo-check" in call["argv"] and "read-only" in call["argv"]
+
+
+def test_the_stub_refuses_like_codex_without_the_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    # The control for the test above: drop the flag and the same run fails, visibly.
+    lib = external_review_cli.external_review
+    real_argv = lib._argv
+    monkeypatch.setattr(
+        lib, "_argv", lambda *a: [x for x in real_argv(*a) if x != "--skip-git-repo-check"]
+    )
+    scene = _stub_reviewer(tmp_path, monkeypatch)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    monkeypatch.chdir(scratch)
+    assert external_review_cli.main(["x", "--target", str(scene.target), "--repo", "."]) == 3
+    err = capsys.readouterr().err
+    assert "failed (process-failure)" in err and "Not inside a trusted directory" in err
+
+
+def test_no_repo_outside_a_git_work_tree_is_refused_before_anything_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    # Without --repo the cwd's settings are read; outside a git work tree no repo's own opt-out can
+    # be among them, so nothing may be sent.
+    scene = _stub_reviewer(tmp_path, monkeypatch)
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    monkeypatch.chdir(scratch)
+    assert external_review_cli.main(["x", "--target", str(scene.target)]) == 3
+    err = capsys.readouterr().err
+    assert "failed (refused-input)" in err and "pass --repo" in err
+    assert scene.calls() == []
+
+
+def test_a_repo_opt_out_holds_from_a_cwd_outside_the_repo_when_repo_is_passed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    # develop writes the diff outside the repo and may run from anywhere: --repo is what makes the
+    # repo's own `enabled: false` hold.
+    import shutil
+    import subprocess
+
+    git = shutil.which("git")  # before the stub replaces PATH
+    assert git is not None
+    scene = _stub_reviewer(tmp_path, monkeypatch)
+    subprocess.run([git, "init", "-q", str(scene.repo)], check=True, capture_output=True)
+    (scene.repo / ".agentic-forge").mkdir()
+    (scene.repo / ".agentic-forge" / "config.json").write_text(
+        '{"external_reviewer": {"enabled": false}}', encoding="utf-8"
+    )
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    argv = ["x", "--target", str(scene.target), "--repo", str(scene.repo)]
+    assert external_review_cli.main(argv) == 0
+    assert "disabled by this repo's config" in capsys.readouterr().out
+    assert scene.calls() == []
+    lib = external_review_cli.external_review
+    outcome = lib.configured_review_outcome("t", "code", workdir=scene.repo)
+    assert (outcome.status, outcome.reason) == ("skipped", "disabled")
+    assert scene.calls() == []
+
+
+def test_a_status_the_cli_does_not_know_is_a_failure_not_a_skip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    # No fail-open: only `skipped` exits 0 without a review.
+    lib = external_review_cli.external_review
+    monkeypatch.setattr(lib, "is_available", lambda c: True)
+    odd = types.SimpleNamespace(status="new", review=None, reason="missing-cli", detail="")
+    monkeypatch.setattr(lib, "review_outcome", lambda *a, **k: odd)
+    assert _run_ext(tmp_path, "--force") == _EXIT_FAILED
+    assert "failed (missing-cli)" in capsys.readouterr().err
 
 
 def test_a_repo_disabling_the_reviewer_is_named_warned_about_and_still_exits_0(
@@ -1303,13 +1385,13 @@ def test_symlinked_target_is_refused_even_when_the_reviewer_is_disabled(
     link = tmp_path / "link.txt"
     link.symlink_to(scene.target)
     argv = ["x", "--repo", str(scene.repo), "--target", str(link)]
-    assert external_review_cli.main(argv) == 1
+    assert external_review_cli.main(argv) == _EXIT_FAILED
     assert "refusing --target" in capsys.readouterr().err
     assert scene.calls() == []
 
 
 @pytest.mark.parametrize("kind", ["directory", "missing-parent"])
-def test_out_that_cannot_be_written_is_reported_with_exit_1_after_the_verdict(
+def test_out_that_cannot_be_written_is_reported_with_exit_3_after_the_verdict(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture, kind: str
 ) -> None:
     scene = _stub_reviewer(tmp_path, monkeypatch)
@@ -1318,7 +1400,7 @@ def test_out_that_cannot_be_written_is_reported_with_exit_1_after_the_verdict(
         out.mkdir()
     else:
         out = out / "review.md"
-    assert external_review_cli.main([*scene.argv, "--out", str(out)]) == 1
+    assert external_review_cli.main([*scene.argv, "--out", str(out)]) == _EXIT_FAILED
     captured = capsys.readouterr()
     assert "verdict: approve" in captured.out and "wrote" not in captured.out
     assert "could not write" in captured.err and "Traceback" not in captured.err
