@@ -725,6 +725,10 @@ def _feature_world(tmp_path: Path) -> Path:
             "Feature Foo/prd.md": "x",
             ".github/foo/prd.md": "x",
             "features/in-progress/foo/.drafts/prd.md": "x",
+            "features/in-progress/baz/prd.md": "x",
+            "features/ux-only/ux-spec.md": "x",
+            "features/$(touch PWNED)/qux/prd.md": "x",
+            "features/odd name/prd.md": "x",
             "plan.md": "x",
             "adr-001-top.md": "x",
             "vendor/lib/features/foo/prd.md": "x",
@@ -734,6 +738,7 @@ def _feature_world(tmp_path: Path) -> Path:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text, encoding="utf-8")
         (tree / "features" / "in-progress" / "foo" / "adr").mkdir()
+        (tree / "features" / "in-progress" / "baz" / "decisions").mkdir()
     return repo
 
 
@@ -741,8 +746,7 @@ def _feature_world(tmp_path: Path) -> Path:
     "relative",
     [
         "features/in-progress/foo/tech-design.md",  # a feature folder: holds prd.md
-        "features/in-progress/foo/prd.md",
-        "features/in-progress/foo/Design.md",
+        "features/in-progress/foo/Tech-Design.md",
         "features/in-progress/foo/adr-001-store.md",  # the unnumbered or numbered record name
         "features/in-progress/foo/adr-datastore.md",
         "features/in-progress/foo/adr/adr-001-store.md",  # an existing adr/ in a feature folder
@@ -751,6 +755,8 @@ def _feature_world(tmp_path: Path) -> Path:
         "features/architecture/adr/adr-067-cache.md",  # a series directory
         "features/architecture/adr/ADR-G15-z.md",
         "doc/adr/0002-use-x.md",  # adr-tools numbering, by its series member name
+        "features/in-progress/baz/decisions/0001-x.md",  # an existing decisions/ in a feature
+        "features/ux-only/tech-design.md",  # a UX spec marks a feature folder too
     ],
 )
 def test_the_architect_may_write_into_an_existing_feature_folder_or_adr_directory(
@@ -767,11 +773,11 @@ def test_the_architect_may_write_into_an_existing_feature_folder_or_adr_director
     ("relative", "reason"),
     [
         # the right directory, the wrong name: the widening is the role's documents only
-        ("features/in-progress/foo/README.md", "not a feature document"),
-        ("features/in-progress/foo/notes.md", "not a feature document"),
-        ("features/architecture/adr/index.md", "not a feature document"),
-        ("doc/adr/README.md", "not a feature document"),
-        ("doc/adr/03-x.md", "not a feature document"),  # two digits: not adr-tools numbering
+        ("features/in-progress/foo/README.md", "not the role's design document"),
+        ("features/in-progress/foo/notes.md", "not the role's design document"),
+        ("features/architecture/adr/index.md", "not the role's design document"),
+        ("doc/adr/README.md", "not the role's design document"),
+        ("doc/adr/03-x.md", "not the role's design document"),  # two digits: not adr-tools
         # a directory that is not one the repository keeps for these documents
         ("features/in-progress/new-feature/prd.md", "outside the docs/ directory"),  # not there
         ("features/in-progress/bar/adr/adr-001-x.md", "outside the docs/ directory"),  # no adr/
@@ -792,6 +798,16 @@ def test_the_architect_may_write_into_an_existing_feature_folder_or_adr_director
         ("features/in-progress/foo/SKILL.md", "agent instruction or skill file"),
         ("features/in-progress/foo/tech-design.txt", "not a Markdown document"),
         ("features/in-progress/foo/adr-001.sh", "not a Markdown document"),
+        # other phases' documents: the main session writes them, not this role
+        ("features/in-progress/foo/prd.md", "not the role's design document"),
+        ("features/in-progress/foo/plan.md", "not the role's design document"),
+        ("features/in-progress/foo/Design.md", "not the role's design document"),
+        ("features/in-progress/foo/research-brief.md", "not the role's design document"),
+        ("features/in-progress/foo/ux-spec.md", "not the role's design document"),
+        # a folder whose path a shell could act on is not proposed, and not allowed
+        ("features/$(touch PWNED)/qux/tech-design.md", "outside the docs/ directory"),
+        ("features/odd name/tech-design.md", "outside the docs/ directory"),
+        ("features/in-progress/baz/notes/tech-design.md", "outside the docs/ directory"),
         ("vendor/lib/features/foo/tech-design.md", "outside this session's working trees"),
     ],
 )
@@ -858,6 +874,69 @@ def test_the_refusal_names_the_widened_scope() -> None:
     assert "in a feature folder or ADR directory it already keeps" in message
 
 
+@pytest.mark.parametrize(
+    ("relative", "listings"),
+    [("features/in-progress/foo/tech-design.md", 1),  # one listing answers both predicates
+     ("features/architecture/adr/adr-067-x.md", 1),
+     ("features/in-progress/foo/adr/adr-001-x.md", 2),  # an empty adr/: and its parent
+     ("src/payments/tech-design.md", 1)],
+)
+def test_the_check_lists_the_directory_once_and_the_parent_only_for_an_adr_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative: str, listings: int
+) -> None:
+    from agentic_forge import artifact_home
+
+    repo = _feature_world(tmp_path)
+    seen: list[str] = []
+    real = artifact_home.dir_names
+
+    def counting(directory: str) -> Any:
+        seen.append(directory)
+        return real(directory)
+
+    monkeypatch.setattr(artifact_home, "dir_names", counting)
+    role_scope.decide(_write(str(repo / relative), str(repo)))
+    assert len(seen) == listings, seen
+
+
+_LAYOUTS = {
+    "greenfield": [],
+    "plugin folder": ["docs/sdlc/foo/prd.md"],
+    "monorepo": ["features/in-progress/foo/prd.md", "features/architecture/adr/adr-066-x.md",
+                 "features/architecture/adr/ADR-G14-y.md", "features/old/prd.md",
+                 "features/old/adr/adr-001-z.md"],
+    "own adr": ["features/foo/prd.md", "features/foo/adr/ADR-003-x.md"],
+    "records in the folder": ["features/foo/plan.md", "features/foo/adr-002-x.md"],
+    "feature-local adr": ["features/a/prd.md", "features/a/adr/adr-001-x.md",
+                          "features/foo/prd.md"],
+    "feature-local decisions": ["features/a/prd.md", "features/a/decisions/0001-x.md",
+                                "features/foo/ux-spec.md"],
+    "adr-tools": ["doc/adr/0001-record.md", "services/foo/design.md"],
+    "top records": ["adr-001-x.md", "features/foo/prd.md"],
+    "nearest shared": ["svc/pay/docs/adr/adr-004-x.md", "docs/adr/adr-020-y.md",
+                       "svc/pay/features/foo/prd.md"],
+}
+
+
+@pytest.mark.parametrize("layout", sorted(_LAYOUTS))
+def test_the_role_may_write_every_path_the_detector_proposes(tmp_path: Path, layout: str) -> None:
+    """What artifact-home tells the architecture skill to hand the role, the hook allows: the
+    design, and the next decision record, once the skill ran the mkdir it was given."""
+    from agentic_forge import artifact_home
+
+    repo = _main_repo(tmp_path)
+    for relative in _LAYOUTS[layout]:
+        (repo / relative).parent.mkdir(parents=True, exist_ok=True)
+        (repo / relative).write_text("x", encoding="utf-8")
+    result = artifact_home.home(str(repo), "foo", "adr")
+    assert "unsafe" not in result["adr"]
+    if result["adr"]["create_dir"]:
+        Path(result["adr"]["abs_dir"]).mkdir(parents=True)
+    record = result["artifact"]["abs"].replace("<title>", "x").replace("<decision>", "x")
+    for target in (record, result["documents"]["design"]["abs"]):
+        assert role_scope._write_problem(target, str(repo)) is None, (layout, target)
+
+
 def test_hook_process_lets_the_architect_write_into_a_feature_folder(tmp_path: Path) -> None:
     repo = _feature_world(tmp_path)
     target = repo / "features" / "in-progress" / "foo" / "tech-design.md"
@@ -875,7 +954,7 @@ def test_the_feature_folder_check_failing_closes_the_hook(
 ) -> None:
     """An error in the new check refuses, through the hook's fail-closed path."""
     repo = _feature_world(tmp_path)
-    monkeypatch.setattr(role_scope.artifact_home, "is_feature_dir", _boom)
+    monkeypatch.setattr(role_scope.artifact_home, "dir_names", _boom)
     target = repo / "features" / "in-progress" / "foo" / "tech-design.md"
     payload = {**_write(str(target), str(repo)), "session_id": "feature-boom"}
     _stdin(monkeypatch, json.dumps(payload))

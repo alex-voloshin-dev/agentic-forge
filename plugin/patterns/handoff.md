@@ -25,35 +25,50 @@ A repository with its own convention (features under `features/in-progress/<slug
 decision series `adr-001`…`adr-066` beside a second one `ADR-G01`…`ADR-G14`, feature-local `adr/`
 folders) must not get a second home for the feature or colliding ADR numbers. A repository's config
 may only switch things off (ADR 0102/0103), so a phase **reads the convention from the tree**
-before it writes, with one command (the phase passes the `--kind` of the document it reads or
-writes: `research`, `prd`, `design`, `plan` or `adr`):
+before it writes, with one command (the phase passes the `--kind` of its own document:
+`research`, `prd`, `design`, `plan`, `ux`, or `adr`):
 
 ```
 python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" artifact-home --repo <worktree> --slug <feature-slug> --kind design
 ```
 
-It prints one JSON object (paths relative to `--repo`, `/`-separated):
+It prints one JSON object (`path`s relative to `--repo`, `/`-separated; `abs` ones absolute):
 
 | Field | Meaning |
 | --- | --- |
-| `feature_dir` | Where the feature's documents go; the skills write it `<feature-dir>`. A directory named exactly `<slug>` that holds `prd.md`, `plan.md`, `design.md`, `tech-design.md` or `research-brief.md`; with several, the one holding the most, then the shallowest. With none, `docs/sdlc/<slug>`. |
+| `feature_dir`, `feature_abs` | Where the feature's documents go; the skills write it `<feature-dir>`. A directory named exactly `<slug>` that holds `prd.md`, `plan.md`, `design.md`, `tech-design.md`, `research-brief.md` or `ux-spec.md`; with several, the one holding the most, then the shallowest. With none, `docs/sdlc/<slug>`. |
 | `detected`, `existing` | Whether `feature_dir` already existed, and the feature documents in it. |
-| `adr` | The decision series to continue: `dir`, `pattern`, `highest`, `next_id`, `next_file`, `scope` (`feature`: the feature's own; `shared`; `none`: no series, so `adr-<decision>.md` beside the design, as before), `create_dir` (an `adr/` to create first), and the `series` seen, nearest first, with `series_count`. |
-| `ambiguous`, `ambiguities` | Why the pick is not the only reasonable one: several folders named `<slug>`, equally near ADR series, a shared series beside feature-local `adr/` folders, or a walk cut short by its cap. |
-| `artifact` | With `--kind`: the document's `path`, whether it `exists`, and its `format`: `handoff` (opens with a `---` frontmatter naming its `type`) or `foreign` (anything else: a metadata table, another tool's header). |
+| `documents` | One entry per kind (`research`, `prd`, `design`, `plan`, `ux`): `path` (the spelling on disk, e.g. `PRD.md`, else the plugin's name), `abs`, `arg` (`abs` quoted for a shell), `exists`, `format` (`handoff`: opens with a `---` frontmatter naming its `type`; `foreign`: anything else, a metadata table or another tool's header), `unsafe` when set, and `commands`: `handoff_load`, `external_review`, `status`, `diff`, `diff_check`, `diff_stat`, each `{"argv", "shell"}` with every path quoted. |
+| `adr` | The decision series to continue: `dir`, `abs_dir`, `arg_dir`, `pattern`, `highest`, `next_id`, `next_file`, `scope` (`feature`: the feature's own; `shared`; `none`: no series, so `adr-<decision>.md` beside the design, as before), `create_dir` with `commands.mkdir`, `unsafe` when set, and the `series` seen, nearest first, with `series_count`. |
+| `ambiguous`, `ambiguities` | Why the pick is not the only reasonable one: several folders named `<slug>`, a folder skipped for its name, equally near ADR series, a shared series beside feature-local ones, several spellings of one document, or a walk cut short by a cap (`truncated`). |
+| `artifact` | With `--kind`: that document's entry (for `adr`, the next record's path). With `--path <file>` too, the document the user named, mapped into `--repo` (below). |
+| `commands.feature_status` | `git status --porcelain` of the feature folder. |
 
-**An ADR series** is the files of one directory sharing a numbering: `adr-001-x.md`, `ADR-G14-x.md`
-(a letter prefix, then two digits or more), or, in a directory named `adr`, `adrs` or `decisions`,
-adr-tools' `0001-x.md`. The feature's own series (in its folder, or an `adr/` directly in it) wins;
-otherwise the shared series nearest the feature folder by path distance. Other features' own series
-are never continued: when only they exist, the convention is feature-local and this feature's series
-starts at 1, spelled and placed as most of theirs are.
+**An ADR series** is the files of one directory below the top sharing a numbering: `adr-001-x.md`,
+`ADR-G14-x.md` (a letter prefix, then two digits or more), or, in a directory named `adr`, `adrs` or
+`decisions`, adr-tools' `0001-x.md` (never a dated `2024-01-15-x.md`). The feature's own series (in
+its folder, or an `adr`/`adrs`/`decisions` directory directly in it) wins; otherwise the shared
+series nearest the feature folder by path distance. Other features' own series are never
+continued: when only they exist, the convention is feature-local and this feature's series starts
+at 1, spelled and placed as most of theirs are. Records at the top of the repository are not a
+series to continue (nothing may be written there).
 
 The rules a phase follows:
 
 - **Write into `<worktree>/<feature-dir>/`** — the document, its review rounds, and (architecture)
   the ADRs in `adr.dir` — and read upstream documents from there. `docs/sdlc/<feature-slug>/` is the
-  fallback the command already returns, never a second home beside a detected one.
+  fallback the command already returns, never a second home beside a detected one. The exception is
+  `marketing`, whose briefs belong to no single feature: it keeps `docs/sdlc/<slug>/`.
+- **Never put a path on a command line yourself.** A folder name is the repository's choice, and the
+  main session may run in `bypassPermissions`. Run the printed `commands` verbatim, and where a
+  command takes a path, pass the quoted `arg`. Folders are proposed only when every component of
+  their path is letters, digits, `.`, `_` and `-` (not starting with `.` or `-`); anything else is
+  skipped and named in `ambiguities`.
+- **`unsafe` means stop.** A symlink, or anything but a regular file (a directory for `adr`), at or
+  on the way to the path: never write through it; report it.
+- **A path the user names** goes through `--path <file>`: an absolute path in any checkout of the
+  repository maps to the same relative path under `--repo` (the worktree), never the checkout's
+  copy; `exists: false` then means the worktree does not have it yet.
 - **`ambiguous`:** interactive, show the `ambiguities` and ask which; headless, there is no one to
   ask, so take the command's pick, record it in the artifact's body as an `assumption:` naming the
   alternatives, and flag it in the summary. Several series with one clearly nearest is not
@@ -61,13 +76,14 @@ The rules a phase follows:
 - **Never renumber or reuse an id.** Continue from `next_id`, one number per new record, in the
   series' own spelling.
 
-The walk is bounded (depth 12, 200,000 entries; `truncated` says a cap cut it), reads the shallow
-tree first, never follows a symlink, and skips hidden directories (`.git`, `.claude/worktrees`),
-dependency and build output (`node_modules`, `vendor`, `build`, `dist`, `target`, …) and any
-nested repository. The role-scope hook reads the same rule: outside `docs/`, the `architect` role
-may write only a design document or a decision record into a feature folder or ADR directory that
-already exists, so a phase whose `adr.create_dir` is true creates that `adr/` itself
-(`mkdir -p <worktree>/<adr.dir>`) before it delegates.
+The walk is bounded (depth 12, 200,000 entries; `truncated` says either cap cut it), reads the
+shallow tree first, never follows a symlink, and skips hidden directories (`.git`,
+`.claude/worktrees`), dependency and build output (`node_modules`, `vendor`, `build`, `dist`,
+`target`, …, unless the directory is named exactly `<slug>`) and any nested repository. The
+role-scope hook reads the same predicates: outside `docs/`, the `architect` role may write only
+`tech-design.md` or a decision record into a feature folder or ADR directory that already exists,
+so a phase whose `adr.create_dir` is true runs `adr.commands.mkdir` itself before it delegates, and
+it hands the role absolute paths.
 
 ## Artifact types
 
@@ -189,7 +205,7 @@ acceptance context) **builds from it when the user points at it** — names it, 
 feature whose folder holds it — reads its body as the requirements, and **says so**: the artifact
 it writes records in its body that its input was a foreign-format PRD whose readiness was not
 machine-checked, naming its path and its latest review round (`review-prd-<n>.md` in the feature
-folder) if there is one. A round whose `verdict` is still `changes` means the amendment escalated: surface that
+folder, the highest `iteration`) if there is one. A round whose `verdict` is still `changes` means the amendment escalated: surface that
 and do not build on it unasked. `develop` reads only `plan.md` and `tech-design.md`, which the
 plugin writes in its own format, so a foreign PRD reaches it only through them.
 

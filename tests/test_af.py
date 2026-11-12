@@ -2418,19 +2418,30 @@ def test_doc_pr_argv_refuses(tmp_path: Path, args: list[str], says: str) -> None
 
 
 @pytest.mark.parametrize(
-    ("skill", "folder"),
-    [("architecture", "<feature-dir>"), ("plan", "<feature-dir>"), ("product", "<feature-dir>"),
-     ("research", "<feature-dir>"), ("ux-design", "docs/sdlc/<feature-slug>")],
+    ("skill", "kind", "review_kind"),
+    [("architecture", "design", "technical"), ("plan", "plan", "plan"),
+     ("product", "prd", "product"), ("research", "research", "research"),
+     ("ux-design", "ux", "ux")],
 )
-def test_a_doc_phase_reviews_the_file_in_its_worktree(skill: str, folder: str) -> None:
-    text = (_PLUGIN / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
-    assert f"--target <worktree>/{folder}/" in text
-    assert "--repo <worktree>" in text
+def test_a_doc_phase_reviews_the_file_in_its_worktree(
+    skill: str, kind: str, review_kind: str
+) -> None:
+    """The external lens runs the command artifact-home printed, with the worktree's file quoted."""
+    text = _prose(f"skills/{skill}/SKILL.md")
+    assert (
+        f"`documents.{kind}.commands.external_review.shell`, the printed form of "
+        f'`python3 -E "${{CLAUDE_PLUGIN_ROOT}}/bin/external_review.py" --target <path> '
+        f"--repo <worktree> --kind {review_kind}`"
+    ) in text
+    assert "--target <worktree>/" not in text  # no path pasted by hand
 
 
 # --- where a feature's documents go: artifact-home ------------------------------------------------
 
-_HOME_PHASES = {"research": "research", "product": "prd", "architecture": "prd", "plan": "design"}
+_HOME_PHASES = {
+    "research": "research", "product": "prd", "architecture": "design", "plan": "design",
+    "ux-design": "ux",
+}
 
 
 def _prose(relative: str) -> str:
@@ -2457,28 +2468,48 @@ def _monorepo(root: Path) -> None:
 
 def _home_call(skill: str) -> str:
     text = (_PLUGIN / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
-    calls = [c for _, c in _documented_calls() if c.startswith("artifact-home")
-             and f"skills/{skill}/" in _ and c in text]
+    calls = [c for where, c in _documented_calls() if c.startswith("artifact-home")
+             and where == f"skills/{skill}/SKILL.md" and c in text]
     assert len(calls) == 1, calls
     return calls[0]
 
 
 @pytest.mark.parametrize(("skill", "kind"), sorted(_HOME_PHASES.items()))
 def test_each_document_phase_finds_its_home_before_it_writes(skill: str, kind: str) -> None:
-    call = _home_call(skill)
-    assert call == (
+    assert _home_call(skill) == (
         f"artifact-home --repo <worktree> --slug <feature-slug> --kind {kind}"
     )
     text = _prose(f"skills/{skill}/SKILL.md")
-    assert "use its `feature_dir` as `<feature-dir>` below" in text
+    assert "Its `feature_dir` is `<feature-dir>` below" in text
+    assert "**Never put a path on a command line yourself:** run the commands it prints" in text
+    assert "use that document's `arg` (absolute, already quoted)" in text
+    assert "with `unsafe` set" in text and "is never written: stop and report it" in text
     assert (
         "On `ambiguous`, ask when interactive; headless, take its pick and record it as an "
         "assumption" in text
     )
-    assert "in `<feature-dir>/`" in text
+    assert f"`documents.{kind}.commands.handoff_load.shell`" in text
     # the old hardcoded home survives only as the fallback the command itself returns
     assert text.count("docs/sdlc/<feature-slug>") <= 2
     assert "under `docs/sdlc/<feature-slug>/`" not in text
+    assert "per round in `<feature-dir>/` (`feature_abs`)" in text
+
+
+def test_develop_resolves_its_inputs_and_rounds_the_same_way() -> None:
+    text = _prose("skills/develop/SKILL.md")
+    assert (
+        'python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" artifact-home --repo <repo> '
+        "--slug <feature-slug> --kind plan`" in text
+    )
+    assert "run its printed commands verbatim, never a path you typed" in text
+    assert "`documents.plan.commands.handoff_load.shell`" in text
+    assert "per round in `<feature-dir>/` (`feature_abs`, from step 1" in text
+    assert "under `docs/sdlc/<feature-slug>/`" not in text
+
+
+def test_marketing_is_the_recorded_exception() -> None:
+    assert "under `docs/sdlc/<feature-slug>/`" in _prose("skills/marketing/SKILL.md")
+    assert "The exception is `marketing`" in _prose("patterns/handoff.md")
 
 
 @pytest.mark.parametrize("skill", sorted(_HOME_PHASES))
@@ -2502,10 +2533,15 @@ def test_the_skills_artifact_home_call_as_written_finds_the_monorepos_folder(
 def test_artifact_home_in_a_greenfield_repository(tmp_path: Path) -> None:
     result = _ok("artifact-home", "--slug", "search", "--kind", "plan", cwd=tmp_path)
     assert result["feature_dir"] == "docs/sdlc/search" and result["detected"] is False
-    assert result["artifact"] == {
-        "kind": "plan", "path": "docs/sdlc/search/plan.md", "exists": False, "format": None,
+    artifact = result["artifact"]
+    assert artifact["path"] == "docs/sdlc/search/plan.md"
+    assert (artifact["exists"], artifact["format"]) == (False, None)
+    assert artifact["arg"] == shlex.quote(str(tmp_path.resolve() / "docs/sdlc/search/plan.md"))
+    assert set(artifact["commands"]) == {
+        "handoff_load", "external_review", "status", "diff", "diff_check", "diff_stat",
     }
     assert result["adr"]["scope"] == "none" and result["ambiguous"] is False
+    assert result["adr"]["commands"] == {}
 
 
 def test_artifact_home_reports_a_foreign_prd(tmp_path: Path) -> None:
@@ -2514,12 +2550,98 @@ def test_artifact_home_reports_a_foreign_prd(tmp_path: Path) -> None:
                  cwd=tmp_path)
     assert result["artifact"]["exists"] is True and result["artifact"]["format"] == "foreign"
     assert result["existing"] == ["prd.md"]
+    review = result["artifact"]["commands"]["external_review"]["argv"]
+    assert review[-2:] == ["--kind", "product"]
+
+
+def _git_repo(root: Path) -> None:
+    for args in (["init", "-q"], ["config", "user.email", "t@e"], ["config", "user.name", "t"]):
+        subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True)
+
+
+def test_the_printed_commands_run_safely_from_a_hostile_checkout(tmp_path: Path) -> None:
+    """A root path with a space and quote, a folder named to run a command: the folder is never
+    proposed, and every printed command runs, through a real shell, without running anything
+    else."""
+    repo = tmp_path / "my repo's"
+    repo.mkdir()
+    _git_repo(repo)
+    hostile = repo / "features" / "$(touch PWNED)" / "export"
+    hostile.mkdir(parents=True)
+    (hostile / "prd.md").write_text("x", encoding="utf-8")
+    plain = repo / "features" / "in-progress" / "export"
+    plain.mkdir(parents=True)
+    (plain / "prd.md").write_text("| **Status** | Draft |\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "x"], check=True, capture_output=True)
+    (plain / "prd.md").write_text("| **Status** | Draft |\n\nnew\n", encoding="utf-8")
+    result = _ok("artifact-home", "--repo", str(repo), "--slug", "export", "--kind", "prd",
+                 cwd=tmp_path)
+    assert result["feature_dir"] == "features/in-progress/export"
+    assert any("skipped a feature folder" in why for why in result["ambiguities"])
+    commands = result["artifact"]["commands"]
+    for name in ("status", "diff", "diff_check", "diff_stat"):
+        done = subprocess.run(["bash", "-c", commands[name]["shell"]], cwd=tmp_path,
+                              capture_output=True, text=True, check=False)
+        assert done.returncode == 0, (name, done.stderr)
+    assert "prd.md" in subprocess.run(
+        ["bash", "-c", commands["status"]["shell"]], cwd=tmp_path, capture_output=True, text=True,
+        check=False,
+    ).stdout
+    load = subprocess.run(["bash", "-c", commands["handoff_load"]["shell"]], cwd=tmp_path,
+                          env=_env(), capture_output=True, text=True, check=False)
+    assert load.returncode in (1, 3) and "Traceback" not in load.stderr  # foreign: refused, run
+    assert shlex.split(commands["handoff_load"]["shell"])[5] == str(plain.resolve() / "prd.md")
+    assert not (tmp_path / "PWNED").exists() and not (repo / "PWNED").exists()
+
+
+def test_the_mkdir_it_prints_creates_the_adr_folder(tmp_path: Path) -> None:
+    for relative in ("features/a/prd.md", "features/a/adr/adr-001-x.md", "features/foo/prd.md"):
+        (tmp_path / relative).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / relative).write_text("x", encoding="utf-8")
+    result = _ok("artifact-home", "--repo", str(tmp_path), "--slug", "foo", "--kind", "adr",
+                 cwd=tmp_path)
+    mkdir = result["adr"]["commands"]["mkdir"]
+    assert mkdir["argv"][:3] == ["mkdir", "-p", "--"]
+    subprocess.run(["bash", "-c", mkdir["shell"]], check=True)
+    assert (tmp_path / "features" / "foo" / "adr").is_dir()
+    expected = tmp_path.resolve() / "features/foo/adr/adr-001-<title>.md"
+    assert result["artifact"]["abs"] == str(expected)
+
+
+def test_no_mkdir_is_printed_for_an_unsafe_adr_folder(tmp_path: Path) -> None:
+    for relative in ("features/a/prd.md", "features/a/adr/adr-001-x.md", "features/foo/prd.md"):
+        (tmp_path / relative).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / relative).write_text("x", encoding="utf-8")
+    (tmp_path / "features" / "foo" / "adr").symlink_to(tmp_path, target_is_directory=True)
+    result = _ok("artifact-home", "--repo", str(tmp_path), "--slug", "foo", cwd=tmp_path)
+    assert result["adr"]["unsafe"].startswith("symlink") and result["adr"]["commands"] == {}
+
+
+def test_a_user_named_checkout_path_maps_into_the_worktree(tmp_path: Path) -> None:
+    checkout, worktree = tmp_path / "repo", tmp_path / "wt-docs-export"
+    for root in (checkout, worktree):
+        (root / "features" / "export").mkdir(parents=True)
+        (root / "features" / "export" / "plan.md").write_text("x", encoding="utf-8")
+    (checkout / ".git").mkdir()
+    (worktree / ".git").write_text("gitdir: ../repo/.git/worktrees/wt\n", encoding="utf-8")
+    (checkout / "features" / "export" / "PRD-export.md").write_text("x", encoding="utf-8")
+    named = str(checkout / "features" / "export" / "PRD-export.md")
+    result = _ok("artifact-home", "--repo", str(worktree), "--slug", "export", "--kind", "prd",
+                 "--path", named, cwd=tmp_path)
+    artifact = result["artifact"]
+    assert artifact["path"] == "features/export/PRD-export.md"
+    assert artifact["abs"].startswith(str(worktree.resolve()))
+    assert artifact["exists"] is False  # uncommitted in the checkout: ask, or stop
 
 
 @pytest.mark.parametrize(
     ("args", "says"),
     [(["--slug", "../x"], "invalid feature slug"), (["--slug", "Export"], "invalid feature slug"),
-     (["--slug", "x", "--repo", "missing"], "no such directory")],
+     (["--slug", "x", "--repo", "missing"], "no such directory"),
+     (["--slug", "x", "--kind", "prd", "--path", "../x.md"], "must name a file in the repository"),
+     (["--slug", "x", "--kind", "prd", "--path", "a/$(id)/prd.md"], "must name a file"),
+     (["--slug", "x", "--path", "a.md"], "--path needs --kind of a document")],
 )
 def test_artifact_home_refuses(tmp_path: Path, args: list[str], says: str) -> None:
     assert says in _refused("artifact-home", *args, cwd=tmp_path)
@@ -2535,16 +2657,16 @@ def test_artifact_home_kinds_are_the_librarys() -> None:
 
 def test_architecture_numbers_its_adrs_by_the_detected_series() -> None:
     text = _prose("skills/architecture/SKILL.md")
-    assert "**in the detected series**: in `adr.dir`, the first named `adr.next_file`" in text
+    assert "**in the detected series**: in `adr.abs_dir`, the first named `adr.next_file`" in text
     assert "never an id already taken" in text
     assert "with no series (`adr.scope: none`), `adr-<decision>.md` beside the design" in text
-    assert (
-        "When `adr.create_dir` is true, create `adr.dir` first (`mkdir -p <worktree>/<adr.dir>`)"
-        in text
-    )
+    assert "When `adr.create_dir` is true, run `adr.commands.mkdir.shell` first" in text
+    assert "**Give the role ABSOLUTE paths** — `documents.design.abs` and" in text
+    assert "a relative path resolves against the session's directory" in text
     agent = _prose("agents/architect.md")
     assert "the next ids of the repository's own decision series" in agent
     assert "into a feature folder or ADR directory that already exists" in agent
+    assert "Never turn them into relative paths" in agent
 
 
 @pytest.mark.parametrize("skill", ["architecture", "plan"])
@@ -2564,6 +2686,9 @@ def test_the_handoff_pattern_says_what_follows_a_foreign_prd() -> None:
     assert "**builds from it when the user points at it**" in text
     assert "`develop` reads only `plan.md` and `tech-design.md`" in text
     assert "**`ambiguous`:** interactive, show the `ambiguities` and ask which; headless" in text
+    assert "**Never put a path on a command line yourself.**" in text
+    assert "**`unsafe` means stop.**" in text
+    assert "the highest `iteration`" in text
 
 
 def test_the_product_skill_states_its_scope_and_its_amend_mode() -> None:
@@ -2577,13 +2702,25 @@ def test_the_product_skill_states_its_scope_and_its_amend_mode() -> None:
     assert "`review-prd-<n>.md` in `<feature-dir>/`" in text
 
 
-def test_the_amend_reference_gates_a_foreign_prd_without_handoff_load() -> None:
+def test_the_amend_reference_edits_the_worktree_and_gates_a_foreign_prd() -> None:
     text = _prose("skills/product/references/amend.md")
+    # the worktree's copy, never the checkout's
+    assert "**The file you edit is always the worktree's copy**, `<worktree>/<path>`" in text
+    assert "--kind prd --path <file>" in text
+    assert "becomes the same relative path under `<worktree>`" in text
+    assert "Do not copy it over from the checkout." in text
+    assert "headless, change nothing, stop and report" in text
+    # the gate
     assert "**Foreign format:** `handoff-load` is **not** the gate" in text
-    assert "`git -C <worktree> diff --check -- <path>` exits 0" in text
+    assert "`commands.diff_check` (`git diff --check -- <path>`) exits 0" in text
     assert "add no YAML frontmatter, convert no table" in text
-    assert "The `reviewer` gets the diff (`git -C <worktree> diff -- <path>`" in text
-    assert "**Each round** is `review-prd-<n>.md` in `<feature-dir>/`" in text
+    assert "The `reviewer` gets the diff (`commands.diff`" in text
+    # the rounds' lifecycle
+    assert "**Each round** is `review-prd-<n>.md` in `<feature-dir>/` (`feature_abs`)" in text
+    assert "delete it now" in text and "this loop's rounds start again at 1" in text
+    assert "**The plugin's own escalated leftover:**" in text
+    assert "the round with the **highest iteration** (compare the numbers, not the names)" in text
+    assert "A handoff-format PRD gets `review_decision: escalate` (never its `status`)" in text
     assert "A foreign PRD has no field to set and gets none" in text
     assert "never renumber or reuse" in text
 

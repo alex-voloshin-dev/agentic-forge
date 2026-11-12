@@ -266,29 +266,36 @@ able to. The widening is the narrowest that serves it: a Write outside `docs/` p
 segment, no instruction or skill file, `.md`, the blocklist):
 
 1. **The target's directory already exists**, below the working tree's top (never the top itself),
-   and is one the repository keeps for these documents (`role_scope._feature_home`, which reads the
-   predicates `artifact_home` detects with, so the hook allows exactly what the detector proposes):
-   - a **feature folder**: its name has a slug's shape (`[a-z0-9][a-z0-9-]*`) and it holds
-     `prd.md`, `plan.md`, `design.md`, `tech-design.md` or `research-brief.md` as a regular file
-     (case-insensitively; a symlink does not count);
-   - an **`adr/` directory** directly in such a folder;
+   every component of its path below the top is letters, digits, `.`, `_` and `-` (not starting
+   with `.` or `-`), and it is one the repository keeps for these documents
+   (`role_scope._feature_home`, over the predicates `artifact_home` detects with — `dir_names`,
+   `marks_feature`, `holds_series` — so the hook allows what the detector proposes, **and any other
+   existing folder of the same shape**: it does not re-run the detection for a slug):
+   - a **feature folder**: its name has a slug's shape (`[a-z0-9][a-z0-9-]*`) and it holds a feature
+     document (`prd.md`, `plan.md`, `design.md`, `tech-design.md`, `research-brief.md` or
+     `ux-spec.md`) as a regular file (case-insensitively; a symlink does not count);
+   - an **`adr`, `adrs` or `decisions` directory** directly in such a folder;
    - an **ADR series directory**: it holds a numbered decision record (`adr-001-x.md`,
      `ADR-G01-x.md`, or `0001-x.md` in a directory named `adr`, `adrs` or `decisions`).
-2. **The file name is the role's contract**: a feature document's name (as above), a decision record
-   (`adr-*.md` / `adr_*.md`, or a member of the directory's numbered series). A `README.md` or a
-   contributor guide beside a `plan.md` stays out of reach.
+2. **The file name is the role's contract**: `tech-design.md`, or a decision record (`adr-*.md` /
+   `adr_*.md`, or a member of the directory's numbered series). The other feature documents — a
+   PRD, a plan, a research brief, a UX spec — are other phases', which the main session writes and
+   this hook does not hold; the architect cannot write them outside `docs/`, nor a `README.md` or a
+   contributor guide beside them.
 
 Why this shape. The rule is **detection, not configuration**: a repository's config may only switch
 things off (ADR 0102/0103), and a path list in a checked-in file is exactly what a pull request could
 widen. Requiring the directory to exist means the role cannot bootstrap a new home: it cannot write
-a `prd.md` into a fresh directory to make it a feature folder, because the fresh directory does not
-qualify; the orchestrating skill (the main session, which this hook does not hold) creates a new
-`adr/` with `mkdir -p` when `artifact-home` says `create_dir`. Excluding the top keeps a root-level
-`PLAN.md` from opening the root. The listing is one `scandir` of the target's directory (and its
-parent for `adr/`), capped at 10,000 entries and never through a symlink; any error is a no, which
-refuses, and an exception is the hook's fail-closed path. What remains reachable: any feature
-document or decision record in such a directory, overwriting an existing one included. That is the
-role's job, and the commit is the skill's, reviewed in the feature PR.
+into a fresh directory to make it a feature folder, because the fresh directory does not qualify,
+and it cannot write a feature document there anyway; the orchestrating skill (the main session,
+which this hook does not hold) creates a new `adr/` with the `mkdir` command `artifact-home` prints
+when it says `create_dir`. Excluding the top keeps a root-level `PLAN.md` from opening the root, and
+the detector proposes no series at the top for the same reason. The checks read **one listing of
+the target's directory, and one of its parent** only when the directory is named `adr`, `adrs` or
+`decisions`; each is capped at 10,000 entries and never goes through a symlink; any error is a no,
+which refuses, and an exception is the hook's fail-closed path. What remains reachable: the design
+and decision records in such a directory, overwriting an existing one included. That is the role's
+job, and the commit is the skill's, reviewed in the feature PR.
 
 A `..` from one working tree into the hidden space around another (where linked
 worktrees and `.git` live) is refused as outside the session's working trees. Under it the first blocklist stays as a second layer, on the path as given and as resolved,

@@ -361,10 +361,53 @@ def _handoff_load(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _document_commands(repo: str, kind: str, entry: dict[str, Any]) -> dict[str, Any]:
+    """What a phase runs on one document, every path in it quoted by ``shlex``: the paths come from
+    directory names a repository chose, so no skill pastes one onto a command line itself."""
+    from agentic_forge import artifact_home
+
+    absolute, rel = entry["abs"], entry["path"]
+    git = ["git", "-C", repo]
+    return {
+        "handoff_load": _command([
+            "python3", "-E", os.path.join(_PLUGIN_ROOT, "bin", "af.py"), "handoff-load",
+            "--path", absolute, "--type", artifact_home.KIND_TYPES[kind],
+        ]),
+        "external_review": _command([
+            "python3", "-E", os.path.join(_PLUGIN_ROOT, "bin", "external_review.py"),
+            "--target", absolute, "--repo", repo, "--kind", artifact_home.REVIEW_KINDS[kind],
+        ]),
+        "status": _command([*git, "status", "--porcelain", "--", rel]),
+        "diff": _command([*git, "diff", "--", rel]),
+        "diff_check": _command([*git, "diff", "--check", "--", rel]),
+        "diff_stat": _command([*git, "diff", "--stat", "--", rel]),
+    }
+
+
 def _artifact_home(args: argparse.Namespace) -> int:
     from agentic_forge import artifact_home
 
-    _emit(artifact_home.home(_directory(args.repo), args.slug, args.kind))
+    result = artifact_home.home(_directory(args.repo), args.slug, args.kind, args.path)
+    repo = result["repo"]
+    for kind, entry in result["documents"].items():
+        entry["arg"] = shlex.quote(entry["abs"])
+        entry["commands"] = _document_commands(repo, kind, entry)
+    if "artifact" in result:
+        result["artifact"]["arg"] = shlex.quote(result["artifact"]["abs"])
+        if args.kind in result["documents"]:
+            result["artifact"]["commands"] = result["documents"][args.kind]["commands"]
+    adr = result["adr"]
+    adr["arg_dir"] = shlex.quote(adr["abs_dir"])
+    adr["commands"] = {}
+    if adr["create_dir"] and not adr.get("unsafe"):
+        adr["commands"]["mkdir"] = _command(["mkdir", "-p", "--", adr["abs_dir"]])
+    result["feature_arg"] = shlex.quote(result["feature_abs"])
+    result["commands"] = {
+        "feature_status": _command(
+            ["git", "-C", repo, "status", "--porcelain", "--", result["feature_dir"]]
+        ),
+    }
+    _emit(result)
     return EXIT_OK
 
 
@@ -978,8 +1021,13 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--repo", default=".", help="the work-tree root to search (default: .)")
     sub.add_argument("--slug", required=True, help="the feature slug")
     sub.add_argument(
-        "--kind", choices=("research", "prd", "design", "plan", "adr"),
-        help="also report this document's path, whether it exists and its format",
+        "--kind", choices=("research", "prd", "design", "plan", "ux", "adr"),
+        help="also report this document as `artifact`: path, existence, format, commands",
+    )
+    sub.add_argument(
+        "--path", metavar="FILE",
+        help="a document the user named for --kind, absolute (any checkout of the repository) or "
+        "relative to --repo; reported at the same relative path under --repo",
     )
 
     sub = add("review-decision", _review_decision, "The review loop's next step.")

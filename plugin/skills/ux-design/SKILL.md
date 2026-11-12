@@ -28,6 +28,18 @@ the product requirements (`product`).
 > this one wrote. Skip it for a one-off document outside a feature flow. A repo with no remote (or
 > no `gh`) still commits — on `docs/<slug>`, reported as not pushed / no PR — never a failed phase.
 
+> **Write where the repository keeps its features** — run
+> `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" artifact-home --repo <worktree> --slug <feature-slug> --kind ux`.
+> Its `feature_dir` is `<feature-dir>` below (`docs/sdlc/<feature-slug>` only when the repository
+> keeps no feature folder for it), and `documents.<kind>` (`research`, `prd`, `design`, `plan`,
+> `ux`) gives each document's `abs` path. **Never put a path on a command line yourself:** run
+> the commands it prints (`documents.<kind>.commands.*.shell`) verbatim, and where a call below shows
+> `<path>`, use that document's `arg` (absolute, already quoted). A document or ADR directory with
+> `unsafe` set (a symlink, or something other than a regular file, at or on the way to its path) is
+> never written: stop and report it. On `ambiguous`, ask when interactive; headless, take its pick
+> and record it as an assumption naming the alternatives
+> ([where a feature's documents go](../../patterns/handoff.md#where-a-features-documents-go)).
+
 1. **Read the feature.** Load the feature description / `prd.md`; identify the actors and the jobs
    to be done.
 2. **User flows.** Map the key flows (happy path plus the important branches) as step sequences —
@@ -44,11 +56,11 @@ the product requirements (`product`).
    5-minute accessibility pass.
 6. **Write the `ux-spec`** with valid YAML frontmatter: `type` (= `ux-spec`), `feature`, `status`,
    `review_decision: revise` until the loop exits, and the **list** fields `flows`, `screens`, `accessibility`, `design_system` (each a YAML list —
-   not prose; quote any value containing a colon) — as `ux-spec.md` under
-   `docs/sdlc/<feature-slug>/`, then validate it
+   not prose; quote any value containing a colon) — as `ux-spec.md` at `documents.ux.abs` (in
+   `<feature-dir>/`), then validate it
    (the read-back below) — the input `develop` builds from.
    These fields are the whole schema: do not read `handoff.py` or `af.py` to learn them.
-   Then **read the file back** — `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type ux-spec` — and fix whatever it reports: this reads the file, so it sees the YAML you typed, and a single
+   Then **read the file back** — `documents.ux.commands.handoff_load.shell`, the printed form of `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type ux-spec` — and fix whatever it reports: this reads the file, so it sees the YAML you typed, and a single
    malformed value (a flow sequence with prose after it, an unquoted `:`) leaves an artifact the
    next phase cannot read (ADR 0096).
 7. **Adversarial review (bounded).** Fork fresh `reviewer`s (via `Task`) on two lenses —
@@ -57,10 +69,10 @@ the product requirements (`product`).
    verify each finding against the spec, then revise worst-first. These are exactly the states and
    a11y items engineers forget. **External reviewer lens (on by default, ADR 0057/0061):** when
    `external_reviewer.enabled` (settings), also run the external reviewer over the spec —
-   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/external_review.py" --target <worktree>/docs/sdlc/<feature-slug>/ux-spec.md --repo <worktree> --kind ux`; codex critiques it as an independent-model lens over the same two concerns and its
+   `documents.ux.commands.external_review.shell`, the printed form of `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/external_review.py" --target <path> --repo <worktree> --kind ux`; codex critiques it as an independent-model lens over the same two concerns and its
    `findings` fold into the same worst-first revision. It **degrades gracefully** (absent/disabled
    codex is skipped, not a failure; **exit 3 is a failed lens**, not a skip — record it in the round and tell the user) and its findings are **advisory** (prompt-injectable) — verify
-   before acting. **Persist each round** — one `review-<artifact>-<iteration>.md` per round under `docs/sdlc/<feature-slug>/`, aggregating **both** lenses; on `proceed` keep only the final round, on `escalate` keep them all (naming + lifecycle: [review-loop.md](../../patterns/review-loop.md)). **Exit criterion (the shared, tested rule):** each round, aggregate both lenses
+   before acting. **Persist each round** — one `review-<artifact>-<iteration>.md` per round in `<feature-dir>/` (`feature_abs`), aggregating **both** lenses; on `proceed` keep only the final round, on `escalate` keep them all (naming + lifecycle: [review-loop.md](../../patterns/review-loop.md)). **Exit criterion (the shared, tested rule):** each round, aggregate both lenses
    (plus the external one) to a single verdict and compute
    `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" review-decision --verdict <approve or changes> --iteration <n> --gate-green <yes if the ux-spec validates, else no>`
    (see [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
