@@ -100,8 +100,9 @@ The stack's lint comes from the cwd itself (never a subdirectory; a `stack:` hin
 narrower set of it than `stack-detect` lists: a JavaScript/TypeScript package is gated only by its own `lint` script, and
 always as `npm run lint`, whatever package manager the repo declares — npm runs any `package.json` script with no install
 state, while `yarn`/`pnpm`/`bun run` can fail before the script starts. With no `lint` script it is not gated, even if `eslint`
-is a dependency. A Go module with a golangci config is still gated by `go vet ./...`, not `golangci-lint`. A lint with shell
-syntax in it is never run.
+is a dependency. A Go module with a golangci config is still gated by `go vet ./...`, not `golangci-lint`. A Terraform
+root is not gated, even with a `.tflint.hcl` (`stack-detect` lists `tflint --recursive` then, for the session to run). A
+lint with shell syntax in it is never run.
 
 *Simple* means an optional single `git add <literal paths>`, `git add -A` or `git add .` joined by `&&`, then `git commit`
 with only `-m`, `-a`, `-am`, `-qm`, `--allow-empty`, `--no-verify`, `-q` or `-s` (and their long forms), a heredoc message as

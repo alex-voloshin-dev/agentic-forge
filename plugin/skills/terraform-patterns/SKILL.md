@@ -1,6 +1,6 @@
 ---
 name: terraform-patterns
-description: Terraform / IaC conventions agentic-forge applies when the detected stack is Terraform — the toolchain (terraform fmt / init -backend=false + validate / terraform test), plan-never-apply, mock-provider tests, validation blocks, secret and state hygiene, rendered-plan review, and the high-value Terraform pitfalls. Loaded on demand by develop / code-review and the software-engineer / qa-engineer roles after stack detection; kept off the always-on listing.
+description: Terraform / IaC conventions agentic-forge applies when the detected stack is Terraform — the toolchain (terraform fmt / init -backend=false + validate / terraform test / tflint), offline checks only (the human plans and applies), mock-provider tests, validation blocks, secret and state hygiene, rendered-plan review, and the high-value Terraform pitfalls. Loaded on demand by develop / code-review and the software-engineer / qa-engineer roles after stack detection; kept off the always-on listing.
 disable-model-invocation: true
 ---
 
@@ -14,37 +14,43 @@ infrastructure changes to. (Mechanism: ADR 0015, by-stack detection + reference 
 
 ## Toolchain
 
-**Prefer the repo's own commands** — read the `Makefile` / CI workflow (and any `.tflint.hcl`,
-pre-commit or policy-as-code config) and run *those*. Defaults (the commands `stack-detect`
-reports as fallbacks):
+**Prefer the repo's own commands** — read the `Makefile` / CI workflow (and any pre-commit or
+policy-as-code config) and run *those*. Defaults (the commands `stack-detect` reports as
+fallbacks):
 
 | Job | Conventional command | Gate |
 | --- | --- | --- |
 | format | `terraform fmt -recursive` | applied (canonical) |
 | types | `terraform init -backend=false && terraform validate` | valid |
 | test | `terraform test` — listed only when `*.tftest.hcl` exists | green; new behaviour covered |
-| lint | `tflint --recursive` only when the repo configures it | clean (no new ignores) |
+| lint | `tflint --recursive` — listed only when `.tflint.hcl` sits beside the root module | clean (no new ignores) |
 
 `init -backend=false` touches no state, but it is not read-only: it downloads providers and
 modules into `.terraform/` and may rewrite `.terraform.lock.hcl`. Commit the lock file and review
 its diff; use `terraform init -lockfile=readonly` when the change must not move a provider.
 
-## Plan, never apply
+## Offline checks only; the human plans and applies
 
-- **The agent plans; a human applies.** Never run `terraform apply`, `terraform destroy`,
-  `apply -auto-approve`, `import`, `state rm/mv/push` or `force-unlock` against real
-  infrastructure — not even "just to check". Hand off with the plan to run
-  (`terraform plan -out=plan.out`) and what it should show.
-- **Review the rendered plan, not only the HCL**, whenever the change builds a document:
-  `jsonencode(...)`, policy definitions and assignments, IAM / bucket policies, templated
-  config. `terraform show -json plan.out` shows what the provider will send; the HCL can read
-  right while the rendered JSON is wrong — the field case was Azure Policy rules that looked
-  correct in HCL and that Azure would have refused at assignment. Say so in the hand-off.
+- **The agent runs only the offline gate:** `terraform fmt`, `terraform init -backend=false`,
+  `terraform validate`, `terraform test` on mock providers (and `tflint` when configured). None
+  of these reads state or reaches a cloud API.
+- **Anything against a real backend is the human's step**, named in the hand-off, never run:
+  `terraform init` with the backend, `terraform plan -out=plan.out`, `terraform show -json
+  plan.out`, and above all `terraform apply`, `terraform destroy`, `import`, `state rm/mv/push`
+  and `force-unlock` — not even "just to check". A real plan runs on whatever credentials the
+  shell happens to hold, takes the state lock, and writes `plan.out` with every secret in
+  plaintext.
+- **The hand-off says what to review in the rendered plan**, not only in the HCL, whenever the
+  change builds a document: `jsonencode(...)`, policy definitions and assignments, IAM / bucket
+  policies, templated config. `terraform show -json plan.out` shows what the provider will send;
+  the HCL can read right while the rendered JSON is wrong — the field case was Azure Policy rules
+  that looked correct in HCL and that Azure would have refused at assignment. Name the commands,
+  the addresses that should change (and how: update, move, replace), and the documents to read.
 
 ## Idioms
 
-- **Validate inputs where they enter.** A `validation` block on the variable (type, emptiness,
-  shape, allowed values) rejects a bad value at plan time with a clear error; a resource
+- **Validate inputs where they enter.** A `validation` block on the variable (emptiness,
+  length or range, shape, allowed values — `type` already enforces the type) rejects a bad value at plan time with a clear error; a resource
   `lifecycle { precondition { ... } }` / `postcondition` guards assumptions about other
   objects. Prefer both to a runtime failure inside the provider, or a comment.
 - **Pin versions.** `required_version` plus `required_providers` with `source` and a version
@@ -72,8 +78,8 @@ its diff; use `terraform init -lockfile=readonly` when the change must not move 
 - **`terraform test` with mocked providers**, so tests need no cloud credentials and create
   nothing: `mock_provider "azurerm" {}` (1.7+), with `override_resource` / `override_data` /
   `override_module` to pin the computed values an assertion depends on.
-- **Prefer `command = plan` runs** for logic and rendering; a test that applies must use mocks
-  only. Assert on the **rendered** values — `jsondecode(azurerm_policy_definition.x.policy_rule)`
+- **Prefer `command = plan` runs** for logic and rendering — on mock providers, these are the only
+  plans the agent makes; a test that applies must use mocks only. Assert on the **rendered** values — `jsondecode(azurerm_policy_definition.x.policy_rule)`
   — not on echoes of the input variables.
 - **Every validation gets a failing run**: `expect_failures = [var.name]` (or the resource's
   check) proves a bad value is refused. Cover the happy path, a boundary and an error case.
@@ -93,8 +99,8 @@ its diff; use `terraform init -lockfile=readonly` when the change must not move 
 - **HCL that renders a different document than it reads**: `jsonencode` of a value that is
   `null` or an empty list, string-vs-list fields, interpolated JSON strings — check the plan JSON.
 - **`count` keyed by a list** (reorder = replace); `for_each` over a value unknown until apply.
-- **A plan that destroys or replaces** what the task meant to change — read every `-/+` and
-  `forces replacement` before handing off.
+- **A plan that destroys or replaces** what the task meant to change — the hand-off names the
+  addresses that should change so the human can check every `-/+` and `forces replacement`.
 - **Unpinned providers / modules** and an uncommitted or hand-edited lock file.
 - **Secrets in state, outputs, `*.tfvars` or logs** (`TF_LOG` dumps request bodies).
 - **`depends_on` papering over a missing reference**; provider configuration inside a
@@ -103,7 +109,9 @@ its diff; use `terraform init -lockfile=readonly` when the change must not move 
 ## Definition of done (Terraform)
 
 `terraform fmt -recursive` applied, `init -backend=false && validate` clean, `terraform test`
-green with mock providers and a failing run per validation, versions pinned and the lock file
-committed, no secret in code / tfvars / non-sensitive outputs, refactors via `moved` blocks —
-and **no apply**: the hand-off names the plan to run and the rendered documents to review —
-using the repo's own commands where declared.
+green with mock providers and a failing run per validation (plus `tflint` when configured),
+versions pinned and the lock file committed, no secret in code / tfvars / non-sensitive outputs,
+refactors via `moved` blocks — using the repo's own commands where declared. **Nothing against a
+real backend**: no plan, apply or destroy; the hand-off names the human's `terraform plan
+-out=plan.out` / `terraform show -json plan.out`, the expected changes, and the rendered
+documents to review.

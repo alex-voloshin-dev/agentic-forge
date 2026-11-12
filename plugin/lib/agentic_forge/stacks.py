@@ -19,7 +19,7 @@ present; :func:`declared_gate_sources` lists where to look. The fallbacks are re
 profile's directory rather than copied from the registry: a JavaScript/TypeScript profile names the
 package manager the repo declares and only the scripts and tools it has, Go names golangci-lint when
 it is configured, JVM uses the build wrapper, Terraform lists ``terraform test`` only when tests
-exist.
+exist and ``tflint`` only when it is configured.
 
 This module is reachable from the commit-gate hook, so it runs on Python 3.9 and treats the repo
 as untrusted: it never executes anything, reads only bounded prefixes of a few named files, and
@@ -214,10 +214,12 @@ STACKS: dict[str, StackSpec] = {
     ),
     # `typecheck` is a compound shell command (validate needs an initialised working dir;
     # `-backend=false` touches no state). Callers that run a toolchain command run it through a
-    # shell; the commit gate runs only `lint` (None here) and refuses any command with shell syntax.
-    # `test` is dropped when no *.tftest.hcl exists. `format` applies, like every stack's.
-    # Specificity 0: *.tf beside any language manifest is that service's infra, not its stack.
-    # The pack (`terraform-patterns`) carries the IaC conventions: plan, never apply.
+    # shell; the commit gate runs only `lint` and refuses any command with shell syntax. `lint` is
+    # `tflint --recursive` when `.tflint.hcl` sits in the profile's dir, else None, and the gate
+    # never runs tflint (it only narrows, ADR 0101). `test` is dropped when no *.tftest.hcl exists.
+    # `format` applies, like every stack's. Specificity 0: *.tf beside any language manifest is that
+    # service's infra, not its stack. The pack (`terraform-patterns`) carries the IaC conventions:
+    # offline checks only, the human plans and applies.
     "terraform": StackSpec(
         id="terraform",
         display="Terraform",
@@ -307,6 +309,8 @@ _LOCKFILES = (
 # downloads a missing one. npm is `_exec`'s special case.
 _PM_RUN_BIN = {"yarn": "yarn run", "pnpm": "pnpm exec", "bun": "bun run"}
 _GOLANGCI_CONFIGS = (".golangci.yml", ".golangci.yaml", ".golangci.toml", ".golangci.json")
+_TFLINT_CONFIG = ".tflint.hcl"
+_TFLINT_LINT = "tflint --recursive"
 _GRADLE_FILES = ("build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts")
 
 
@@ -536,6 +540,7 @@ def _jvm_toolchain(root: Path, where: Path, spec: StackSpec) -> Toolchain:
 
 def _terraform_toolchain(root: Path, where: Path, spec: StackSpec) -> Toolchain:
     tests = where / "tests"
+    lint = _TFLINT_LINT if (where / _TFLINT_CONFIG).is_file() else None
 
     def has_tftest(directory: Path) -> bool:
         return any(fnmatch.fnmatchcase(name, "*.tftest.hcl") for name in _file_names(directory))
@@ -543,7 +548,7 @@ def _terraform_toolchain(root: Path, where: Path, spec: StackSpec) -> Toolchain:
     has_tests = has_tftest(where) or (
         tests.is_dir() and not tests.is_symlink() and has_tftest(tests)
     )
-    return spec.toolchain if has_tests else replace(spec.toolchain, test=None)
+    return replace(spec.toolchain, test=spec.toolchain.test if has_tests else None, lint=lint)
 
 
 # Annotation only (never evaluated on 3.9): a resolver refines a spec's toolchain for one dir.

@@ -49,7 +49,9 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
   run` can fail before the script starts (Yarn Berry not installed in a fresh worktree, a corepack
   download, `ERR_PNPM_BAD_PM_VERSION`) with an exit 1 the fail-open signatures do not know; no
   script, no gate, so a declared `eslint` stays a fallback for a person — `go vet ./...` even where
-  the profile names `golangci-lint`, and nothing with shell syntax. Skippable via
+  the profile names `golangci-lint`, no `tflint` (a Terraform profile names it when `.tflint.hcl`
+  exists; Terraform was never gated, and tflint may need `tflint --init` first), and nothing with
+  shell syntax. Skippable via
   `test_gate.skip` or `AGENTIC_FORGE_SKIP_TEST_GATE`;
   fails open on an infrastructure error (missing tool, timeout) **and when the gate can't run** —
   a non-zero exit whose output shows a missing lint script / uninstalled linter

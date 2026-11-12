@@ -355,6 +355,9 @@ def test_choose_gate_never_scans_below_a_root_with_no_manifest(tmp_path: Path) -
         ({"go.mod": "module x\n", ".golangci.yml": ""}, ["go", "vet", "./..."]),
         ({"go.mod": "module x\n"}, ["go", "vet", "./..."]),
         ({"main.tf": "", "tests/a.tftest.hcl": ""}, None),  # terraform names no lint
+        # tflint is listed for a person when configured; the gate never ran on Terraform, and
+        # tflint may need a plugin download (`tflint --init`) before it runs at all.
+        ({"main.tf": "", ".tflint.hcl": ""}, None),
         ({"pom.xml": "<project/>", "mvnw": ""}, None),
     ],
 )
@@ -380,6 +383,7 @@ def test_choose_gate_only_narrows_what_it_ran(
         ("yarn run lint", ["npm", "run", "lint"]),
         ("npm exec --no --package=eslint -- eslint .", None),
         ("golangci-lint run", ["go", "vet", "./..."]),
+        ("tflint --recursive", None),
     ],
 )
 def test_gate_argv(lint: str | None, argv: list[str] | None) -> None:
