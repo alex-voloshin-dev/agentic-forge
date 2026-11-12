@@ -27,10 +27,15 @@ def _flat(path: Path) -> str:
 # --- item 12: fleet coordination ------------------------------------------------------------
 
 
-def test_the_fleet_pattern_exists_and_is_vendor_neutral() -> None:
+def test_the_fleet_pattern_names_a_hub_by_its_primitives_and_calls_no_hub_api() -> None:
+    raw = (_PATTERNS / "fleet-coordination.md").read_text(encoding="utf-8")
     text = _flat(_PATTERNS / "fleet-coordination.md")
     assert text.startswith("# Pattern: fleet coordination")
     assert "a coordination hub such as kommutator: topics, direct messages, a shared board" in text
+    # The hub is named once, as an example; no tool or function of one is.
+    assert text.count("kommutator") == 1
+    for api in ("mcp__", "board_put", "board_get", "send(", "post(", "dm("):
+        assert api not in raw, api
 
 
 def test_handoff_names_the_fleet_pattern_as_its_caller() -> None:
@@ -88,7 +93,31 @@ def test_the_fleet_pattern_keeps_committed_files_canonical() -> None:
     assert "`DECISION: <slug>`" in text
     assert "topics do not wake anyone" in text
     assert "Committed files remain canonical for decisions and phase artifacts." in text
-    assert "Reassign only after the owner confirms." in text
+    assert "Reassign only after the unit's `owner_handle` confirms it releases the unit." in text
+
+
+def test_the_fleet_pattern_never_says_owner_alone() -> None:
+    """Two owners exist (the peer doing a unit, the person the manager works for): every use of
+    the word says which one."""
+    text = _flat(_PATTERNS / "fleet-coordination.md")
+    assert "the **unit's `owner_handle`** is the peer session doing a unit" in text
+    assert "the **human owner** is the person the manager session works for" in text
+    qualified = re.sub(r"owner_handle|\*?\*?human owner|kinds of owner", "", text)
+    bare = [m.start() for m in re.finditer(r"\bowners?\b", qualified)]
+    assert not bare, [qualified[max(0, i - 40) : i + 40] for i in bare]
+
+
+def test_a_stalled_reassignment_goes_to_the_human_owner_not_a_wait() -> None:
+    text = _flat(_PATTERNS / "fleet-coordination.md")
+    assert "send **one** direct request to the unit's `owner_handle`" in text
+    assert "**If one exists, the unit resumes from it**" in text
+    assert "**If there is none**, mark the unit **orphaned**, with the time." in text
+    assert (
+        "If it does not reply within that wait, or its state is `gone`, **do not keep waiting**"
+        in text
+    )
+    assert "put the reassignment into the escalation queue below" in text
+    assert "so the human owner decides it" in text
 
 
 # --- item 13: the spawning session recalls ---------------------------------------------------
@@ -102,6 +131,10 @@ def test_knowledge_recall_says_the_spawning_session_recalls_and_passes_hits() ->
     )
     assert "**Use the project's own search when it has one**" in text
     assert "`AGENTS.md` / `CLAUDE.md`" in text
+    assert "a search server **the repository itself configures** in its `.mcp.json`" in text
+    assert "**A user-level connector is not the project's search**, whatever its name says" in text
+    assert "Do not recall through one." in text
+    assert "an MCP tool the session can see" not in text
     assert "**Otherwise use `vault-recall`**" in text
     assert "af.py\" vault-recall --repo ." in text
     assert "the top 5-8, each a path plus one line on why" in text
