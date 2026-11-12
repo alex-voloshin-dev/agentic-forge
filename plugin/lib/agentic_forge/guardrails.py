@@ -31,6 +31,7 @@ __all__ = [
     "is_commit_or_push",
     "is_pr_merge",
     "MergeTarget",
+    "UnattributableMerge",
     "pr_merge_target",
     "worktree_branches",
     "merge_preflight",
@@ -857,34 +858,203 @@ class MergeTarget:
 
     ``selector`` is the number, URL or branch the command gave ("" = the PR of the branch checked
     out in ``cwd``), ``repo`` its ``-R``/``--repo`` (or a ``GH_REPO=`` prefix; "" = the repo of
-    ``cwd``), ``cwd`` the directory the command runs it in, after any literal ``cd`` before it.
-    ``merges`` is False for a form that merges nothing (``--disable-auto``, ``--help``)."""
+    ``cwd``), ``cwd`` the directory the command runs it in, after any ``cd`` before it, and
+    ``host`` a ``GH_HOST=`` prefix ("" = none). ``merges`` is False for a form that merges nothing
+    (``--disable-auto``, ``--help``)."""
 
     selector: str
     repo: str
     cwd: str
     merges: bool = True
+    host: str = ""
 
 
-# `gh pr merge`'s flags (gh 2.x), by whether they take a value. A flag outside both sets may take
-# one, and its value would then read as the PR — so the command is not attributed to a PR at all.
+class UnattributableMerge(ValueError):
+    """A `gh pr merge` the merge gate cannot pin to one PR as it will be when it merges; the
+    message is the one-line reason, and the hook lets the merge through with it (fail open)."""
+
+
+# `gh pr merge`'s flags (gh 2.x): shorthands, and which take a value. A flag outside both sets may
+# take one, and its value would then read as the PR — so such a command is not attributed at all
+# (gh refuses an unknown flag itself, so nothing merges unchecked on that account).
+_MERGE_SHORT = {
+    "-A": "--author-email", "-b": "--body", "-F": "--body-file", "-t": "--subject",
+    "-R": "--repo", "-d": "--delete-branch", "-m": "--merge", "-r": "--rebase", "-s": "--squash",
+    "-h": "--help",
+}
 _MERGE_VALUE_FLAGS = frozenset(
-    {"-A", "--author-email", "-b", "--body", "-F", "--body-file", "--match-head-commit",
-     "-t", "--subject", "-R", "--repo"}
+    {"--author-email", "--body", "--body-file", "--match-head-commit", "--subject", "--repo"}
 )
 _MERGE_BOOL_FLAGS = frozenset(
-    {"--admin", "--auto", "-d", "--delete-branch", "--disable-auto", "-m", "--merge", "-r",
-     "--rebase", "-s", "--squash", "-h", "--help"}
+    {"--admin", "--auto", "--delete-branch", "--disable-auto", "--merge", "--rebase", "--squash",
+     "--help"}
 )
-# `-R`'s value, `[HOST/]OWNER/REPO`. It reaches `gh`'s argv, so it is checked here.
+_BOOL_VALUES = {"true": True, "t": True, "1": True, "false": False, "f": False, "0": False}
+# `-R`'s value, `[HOST/]OWNER/REPO`, and a `GH_HOST`. Both reach `gh`, so they are checked here.
 _GH_REPO = re.compile(r"(?:[A-Za-z0-9][A-Za-z0-9.-]*/)?[A-Za-z0-9._-]+/[A-Za-z0-9._-]+")
+_GH_HOST = re.compile(r"[A-Za-z0-9][A-Za-z0-9.-]{0,252}(?::[0-9]{1,5})?")
 _MAX_SELECTOR = 512
+# What a reason may quote from the command: a plain word, or nothing.
+_QUOTABLE = re.compile(r"[A-Za-z0-9._:-]{1,40}")
+# The GH_* a merge may be given: GH_REPO and GH_HOST are followed, and a credential is not needed,
+# as the gate reads with the session's and a read it is refused fails open. Any other (such as
+# GH_CONFIG_DIR) can change what `gh` resolves.
+_GH_FOLLOWED = frozenset(
+    {"GH_REPO", "GH_HOST", "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN",
+     "GITHUB_ENTERPRISE_TOKEN"}
+)
+# What may run before the merge in the same command: it reads, and cannot change the PR, its
+# checks or which PR the merge names. Anything else could (`gh pr ready`, `gh pr checks --watch`,
+# a thread resolved through `gh api`, `gh pr checkout`, `git checkout`, `sleep`), so the gate,
+# which reads the PR BEFORE the command runs, would judge a state the merge never sees.
+_READ_ONLY_GIT = frozenset({"status", "log", "diff", "fetch", "rev-parse"})
+_READ_ONLY_GH_PR = frozenset({"view", "status", "diff", "checks"})
+_READ_ONLY_COMMANDS = frozenset({"echo", "true"})
+_CONTROL = ("&&", "||", "|&", ";", "|", "&", "\n")
 
 
-def _merge_flags(args: list[str]) -> tuple[dict[str, str], list[str]] | None:
-    """``gh pr merge``'s arguments as ``({flag: value}, positionals)``, read the way gh's flag
-    parser reads them (``--f v``, ``--f=v``, ``-fv``, combined ``-ds``, ``--`` ends the flags).
-    A bool flag maps to "". None on a flag it does not know."""
+def _quoted(word: str) -> str:
+    return f"`{word}`" if _QUOTABLE.fullmatch(word) else "a command"
+
+
+@dataclass
+class _Segment:
+    """One simple command of a command line: its words (``dynamic`` marks a word holding a shell
+    expansion), and the control operators before and after it ("" at either end)."""
+
+    words: list[str]
+    dynamic: list[bool]
+    before: str
+    after: str = ""
+
+
+def _lex(command: str) -> tuple[list[_Segment], str]:
+    """``command`` (heredoc bodies stripped) as shell words split into simple commands, with
+    redirections and comments dropped and ``\\``-newline joined, the way a shell reads them.
+
+    Lexing stops at a command substitution, a subshell or a group: what follows is not read, and
+    the second element says why ("" when the whole line was read). The command it stopped in is
+    left out, so a merge inside it or after it is not found. An unbalanced quote raises
+    :class:`UnattributableMerge` — the shell would run nothing of it."""
+    text = strip_heredoc_bodies(command)
+    segments: list[_Segment] = []
+    words: list[str] = []
+    dynamic: list[bool] = []
+    chars: list[str] = []
+    state = {"started": False, "quoted": False, "dynamic": False, "redirect": False}
+    before = ""
+
+    def end_word() -> None:
+        if state["started"]:
+            if state["redirect"]:
+                state["redirect"] = False  # a redirection's target, not an argument
+            else:
+                words.append("".join(chars))
+                dynamic.append(state["dynamic"])
+        chars.clear()
+        state.update(started=False, quoted=False, dynamic=False)
+
+    def end_segment(op: str) -> None:
+        nonlocal words, dynamic, before
+        end_word()
+        state["redirect"] = False
+        if words:  # an empty one (a blank line, `&&` then a newline) changes nothing
+            segments.append(_Segment(words, dynamic, before, op))
+            words, dynamic, before = [], [], op
+
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        nxt = text[i + 1] if i + 1 < n else ""
+        if ch == "\\":
+            if nxt == "\n":
+                i += 2  # a continuation line
+                continue
+            chars.append(nxt)
+            state["started"] = True
+            i += 2
+            continue
+        if ch == "'":
+            end = text.find("'", i + 1)
+            if end < 0:
+                raise UnattributableMerge("an unbalanced quote")
+            chars.append(text[i + 1 : end])
+            state.update(started=True, quoted=True)
+            i = end + 1
+            continue
+        if ch == '"':
+            j = i + 1
+            while True:
+                if j >= n:
+                    raise UnattributableMerge("an unbalanced quote")
+                c = text[j]
+                if c == '"':
+                    break
+                if c == "\\" and j + 1 < n and text[j + 1] in '$`"\\\n':
+                    if text[j + 1] != "\n":
+                        chars.append(text[j + 1])
+                    j += 2
+                    continue
+                if c == "`" or (c == "$" and text[j + 1 : j + 2] == "("):
+                    return segments, "a command substitution"
+                if c == "$":
+                    state["dynamic"] = True
+                chars.append(c)
+                j += 1
+            state.update(started=True, quoted=True)
+            i = j + 1
+            continue
+        if ch == "`" or (ch == "$" and nxt == "("):
+            return segments, "a command substitution"
+        if ch in "()":
+            return segments, "a subshell"
+        if ch == "$":
+            state["dynamic"] = True
+        if ch == "#" and not state["started"]:
+            while i < n and text[i] != "\n":
+                i += 1  # a comment, up to the newline
+            continue
+        if ch in "<>" or (ch == "&" and nxt == ">"):
+            if state["started"] and not state["quoted"] and "".join(chars).isdigit():
+                chars.clear()
+                state["started"] = False  # `2>`: the descriptor is not an argument
+            end_word()
+            j = i + 1
+            while j < n and text[j] in "<>&|-" and j - i < 3:
+                j += 1
+            op = text[i:j]
+            if op.endswith("&") and j < n and (text[j].isdigit() or text[j] == "-"):
+                while j < n and (text[j].isdigit() or text[j] == "-"):
+                    j += 1  # `2>&1`, `>&-`: a descriptor, no target word
+            else:
+                state["redirect"] = True
+            i = j
+            continue
+        if ch in ";|&\n":
+            op = ch
+            if ch in "&|" and nxt == ch:
+                op = ch * 2
+            elif ch == "|" and nxt == "&":
+                op = "|&"
+            end_segment(op)
+            i += len(op)
+            continue
+        if ch in " \t":
+            end_word()
+            i += 1
+            continue
+        chars.append(ch)
+        state["started"] = True
+        i += 1
+    end_segment("")
+    return segments, ""
+
+
+def _merge_flags(args: list[str]) -> tuple[dict[str, str], list[str]]:
+    """``gh pr merge``'s arguments as ``({long flag: value}, positionals)``, read the way gh's flag
+    parser reads them (``--f v``, ``--f=v``, ``-fv``, combined ``-ds``, ``--squash=false``, ``--``
+    ends the flags; a shorthand is stored under its long name, so the LAST ``-R``/``--repo``
+    wins, as in gh). A set bool flag maps to "". Raises :class:`UnattributableMerge`."""
     flags: dict[str, str] = {}
     positionals: list[str] = []
     i = 0
@@ -896,100 +1066,159 @@ def _merge_flags(args: list[str]) -> tuple[dict[str, str], list[str]] | None:
             break
         if token.startswith("--"):
             name, eq, value = token.partition("=")
-            if name in _MERGE_BOOL_FLAGS and not eq:
-                flags[name] = ""
+            if name in _MERGE_BOOL_FLAGS:
+                if eq and value.lower() not in _BOOL_VALUES:
+                    raise UnattributableMerge(f"{_quoted(name)} is given a non-bool value")
+                if not eq or _BOOL_VALUES[value.lower()]:
+                    flags[name] = ""
+                else:
+                    flags.pop(name, None)
             elif name in _MERGE_VALUE_FLAGS:
                 if not eq:
                     if i >= len(args):
-                        return None
+                        raise UnattributableMerge(f"{_quoted(name)} has no value")
                     value, i = args[i], i + 1
                 flags[name] = value
             else:
-                return None
+                raise UnattributableMerge(f"`gh pr merge` has no flag {_quoted(name)}")
         elif token.startswith("-") and len(token) > 1:
             j = 1
             while j < len(token):
-                short = "-" + token[j]
+                name = _MERGE_SHORT.get("-" + token[j], "")
                 j += 1
-                if short in _MERGE_BOOL_FLAGS:
-                    flags[short] = ""
+                if name in _MERGE_BOOL_FLAGS:
+                    flags[name] = ""
                     continue
-                if short not in _MERGE_VALUE_FLAGS:
-                    return None
+                if name not in _MERGE_VALUE_FLAGS:
+                    raise UnattributableMerge(f"`gh pr merge` has no flag {_quoted(token[:j])}")
                 value = token[j:]
                 value = value[1:] if value.startswith("=") else value
                 if not value:
                     if i >= len(args):
-                        return None
+                        raise UnattributableMerge(f"{_quoted(name)} has no value")
                     value, i = args[i], i + 1
-                flags[short] = value
+                flags[name] = value
                 break
         else:
             positionals.append(token)
     return flags, positionals
 
 
-def _after_cd(directory: str | None, args: list[str]) -> str | None:
-    """The directory after ``cd <args>`` from ``directory``; None when it cannot be told without a
-    shell (no argument, ``-``, a variable, a glob)."""
-    if directory is None or len(args) != 1:
-        return None
-    path = args[0]
-    if not path or path == "-" or any(ch in path for ch in "$`*?[{"):
-        return None
-    return os.path.normpath(os.path.join(directory, os.path.expanduser(path)))
+def _cd_target(directory: str, args: list[str], dynamic: list[bool]) -> str:
+    """The directory after ``cd <args>`` from ``directory``. Raises when it cannot be told without
+    a shell (no argument, ``-``, an expansion, a glob)."""
+    if len(args) != 1 or any(dynamic) or args[0] in ("", "-") or any(c in args[0] for c in "*?[{"):
+        raise UnattributableMerge("a `cd` whose target only a shell can work out")
+    return os.path.normpath(os.path.join(directory, os.path.expanduser(args[0])))
+
+
+def _cd_takes_effect(segments: list[_Segment], index: int, merge: int) -> bool:
+    """Whether the ``cd`` at ``index`` has surely changed directory by the time the merge at
+    ``merge`` runs: not in a pipeline or the background, and either run unconditionally or chained
+    to the merge by ``&&`` alone (so the merge runs only if it did)."""
+    cd = segments[index]
+    if cd.after in ("|", "|&", "&", "||") or cd.before in ("|", "|&", "||"):
+        return False
+    if cd.before in ("", ";", "\n", "&"):
+        return True
+    return all(segments[k].after == "&&" for k in range(index, merge))
+
+
+def _read_only(words: list[str]) -> bool:
+    """Whether a command before the merge only reads (see ``_READ_ONLY_*``)."""
+    ci = _command_index(words)
+    if ci is None:  # only assignments: shell variables, harmless unless they steer gh
+        return not any(w.startswith(("GH_", "GITHUB_")) for w in words)
+    base, rest = words[ci].rsplit("/", 1)[-1], words[ci + 1 :]
+    if base in _READ_ONLY_COMMANDS:
+        return True
+    if base == "git":
+        return _git_subcommand(rest)[0] in _READ_ONLY_GIT
+    if base == "gh" and rest[:1] == ["pr"] and rest[1:2] and rest[1] in _READ_ONLY_GH_PR:
+        return not (rest[1] == "checks" and any(w.startswith("--watch") for w in rest))
+    return False
+
+
+def _label(words: list[str]) -> str:
+    """How a reason names a command from the line: its command word, plus a gh/git subcommand."""
+    ci = _command_index(words)
+    if ci is None:
+        return "a variable assignment"
+    base, rest = words[ci].rsplit("/", 1)[-1], words[ci + 1 :]
+    shown = [base] + (rest[:2] if base == "gh" else rest[:1] if base == "git" else [])
+    if not all(_QUOTABLE.fullmatch(w) for w in shown):
+        return "a command"
+    return f"`{' '.join(shown)}`"
+
+
+def _is_merge(words: list[str]) -> bool:
+    ci = _command_index(words)
+    if ci is None or words[ci].rsplit("/", 1)[-1] != "gh" or "pr" not in words[ci + 1 :]:
+        return False
+    rest = words[ci + 1 :]
+    return rest[rest.index("pr") + 1 : rest.index("pr") + 2] == ["merge"]
 
 
 def pr_merge_target(command: str, cwd: str) -> MergeTarget | None:
-    """The one PR ``command``'s `gh pr merge` names, run from ``cwd`` — or None when that cannot be
-    told for certain, and the merge gate is then not applied: no merge in command position, two of
-    them, a segment that does not tokenize but reads as one, a flag gh pr merge does not have, more
-    than one PR argument, a ``GH_HOST`` prefix, or a repo-relative PR (a number, a branch, none)
-    after a ``cd`` whose target needs a shell to know. Pure, apart from ``~`` in a ``cd``."""
-    segments, balanced = _split_segments(strip_heredoc_bodies(command))
-    if not balanced:
+    """The one PR ``command``'s `gh pr merge` names, run from ``cwd``, as it reads before the
+    command runs. None when no `gh pr merge` is in command position (in a line read to its end:
+    one cut short by a substitution or subshell raises, as the merge may be in what was not read).
+
+    Raises :class:`UnattributableMerge` with the reason when that PR or its state cannot be told
+    from the command alone: two merges; an unbalanced quote; a command substitution, subshell or
+    group before or around the merge; anything before the merge that is not read-only (see
+    ``_READ_ONLY_*``), since it could change the PR, its checks, or which PR is meant; a ``cd`` that
+    may not take effect or whose target needs a shell; a shell expansion in the merge; a flag `gh
+    pr merge` does not have; more than one PR argument; a ``-R`` or ``GH_HOST`` that is not one; a
+    ``GH_*`` the gate does not follow. Redirections and comments are dropped as the shell drops
+    them. Pure, apart from ``~`` in a ``cd``."""
+    segments, stopped = _lex(command)
+    merges = [k for k, segment in enumerate(segments) if _is_merge(segment.words)]
+    if not merges:
+        if stopped:
+            raise UnattributableMerge(f"{stopped} before or around the merge")
         return None
-    directory: str | None = cwd
-    found: MergeTarget | None = None
-    for segment in segments:
-        tokens = _shell_tokens(segment)
-        if tokens is None:
-            if _PR_MERGE.search(segment):
-                return None
-            continue
-        ci = _command_index(tokens)
-        if ci is None:
-            continue
-        base, rest = tokens[ci].rsplit("/", 1)[-1], tokens[ci + 1 :]
-        if base in ("cd", "pushd"):
-            directory = _after_cd(directory, rest)
-            continue
-        if base != "gh" or "pr" not in rest:
-            continue
-        p = rest.index("pr")
-        if rest[p + 1 : p + 2] != ["merge"]:
-            continue
-        if found is not None:
-            return None  # two merges in one command
-        parsed = _merge_flags([*rest[:p], *rest[p + 2 :]])
-        if parsed is None:
-            return None
-        flags, positionals = parsed
-        env = {t.partition("=")[0]: t.partition("=")[2] for t in tokens[:ci] if "=" in t}
-        if "GH_HOST" in env or len(positionals) > 1:
-            return None
-        selector = positionals[0] if positionals else ""
-        repo = flags.get("-R", flags.get("--repo", env.get("GH_REPO", "")))
-        if selector.startswith("-") or len(selector) > _MAX_SELECTOR or "\n" in selector:
-            return None
-        if repo and not _GH_REPO.fullmatch(repo):
-            return None
-        is_url = selector.startswith(("https://", "http://"))
-        if directory is None and not is_url and not repo:
-            return None
-        merges = not ({"--disable-auto", "-h", "--help"} & set(flags))
-        found = MergeTarget(selector, repo, directory or cwd, merges)
-    return found
+    if len(merges) > 1:
+        raise UnattributableMerge("two merges in one command")
+    m = merges[0]
+    directory = cwd
+    for k in range(m):
+        words = segments[k].words
+        ci = _command_index(words)
+        if ci is not None and words[ci].rsplit("/", 1)[-1] in ("cd", "pushd"):
+            if not _cd_takes_effect(segments, k, m):
+                raise UnattributableMerge("a `cd` that may not take effect before the merge")
+            directory = _cd_target(directory, words[ci + 1 :], segments[k].dynamic[ci + 1 :])
+        elif not _read_only(words):
+            raise UnattributableMerge(
+                f"{_label(words)} runs before the merge in the same command, and may change the "
+                "PR or which PR it is"
+            )
+    words, dynamic = segments[m].words, segments[m].dynamic
+    if any(dynamic):
+        raise UnattributableMerge("a shell expansion in the merge")
+    ci = _command_index(words)
+    assert ci is not None  # _is_merge found the command word
+    rest = words[ci + 1 :]
+    p = rest.index("pr")
+    flags, positionals = _merge_flags([*rest[:p], *rest[p + 2 :]])
+    env = {w.partition("=")[0]: w.partition("=")[2] for w in words[:ci] if _ENV_ASSIGN.match(w)}
+    for name in env:
+        if name.startswith("GH_") and name not in _GH_FOLLOWED:
+            raise UnattributableMerge(f"{_quoted(name)} is set for the merge")
+    host = env.get("GH_HOST", "")
+    if "GH_HOST" in env and not _GH_HOST.fullmatch(host):
+        raise UnattributableMerge("`GH_HOST` is not a host name")
+    if len(positionals) > 1:
+        raise UnattributableMerge("more than one PR argument")
+    selector = positionals[0] if positionals else ""
+    if selector.startswith("-") or len(selector) > _MAX_SELECTOR or "\n" in selector:
+        raise UnattributableMerge("a PR argument the gate does not pass on")
+    repo = flags.get("--repo", env.get("GH_REPO", ""))
+    if repo and not _GH_REPO.fullmatch(repo):
+        raise UnattributableMerge("a repo that is not [HOST/]OWNER/REPO")
+    merges_pr = not ({"--disable-auto", "--help"} & set(flags))
+    return MergeTarget(selector, repo, directory, merges_pr, host)
 
 
 def worktree_branches(porcelain: str) -> dict[str, str]:

@@ -170,19 +170,30 @@ the repository does not get a say in what it does (ADR 0103).
 
 A `gh pr merge` that a session runs itself, rather than the watcher, is held to the watcher's merge gate by the
 merge-preflight hook. It needs no setting and has none: it applies whether or not `pr_watcher` is enabled, and only
-`pr_watcher.bot` is read, so that a thread the watcher skips does not hold a session's merge either.
+`pr_watcher.bot` is read, so that a thread the watcher skips does not hold a session's merge either. It is an
+**accident guard, not a security boundary**: it catches a session merging by mistake, not one set on merging.
 
 - **What is checked.** The hook lets `gh pr view` say which PR the command names (a number, a URL, a branch, or none for
-  the current branch's PR, with `-R`/`--repo`), then reads that PR with the watcher's own GraphQL query. It **blocks**
-  the merge when the PR is a draft, its checks are not green (pending, failing, or no checks at all), or a review thread is
-  unresolved. This is the case GitHub lets through: a PR whose `mergeStateStatus` is `UNSTABLE`, because the red check
-  is not a required one. `--auto` is held too, as auto-merge waits only for required checks. The message says why, in
-  the watcher's words (`merge gate: #12: merge held: checks: FAILURE; 1 unresolved review thread(s)`). A person who
-  means to merge it as it is can do so outside the session.
-- **When it lets the merge through unchecked**, with a one-line notice: `gh` is missing or not logged in, GitHub or the
-  network fails, `gh` does not answer within 12 s, its answer cannot be read, or the command cannot be attributed to
-  one PR (two merges in one command, a flag `gh pr merge` does not have, a `GH_HOST=` prefix, or a number or branch
-  after a `cd` whose target only a shell could work out).
+  the current branch's PR, with `-R`/`--repo`, the last one winning), then reads that PR with the watcher's own GraphQL
+  query. It **blocks** the merge when the PR is a draft, a check is pending or failing, or a review thread is unresolved.
+  This is the case GitHub lets through: a PR whose `mergeStateStatus` is `UNSTABLE`, because the red check is not a
+  required one. The message says why, in the watcher's words (`merge gate: #12: merge held: checks: FAILURE; 1
+  unresolved review thread(s)`). A person who means to merge it as it is can do so outside the session.
+- **No checks at all** is not a block: a repo without CI can merge, and the session is told the PR merged without a CI
+  signal. (The watcher itself does not merge such a PR.)
+- **`--auto` is held like a merge**, because auto-merge waits only for the *required* checks: a session cannot queue an
+  auto-merge while checks are pending. It waits for them, then merges.
+- **Keep the merge on its own, or after reads only.** The PR is read before the command runs, so a command that changes
+  it first — `gh pr checks 7 --watch && gh pr merge 7`, `gh pr ready 7 && gh pr merge 7`, `git checkout x && gh pr
+  merge` — is not judged; it merges with a notice saying so. Before the merge, only `cd`, `gh pr view|status|diff`,
+  `gh pr checks` without `--watch`, `git status|log|diff|fetch|rev-parse`, `echo` and `true` keep the gate on. Run
+  `gh pr checks --watch` in one call and the merge in the next.
+- **When it lets the merge through unchecked**, always with a one-line notice saying why: `gh` is missing, found only
+  through a relative PATH entry, or not logged in; GitHub or the network fails; `gh` does not answer within 12 s; its
+  answer cannot be read; the PR is not open; or the command cannot be attributed to one PR as it will be when it merges
+  (two merges, a flag `gh pr merge` does not have, a shell expansion or substitution, a `cd` that may not take effect,
+  a `GH_*` variable other than `GH_REPO`/`GH_HOST`/a token, anything off the list above before it).
+- **What it does not see**: a merge through `gh api -X PUT …/pulls/<n>/merge`, `sh -c '…'`, a script or a `gh` alias.
 - **The cost** is two read-only `gh` calls on a `gh pr merge`, within 12 s together, and nothing on any other command.
   The hook's timeout is 30 s.
 

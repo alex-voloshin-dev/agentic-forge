@@ -36,7 +36,8 @@ _HOOK = _REPO / "plugin" / "hooks" / "scripts" / "merge_preflight.py"
 _STUB = """#!{python}
 import json, os, sys, time
 with open(os.environ["GH_STUB_LOG"], "a") as log:
-    log.write(json.dumps(sys.argv[1:]) + "\\n")
+    log.write(json.dumps({{"argv": sys.argv[1:], "argv0": sys.argv[0], "cwd": os.getcwd(),
+                          "GH_HOST": os.environ.get("GH_HOST", "")}}) + "\\n")
 with open(os.environ["GH_STUB_CONFIG"]) as fh:
     config = json.load(fh)
 kind = {{("pr", "view"): "view", ("api", "graphql"): "graphql"}}.get(tuple(sys.argv[1:3]), "other")
@@ -109,10 +110,14 @@ class GhStub:
         config.update(raw or {})
         self.config.write_text(json.dumps(config), encoding="utf-8")
 
-    def calls(self) -> list[list[str]]:
+    def records(self) -> list[dict[str, Any]]:
+        """Each call: its ``argv`` (after ``gh``), ``argv0``, ``cwd`` and ``GH_HOST``."""
         if not self.log.exists():
             return []
         return [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+
+    def calls(self) -> list[list[str]]:
+        return [record["argv"] for record in self.records()]
 
 
 @pytest.fixture
@@ -173,7 +178,7 @@ def test_the_field_case_unstable_with_a_red_check_and_an_open_thread_is_blocked(
         (_pr(checks="FAILURE"), "checks: FAILURE"),
         (_pr(checks="ERROR"), "checks: ERROR"),
         (_pr(checks="PENDING"), "checks: PENDING"),
-        (_pr(checks=None), "checks: NONE"),  # no checks at all is not green checks (ADR 0063)
+        (_pr(checks="EXPECTED"), "checks: EXPECTED"),
         (_pr(draft=True), "draft PR"),
         (_pr(threads=((True, "bob"), (False, "alice"), (False, "carol"))),
          "2 unresolved review thread(s)"),
@@ -197,9 +202,32 @@ def test_resolved_threads_and_a_bot_thread_do_not_hold_it(gh: GhStub, work: Path
     assert _run_hook("gh pr merge 7", work).returncode == 0
 
 
-def test_a_closed_or_merged_pr_is_left_to_gh(gh: GhStub, work: Path) -> None:
+def test_a_pr_with_no_checks_at_all_merges_with_a_notice(gh: GhStub, work: Path) -> None:
+    """A repo without CI must be able to merge; the watcher holds such a PR, the session is told."""
+    gh.answer(graphql=_pr(checks=None))
+    result = _run_hook("gh pr merge 7", work)
+    assert result.returncode == 0
+    notice = result.stderr.strip()
+    assert notice == (
+        "agentic-forge merge gate: #7 has no checks at all, so it merges without a CI signal "
+        "(the PR watcher would hold it)"
+    )
+    assert json.loads(result.stdout)["systemMessage"] == notice
+
+
+def test_no_checks_and_a_draft_still_blocks(gh: GhStub, work: Path) -> None:
+    gh.answer(graphql=_pr(checks=None, draft=True))
+    result = _run_hook("gh pr merge 7", work)
+    assert result.returncode == 2
+    assert "#7: merge held: draft PR." in result.stderr
+
+
+def test_a_pr_that_is_not_open_is_a_notice_not_a_silent_pass(gh: GhStub, work: Path) -> None:
+    """`gh` refuses it itself, but a lookup that found the wrong PR must not pass unremarked."""
     gh.answer(graphql=_pr(state="MERGED", checks="FAILURE"))
-    assert _run_hook("gh pr merge 7", work).returncode == 0
+    assert "#7 reads as MERGED, so there is nothing to hold" in _notice(
+        _run_hook("gh pr merge 7", work)
+    )
 
 
 def test_a_block_is_recorded_with_its_rule_and_evidence(gh: GhStub, work: Path) -> None:
@@ -223,8 +251,9 @@ def test_untrusted_pr_text_never_reaches_the_message(gh: GhStub, work: Path) -> 
     result = _run_hook("gh pr merge 7", work)
     assert result.returncode == 2
     assert "checks: UNKNOWN" in result.stderr
-    for text in ("IGNORE", "ignore previous", "rm -rf", "mallory", "mergeStateStatus"):
-        assert text not in result.stderr
+    said = result.stderr.lower()  # parse_pr upper-cases the rollup: compare without case
+    for text in ("ignore previous", "rm -rf", "run rm", "mallory", "mergestatestatus"):
+        assert text not in said
 
 
 # --- fail open, with a notice -----------------------------------------------------------------
@@ -310,7 +339,7 @@ def test_main_fails_open_in_process(gh: GhStub, work: Path, monkeypatch, capsys)
 @pytest.mark.parametrize(
     "command,reason",
     [
-        ("gh pr merge 1 2", "cannot tell which one PR this command merges"),
+        ("gh pr merge 1 2", "more than one PR argument"),
         ("gh pr merge 7 --disable-auto", None),
     ],
 )
@@ -340,9 +369,34 @@ def test_a_gh_that_cannot_start_fails_open(gh: GhStub, work: Path, monkeypatch) 
         merge_preflight.merge_gate("gh pr merge 7", str(work))
 
 
-def test_a_closed_pr_and_a_clean_one_in_process(gh: GhStub, work: Path) -> None:
+def test_a_closed_pr_in_process(gh: GhStub, work: Path) -> None:
     gh.answer(graphql=_pr(state="CLOSED", draft=True))
+    with pytest.raises(merge_preflight.GateUnavailable, match="reads as CLOSED"):
+        merge_preflight.merge_gate("gh pr merge 7", str(work))
+    gh.answer(graphql=_pr(state="weird state"))
+    with pytest.raises(merge_preflight.GateUnavailable, match="reads as not open"):
+        merge_preflight.merge_gate("gh pr merge 7", str(work))
+
+
+def test_a_gh_found_through_a_relative_path_entry_is_never_run(
+    gh: GhStub, work: Path, monkeypatch
+) -> None:
+    """A repo can commit a `gh`; a relative PATH entry would find it in the session's directory."""
+    planted = work / "bin"
+    planted.mkdir()
+    ran = work / "planted-gh-ran"
+    (planted / "gh").write_text(f"#!/bin/sh\ntouch '{ran}'\n", encoding="utf-8")
+    (planted / "gh").chmod(0o755)
+    monkeypatch.chdir(work)
+    monkeypatch.setenv("PATH", f"bin{os.pathsep}{gh.bin}")
+    with pytest.raises(merge_preflight.GateUnavailable, match="relative PATH entry"):
+        merge_preflight.merge_gate("gh pr merge 7", str(work))
+    assert not ran.exists() and gh.calls() == []
+
+
+def test_gh_is_run_by_its_absolute_path(gh: GhStub, work: Path) -> None:
     assert merge_preflight.merge_gate("gh pr merge 7", str(work)) == guardrails.ALLOW
+    assert [r["argv0"] for r in gh.records()] == [str(gh.bin / "gh")] * 2
 
 
 def test_a_slow_gh_fails_open_inside_the_budget(gh: GhStub, work: Path) -> None:
@@ -367,19 +421,47 @@ def test_a_spent_budget_skips_the_second_call(gh: GhStub, work: Path, monkeypatc
 
 
 @pytest.mark.parametrize(
-    "command",
+    "command,reason",
     [
-        "gh pr merge 1; gh pr merge 2",  # two PRs
-        "gh pr merge --unknown-flag 7",  # its value might be the PR
-        "gh pr merge 7 8",
-        "cd \"$REPO\" && gh pr merge 7",  # a repo-relative PR after a cd only a shell can follow
-        "GH_HOST=ghe.example gh pr merge 7",
+        ("gh pr merge 1; gh pr merge 2", "two merges in one command"),
+        ("gh pr merge --unknown-flag 7", "`gh pr merge` has no flag `--unknown-flag`"),
+        ("gh pr merge 7 8", "more than one PR argument"),
+        ('cd "$REPO" && gh pr merge 7', "a `cd` whose target only a shell can work out"),
+        ("GH_HOST='a b' gh pr merge 7", "`GH_HOST` is not a host name"),
+        ("GH_CONFIG_DIR=/x gh pr merge 7", "`GH_CONFIG_DIR` is set for the merge"),
+        ("gh pr merge 7 --squash=maybe", "`--squash` is given a non-bool value"),
+        # The idioms that change the PR, or which PR, before the merge runs (review round 1):
+        ("gh pr checks 7 --watch && gh pr merge 7", "`gh pr checks` runs before the merge"),
+        ("gh pr ready 7 && gh pr merge 7", "`gh pr ready` runs before the merge"),
+        ("gh api graphql -f query='mutation{resolveReviewThread}' && gh pr merge 7",
+         "`gh api graphql` runs before the merge"),
+        ("gh pr checkout 12 && gh pr merge", "`gh pr checkout` runs before the merge"),
+        ("git checkout feat/x && gh pr merge", "`git checkout` runs before the merge"),
+        ("sleep 300 && gh pr merge 7", "`sleep` runs before the merge"),
+        ("export GH_REPO=acme/other; gh pr merge 7", "`export` runs before the merge"),
+        ("declare -x GH_REPO=acme/other; gh pr merge 7", "`declare` runs before the merge"),
+        ("set -a; gh pr merge 7", "`set` runs before the merge"),
+        ("GH_REPO=acme/other; gh pr merge 7", "a variable assignment runs before the merge"),
+        ("popd; gh pr merge 7", "`popd` runs before the merge"),
+        ("false && cd sub; gh pr merge 7", "`false` runs before the merge"),
+        ("echo x && cd sub; gh pr merge 7", "a `cd` that may not take effect"),
+        ("cd sub | true; gh pr merge 7", "a `cd` that may not take effect"),
+        ("cd sub & gh pr merge 7", "a `cd` that may not take effect"),
+        ("cd sub || true; gh pr merge 7", "a `cd` that may not take effect"),
+        ("{ cd sub; }; gh pr merge 7", "a command runs before the merge"),
+        ("(cd sub; gh pr merge 7)", "a subshell before or around the merge"),
+        ('echo "$(gh pr ready 7)"; gh pr merge 7', "a command substitution before or around"),
+        ("gh pr merge $PR", "a shell expansion in the merge"),
+        ("gh pr merge 7 'unterminated", "an unbalanced quote"),
     ],
 )
-def test_a_merge_not_attributable_to_one_pr_fails_open_without_calling_gh(
-    gh: GhStub, work: Path, command: str
+def test_a_merge_not_attributable_fails_open_with_why_and_calls_no_gh(
+    gh: GhStub, work: Path, command: str, reason: str
 ) -> None:
-    assert "cannot tell which one PR this command merges" in _notice(_run_hook(command, work))
+    (work / "sub").mkdir()
+    gh.answer(graphql=_pr(checks="FAILURE"))  # would block, were it asked
+    notice = _notice(_run_hook(command, work))
+    assert "cannot tell which PR this merges, or as it will be: " + reason in notice
     assert gh.calls() == []
 
 
@@ -439,16 +521,60 @@ def test_no_gh_call_for_a_command_that_merges_nothing(
         ("gh pr merge -dsR acme/infra 7", ["7", "-R", "acme/infra"]),
         ("GH_REPO=acme/infra gh pr merge 7", ["7", "-R", "acme/infra"]),
         ("gh pr merge 7 -b 'Fixes #3' -t=subject --match-head-commit abc", ["7"]),
-        ("cd sub && gh pr merge 7 --squash", ["7"]),
+        ("gh pr merge -R cli/cli --repo acme/infra 7", ["7", "-R", "acme/infra"]),  # last wins
+        ("gh pr merge --repo acme/infra -R cli/cli 7", ["7", "-R", "cli/cli"]),
+        ("GH_REPO=cli/cli gh pr merge -R acme/infra 7", ["7", "-R", "acme/infra"]),
+        ("gh pr merge 7 --squash=true --delete-branch=false", ["7"]),
+        # Redirections, comments and continuations are the shell's, not PR arguments:
+        ("gh pr merge 7 --squash 2>&1", ["7"]),
+        ("gh pr merge 7 2>/dev/null", ["7"]),
+        ("gh pr merge 7 > out.txt", ["7"]),
+        ("gh pr merge 7 >>out.txt 2>&1", ["7"]),
+        ("gh pr merge 7 &>log.txt", ["7"]),
+        ("gh pr merge 7 >&- ", ["7"]),
+        ("gh pr merge 7 |& tee log.txt", ["7"]),
+        ("gh pr merge 7 --squash # merge once green", ["7"]),
+        ("gh pr merge 7 \\\n  --squash \\\n  --delete-branch", ["7"]),
+        ("gh pr merge 7 -b 'a > b # not a comment'", ["7"]),
+        ("gh pr merge 7 --squash && echo $?", ["7"]),  # what follows the merge does not matter
+        # Read-only commands before the merge are fine:
+        ("git fetch && gh pr view 7 && gh pr checks 7 && gh pr merge 7", ["7"]),
+        ("git status; git log -1; git diff; git rev-parse HEAD; echo ok; true; gh pr merge 7",
+         ["7"]),
+        ("gh pr status && gh pr diff 7 >/dev/null && gh pr merge 7", ["7"]),
     ],
 )
 def test_the_merge_forms_resolve_through_gh_pr_view(
     gh: GhStub, work: Path, command: str, view_args: list[str]
 ) -> None:
-    (work / "sub").mkdir()
     assert merge_preflight.merge_gate(command, str(work)) == guardrails.ALLOW
     view = gh.calls()[0]
     assert view == ["pr", "view", *view_args, "--json", "number,url,mergeStateStatus"]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cd sub && gh pr merge 7 --squash",
+        "cd sub; gh pr merge 7",
+        "cd sub\ngh pr merge 7",
+        "cd sub &&\n  gh pr merge 7",
+        "cd sub && git fetch && gh pr merge 7",
+        "pushd sub && gh pr merge 7",
+    ],
+)
+def test_gh_runs_where_the_merge_runs_after_a_cd(gh: GhStub, work: Path, command: str) -> None:
+    (work / "sub").mkdir()
+    assert merge_preflight.merge_gate(command, str(work)) == guardrails.ALLOW
+    assert [r["cwd"] for r in gh.records()] == [str(work / "sub")] * 2
+
+
+def test_a_gh_host_prefix_is_passed_on(gh: GhStub, work: Path) -> None:
+    gh.answer(view=_view(url="https://ghe.example.com/acme/infra/pull/7"))
+    assert merge_preflight.merge_gate("GH_HOST=ghe.example.com gh pr merge 7", str(work)) == (
+        guardrails.ALLOW
+    )
+    assert [r["GH_HOST"] for r in gh.records()] == ["ghe.example.com"] * 2
 
 
 def test_auto_merge_is_held_like_a_merge(gh: GhStub, work: Path) -> None:
@@ -492,30 +618,61 @@ def test_the_budgets_fit_inside_the_hooks_timeout() -> None:
         ("gh --repo o/n pr merge 3", guardrails.MergeTarget("3", "o/n", "/w")),
         ("gh pr merge -R ghe.example.com/o/n 3", guardrails.MergeTarget("3", "ghe.example.com/o/n",
                                                                          "/w")),
+        ("gh pr merge -R cli/cli --repo victim/repo 3", guardrails.MergeTarget("3", "victim/repo",
+                                                                               "/w")),
         ("cd /x && gh pr merge 1", guardrails.MergeTarget("1", "", "/x")),
         ("cd ../y; gh pr merge 1", guardrails.MergeTarget("1", "", "/y")),
-        ("cd $X && gh pr merge https://github.com/o/n/pull/1",
-         guardrails.MergeTarget("https://github.com/o/n/pull/1", "", "/w")),
+        ("cd /x; cd ../y && gh pr merge 1", guardrails.MergeTarget("1", "", "/y")),
         ("gh pr merge 5 --disable-auto", guardrails.MergeTarget("5", "", "/w", merges=False)),
+        ("gh pr merge 5 --disable-auto=false", guardrails.MergeTarget("5", "", "/w")),
         ("gh pr merge -h", guardrails.MergeTarget("", "", "/w", merges=False)),
-        ("gh pr merge -R 'o/n; rm -rf ~' 1", None),  # not a repo
-        ("gh pr merge -- -x", None),  # a PR that would read as a flag
-        ("gh pr merge -R", None),  # a flag without its value
-        ("gh pr merge -x 1", None),
-        ("gh pr merge 1 'unterminated", None),
-        ("cd && gh pr merge 1", None),
-        ("echo hi", None),
+        ("GH_HOST=ghe.example.com GH_TOKEN=x gh pr merge 1",
+         guardrails.MergeTarget("1", "", "/w", host="ghe.example.com")),
         ("X=1; gh pr merge 1", guardrails.MergeTarget("1", "", "/w")),
-        ("ls; gh pr merge 1", guardrails.MergeTarget("1", "", "/w")),
         ("gh pr view 1 && gh pr merge 2", guardrails.MergeTarget("2", "", "/w")),
-        ("gh pr merge 1 && gh pr merge 2", None),
-        ("gh pr merge 1 --repo", None),  # a long flag without its value
-        ("gh pr merge --admin=yes 1", None),
-        ("gh pr merge 1 \\", None),  # balanced, but shlex cannot read it
+        ("gh pr merge 1 && (cd x; ls)", guardrails.MergeTarget("1", "", "/w")),
+        ("echo hi", None),
+        ("gh pr view 7 | cat", None),
+        ("git status && cd /x && gh pr merge 1", guardrails.MergeTarget("1", "", "/x")),
+        ('gh pr merge 7 -b "say \\"hi\\" for \\$5" -t a\\ b',
+         guardrails.MergeTarget("7", "", "/w")),
     ],
 )
 def test_pr_merge_target(command: str, expected: guardrails.MergeTarget | None) -> None:
     assert guardrails.pr_merge_target(command, "/w") == expected
+
+
+@pytest.mark.parametrize(
+    "command,reason",
+    [
+        ("gh pr merge -R 'o/n; rm -rf ~' 1", "a repo that is not [HOST/]OWNER/REPO"),
+        ("gh pr merge -- -x", "a PR argument the gate does not pass on"),
+        ("gh pr merge -R", "`--repo` has no value"),
+        ("gh pr merge 1 --repo", "`--repo` has no value"),
+        ("gh pr merge -x 1", "`gh pr merge` has no flag `-x`"),
+        ("gh pr merge --admin=yes 1", "`--admin` is given a non-bool value"),
+        ("gh pr merge 1 'unterminated", "an unbalanced quote"),
+        ('gh pr merge 1 "unterminated', "an unbalanced quote"),
+        ("cd && gh pr merge 1", "a `cd` whose target only a shell can work out"),
+        ("cd 'a*' && gh pr merge 1", "a `cd` whose target only a shell can work out"),
+        ("ls; gh pr merge 1", "`ls` runs before the merge"),
+        ("gh pr merge 1 && gh pr merge 2", "two merges in one command"),
+        ("echo `gh pr ready 1`; gh pr merge 1", "a command substitution before or around"),
+        ('gh pr merge "$(gh pr list -q .[0])"', "a command substitution before or around"),
+        ('gh pr merge "pr-$N"', "a shell expansion in the merge"),
+        ("echo $(date)", "a command substitution before or around"),  # what follows is unread
+        ("echo x && cd /x; gh pr merge 1", "a `cd` that may not take effect"),
+        ("GH_CONFIG_DIR=/x gh pr merge 1", "`GH_CONFIG_DIR` is set for the merge"),
+        ("GH_HOST='a b' gh pr merge 1", "`GH_HOST` is not a host name"),
+        ("GH_REPO=o/n; gh pr merge 1", "a variable assignment runs before the merge"),
+        ("'./my tool'; gh pr merge 1", "a command runs before the merge"),
+        ("gh pr merge --nope 1", "`gh pr merge` has no flag `--nope`"),
+    ],
+)
+def test_pr_merge_target_says_why_it_cannot_tell(command: str, reason: str) -> None:
+    with pytest.raises(guardrails.UnattributableMerge) as raised:
+        guardrails.pr_merge_target(command, "/w")
+    assert str(raised.value).startswith(reason)
 
 
 def _state(**kwargs: Any) -> pr_watch.PrState:

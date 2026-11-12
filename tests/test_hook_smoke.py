@@ -39,6 +39,20 @@ def test_the_smoke_says_it_ran_the_narrowed_commit(capsys) -> None:
     assert "narrowed commit run" in capsys.readouterr().out
 
 
+def test_the_smoke_runs_the_merge_gate_without_gh() -> None:
+    failures: list[str] = []
+    assert hook_smoke.check_merge_gate(failures) == "merge gate run"
+    assert failures == []
+
+
+def test_the_merge_gate_smoke_fails_without_the_notice(monkeypatch) -> None:
+    """A gate that crashed, or never ran, prints no fail-open notice: the smoke must say so."""
+    monkeypatch.setattr(hook_smoke, "HOOKS", hook_smoke.HOOKS.parent / "no-such-dir")
+    failures: list[str] = []
+    hook_smoke.check_merge_gate(failures)
+    assert failures and failures[0].startswith("merge gate: exit")
+
+
 def test_the_smoke_reaches_the_narrowed_commit_gate() -> None:
     failures: list[str] = []
     assert hook_smoke.check_narrowed_commit(failures) == "narrowed commit run"
