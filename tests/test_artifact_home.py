@@ -5,6 +5,7 @@ three ADR series; PRDs in a metadata-table format)."""
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -89,9 +90,12 @@ def test_a_greenfield_repository_falls_back_to_docs_sdlc(tmp_path: Path) -> None
     assert result["adr"]["dir"] == "docs/sdlc/foo"
     assert result["adr"]["next_file"] == "adr-<decision>.md" and result["adr"]["next_id"] is None
     assert result["ambiguous"] is False and result["ambiguities"] == []
-    assert result["artifact"] == {
-        "kind": "design", "path": "docs/sdlc/foo/tech-design.md", "exists": False, "format": None,
-    }
+    artifact = result["artifact"]
+    assert (artifact["kind"], artifact["path"]) == ("design", "docs/sdlc/foo/tech-design.md")
+    assert (artifact["exists"], artifact["format"], "unsafe" in artifact) == (False, None, False)
+    assert artifact["abs"] == str(tmp_path.resolve() / "docs/sdlc/foo/tech-design.md")
+    assert set(result["documents"]) == {"research", "prd", "design", "plan", "ux"}
+    assert result["documents"]["ux"]["path"] == "docs/sdlc/foo/ux-spec.md"
 
 
 def test_the_plugins_own_folder_is_detected_as_itself(tmp_path: Path) -> None:
@@ -158,13 +162,12 @@ def test_the_monorepo_case_is_ambiguous_and_continues_the_main_series(tmp_path: 
     assert adr["dir"] == "features/architecture/adr" and adr["scope"] == "shared"
     assert adr["highest"] == "adr-066" and adr["next_id"] == "adr-067"
     assert adr["next_file"] == "adr-067-<title>.md"
-    assert result["artifact"] == {
-        "kind": "adr", "path": "features/architecture/adr/adr-067-<title>.md", "exists": False,
-    }
+    assert result["artifact"]["path"] == "features/architecture/adr/adr-067-<title>.md"
+    assert result["artifact"]["exists"] is False
     assert result["ambiguous"] is True
     why = " ".join(result["ambiguities"])
     assert "2 ADR series are equally near" in why and "ADR-GNN-<title>.md" in why
-    assert "feature-local adr/ folders" in why
+    assert "feature-local ADR folders" in why
     second = next(s for s in adr["series"] if s["pattern"].startswith("ADR-G"))
     assert second["highest"] == "ADR-G14" and second["next_id"] == "ADR-G15"
     assert second["count"] == 14
@@ -332,16 +335,8 @@ def test_the_format_is_ours_only_with_our_header(text: str, expected: str) -> No
 def test_an_existing_prd_reports_its_format(tmp_path: Path) -> None:
     _touch(tmp_path, "features/in-progress/foo/prd.md", text=_TABLE_PRD)
     artifact = _home(tmp_path, kind="prd")["artifact"]
-    assert artifact == {
-        "kind": "prd", "path": "features/in-progress/foo/prd.md", "exists": True,
-        "format": "foreign",
-    }
-
-
-def test_a_symlinked_artifact_is_reported_absent(tmp_path: Path) -> None:
-    _touch(tmp_path, "features/foo/plan.md", "elsewhere.md")
-    (tmp_path / "features" / "foo" / "prd.md").symlink_to(tmp_path / "elsewhere.md")
-    assert _home(tmp_path, kind="prd")["artifact"]["exists"] is False
+    assert artifact["path"] == "features/in-progress/foo/prd.md"
+    assert (artifact["exists"], artifact["format"]) == (True, "foreign")
 
 
 # --- the review files diagnostics reads -----------------------------------------------------------
@@ -386,3 +381,240 @@ def test_a_directory_over_the_listing_cap_is_not_one(
 
 def test_the_slug_shape_is_doc_deliverys() -> None:
     assert ah.SLUG_RE.pattern == doc_delivery.SLUG_RE.pattern
+
+
+# --- review round 1: every proposed path is safe on a command line --------------------------------
+
+_HOSTILE = ["$(touch PWNED)", "`id`", "a;b", "a b", "-rf", "a|b", "a&b", "a'b", 'a"b', "a\\b",
+            "a*b", "a$b", "a\nb", "ü"]
+
+
+@pytest.mark.parametrize("bad", _HOSTILE)
+def test_a_feature_folder_under_a_hostile_name_is_skipped_and_named(
+    tmp_path: Path, bad: str
+) -> None:
+    try:
+        _touch(tmp_path, f"features/{bad}/foo/prd.md")
+    except OSError:
+        pytest.skip("this filesystem refuses the name")
+    result = _home(tmp_path, kind="prd")
+    assert result["feature_dir"] == "docs/sdlc/foo" and result["detected"] is False
+    assert result["ambiguous"] is True
+    assert "skipped a feature folder" in result["ambiguities"][0]
+    assert not (tmp_path / "PWNED").exists()
+
+
+@pytest.mark.parametrize("bad", _HOSTILE)
+def test_an_adr_series_under_a_hostile_name_is_skipped_and_named(
+    tmp_path: Path, bad: str
+) -> None:
+    try:
+        _touch(tmp_path, f"{bad}/adr/adr-007-x.md", "docs/adr/adr-002-y.md")
+    except OSError:
+        pytest.skip("this filesystem refuses the name")
+    result = _home(tmp_path)
+    assert result["adr"]["dir"] == "docs/adr" and result["adr"]["series_count"] == 1
+    assert any("skipped an ADR series in" in why for why in result["ambiguities"])
+
+
+def test_every_proposed_path_is_safe(tmp_path: Path) -> None:
+    _monorepo(tmp_path)
+    _touch(tmp_path, "features/$(x)/foo/prd.md", "odd dir/adr/adr-099-x.md")
+    result = _home(tmp_path, kind="adr")
+    assert ah.is_safe_path(result["feature_dir"]) and ah.is_safe_path(result["adr"]["dir"])
+    assert all(ah.is_safe_path(s["dir"]) for s in result["adr"]["series"])
+    assert all(ah.is_safe_path(d) for d in result["feature_candidates"])
+
+
+@pytest.mark.parametrize(("rel", "safe"), [
+    ("", True), ("a/b.c/d_e-f", True), ("A1", True), (".hidden", False), ("-x", False),
+    ("a/-x", False), ("a b", False), ("a//b", False), ("a/", False), ("x\n", False),
+])
+def test_is_safe_path(rel: str, safe: bool) -> None:
+    assert ah.is_safe_path(rel) is safe
+
+
+# --- the spelling on disk -------------------------------------------------------------------------
+
+
+def test_a_document_keeps_the_spelling_it_has_on_disk(tmp_path: Path) -> None:
+    _touch(tmp_path, "features/foo/PRD.md", text=_TABLE_PRD)
+    result = _home(tmp_path, kind="prd")
+    assert result["artifact"]["path"] == "features/foo/PRD.md"
+    assert result["artifact"]["exists"] is True and result["artifact"]["format"] == "foreign"
+    assert result["documents"]["plan"]["path"] == "features/foo/plan.md"  # none yet: ours
+    assert result["ambiguous"] is False
+
+
+def test_several_spellings_of_one_document_are_ambiguous(tmp_path: Path) -> None:
+    _touch(tmp_path, "features/foo/PRD.md", "features/foo/prd.md")
+    if len(list((tmp_path / "features" / "foo").iterdir())) < 2:
+        pytest.skip("a case-insensitive filesystem holds one of them")
+    result = _home(tmp_path, kind="prd")
+    assert result["artifact"]["path"] == "features/foo/prd.md"
+    assert any("2 spellings of prd.md" in why for why in result["ambiguities"])
+
+
+# --- what is at the path: never write through a link ----------------------------------------------
+
+
+def test_a_symlinked_document_is_reported_unsafe(tmp_path: Path) -> None:
+    _touch(tmp_path, "features/foo/plan.md", "elsewhere.md")
+    (tmp_path / "features" / "foo" / "prd.md").symlink_to(tmp_path / "elsewhere.md")
+    artifact = _home(tmp_path, kind="prd")["artifact"]
+    assert artifact["exists"] is True and artifact["unsafe"] == "symlink: features/foo/prd.md"
+    assert artifact["format"] is None
+
+
+def test_a_dangling_symlink_is_reported_unsafe(tmp_path: Path) -> None:
+    _touch(tmp_path, "features/foo/plan.md")
+    (tmp_path / "features" / "foo" / "tech-design.md").symlink_to(tmp_path / "nowhere.md")
+    artifact = _home(tmp_path, kind="design")["artifact"]
+    assert artifact["exists"] is True and artifact["unsafe"].startswith("symlink")
+
+
+def test_a_fifo_or_directory_at_the_path_is_unsafe(tmp_path: Path) -> None:
+    _touch(tmp_path, "features/foo/plan.md")
+    os.mkfifo(tmp_path / "features" / "foo" / "prd.md")
+    (tmp_path / "features" / "foo" / "tech-design.md").mkdir()
+    result = _home(tmp_path)
+    assert result["documents"]["prd"]["unsafe"] == "not a regular file: features/foo/prd.md"
+    assert result["documents"]["design"]["unsafe"] == "directory: features/foo/tech-design.md"
+
+
+def test_a_symlink_on_the_way_to_the_fallback_is_unsafe(tmp_path: Path) -> None:
+    (tmp_path / "elsewhere").mkdir()
+    (tmp_path / "docs").symlink_to(tmp_path / "elsewhere", target_is_directory=True)
+    result = _home(tmp_path, kind="plan")
+    assert result["artifact"]["unsafe"] == "symlink: docs"
+    assert result["adr"]["unsafe"] == "symlink: docs"
+
+
+def test_a_file_on_the_way_is_unsafe(tmp_path: Path) -> None:
+    _touch(tmp_path, "docs/sdlc")
+    assert _home(tmp_path)["documents"]["prd"]["unsafe"] == "not a directory: docs/sdlc"
+
+
+def test_an_adr_directory_to_create_that_is_a_link_is_unsafe(tmp_path: Path) -> None:
+    _touch(tmp_path, "features/a/prd.md", "features/a/adr/adr-001-x.md", "features/foo/prd.md")
+    (tmp_path / "features" / "foo" / "adr").symlink_to(tmp_path, target_is_directory=True)
+    adr = _home(tmp_path)["adr"]
+    assert adr["create_dir"] is True and adr["unsafe"] == "symlink: features/foo/adr"
+
+
+def test_an_existing_adr_directory_is_reported(tmp_path: Path) -> None:
+    _monorepo(tmp_path)
+    adr = _home(tmp_path)["adr"]
+    assert adr["dir_exists"] is True and "unsafe" not in adr
+
+
+# --- the walk's caps, the root, the owner, the slug, dated names ----------------------------------
+
+
+def test_the_depth_cap_is_reported(tmp_path: Path) -> None:
+    _touch(tmp_path, "a/b/c/d/foo/prd.md")
+    found = ah.scan(str(tmp_path), max_depth=3)
+    assert found.depth_capped is True and found.truncated is False
+    result = ah.resolve(found, "foo")
+    assert result["truncated"] is True and result["ambiguous"] is True
+    assert "depth" in result["ambiguities"][-1]
+    assert ah.scan(str(tmp_path), max_depth=6).depth_capped is False
+
+
+def test_a_skipped_directory_at_the_depth_cap_is_not_reported(tmp_path: Path) -> None:
+    _touch(tmp_path, "a/node_modules/x.js", "a/.git_like/x")
+    assert ah.scan(str(tmp_path), max_depth=1).depth_capped is False
+
+
+def test_records_at_the_top_are_not_a_series(tmp_path: Path) -> None:
+    _touch(tmp_path, "adr-005-x.md", "ADR-G01-y.md")
+    adr = _home(tmp_path)["adr"]
+    assert adr["series_count"] == 0 and adr["scope"] == "none"
+
+
+@pytest.mark.parametrize("folder", ["decisions", "adrs", "ADR"])
+def test_a_feature_local_decisions_folder_is_that_features_own(
+    tmp_path: Path, folder: str
+) -> None:
+    _touch(tmp_path, "features/a/prd.md", f"features/a/{folder}/0001-x.md",
+           f"features/a/{folder}/0002-y.md", "features/foo/prd.md")
+    adr = _home(tmp_path)["adr"]
+    assert adr["series"][0]["scope"] == "feature"
+    assert adr["dir"] == f"features/foo/{folder}" and adr["create_dir"] is True
+    assert adr["next_id"] == "0001"  # foo starts its own; a's 0002 is not continued
+
+
+@pytest.mark.parametrize("slug", ["build", "vendor", "target", "out"])
+def test_a_folder_named_like_the_slug_is_read_even_if_it_is_usually_skipped(
+    tmp_path: Path, slug: str
+) -> None:
+    _touch(tmp_path, f"features/{slug}/prd.md", "node_modules/foo/prd.md")
+    assert _home(tmp_path, slug=slug)["feature_dir"] == f"features/{slug}"
+    assert _home(tmp_path)["feature_dir"] == "docs/sdlc/foo"
+
+
+@pytest.mark.parametrize(
+    "name", ["2024-01-15-retro.md", "2024_03-notes.md", "2024-1-x.md", "2023-12.md"]
+)
+def test_dated_notes_are_not_decision_records(name: str) -> None:
+    assert ah.adr_file(name, "decisions") is None
+
+
+def test_a_numbered_record_is_not_mistaken_for_a_date() -> None:
+    assert ah.adr_file("0012-3d-printing.md", "adr") is not None
+
+
+# --- a document the user named --------------------------------------------------------------------
+
+
+def test_a_checkout_path_maps_to_the_same_path_in_the_worktree(tmp_path: Path) -> None:
+    checkout, worktree = tmp_path / "repo", tmp_path / "wt"
+    _touch(checkout, ".git/HEAD", "features/foo/PRD-export.md", "features/foo/plan.md")
+    _touch(worktree, ".git", "features/foo/plan.md")
+    named = str(checkout / "features" / "foo" / "PRD-export.md")
+    assert ah.relative_document(str(worktree), named) == "features/foo/PRD-export.md"
+    result = ah.home(str(worktree), "foo", "prd", named)
+    artifact = result["artifact"]
+    assert artifact["path"] == "features/foo/PRD-export.md" and artifact["named"] is True
+    assert artifact["abs"] == str(worktree.resolve() / "features/foo/PRD-export.md")
+    assert artifact["exists"] is False  # not in the worktree yet: never the checkout's copy
+    assert result["documents"]["prd"]["path"] == "features/foo/PRD-export.md"
+
+
+def test_a_relative_named_path_is_read_against_the_repo(tmp_path: Path) -> None:
+    _touch(tmp_path, "features/foo/spec/prd.md")
+    result = ah.home(str(tmp_path), "foo", "prd", "features/foo/spec/prd.md")
+    assert result["artifact"]["exists"] is True
+
+
+@pytest.mark.parametrize(
+    ("named", "says"),
+    [("../x.md", "must name a file in the repository"),
+     ("features/$(id)/prd.md", "must name a file in the repository"),
+     ("features/a b/prd.md", "must name a file in the repository"),
+     ("features/foo/prd.txt", "not a Markdown document"),
+     (".", "must name a file in the repository")],
+)
+def test_a_named_path_is_refused_unless_safe(tmp_path: Path, named: str, says: str) -> None:
+    with pytest.raises(ValueError, match=re.escape(says)):
+        ah.relative_document(str(tmp_path), named)
+
+
+def test_an_absolute_path_outside_any_working_tree_is_refused(tmp_path: Path) -> None:
+    _touch(tmp_path, "loose/prd.md")
+    with pytest.raises(ValueError, match="not inside a git working tree"):
+        ah.relative_document(str(tmp_path), str(tmp_path / "loose" / "prd.md"))
+
+
+def test_a_named_path_needs_a_document_kind(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="--path needs --kind of a document"):
+        ah.home(str(tmp_path), "foo", "adr", "x.md")
+    with pytest.raises(ValueError, match="--path needs --kind of a document"):
+        ah.home(str(tmp_path), "foo", None, "x.md")
+
+
+def test_a_ux_spec_marks_a_feature_folder(tmp_path: Path) -> None:
+    _touch(tmp_path, "apps/web/features/foo/ux-spec.md")
+    result = _home(tmp_path, kind="ux")
+    assert result["feature_dir"] == "apps/web/features/foo"
+    assert result["artifact"]["exists"] is True

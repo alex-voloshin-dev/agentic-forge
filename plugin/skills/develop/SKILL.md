@@ -23,8 +23,13 @@ designing (`architecture`), task breakdown (`plan`), or reviewing already-writte
 > knowledge vault (see [knowledge-recall](../../patterns/knowledge-recall.md)); factor them in, pass
 > the top hits (path + one line why) in every `Task` prompt you send, and skip if nothing is found.
 
-1. **Read inputs; fix the slug; detect the stack.** Load `plan.md` if present
-   (`python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type plan`; **refuse to build from it unless its `ready` is true**, and never edit its `status` to make it so — that is the repo's lifecycle field) and/or `tech-design.md`; derive
+1. **Read inputs; fix the slug; detect the stack.** With a `<feature-slug>` known (named, or from
+   the request), find the feature's documents where the repository keeps them —
+   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" artifact-home --repo <repo> --slug <feature-slug> --kind plan`
+   (its `feature_dir` is `<feature-dir>` below; run its printed commands verbatim, never a path you
+   typed; a document with `unsafe` set is not read or written: stop and report it;
+   [where a feature's documents go](../../patterns/handoff.md#where-a-features-documents-go)). Load `plan.md` if present
+   (`documents.plan.commands.handoff_load.shell`, the printed form of `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type plan`; **refuse to build from it unless its `ready` is true**, and never edit its `status` to make it so — that is the repo's lifecycle field) and/or `tech-design.md`; derive
    `<feature-slug>` from the artifact's `feature` header. Pick the current step and the
    components it touches. **No plan and no design** (a direct "implement / build X" request):
    the request *is* the plan — one task, its scope and acceptance stated as `assumptions` in the
@@ -87,7 +92,7 @@ designing (`architecture`), task breakdown (`plan`), or reviewing already-writte
    verify each against the source before acting, like any finding. Aggregate all aspects (internal +
    external) to one approve/changes verdict. **Advance to the next dependency level only after this one integrates,
    is approved, and its QA is green.**
-5. **Loop back (bounded) — the exit criterion.** **Persist each round** — one `review-<artifact>-<iteration>.md` per round under `docs/sdlc/<feature-slug>/`, aggregating **both** lenses; on `proceed` keep only the final round, on `escalate` keep them all (naming + lifecycle: [review-loop.md](../../patterns/review-loop.md)). Compute the next action with the shared, tested
+5. **Loop back (bounded) — the exit criterion.** **Persist each round** — one `review-<artifact>-<iteration>.md` per round in `<feature-dir>/` (`feature_abs`, from step 1: `docs/sdlc/<feature-slug>/` unless the repository keeps its own feature folder), aggregating **both** lenses; on `proceed` keep only the final round, on `escalate` keep them all (naming + lifecycle: [review-loop.md](../../patterns/review-loop.md)). Compute the next action with the shared, tested
    rule `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" review-decision --verdict <approve or changes> --iteration <n> --gate-green <yes if suite green + QA passed, else no>` (see [patterns/review-loop.md](../../patterns/review-loop.md)):
    - **`revise`** — verdict `changes` and iteration < 3: return the findings to step 3, fix
      worst-first, re-integrate, re-review.

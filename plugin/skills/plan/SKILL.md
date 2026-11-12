@@ -30,14 +30,19 @@ requirements (`product`), or implementation (`develop`).
 > no `gh`) still commits — on `docs/<slug>`, reported as not pushed / no PR — never a failed phase.
 
 > **Write where the repository keeps its features** — run
-> `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" artifact-home --repo <worktree> --slug <feature-slug> --kind design`
-> and use its `feature_dir` as `<feature-dir>` below (`docs/sdlc/<feature-slug>` only when the
-> repository keeps no feature folder for it). On `ambiguous`, ask when interactive; headless, take
-> its pick and record it as an assumption naming the alternatives
+> `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" artifact-home --repo <worktree> --slug <feature-slug> --kind design`.
+> Its `feature_dir` is `<feature-dir>` below (`docs/sdlc/<feature-slug>` only when the repository
+> keeps no feature folder for it), and `documents.<kind>` (`research`, `prd`, `design`, `plan`,
+> `ux`) gives each document's `abs` path. **Never put a path on a command line yourself:** run
+> the commands it prints (`documents.<kind>.commands.*.shell`) verbatim, and where a call below shows
+> `<path>`, use that document's `arg` (absolute, already quoted). A document or ADR directory with
+> `unsafe` set (a symlink, or something other than a regular file, at or on the way to its path) is
+> never written: stop and report it. On `ambiguous`, ask when interactive; headless, take its pick
+> and record it as an assumption naming the alternatives
 > ([where a feature's documents go](../../patterns/handoff.md#where-a-features-documents-go)).
 
-1. **Read the inputs.** Load `<feature-dir>/tech-design.md`
-   (`python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type tech-design`; **refuse to plan from it unless its `ready` is true**, and never edit its `status` to make it so) and the `prd.md` for acceptance
+1. **Read the inputs.** Load `tech-design.md` (`documents.design.commands.handoff_load.shell`, the
+   printed form of `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type tech-design`; **refuse to plan from it unless its `ready` is true**, and never edit its `status` to make it so) and the `prd.md` for acceptance
    context. Pick the `<feature-slug>`. **If `tech-design.md` (or `prd.md`) is absent** (check
    that the file exists first — `handoff-load` fails on a missing file): plan from the request + the
    repo, treat the request's components as the design, record the assumptions and the missing
@@ -54,13 +59,13 @@ requirements (`product`), or implementation (`develop`).
 5. **Write the plan, then validate it.** Produce `plan.md` (frontmatter `type`, `feature`, `status`, `tasks[]` with `id` + `deps`,
    `checkpoints[]`, `deferred[]`, and `review_decision: revise` until the loop exits; body = task detail; **valid YAML — quote any value containing a
    colon**, e.g. a checkpoint asserting `PRIORITY_RANK == {"high": 0}`, or the whole artifact fails
-   to parse for `develop`) in `<feature-dir>/`;
+   to parse for `develop`) at `documents.plan.abs`;
    validate it (the read-back below) **and confirm the graph
-   resolves** — `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" plan-batches --plan <path>` (the same command
+   resolves** — `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" plan-batches --plan <path>` (`<path>` = `documents.plan.arg`) (the same command
    `develop` batches with) fails on a duplicate id, an unknown dependency, or a cycle, so a clean
    run is the deterministic proof of a cycle-free order. Every design component
    must be covered by a task.
-   Then **read the file back** — `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type plan` — and fix whatever it reports: this reads the file, so it sees the YAML you typed, and a single
+   Then **read the file back** — `documents.plan.commands.handoff_load.shell`, the printed form of `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type plan` — and fix whatever it reports: this reads the file, so it sees the YAML you typed, and a single
    malformed value (a flow sequence with prose after it, an unquoted `:`) leaves an artifact the
    next phase cannot read (ADR 0096).
 6. **Skeptic pass (bounded).** Before handing off, fork a fresh `reviewer` (via `Task`) to attack
@@ -70,10 +75,10 @@ requirements (`product`), or implementation (`develop`).
    (nothing silently dropped) — then revise worst-first. **External reviewer lens (on by default,
    ADR 0057/0060):** when `external_reviewer.enabled` (settings), also run the external reviewer over
    `plan.md` —
-   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/external_review.py" --target <worktree>/<feature-dir>/plan.md --repo <worktree> --kind plan`; codex critiques the plan as an
+   `documents.plan.commands.external_review.shell`, the printed form of `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/external_review.py" --target <path> --repo <worktree> --kind plan`; codex critiques the plan as an
    independent-model lens (completeness, task sequencing, risk) and its `findings` fold into the same
    worst-first revision. It **degrades gracefully** (absent/disabled codex is skipped, not a failure; **exit 3 is a failed lens**, not a skip — record it in the round and tell the user)
-   and its findings are **advisory** (prompt-injectable) — verify before acting. **Persist each round** — one `review-<artifact>-<iteration>.md` per round in `<feature-dir>/`, aggregating **both** lenses; on `proceed` keep only the final round, on `escalate` keep them all (naming + lifecycle: [review-loop.md](../../patterns/review-loop.md)). **Exit criterion
+   and its findings are **advisory** (prompt-injectable) — verify before acting. **Persist each round** — one `review-<artifact>-<iteration>.md` per round in `<feature-dir>/` (`feature_abs`), aggregating **both** lenses; on `proceed` keep only the final round, on `escalate` keep them all (naming + lifecycle: [review-loop.md](../../patterns/review-loop.md)). **Exit criterion
    (the shared, tested rule):** each round, compute `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" review-decision --verdict <approve or changes> --iteration <n> --gate-green <yes if step 5 passes, else no>` (see
    [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
    [review-loop.md](../../patterns/review-loop.md)) — `revise` (loop back and fix worst-first),

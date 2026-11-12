@@ -7,28 +7,40 @@ numbers its decisions in a series (``adr-066``, ``ADR-G14``) must not get a seco
 
 - **The feature folder** is a directory named exactly ``<slug>`` that holds a feature document
   (:data:`FEATURE_ARTIFACTS`, case-insensitively). With none, ``docs/sdlc/<slug>/``; with several,
-  the one holding the most such documents, then the shallowest, and ``ambiguous`` says so.
-- **An ADR series** is the set of files in one directory sharing a numbering: ``adr-001-x.md``,
-  ``ADR-G01-x.md`` (a letter prefix of one to three letters, then at least two digits), and, in a
-  directory named ``adr``, ``adrs`` or ``decisions``, the bare ``0001-x.md`` of adr-tools. A series
-  inside a feature folder (the folder itself, or an ``adr/`` directly in it) is that feature's own;
-  every other one is shared. The feature's own series wins; else the shared series nearest the
-  feature folder, by path distance. Equally near series, or shared series beside other features'
-  own ``adr/`` folders, make the answer ``ambiguous``: the skill asks, or records its pick as an
-  assumption when headless. Other features' own series are never continued; when they are the only
-  ones, the convention is a feature-local ``adr/`` and the series starts at 1 there.
+  the one holding the most such documents, then the shallowest, and ``ambiguous`` says so. A
+  document keeps the spelling it has on disk (``PRD.md``), so a case-sensitive filesystem does not
+  get a second one beside it.
+- **An ADR series** is the set of files in one directory below the top sharing a numbering:
+  ``adr-001-x.md``, ``ADR-G01-x.md`` (a letter prefix of one to three letters, then at least two
+  digits), and, in a directory named ``adr``, ``adrs`` or ``decisions``, the bare ``0001-x.md`` of
+  adr-tools (never a dated ``2024-01-15-x.md``). A series in a feature folder (the folder itself,
+  or an ``adr``/``adrs``/``decisions`` directory directly in it) is that feature's own; every other
+  one is shared. The feature's own series wins; else the shared series nearest the feature folder,
+  by path distance. Equally near series, or shared series beside other features' own ones, make
+  the answer ``ambiguous``: the skill asks, or records its pick as an assumption when headless.
+  Other features' own series are never continued; when they are the only ones, this feature's
+  starts at 1, spelled and placed as most of theirs are.
+
+**Every path it proposes is safe to put on a command line.** A folder or series directory counts
+only when each component of its path below the top matches :data:`SAFE_COMPONENT` (letters,
+digits, ``.``, ``_``, ``-``, not starting with ``-`` or ``.``); one that does not is skipped and
+named in ``ambiguities``. :func:`home` also reports, per document, whether something other than a
+regular file sits at its path or a symlink on the way to it (``unsafe``), so nothing is written
+through a link.
 
 The walk is bounded (:data:`MAX_DEPTH`, :data:`MAX_ENTRIES`; ``truncated`` says when a cap cut it,
-and a truncated walk is ``ambiguous``), breadth-first so the shallow tree is read first, and skips
-hidden directories (``.git``, ``.claude/worktrees``), dependency and build output
-(:data:`SKIP_DIRS`) and any nested repository (a directory holding a ``.git`` entry). It never
-follows a symlink, to a directory or a file. The core (:func:`resolve`) is pure over a
-:class:`Scan`; :func:`scan` and :func:`home` are the I/O. Stdlib only and reachable from the
-role-scope hook, which reads :func:`is_feature_dir` and :func:`holds_adr_series`: Python 3.9.
+the depth cap included, and a truncated walk is ``ambiguous``), breadth-first so the shallow tree
+is read first, and skips hidden directories (``.git``, ``.claude/worktrees``), dependency and build
+output (:data:`SKIP_DIRS`, unless the directory is named exactly ``<slug>``) and any nested
+repository (a directory holding a ``.git`` entry). It never follows a symlink. The core
+(:func:`resolve`) is pure over a :class:`Scan`; :func:`scan` and :func:`home` are the I/O. Stdlib
+only and reachable from the role-scope hook, which reads :func:`dir_names`, :func:`marks_feature`
+and :func:`holds_series`: Python 3.9.
 """
 
 from __future__ import annotations
 
+import errno
 import os
 import re
 import stat
@@ -39,6 +51,7 @@ from typing import Any
 
 __all__ = [
     "ADR_DIR_NAMES",
+    "DOCUMENT_KINDS",
     "FALLBACK_ROOT",
     "FEATURE_ARTIFACTS",
     "KIND_FILES",
@@ -47,6 +60,8 @@ __all__ = [
     "MAX_DEPTH",
     "MAX_DIR_ENTRIES",
     "MAX_ENTRIES",
+    "REVIEW_KINDS",
+    "SAFE_COMPONENT",
     "SKIP_DIRS",
     "SLUG_RE",
     "AdrFile",
@@ -54,32 +69,49 @@ __all__ = [
     "Series",
     "adr_file",
     "artifact_format",
+    "dir_names",
     "feature_dirs",
     "holds_adr_series",
+    "holds_series",
     "home",
     "is_feature_dir",
+    "is_safe_path",
+    "marks_feature",
+    "relative_document",
     "resolve",
     "review_files",
     "scan",
     "series_of",
 ]
 
-# The documents that make a directory a feature's folder: ours, and the names a repository's own
-# feature folders were seen to use (`design.md` beside `tech-design.md`).
+# The documents that make a directory a feature's folder: the plugin's, and the names a
+# repository's own feature folders were seen to use (`design.md` beside `tech-design.md`).
 FEATURE_ARTIFACTS = frozenset(
-    {"prd.md", "plan.md", "design.md", "tech-design.md", "research-brief.md"}
+    {"prd.md", "plan.md", "design.md", "tech-design.md", "research-brief.md", "ux-spec.md"}
 )
 # The same shape doc_delivery.SLUG_RE has (a test keeps them equal): a slug names a branch too.
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+# What a directory component must look like to be proposed: nothing a shell could act on, no
+# leading `-` an argument parser could read as an option, no leading `.`.
+SAFE_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 FALLBACK_ROOT = "docs/sdlc"
 KIND_FILES = {
     "research": "research-brief.md",
     "prd": "prd.md",
     "design": "tech-design.md",
     "plan": "plan.md",
+    "ux": "ux-spec.md",
 }
-KIND_TYPES = {"research": "research-brief", "prd": "prd", "design": "tech-design", "plan": "plan"}
-KINDS = ("research", "prd", "design", "plan", "adr")
+KIND_TYPES = {
+    "research": "research-brief", "prd": "prd", "design": "tech-design", "plan": "plan",
+    "ux": "ux-spec",
+}
+# The external reviewer's `--kind` for each document.
+REVIEW_KINDS = {
+    "research": "research", "prd": "product", "design": "technical", "plan": "plan", "ux": "ux",
+}
+DOCUMENT_KINDS = ("research", "prd", "design", "plan", "ux")
+KINDS = (*DOCUMENT_KINDS, "adr")
 ADR_DIR_NAMES = frozenset({"adr", "adrs", "decisions"})
 # Dependency trees and build output: large, generated, and never where a team keeps its documents.
 SKIP_DIRS = frozenset({
@@ -91,6 +123,7 @@ MAX_ENTRIES = 200_000
 # What one directory is read up to when a single directory is asked about (the role-scope hook).
 MAX_DIR_ENTRIES = 10_000
 _MAX_SERIES_REPORTED = 20
+_MAX_SHOWN = 80
 _FORMAT_PROBE_BYTES = 64 * 1024
 
 # `adr-001-title.md`, `ADR-G14-title.md`, `adr_0042.md`. A letter prefix needs two digits or more,
@@ -101,6 +134,8 @@ _ADR_NAMED = re.compile(
 )
 # adr-tools' `0001-record-architecture-decisions.md`, only in a directory named for decisions.
 _ADR_BARE = re.compile(r"^(?P<num>\d{3,5})(?P<rest>[-_][^/]*)?\.md$", re.IGNORECASE)
+# A dated note (`2024-01-15-x.md`, `2024_03-x.md`) is not a decision record's number.
+_DATED = re.compile(r"^\d{4}[-_]\d{1,2}(?:[-_.]|\Z)")
 
 
 @dataclass(frozen=True)
@@ -141,12 +176,22 @@ def adr_file(name: str, directory_name: str = "") -> AdrFile | None:
             match.group("lead"), match.group("sep"), prefix, int(num), len(num),
             rest[:1] if rest[:1] in ("-", "_") else "-",
         )
-    if directory_name.casefold() in ADR_DIR_NAMES:
+    if directory_name.casefold() in ADR_DIR_NAMES and not _DATED.match(name):
         bare = _ADR_BARE.match(name)
         if bare:
             num, rest = bare.group("num"), bare.group("rest") or ""
             return AdrFile("", "", "", int(num), len(num), rest[:1] or "-")
     return None
+
+
+def is_safe_path(rel: str) -> bool:
+    """Every component of ``rel`` (``/``-separated, "" for the top) is :data:`SAFE_COMPONENT`."""
+    return rel == "" or all(SAFE_COMPONENT.match(part) for part in rel.split("/"))
+
+
+def _shown(rel: str) -> str:
+    text = repr(rel)
+    return text if len(text) <= _MAX_SHOWN else text[: _MAX_SHOWN - 1] + "…"
 
 
 def _relevant(name: str, directory_name: str) -> bool:
@@ -163,10 +208,12 @@ def _relevant(name: str, directory_name: str) -> bool:
 @dataclass(frozen=True)
 class Scan:
     """What a walk found: each directory (relative, ``/``-separated, "" for the top) holding a
-    relevant Markdown file, with those files' names; and whether a cap cut the walk short."""
+    relevant Markdown file, with those files' names; whether the entry cap cut the walk short, and
+    whether the depth cap left a directory unread."""
 
     dirs: Mapping[str, tuple[str, ...]]
     truncated: bool = False
+    depth_capped: bool = False
 
 
 @dataclass(frozen=True)
@@ -194,14 +241,19 @@ def _join(parent: str, name: str) -> str:
     return f"{parent}/{name}" if parent else name
 
 
-def scan(repo: str, *, max_depth: int = MAX_DEPTH, max_entries: int = MAX_ENTRIES) -> Scan:
+def scan(
+    repo: str, *, max_depth: int = MAX_DEPTH, max_entries: int = MAX_ENTRIES,
+    keep: str | None = None,
+) -> Scan:
     """Walk ``repo`` breadth-first within the caps, never through a symlink. A directory that
     cannot be read is skipped, as is one holding a ``.git`` entry below the top (another
-    repository)."""
+    repository). A directory named ``keep`` (the slug) is read even when :data:`SKIP_DIRS` names
+    it."""
     root = os.path.realpath(repo)
     found: dict[str, tuple[str, ...]] = {}
     queue: deque[tuple[str, int]] = deque([("", 0)])
     budget = max_entries
+    depth_capped = False
     while queue:
         rel, depth = queue.popleft()
         path = os.path.join(root, *rel.split("/")) if rel else root
@@ -211,7 +263,7 @@ def scan(repo: str, *, max_depth: int = MAX_DEPTH, max_entries: int = MAX_ENTRIE
                 for entry in listing:
                     budget -= 1
                     if budget < 0:
-                        return Scan(found, truncated=True)
+                        return Scan(found, truncated=True, depth_capped=depth_capped)
                     entries.append(entry)
         except OSError:
             continue
@@ -225,8 +277,12 @@ def scan(repo: str, *, max_depth: int = MAX_DEPTH, max_entries: int = MAX_ENTRIE
                 continue
             try:
                 if entry.is_dir(follow_symlinks=False):
-                    if entry.name.casefold() not in SKIP_DIRS and depth < max_depth:
+                    if entry.name.casefold() in SKIP_DIRS and entry.name != keep:
+                        continue
+                    if depth < max_depth:
                         subdirs.append(entry.name)
+                    else:
+                        depth_capped = True
                 elif entry.is_file(follow_symlinks=False) and _relevant(entry.name, here):
                     names.append(entry.name)
             except OSError:
@@ -234,7 +290,7 @@ def scan(repo: str, *, max_depth: int = MAX_DEPTH, max_entries: int = MAX_ENTRIE
         if names:
             found[rel] = tuple(sorted(names))
         queue.extend((_join(rel, name), depth + 1) for name in sorted(subdirs))
-    return Scan(found)
+    return Scan(found, depth_capped=depth_capped)
 
 
 # --- the pure core --------------------------------------------------------------------------------
@@ -274,20 +330,23 @@ def _distance(a: str, b: str) -> int:
 
 def _owner(directory: str, features: set[str]) -> str | None:
     """The feature folder a series in ``directory`` belongs to: the folder itself, or the one an
-    ``adr/`` sits directly in. The top of the tree is nobody's feature folder."""
+    ``adr``/``adrs``/``decisions`` directory sits directly in. The top is nobody's."""
     if directory and directory in features:
         return directory
     parent, _, name = directory.rpartition("/")
-    if parent and name.casefold() == "adr" and parent in features:
+    if parent and name.casefold() in ADR_DIR_NAMES and parent in features:
         return parent
     return None
 
 
 def series_of(found: Scan) -> list[Series]:
-    """Every numbered decision series in the scan, sorted by directory, then the main series."""
+    """Every numbered decision series in the scan below the top (a record at the top is not in a
+    directory the architect may write), sorted by directory, then the main series."""
     features = set(feature_dirs(found))
     out: list[Series] = []
     for directory in sorted(found.dirs):
+        if not directory:
+            continue
         here = directory.rsplit("/", 1)[-1]
         groups: dict[str, list[AdrFile]] = {}
         for name in found.dirs[directory]:
@@ -313,17 +372,23 @@ def _series_view(series: Series, feature_dir: str) -> dict[str, Any]:
     }
 
 
+def _unsafe_reason(rel: str, what: str) -> str:
+    return (
+        f"skipped {what} {_shown(rel)}: its path holds a character a shell could act on (only "
+        "letters, digits, '.', '_' and '-' are proposed)"
+    )
+
+
 def _choose_feature(found: Scan, slug: str) -> tuple[str, bool, list[str], list[str]]:
     """The feature folder, whether it was detected, the candidates, and why it is ambiguous."""
-    candidates = [
-        d for d in feature_dirs(found) if d.rsplit("/", 1)[-1] == slug
-    ]
+    named = [d for d in feature_dirs(found) if d.rsplit("/", 1)[-1] == slug]
+    why = [_unsafe_reason(d, "a feature folder") for d in named if not is_safe_path(d)]
+    candidates = [d for d in named if is_safe_path(d)]
     if not candidates:
-        return f"{FALLBACK_ROOT}/{slug}", False, [], []
+        return f"{FALLBACK_ROOT}/{slug}", False, [], why
     ranked = sorted(
         candidates, key=lambda d: (-len(_artifacts(found.dirs[d])), _depth(d), d)
     )
-    why = []
     if len(ranked) > 1:
         why.append(
             f"{len(ranked)} folders named {slug} hold feature documents: {', '.join(ranked)}; "
@@ -338,7 +403,13 @@ def _most_common(counts: Counter[Any]) -> Any:
 
 
 def _choose_adr(found: Scan, feature_dir: str, detected: bool) -> tuple[dict[str, Any], list[str]]:
-    every = series_of(found)
+    why: list[str] = []
+    every: list[Series] = []
+    for series in series_of(found):
+        if is_safe_path(series.dir):
+            every.append(series)
+        elif _unsafe_reason(series.dir, "an ADR series in") not in why:
+            why.append(_unsafe_reason(series.dir, "an ADR series in"))
     own = [s for s in every if detected and s.owner == feature_dir]
     shared = [s for s in every if s.owner is None]
     others = [s for s in every if s.owner is not None and s.owner != feature_dir]
@@ -347,7 +418,6 @@ def _choose_adr(found: Scan, feature_dir: str, detected: bool) -> tuple[dict[str
         "series_count": len(every),
         "series": [_series_view(s, feature_dir) for s in listed[:_MAX_SERIES_REPORTED]],
     }
-    why: list[str] = []
     pool = own or shared
     if pool:
         nearest = min(_distance(feature_dir, s.dir) for s in pool)
@@ -361,7 +431,7 @@ def _choose_adr(found: Scan, feature_dir: str, detected: bool) -> tuple[dict[str
             )
         if not own and others:
             why.append(
-                "a shared ADR series and feature-local adr/ folders both exist; chose the shared "
+                "a shared ADR series and feature-local ADR folders both exist; chose the shared "
                 f"{chosen.dir}"
             )
         report.update({
@@ -374,18 +444,20 @@ def _choose_adr(found: Scan, feature_dir: str, detected: bool) -> tuple[dict[str
         return report, why
     if others:
         # Only other features keep ADRs, each its own: start this feature's at 1, spelled and
-        # placed (in the folder, or in an adr/ in it) the way most of them are.
+        # placed (in the folder, or in an adr/adrs/decisions directory in it) as most of theirs.
         styles = Counter(
             (s.style.lead, s.style.sep, s.style.prefix, s.style.width, s.style.title_sep)
             for s in others
         )
         lead, sep, prefix, width, title_sep = _most_common(styles)
-        in_adr = _most_common(Counter(s.dir != s.owner for s in others))
+        sub = _most_common(Counter(
+            "" if s.dir == s.owner else s.dir.rsplit("/", 1)[-1] for s in others
+        ))
         first = AdrFile(lead, sep, prefix, 0, width, title_sep)
         report.update({
-            "dir": _join(feature_dir, "adr") if in_adr else feature_dir, "detected": True,
+            "dir": _join(feature_dir, sub) if sub else feature_dir, "detected": True,
             "scope": "feature", "pattern": first.pattern(), "highest": None,
-            "next_id": first.ident(1), "next_file": first.file_name(1), "create_dir": in_adr,
+            "next_id": first.ident(1), "next_file": first.file_name(1), "create_dir": bool(sub),
         })
         return report, why
     report.update({
@@ -396,8 +468,26 @@ def _choose_adr(found: Scan, feature_dir: str, detected: bool) -> tuple[dict[str
     return report, why
 
 
+def _spelling(found: Scan, feature_dir: str, kind: str, why: list[str]) -> str:
+    """The name ``kind``'s document has in ``feature_dir`` (``PRD.md``), or the plugin's own when
+    there is none. Several case variants are an ambiguity."""
+    canonical = KIND_FILES[kind]
+    variants = sorted(
+        name for name in found.dirs.get(feature_dir, ()) if name.casefold() == canonical
+    )
+    if not variants:
+        return canonical
+    chosen = canonical if canonical in variants else variants[0]
+    if len(variants) > 1:
+        why.append(
+            f"{len(variants)} spellings of {canonical} in {feature_dir}: {', '.join(variants)}; "
+            f"chose {chosen}"
+        )
+    return chosen
+
+
 def resolve(found: Scan, slug: str, kind: str | None = None) -> dict[str, Any]:
-    """Where ``slug``'s documents go, from a :class:`Scan`. Pure; the artifact's on-disk state is
+    """Where ``slug``'s documents go, from a :class:`Scan`. Pure; the documents' on-disk state is
     added by :func:`home`."""
     if not SLUG_RE.match(slug):
         raise ValueError(f"invalid feature slug {slug!r}: expected {SLUG_RE.pattern}")
@@ -406,10 +496,19 @@ def resolve(found: Scan, slug: str, kind: str | None = None) -> dict[str, Any]:
     feature_dir, detected, candidates, why = _choose_feature(found, slug)
     adr, adr_why = _choose_adr(found, feature_dir, detected)
     why += adr_why
+    documents = {
+        name: {"path": _join(feature_dir, _spelling(found, feature_dir, name, why))}
+        for name in DOCUMENT_KINDS
+    }
     if found.truncated:
         why.append(
-            f"the walk stopped at a cap ({MAX_ENTRIES} entries or depth {MAX_DEPTH}): a folder "
-            "or series further in was not seen"
+            f"the walk stopped at its cap of {MAX_ENTRIES} entries: a folder or series further in "
+            "was not seen"
+        )
+    if found.depth_capped:
+        why.append(
+            f"the walk did not read below depth {MAX_DEPTH}: a folder or series deeper in was not "
+            "seen"
         )
     result: dict[str, Any] = {
         "slug": slug,
@@ -417,15 +516,16 @@ def resolve(found: Scan, slug: str, kind: str | None = None) -> dict[str, Any]:
         "detected": detected,
         "feature_candidates": candidates,
         "existing": _artifacts(found.dirs.get(feature_dir, ())),
+        "documents": documents,
         "adr": adr,
         "ambiguous": bool(why),
         "ambiguities": why,
-        "truncated": found.truncated,
+        "truncated": found.truncated or found.depth_capped,
     }
     if kind == "adr":
         result["artifact"] = {"kind": kind, "path": _join(adr["dir"], adr["next_file"])}
     elif kind is not None:
-        result["artifact"] = {"kind": kind, "path": _join(feature_dir, KIND_FILES[kind])}
+        result["artifact"] = {"kind": kind, **documents[kind]}
     return result
 
 
@@ -460,29 +560,125 @@ def _regular_text(path: str, limit: int) -> str | None:
         return handle.read(limit).decode("utf-8", errors="replace")
 
 
-def home(repo: str, slug: str, kind: str | None = None) -> dict[str, Any]:
-    """:func:`resolve` over a walk of ``repo``, with the artifact's ``exists`` and, for a document
-    that exists, its ``format``."""
-    result = resolve(scan(repo), slug, kind)
-    artifact = result.get("artifact")
-    if artifact is not None and kind != "adr":
-        text = _regular_text(
-            os.path.join(os.path.realpath(repo), *artifact["path"].split("/")),
-            _FORMAT_PROBE_BYTES,
+def _state(root: str, rel: str, want_dir: bool) -> tuple[bool, str | None]:
+    """Whether something is at ``rel`` below ``root``, and why writing there is unsafe, or None:
+    a symlink or a non-directory on the way, or, at the end, a symlink or anything that is not a
+    regular file (a directory for ``want_dir``). Nothing followed: each step is an ``lstat``."""
+    parts = rel.split("/") if rel else []
+    current = root
+    for index, part in enumerate(parts):
+        current = os.path.join(current, part)
+        so_far = "/".join(parts[: index + 1])
+        try:
+            info = os.lstat(current)
+        except OSError as exc:
+            if exc.errno in (errno.ENOENT, errno.ENOTDIR):
+                return False, None
+            return True, f"cannot be inspected: {so_far}"
+        last = index == len(parts) - 1
+        if stat.S_ISLNK(info.st_mode):
+            return True, f"symlink: {so_far}"
+        if not last and not stat.S_ISDIR(info.st_mode):
+            return True, f"not a directory: {so_far}"
+        if last:
+            if want_dir and not stat.S_ISDIR(info.st_mode):
+                return True, f"not a directory: {so_far}"
+            if not want_dir and not stat.S_ISREG(info.st_mode):
+                kind = "directory" if stat.S_ISDIR(info.st_mode) else "not a regular file"
+                return True, f"{kind}: {so_far}"
+    return bool(parts), None
+
+
+def _work_tree_top(path: str) -> str | None:
+    """The nearest directory at or above ``path`` holding a ``.git`` entry, or None."""
+    current = path
+    while True:
+        if os.path.lexists(os.path.join(current, ".git")):
+            return current
+        parent = os.path.dirname(current)
+        if parent == current:
+            return None
+        current = parent
+
+
+def relative_document(root: str, path: str) -> str:
+    """The repository-relative path of a document the user named: relative to ``root``, or, for an
+    absolute path, relative to the working tree holding it (the main checkout's
+    ``/home/u/repo/features/x/prd.md`` is ``features/x/prd.md`` in any of its worktrees). Refused
+    unless every component is :data:`SAFE_COMPONENT` and it names a Markdown file."""
+    if os.path.isabs(path):
+        absolute = os.path.normpath(path)
+        top = _work_tree_top(os.path.dirname(absolute))
+        if top is None:
+            raise ValueError(f"--path {_shown(path)} is not inside a git working tree")
+        rel = os.path.relpath(absolute, top)
+    else:
+        rel = os.path.normpath(path)
+    rel = rel.replace(os.sep, "/")
+    if rel.startswith("../") or rel in ("..", ".") or not is_safe_path(rel):
+        raise ValueError(
+            f"--path {_shown(path)} must name a file in the repository whose path holds only "
+            "letters, digits, '.', '_' and '-'"
         )
-        artifact["exists"] = text is not None
-        artifact["format"] = None if text is None else artifact_format(text, KIND_TYPES[kind or ""])
-    elif artifact is not None:
-        artifact["exists"] = False
+    if not rel.casefold().endswith(".md"):
+        raise ValueError(f"--path {_shown(path)} is not a Markdown document")
+    return rel
+
+
+def _on_disk(root: str, entry: dict[str, Any], artifact_type: str | None) -> None:
+    rel = entry["path"]
+    entry["abs"] = os.path.join(root, *rel.split("/"))
+    exists, unsafe = _state(root, rel, want_dir=False)
+    entry["exists"] = exists
+    if unsafe:
+        entry["unsafe"] = unsafe
+    if artifact_type is not None:
+        text = None if unsafe or not exists else _regular_text(entry["abs"], _FORMAT_PROBE_BYTES)
+        entry["format"] = None if text is None else artifact_format(text, artifact_type)
+
+
+def home(
+    repo: str, slug: str, kind: str | None = None, path: str | None = None
+) -> dict[str, Any]:
+    """:func:`resolve` over a walk of ``repo``, with each document's absolute path, ``exists``,
+    ``format``, and ``unsafe`` when something other than a regular file is at its path or a symlink
+    is on the way. ``path`` is a document the user named for ``kind``
+    (:func:`relative_document`)."""
+    root = os.path.realpath(repo)
+    result = resolve(scan(root, keep=slug), slug, kind)
+    if path is not None:
+        if kind not in DOCUMENT_KINDS:
+            raise ValueError("--path needs --kind of a document: " + ", ".join(DOCUMENT_KINDS))
+        result["documents"][kind] = {"path": relative_document(root, path), "named": True}
+        result["artifact"] = {"kind": kind, **result["documents"][kind]}
+    result["repo"] = root
+    result["feature_abs"] = os.path.join(root, *result["feature_dir"].split("/"))
+    for name, entry in result["documents"].items():
+        _on_disk(root, entry, KIND_TYPES[name])
+    adr = result["adr"]
+    adr["abs_dir"] = os.path.join(root, *adr["dir"].split("/"))
+    exists, unsafe = _state(root, adr["dir"], want_dir=True)
+    adr["dir_exists"] = exists
+    if unsafe:
+        adr["unsafe"] = unsafe
+    artifact = result.get("artifact")
+    if artifact is not None:
+        if kind == "adr":
+            artifact["abs"] = os.path.join(root, *artifact["path"].split("/"))
+            artifact["exists"] = False
+            if unsafe:
+                artifact["unsafe"] = unsafe
+        else:
+            artifact.update(result["documents"][kind or ""])
     return result
 
 
 # --- what the role-scope hook asks about one directory --------------------------------------------
 
 
-def _names_in(directory: str) -> list[str] | None:
+def dir_names(directory: str) -> list[str] | None:
     """The regular files' names in ``directory`` (not symlinks), within :data:`MAX_DIR_ENTRIES`;
-    None when it cannot be read or holds more."""
+    None when it cannot be read or holds more. One listing, for both predicates below."""
     names: list[str] = []
     try:
         with os.scandir(directory) as listing:
@@ -496,17 +692,26 @@ def _names_in(directory: str) -> list[str] | None:
     return names
 
 
+def marks_feature(names: Sequence[str], directory_name: str) -> bool:
+    """A directory called ``directory_name`` holding ``names`` is a feature folder: named like a
+    slug, holding a feature document."""
+    return bool(SLUG_RE.match(directory_name)) and any(
+        name.casefold() in FEATURE_ARTIFACTS for name in names
+    )
+
+
+def holds_series(names: Sequence[str], directory_name: str) -> bool:
+    """A directory called ``directory_name`` holding ``names`` holds a numbered decision record."""
+    return any(adr_file(name, directory_name) is not None for name in names)
+
+
 def is_feature_dir(directory: str) -> bool:
-    """``directory`` (absolute, resolved) is named like a slug and holds a feature document as a
-    regular file."""
-    if not SLUG_RE.match(os.path.basename(directory)):
-        return False
-    names = _names_in(directory)
-    return names is not None and any(name.casefold() in FEATURE_ARTIFACTS for name in names)
+    """``directory`` (absolute, resolved) is a feature folder, read with one listing."""
+    names = dir_names(directory)
+    return names is not None and marks_feature(names, os.path.basename(directory))
 
 
 def holds_adr_series(directory: str) -> bool:
     """``directory`` (absolute, resolved) holds a member of a numbered decision series."""
-    names = _names_in(directory)
-    here = os.path.basename(directory)
-    return names is not None and any(adr_file(name, here) is not None for name in names)
+    names = dir_names(directory)
+    return names is not None and holds_series(names, os.path.basename(directory))

@@ -576,19 +576,25 @@ def _write_problem(file_path: Any, cwd: str = ".") -> str | None:
         return "a file that is not a Markdown document (.md)"
     if outside_docs and not _design_name(parts[-1], parts[-2]):
         return (
-            "a file outside docs/ that is not a feature document (tech-design.md, design.md, "
-            "prd.md, plan.md, research-brief.md) or a decision record (adr-*.md)"
+            "a file outside docs/ that is not the role's design document (tech-design.md) or a "
+            "decision record (adr-*.md, or the next record of the series there)"
         )
     return None
 
 
+# Outside docs/ the architect writes what its contract names and nothing else: the design. The
+# other feature documents (a PRD, a plan, a research brief, a UX spec) are other phases', written by
+# the main session, which this hook does not hold.
+_ARCHITECT_DOCUMENTS = frozenset({"tech-design.md"})
+
+
 def _design_name(name: str, directory_name: str) -> bool:
-    """Outside ``docs/`` the architect writes its contract's documents only: a feature document by
-    its name, or a decision record (``adr-<x>.md``, or a member of the directory's numbered series),
-    so a README or a contributor guide beside them stays out of reach."""
+    """Outside ``docs/`` the architect writes its contract's documents only: ``tech-design.md``, or
+    a decision record (``adr-<x>.md``, or a member of the directory's numbered series), so a README,
+    a contributor guide, or another phase's PRD or plan beside them stays out of reach."""
     folded = name.casefold()
     return (
-        folded in artifact_home.FEATURE_ARTIFACTS
+        folded in _ARCHITECT_DOCUMENTS
         or folded.startswith(("adr-", "adr_"))
         or artifact_home.adr_file(name, directory_name) is not None
     )
@@ -598,26 +604,36 @@ def _feature_home(resolved: str, top: str) -> bool:
     """The directory ``resolved`` (a file's real path) sits in already exists below the working
     tree's top and is one the repository keeps for feature documents (``artifact_home``):
 
-    - a feature folder: named like a slug, holding a ``prd.md``, ``plan.md``, ``design.md``,
-      ``tech-design.md`` or ``research-brief.md`` as a regular file;
-    - an ``adr/`` directory directly in such a folder;
+    - a feature folder: named like a slug, holding a feature document
+      (``artifact_home.FEATURE_ARTIFACTS``) as a regular file;
+    - an ``adr``, ``adrs`` or ``decisions`` directory directly in such a folder;
     - a directory holding a numbered decision record (``adr-001-x.md``, ``ADR-G01-x.md``, or
       ``0001-x.md`` in a directory named ``adr``, ``adrs`` or ``decisions``).
 
-    Read only from that directory and its parent, never through a symlink, and never the top
-    itself. An error is a no: the caller refuses."""
+    Each component of the directory below the top must be ``artifact_home.SAFE_COMPONENT``, as
+    for every path the detector proposes. One listing of the directory, and one of its parent
+    only for an ``adr``-named one; never through a symlink, never the top itself. An error is a
+    no: the caller refuses."""
     directory = os.path.dirname(resolved)
     if directory == top or not directory.startswith(top + os.sep):
         return False
+    below = os.path.relpath(directory, top).replace(os.sep, "/")
+    if not artifact_home.is_safe_path(below):
+        return False
     if not os.path.isdir(directory) or os.path.islink(directory):
         return False
-    if artifact_home.is_feature_dir(directory) or artifact_home.holds_adr_series(directory):
+    name = os.path.basename(directory)
+    names = artifact_home.dir_names(directory)
+    if names is None:
+        return False
+    if artifact_home.marks_feature(names, name) or artifact_home.holds_series(names, name):
         return True
     parent = os.path.dirname(directory)
-    return (
-        os.path.basename(directory).casefold() == "adr"
-        and parent != top
-        and artifact_home.is_feature_dir(parent)
+    if name.casefold() not in artifact_home.ADR_DIR_NAMES or parent == top:
+        return False
+    parent_names = artifact_home.dir_names(parent)
+    return parent_names is not None and artifact_home.marks_feature(
+        parent_names, os.path.basename(parent)
     )
 
 

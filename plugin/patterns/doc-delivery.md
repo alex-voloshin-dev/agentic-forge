@@ -42,6 +42,7 @@ So every document phase working on `<feature-slug>` shares `../wt-docs-<slug>` o
    the repository's) and run `handoff-load` on it again ([review-loop.md](review-loop.md)), or the next
    phase refuses it. Then
    `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" doc-proceed --worktree <worktree> --phase <phase> --slug <slug> --artifact <path>`
+   (each `<path>` is the document's quoted `arg` from `artifact-home`, never a path typed by hand)
    gives the `steps` for this repo: stage and commit this phase's artifact only (message
    `docs(<phase>): <slug>`; `--artifact` repeats for more than one), push (plain, **never** `--force`).
    When its `open_pr` is true, with the body written to a file outside the worktree,
