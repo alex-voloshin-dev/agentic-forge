@@ -69,28 +69,21 @@ repos**. Driver: `plugin/bin/external_review.py`.
 the review; `skipped` with a reason in `SKIP_REASONS` (`missing-cli`, `command-not-configured`,
 `disabled`: there was no reviewer to ask); or `failed` with a reason in `FAILURE_REASONS` (`timeout`,
 `process-failure`, `invalid-output`, `isolation-unsupported`: the reviewer was there and enabled and the
-attempt produced no review). Each carries a short detail, redacted before it is capped. Neither a skip
-nor a failure has a verdict, so neither can read as approval. The difference is what the caller does
-with it: a skip is expected and the round goes on, while a failure is a lens that dropped out, so the
-CLI exits `3` for it (`0` for a skip, `1` for `changes`) and the workflows record it in the round and
-report it to the user instead of treating it as a skip.
+attempt produced no review; plus `refused-input`, which only the CLI uses, for arguments it refused
+before any call). Each carries a short detail, redacted before it is capped. Neither a skip nor a
+failure has a verdict, so neither can read as approval. The difference is what the caller does with
+it: a skip is expected and the round goes on, while a failure is a lens that dropped out. So the CLI's
+exit says which, unambiguously: `0` an approve or a skip, `1` a `changes` verdict and nothing else,
+`3` a failure of any kind, refused arguments included. It branches on `status == "skipped"` for `0` and
+treats anything else without a review as `3`, so a status added later cannot fail open. The workflows
+record a `3` in the round and report it to the user instead of treating it as a skip.
 
-**How the call is made.** `_argv` builds `codex exec --sandbox read-only --skip-git-repo-check
-[isolation flags] [--model] [-c effort] -`, and `_run_cli` writes the prompt to the process's stdin
-(`subprocess.run(input=...)`), which `codex exec -` reads as the prompt. The prompt used to be the last
-argv element, which failed with `E2BIG` for a diff over 128 KiB, the Linux cap on one argument, and
-could not hold a NUL byte at all. Stdin has no such cap, and since it is a pipe holding only the prompt,
-the caller's own stdin still never reaches the reviewer. `--skip-git-repo-check` is there because codex
-refuses to start outside a trusted git repo, and `develop` writes the diff to a scratch directory and
-may run from anywhere. It does not loosen the sandbox or mark any directory trusted. `-C <dir>` was not
-added: the subprocess `cwd` already names the directory, and `-C` alone would not get past the same
-check. The `cwd` is still `--repo` (the caller's cwd by default), so a review run from the repo keeps the
-repo as context. codex echoes the prompt to stderr, so a failed run's detail drops every line that is
-also a prompt line before it is cut to its tail. `review()` wraps it for the skills, which did not change. It runs nothing when
-`enabled` is false (`disabled`), and refuses a `command` other than the configured one
-(`command-not-configured`) without running it. The operator's CLI calls `review_outcome` directly, so
-`--command` and `--force` still work. **Isolation is opt-in** (`external_reviewer.isolated`, with `model` and `effort`): it adds
-`--ignore-user-config --ephemeral` after `exec --help` confirms both flags, and skips otherwise rather
+`review()` wraps `configured_review_outcome` for code that calls the library: it returns the review or
+`None`. It runs nothing when `enabled` is false (`disabled`), and refuses a `command` other than the
+configured one (`command-not-configured`) without running it. The operator's CLI calls
+`review_outcome` directly, so `--command` and `--force` still work. **Isolation is opt-in**
+(`external_reviewer.isolated`, with `model` and `effort`): it adds `--ignore-user-config --ephemeral`
+after `exec --help` confirms both flags, and fails (`isolation-unsupported`) otherwise rather
 than falling back. `review()` reads these settings through `settings.resolve`, so the setting reaches
 the skills too. Every flag is fixed in `_argv`; there is no free-form args setting. **`command`,
 `isolated`, `model` and `effort` are user-level only:** a repo file's values are removed before the
@@ -108,6 +101,38 @@ openings failed to decode for the rest to be read. Every finding field
 loses terminal escapes and control characters and has secrets redacted before it reaches the terminal or
 `review.md`. The CLI refuses a symlink for `--target` and `--out`, and a symlinked directory inside the
 repo on the way to either.
+
+**How the call is made.** `_argv` builds `codex exec --sandbox read-only --skip-git-repo-check
+[isolation flags] [--model] [-c effort] -`, and `_run_cli` writes the prompt to the process's stdin
+(`subprocess.run(input=...)`), which `codex exec -` reads as the prompt. The prompt used to be the last
+argv element, which failed with `E2BIG` for a diff over 128 KiB, the Linux cap on one argument, and
+could not hold a NUL byte at all. Stdin has no such cap, and since it is a pipe holding only the prompt,
+the caller's own stdin still never reaches the reviewer. The prompt is encoded with `surrogateescape`,
+so a target read that way goes out as its original bytes; any other lone surrogate fails the call as
+`process-failure` rather than being replaced. `--skip-git-repo-check` is there because codex refuses to
+start outside a trusted git repo, and the CLI's `--repo` may name a directory that is not one. It does
+not loosen the sandbox, and it wrote no trust entry when measured. `-C <dir>` was not added: the
+subprocess `cwd` already names the directory, and codex 0.167.0 applies the same refusal to a `-C`
+directory outside a repo. The `cwd` is `--repo`, so a review of a repo keeps the repo as context.
+
+**Which settings apply: pass `--repo`.** The repo's own `external_reviewer.enabled: false` is read from
+`--repo`, and every skill that runs the lens passes `--repo <the repo whose content it is>`. Without
+`--repo` the cwd stands in, and outside a git work tree the CLI refuses with `refused-input` (exit `3`)
+just before anything would be sent: there, no repo's opt-out could have been read, and the diff could
+belong to a repo that opted out. Inside a git work tree the cwd is taken as the repo, as before.
+
+**What codex itself loads from the directory** (measured on codex-cli 0.167.0, with the exact flags
+`_argv` passes, plain and isolated). In a directory that is not a git repo, neither its `AGENTS.md` nor
+its `.codex/config.toml` reached codex. The same files after `git init` (untrusted): `AGENTS.md` did, in
+isolated mode too; the project config did not. A control passing the same MCP server through `-c` did
+launch it, so the probe would have seen a loaded config. So the repo directory is the channel, as ADR
+0100 recorded, and the findings stay advisory. Running codex from an empty private temporary directory
+would close it, since the prompt no longer needs the repo; the cost is the reviewer's view of the
+surrounding files. That is a proposed follow-up, not done here.
+
+codex echoes the prompt to stderr, so a failed run's detail drops every line that also appears,
+verbatim, as a line of the prompt before it is cut to its tail. This is best-effort: a line the CLI
+rewraps or reformats is not recognised.
 
 ## PR watcher (`pr_watch.py`, ADR 0044 / 0045)
 

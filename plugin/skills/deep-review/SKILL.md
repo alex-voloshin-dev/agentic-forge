@@ -30,7 +30,7 @@ app, or writing code.
    with `severity` (`blocker | major | minor | nit`), `location`, `issue`, `evidence`, `fix`
    (the suggested fix — same key as the workflow template's schema).
    The pattern's external reviewer lens, if you add it, is
-   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/external_review.py" --target <file> --kind code`;
+   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/external_review.py" --target <file> --repo <the repo it belongs to> --kind code`;
    its exit 3 is a lens that failed (not a skip): name it among the lenses lost in the report.
    Run them concurrently with the Task tool — or, when the user has opted into multi-agent
    orchestration, with a Workflow built from

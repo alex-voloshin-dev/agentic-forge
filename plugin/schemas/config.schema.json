@@ -63,7 +63,7 @@
         },
         "isolated": {
           "type": "boolean",
-          "description": "Run the reviewer without the operator's user config and without persisting session files (ADR 0100): codex `exec --ignore-user-config --ephemeral`, on top of the read-only sandbox. Off by default. When the CLI cannot honour it the review is SKIPPED, never run without it. Honoured from the user-level file only: a value in a repo file is ignored with a warning, because it would drop the operator's whole CLI config. Not a stronger sandbox than those flags provide."
+          "description": "Run the reviewer without the operator's user config and without persisting session files (ADR 0100): codex `exec --ignore-user-config --ephemeral`, on top of the read-only sandbox. Off by default. When the CLI cannot honour it the review fails (isolation-unsupported), never run without it. Honoured from the user-level file only: a value in a repo file is ignored with a warning, because it would drop the operator's whole CLI config. Not a stronger sandbox than those flags provide."
         },
         "model": {
           "type": [

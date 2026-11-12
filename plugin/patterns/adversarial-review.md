@@ -72,15 +72,15 @@ opinion. For a quick single-file diff lint, a single `reviewer` pass is enough â
   `develop` (`--kind code`), `product` (`--kind product`), `architecture` (`--kind technical`) and
   `plan` (`--kind plan`) since ADR 0060, `research` (`--kind research`) and `ux-design` (`--kind ux`)
   since ADR 0061, and `marketing` (`--kind marketing`) since ADR 0062. Run it via
-  `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/external_review.py"` (`--target <file>`, `--kind code|marketing|plan|product|research|technical|ux`, `--out
+  `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/external_review.py"` (`--target <file>`, `--repo <the repo it belongs to>`, so its own opt-out holds, `--kind code|marketing|plan|product|research|technical|ux`, `--out
   review.md`); pick the kind that matches the deliverable â€” an unknown one falls back to the **code**
   criteria, which is wrong for a brief, spec, or design. It degrades
   gracefully when absent; any skip or failure (the CLI prints the reason, ADR 0100)
   means no external verdict was reached, never an approval. **Exit 1 is not a crash:** it is a
-  `changes` verdict, with the findings on stdout to fold in, or a refused `--target` / `--out`, with
-  the reason on stderr. Exit 0 is an approval, or a skip (a reviewer disabled or absent), which the
-  output says. **Exit 3 is a failed lens:** the reviewer was there and enabled and produced no review
-  (`timeout`, `process-failure`, `invalid-output`, `isolation-unsupported`; the reason is on stderr).
+  `changes` verdict, with the findings on stdout to fold in, and nothing else. Exit 0 is an approval,
+  or a skip (a reviewer disabled or absent), which the output says. **Exit 3 is a failed lens:** no
+  usable verdict came back (`timeout`, `process-failure`, `invalid-output`, `isolation-unsupported`,
+  or `refused-input` for an argument the CLI refused; the reason is on stderr).
   It is not a skip: record it in the round as `external lens: failed (<reason>)` and report it to
   the user. It runs **read-only**; it sends the target to a third-party agent, so
   **set `external_reviewer.enabled: false` on secret-bearing repos**, and treat its findings as

@@ -107,14 +107,19 @@ HelpProbe = Callable[[str, int], str]
 # Skipped: there was no reviewer to ask, so nothing ran. Not a problem with the review.
 SkipReason = Literal["missing-cli", "command-not-configured", "disabled"]
 SKIP_REASONS: tuple[str, ...] = ("missing-cli", "command-not-configured", "disabled")
-# Failed: the reviewer was present and enabled, and the attempt produced no review. The lens dropped
-# out of this round, which the caller must report rather than treat as a skip.
-FailureReason = Literal["timeout", "process-failure", "invalid-output", "isolation-unsupported"]
+# Failed: the review was asked for and produced no usable verdict. The lens dropped out of this
+# round, which the caller must report rather than treat as a skip. `refused-input` is the CLI's own:
+# it refused its arguments before any call (plugin/bin/external_review.py); this module never
+# returns it, but it is one vocabulary.
+FailureReason = Literal[
+    "timeout", "process-failure", "invalid-output", "isolation-unsupported", "refused-input"
+]
 FAILURE_REASONS: tuple[str, ...] = (
     "timeout",
     "process-failure",
     "invalid-output",
     "isolation-unsupported",
+    "refused-input",
 )
 # Every reason, flat: a runtime `SkipReason | FailureReason` would fail on Python 3.9, which the
 # hooks reach this module from.
@@ -126,6 +131,7 @@ Reason = Literal[
     "process-failure",
     "invalid-output",
     "isolation-unsupported",
+    "refused-input",
 ]
 
 # Both are required for an isolated run. `--ignore-rules` is deliberately NOT here: it would remove
@@ -239,11 +245,15 @@ def _run_cli(
 
     ``input`` makes stdin a pipe holding the prompt and nothing else, so the caller's own stdin
     never reaches the CLI. It is written while the output is read, so a large prompt cannot
-    deadlock."""
+    deadlock.
+
+    ``surrogateescape``: a target a caller read with that handler (bytes that are not UTF-8) goes to
+    the CLI as those original bytes. Any other lone surrogate still raises ``UnicodeEncodeError``
+    here, and the attempt fails visibly as ``process-failure``; nothing is silently replaced."""
     completed = subprocess.run(
         _argv(command, options),
         cwd=str(workdir),
-        input=prompt.encode("utf-8"),
+        input=prompt.encode("utf-8", "surrogateescape"),
         capture_output=True,
         check=True,
         timeout=timeout,
@@ -393,7 +403,8 @@ def parse_review(output: str) -> dict[str, Any] | None:
     An approve has to clear two more checks, because a ``changes`` may be what could not be read.
     The scan must have reached the end of the reply, and the raw text must not say ``changes`` where
     no review-shaped object did: a trailing comma, ``findings`` null or missing. Either way the
-    answer is ``None``, a skip, since the reply cannot prove an approve."""
+    answer is ``None``, which :func:`review_outcome` reports as a failure (``invalid-output``),
+    since the reply cannot prove an approve."""
     objects, complete = _json_objects(output)
     reviews: list[tuple[str, list[Any]]] = []
     for data in objects:

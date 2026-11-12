@@ -19,15 +19,21 @@ docs/architecture/decisions/.
     python plugin/bin/external_review.py --target docs/sdlc/x/plan.md --kind plan --out review.md
     python plugin/bin/external_review.py --target docs/sdlc/x/ux-spec.md --kind ux
 
-Exit codes:
+Pass `--repo <the repo whose content this is>`: the repo's own `.agentic-forge/config.json` is read
+from there, so its `external_reviewer.enabled: false` holds. Without `--repo` the cwd stands in for
+it, and outside a git work tree that is refused (exit 3), because no repo's opt-out could be read.
+
+Exit codes (2 is argparse's, for a usage error):
 
 - 0: an approve, or a skip (the reviewer is disabled, or not on PATH). The output says which.
-- 1: a `changes` verdict (findings on stdout), or a refused input: a `--target` / `--out` that is a
-  symlink or goes through a symlinked directory inside the repo, a `--target` that cannot be read as
-  UTF-8 text, or an `--out` that cannot be written.
-- 3: a failed review (timeout, process-failure, invalid-output, isolation-unsupported): the reviewer
-  was there and enabled, and produced no verdict. The reason and detail are on stderr. A caller must
-  record it as a lens that dropped out, not as a skip.
+- 1: a `changes` verdict, with the findings on stdout. Nothing else.
+- 3: a failed lens, with `failed (<reason>)` on stderr: the review was asked for and produced no
+  usable verdict. Either the reviewer ran or was meant to (timeout, process-failure,
+  invalid-output, isolation-unsupported), or the CLI refused its arguments (`refused-input`): a
+  `--target` / `--out` that is a symlink or goes through a symlinked directory inside the repo, a
+  `--target` that is missing, unreadable or not UTF-8 text, no `--repo` outside a git work tree, or
+  an `--out` that cannot be written. A caller must record it as a lens that dropped out, not as a
+  skip.
 """
 
 from __future__ import annotations
@@ -45,7 +51,8 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "lib"))
 
 from agentic_forge import external_review, settings  # noqa: E402
 
-EXIT_FAILED = 3  # the reviewer ran, or was meant to, and produced no review; 2 is argparse's
+EXIT_FAILED = 3  # the lens was asked for and produced no usable verdict; 2 is argparse's
+_NOT_A_SKIP = "no external review was produced: this is a failure, not a skip"
 
 
 def _render(result: dict[str, Any]) -> str:
@@ -122,9 +129,24 @@ def _absolute_if_path(command: str) -> str:
     return os.path.join(os.getcwd(), command) if named_path else command
 
 
+def _inside_git_work_tree(path: Path) -> bool:
+    """True if ``path`` or a parent holds ``.git`` (a directory, or a linked worktree's file)."""
+    here = path.resolve()
+    return any((p / ".git").exists() for p in (here, *here.parents))
+
+
+def _refuse(message: str) -> int:
+    """A refused argument: the lens cannot run as asked, so it failed. Exit 3, never a verdict."""
+    print(message, file=sys.stderr)
+    print(f"external reviewer failed (refused-input): {_NOT_A_SKIP}", file=sys.stderr)
+    return EXIT_FAILED
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Run the external reviewer CLI over a target.")
-    parser.add_argument("--repo", type=Path, default=Path("."))
+    parser.add_argument(
+        "--repo", type=Path, default=None, help="the repo whose content this is (default: the cwd)"
+    )
     parser.add_argument("--target", type=Path, required=True, help="file to review")
     parser.add_argument("--kind", choices=sorted(external_review.KINDS), default="code")
     # The operator's own argument: unlike a config file's `command` it may name a path, resolved
@@ -138,29 +160,22 @@ def main(argv: list[str]) -> int:
     # A symlink could read a file the operator did not mean to send to a third party, or overwrite
     # one they did not mean to replace. Checked before anything runs, so a dangling link counts too.
     # A symlinked directory counts inside the repo, which may be what is under review.
-    repo = args.repo.resolve()
+    repo = (args.repo if args.repo is not None else Path(".")).resolve()
     for flag, path in (("--target", args.target), ("--out", args.out)):
         if path is None:
             continue
         try:
             if path.is_symlink():
-                print(
-                    f"refusing {flag} {path}: it is a symlink; pass the real path", file=sys.stderr
-                )
-                return 1
+                return _refuse(f"refusing {flag} {path}: it is a symlink; pass the real path")
             link = _symlink_below_repo(path, repo)
         except OSError as exc:
-            print(f"refusing {flag} {path}: {type(exc).__name__}", file=sys.stderr)
-            return 1
+            return _refuse(f"refusing {flag} {path}: {type(exc).__name__}")
         if link is not None:
-            print(
-                f"refusing {flag} {path}: {link} is a symlink inside the repo; pass the real path",
-                file=sys.stderr,
+            return _refuse(
+                f"refusing {flag} {path}: {link} is a symlink inside the repo; pass the real path"
             )
-            return 1
     if not args.target.is_file():  # graceful: never crash on a bad path (even with codex installed)
-        print(f"target not found: {args.target}", file=sys.stderr)
-        return 1
+        return _refuse(f"target not found: {args.target}")
 
     resolved = settings.resolve(repo)
     command = resolved.external_reviewer_command
@@ -176,16 +191,22 @@ def main(argv: list[str]) -> int:
     if not external_review.is_available(command):
         print(f"external reviewer {command!r} not found on PATH — skipping")
         return 0
+    # Only now, when content would go to the reviewer. Without --repo the cwd's settings are the
+    # ones read, and outside a git work tree no repo's own opt-out can be among them.
+    if args.repo is None and not _inside_git_work_tree(Path.cwd()):
+        return _refuse(
+            "refusing to run without --repo outside a git work tree: the reviewed repo's own "
+            f"{settings.CONFIG_PATH} (and an external_reviewer.enabled: false in it) would not be "
+            "read; pass --repo <the repo whose content this is>"
+        )
 
     try:
         text = _read_target(args.target)
     except UnicodeDecodeError:
-        print(f"refusing --target {args.target}: it is not UTF-8 text", file=sys.stderr)
-        return 1
+        return _refuse(f"refusing --target {args.target}: it is not UTF-8 text")
     except OSError as exc:
         why = exc.strerror or type(exc).__name__
-        print(f"refusing --target {args.target}: {why}", file=sys.stderr)
-        return 1
+        return _refuse(f"refusing --target {args.target}: {why}")
     outcome = external_review.review_outcome(
         text,
         args.kind,
@@ -195,15 +216,15 @@ def main(argv: list[str]) -> int:
     )
     result = outcome.review
     if result is None:  # never an approval: no verdict is printed, no review.md written
-        if outcome.status == "failed":
-            message = f"external reviewer {command!r} failed ({outcome.reason})"
+        if outcome.status == "skipped":
+            message = f"external reviewer {command!r} skipped ({outcome.reason})"
             print(f"{message}: {outcome.detail}" if outcome.detail else message, file=sys.stderr)
-            print("no external review was produced: this is a failure, not a skip",
-                  file=sys.stderr)
-            return EXIT_FAILED
-        message = f"external reviewer {command!r} skipped ({outcome.reason})"
+            return 0
+        # Anything else with no review is a failure, including a status added later: no fail-open.
+        message = f"external reviewer {command!r} failed ({outcome.reason})"
         print(f"{message}: {outcome.detail}" if outcome.detail else message, file=sys.stderr)
-        return 0
+        print(_NOT_A_SKIP, file=sys.stderr)
+        return EXIT_FAILED
     print(_render(result))
     if args.out:
         try:
@@ -212,11 +233,12 @@ def main(argv: list[str]) -> int:
                 raise OSError(errno.ELOOP, "a parent directory became a symlink during the review")
             _write_review_md(args.out, str(args.target), result, args.iteration)
         except OSError as exc:  # includes a symlink put there while the review ran
-            print(f"could not write {args.out}: {exc}", file=sys.stderr)
-            return 1
+            return _refuse(f"could not write {args.out}: {exc}; the verdict above is not recorded")
         except ImportError:
-            print(f"could not write {args.out}: PyYAML is not installed", file=sys.stderr)
-            return 1
+            return _refuse(
+                f"could not write {args.out}: PyYAML is not installed; "
+                "the verdict above is not recorded"
+            )
         print(f"wrote {args.out}")
     return 0 if result["verdict"] == "approve" else 1
 

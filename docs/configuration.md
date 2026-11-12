@@ -143,9 +143,10 @@ reason and a short redacted detail, and the skills' `review()` returns `None`.
 
 - A **skip** means there was no reviewer to ask: it is absent, disabled, or not the configured one.
   The review round goes on without the lens, and that is expected. Exit `0`.
-- A **failure** means the reviewer was there and enabled, and the attempt produced no review. The lens
-  dropped out of the round, so the workflow records it in the round (`external lens: failed
-  (<reason>)`) and tells you, rather than treating it as a skip. Exit `3`.
+- A **failure** means the review was asked for and produced no usable verdict: the reviewer was there
+  and enabled and the attempt produced no review, or the CLI refused its arguments. The lens dropped
+  out of the round, so the workflow records it in the round (`external lens: failed (<reason>)`) and
+  tells you, rather than treating it as a skip. Exit `3`.
 
 | Reason | Kind | Meaning | CLI exit |
 |---|---|---|---|
@@ -156,17 +157,35 @@ reason and a short redacted detail, and the skills' `review()` returns `None`.
 | `process-failure` | failure | The CLI exited non-zero or could not be started. | `3` |
 | `invalid-output` | failure | It exited 0, but its stdout was not UTF-8, held no review-shaped JSON, or could not prove an approve (see below). | `3` |
 | `isolation-unsupported` | failure | `isolated` is on and the capability check did not find both flags. | `3` |
+| `refused-input` | failure | The CLI refused its arguments before any call: a `--target` / `--out` refused below, a missing or unreadable `--target`, no `--repo` outside a git work tree, or an `--out` that could not be written (any verdict printed above it is then not recorded). | `3` |
 
-Exit `1` is a `changes` verdict, or a refused `--target` / `--out` (below). Exit `0` with a `verdict:`
-line is an approve.
+Exit `1` is a `changes` verdict and nothing else. Exit `0` with a `verdict:` line is an approve, and
+without one a skip. Exit `2` is a usage error from the argument parser.
+
+**Pass `--repo <the repo whose content this is>`.** The repo's own `.agentic-forge/config.json`, and an
+`external_reviewer.enabled: false` in it, is read from `--repo`; the skills always pass it. Without
+`--repo` the cwd is taken as the repo. Outside a git work tree that is refused (`refused-input`, exit `3`)
+just before anything would be sent, because the diff could belong to a repo that opted out and whose
+config would not be read. Inside a git work tree the cwd still works as before.
 
 The review prompt, target included, goes to codex on **stdin** (`codex exec ... -`), not as an argument,
 so a large diff is not cut off by the operating system's limit on one argument (128 KiB on Linux), and a
-NUL byte in the target does not stop the call. Only the model's context bounds its size. codex runs with
-`--skip-git-repo-check`, so it works from any directory, including a scratch directory outside the repo:
-codex otherwise refuses to start outside a trusted git repo. The read-only sandbox is unchanged. codex
-echoes the prompt to its stderr, so before a failed run's output becomes the detail, every line that is
-also a line of the prompt is removed: the detail does not carry the target.
+NUL byte in the target does not stop the call. Only the model's context bounds its size. The prompt is
+encoded as UTF-8 with `surrogateescape`, so text a caller read with that handler goes out as its original
+bytes; any other lone surrogate fails the call (`process-failure`) instead of being replaced. codex runs
+with `--skip-git-repo-check` in the `--repo` directory, so a `--repo` that is not a git repo works too:
+codex otherwise refuses to start outside a trusted git repo. The read-only sandbox is unchanged.
+
+**What codex loads from that directory**, measured on codex-cli 0.167.0 with the flags the plugin passes,
+plain and isolated, using made-up files: from a directory that is **not** a git repo, neither its
+`AGENTS.md` nor its `.codex/config.toml` (an MCP server entry that would have left a marker) reached
+codex. After `git init` in the same directory, `AGENTS.md` did, isolated too, and the untrusted project
+config did not. A control passing the same MCP server with `-c` did start it, so the probe works. So
+the reviewed repo's `AGENTS.md` reaches the reviewer, as noted below, and its findings stay advisory.
+
+codex echoes the prompt to its stderr. Before a failed run's output becomes the detail, every line that
+appears verbatim as a line of the prompt is removed. This is **best-effort**: it catches the lines the
+CLI echoes verbatim, and a line it rewraps or reformats would still show.
 
 A review has a verdict only if the reply holds a JSON object with `verdict` and a `findings` list. If any
 such object in the reply says `changes`, the verdict is `changes`, even if the reviewer was only quoting
@@ -178,7 +197,7 @@ Finding fields lose terminal escapes and control characters and have secrets red
 characters of a field are read: a longer one is cut at a word and ends in `[truncated]`.
 
 `plugin/bin/external_review.py` refuses a `--target` or `--out` that is a symlink, or that goes through a
-symlinked directory inside the repo, with a message and exit `1`, before anything runs. Pass the real path.
+symlinked directory inside the repo, with a message and exit `3` (`refused-input`), before anything runs. Pass the real path.
 A link above the repo root is fine, and so is a path outside the repo. A `--target` that is not a regular
 file or not UTF-8 text is refused the same way.
 
