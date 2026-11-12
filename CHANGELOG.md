@@ -7,6 +7,8 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.11.11] - 2026-11-12
+
 The rest of the field queue, items 7 to 15 (ADR 0110).
 
 ### Added
