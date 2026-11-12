@@ -67,15 +67,23 @@ class GateUnavailable(Exception):
     allowed (fail open)."""
 
 
-def _git(cwd: str, *args: str, deadline: float) -> str:
+def _git_path() -> str | None:
+    """The `git` to run, by the absolute path PATH gives, or None: a relative or empty PATH entry
+    resolves against the session's directory, where a repo could have committed a `git` of its own
+    (the same rule as for `gh`, and as ``role_scope._git_version``)."""
+    git = shutil.which("git")
+    return git if git and os.path.isabs(git) else None
+
+
+def _git(git: str, cwd: str, *args: str, deadline: float) -> str:
     """Run a read-only git command within the shared ``deadline`` (a ``time.monotonic`` instant);
     empty string on a non-zero exit (the local warnings never block). Past the deadline it raises
     ``TimeoutExpired`` exactly as a stalled call would, and ``main`` records that."""
     remaining = deadline - time.monotonic()
     if remaining <= 0:
-        raise subprocess.TimeoutExpired(["git", *args], _BUDGET_SECONDS)
+        raise subprocess.TimeoutExpired([git, *args], _BUDGET_SECONDS)
     result = subprocess.run(
-        ["git", "-C", cwd, *args], capture_output=True, text=True, timeout=remaining
+        [git, "-C", cwd, *args], capture_output=True, text=True, timeout=remaining
     )
     return result.stdout.strip() if result.returncode == 0 else ""
 
@@ -83,18 +91,25 @@ def _git(cwd: str, *args: str, deadline: float) -> str:
 def preflight(cwd: str, *, budget: float = _BUDGET_SECONDS) -> guardrails.Decision:
     """Gather the local git state (``budget`` seconds for all of it) and hand it to the pure
     rule."""
+    git = _git_path()
+    if git is None:
+        return guardrails.Decision(
+            False, "pre-merge: the local checks were skipped: no git on PATH by an absolute path"
+        )
     deadline = time.monotonic() + budget
     # The branch `gh` will try to fast-forward is the PR's base; without an API call the repo's
     # default branch is the right approximation (`origin/HEAD` -> `origin/master`).
     origin_head = _git(
-        cwd, "symbolic-ref", "--short", "refs/remotes/origin/HEAD", deadline=deadline
+        git, cwd, "symbolic-ref", "--short", "refs/remotes/origin/HEAD", deadline=deadline
     )
     base = origin_head.split("/", 1)[1] if "/" in origin_head else ""
     if not base:
         return guardrails.ALLOW  # no remote HEAD -> nothing to compare against
-    ahead_raw = _git(cwd, "rev-list", "--count", f"origin/{base}..{base}", deadline=deadline)
+    ahead_raw = _git(
+        git, cwd, "rev-list", "--count", f"origin/{base}..{base}", deadline=deadline
+    )
     ahead = int(ahead_raw) if ahead_raw.isdigit() else 0
-    porcelain = _git(cwd, "worktree", "list", "--porcelain", deadline=deadline)
+    porcelain = _git(git, cwd, "worktree", "list", "--porcelain", deadline=deadline)
     return guardrails.merge_preflight(
         base,
         guardrails.worktree_branches(porcelain),
@@ -145,6 +160,20 @@ def _gh(args: list[str], *, cwd: str, deadline: float, host: str = "") -> Any:
         raise GateUnavailable(f"`gh {args[1]} {args[2]}` did not answer JSON") from None
 
 
+def _origin_host(cwd: str, deadline: float) -> str:
+    """The host of ``cwd``'s ``origin`` remote, read locally ("" when there is none or it cannot be
+    read in time)."""
+    git = _git_path()
+    remaining = deadline - time.monotonic()
+    if git is None or remaining <= 0:
+        return ""
+    try:
+        url = _git(git, cwd, "config", "--get", "remote.origin.url", deadline=deadline)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return guardrails.remote_host(url)
+
+
 def merge_gate(
     command: str, cwd: str, *, budget: float = _GATE_BUDGET_SECONDS
 ) -> guardrails.Decision:
@@ -167,6 +196,23 @@ def merge_gate(
     if not os.path.isdir(target.cwd):
         raise GateUnavailable("the directory the merge runs in does not exist")
     deadline = time.monotonic() + budget
+    # A PreToolUse hook runs BEFORE the permission prompt, so a host named by the command — perhaps
+    # by injected text — would be contacted, with any GH_ENTERPRISE_TOKEN, even if the operator
+    # then denied the merge. Only github.com and this checkout's own origin are asked.
+    origin: list[str] = []
+
+    def allowed(host: str) -> bool:
+        if host == "github.com":
+            return True
+        if not origin:
+            origin.append(_origin_host(target.cwd, deadline))
+        return bool(origin[0]) and host == origin[0]
+
+    if guardrails.merge_host(target) and not allowed(guardrails.merge_host(target)):
+        raise GateUnavailable(
+            "the merge names a host that is neither github.com nor this checkout's origin, and "
+            "the gate does not contact it"
+        )
     view = _gh(
         [gh, "pr", "view", *([target.selector] if target.selector else []),
          *(["-R", target.repo] if target.repo else []), "--json", _VIEW_FIELDS],
@@ -177,9 +223,15 @@ def merge_gate(
     if found is None:
         raise GateUnavailable("`gh pr view` did not name a PR")
     host, owner, name, number = found.group(1), found.group(2), found.group(3), int(found.group(4))
+    if not allowed(guardrails.remote_host(str(url))):
+        raise GateUnavailable(
+            "`gh pr view` found the PR on a host that is neither github.com nor this checkout's "
+            "origin, and the gate does not contact it"
+        )
+    # Always the resolved PR's host, github.com included: a GH_HOST for the merge would otherwise
+    # send the read to another host, and so to another PR, than the one `gh pr view` found.
     argv = [gh, *pr_watch.pr_query_argv(owner, name, number)[1:]]
-    if host != "github.com":
-        argv[3:3] = ["--hostname", host]  # after `gh api graphql`
+    argv[3:3] = ["--hostname", host]  # after `gh api graphql`
     data = _gh(argv, cwd=target.cwd, deadline=deadline, host=target.host)
     pr = None
     if isinstance(data, dict) and not data.get("errors"):

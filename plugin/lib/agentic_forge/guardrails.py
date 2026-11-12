@@ -13,6 +13,7 @@ predictable, and unit-testable without a model.
 
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import re
@@ -33,6 +34,8 @@ __all__ = [
     "MergeTarget",
     "UnattributableMerge",
     "pr_merge_target",
+    "merge_host",
+    "remote_host",
     "worktree_branches",
     "merge_preflight",
     "strip_heredoc_bodies",
@@ -838,17 +841,56 @@ def is_commit_or_push(command: str) -> bool:
 _PR_MERGE = re.compile(r"(?:^|[\n;&|]\s*)(?:\w+=\S+\s+)*gh\s+(?:(?!pr\b)\S+\s+)*pr\s+merge\b")
 
 
+def _gh_merge_at(tokens: list[str], start: int) -> bool:
+    """True if ``tokens[start]`` is `gh` (a leading `(` or `{` aside) and `pr merge` follows."""
+    if tokens[start].lstrip("({").rsplit("/", 1)[-1] != "gh" or "pr" not in tokens[start + 1 :]:
+        return False
+    rest = tokens[start + 1 :]
+    return rest[rest.index("pr") + 1 : rest.index("pr") + 2] == ["merge"]
+
+
+def _wrapped_gh(tokens: list[str], first: int) -> int:
+    """The index of a `gh pr merge`'s `gh` behind the wrapper or reserved word at ``first``, or -1.
+    Walks past further prefixes, assignments, flags, a number (``timeout 5``) and one argument after
+    a flag (``-C /x``, ``-u bob``); the first other word is the command, and if it is not `gh`,
+    there is no merge (``then echo gh pr merge`` only prints)."""
+    pending = False  # the previous word was a flag that may take this one as its argument
+    for k in range(first + 1, len(tokens)):
+        word = tokens[k]
+        if _gh_merge_at(tokens, k):
+            return k
+        if word.rsplit("/", 1)[-1] in _MERGE_PREFIXES or _ENV_ASSIGN.match(word):
+            pending = False
+        elif word.startswith("-"):
+            pending = "=" not in word
+        elif pending or _NUMERICISH.match(word):
+            pending = False
+        else:
+            return -1
+    return -1
+
+
 def is_pr_merge(command: str) -> bool:
     """True for `gh pr merge` in command position (not a quoted mention of it) — per quote-aware
-    segment, heredoc bodies stripped, like :func:`is_commit_or_push`."""
-    for base, rest, segment in _segment_commands(command):
+    segment, heredoc bodies stripped, like :func:`is_commit_or_push`. Generous on purpose, as it
+    only decides whether the merge gate looks: a backslash-newline is joined first (``gh pr``, a
+    continuation, ``merge``), and behind a wrapper with arguments (``env -C /x``, ``sudo -D /x``,
+    ``xargs``), a reserved word (``if``, ``then``, ``!``, ``{``, ``time``) or a ``(`` a `gh pr
+    merge` still counts, so the gate can say it cannot judge it instead of saying nothing."""
+    for base, rest, segment in _segment_commands(command.replace("\\\n", "")):
         if not base:
             if _PR_MERGE.search(segment):
                 return True
-        elif base == "gh" and "pr" in rest:
-            i = rest.index("pr")
-            if rest[i + 1 : i + 2] == ["merge"]:
-                return True
+            continue
+        if _gh_merge_at([base, *rest], 0):
+            return True
+        tokens = _shell_tokens(segment) or [base]  # it tokenized: it has a command word
+        first = next((k for k, t in enumerate(tokens) if not _ENV_ASSIGN.match(t)), 0)
+        word = tokens[first].rsplit("/", 1)[-1]
+        if word not in _MERGE_PREFIXES and word.lstrip("({") not in _MERGE_PREFIXES:
+            continue
+        if _wrapped_gh(tokens, first) >= 0:
+            return True
     return False
 
 
@@ -903,6 +945,15 @@ _GH_FOLLOWED = frozenset(
     {"GH_REPO", "GH_HOST", "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN",
      "GITHUB_ENTERPRISE_TOKEN"}
 )
+# What may be assigned for the merge itself: the above, and what only shapes `gh`'s output. Any
+# other (GIT_DIR, GIT_WORK_TREE, GH_CONFIG_DIR, ...) can change which repo or PR `gh` resolves.
+_MERGE_ENV_OK = _GH_FOLLOWED | {"GH_PROMPT_DISABLED", "GH_NO_UPDATE_NOTIFIER", "NO_COLOR",
+                                "GH_PAGER", "PAGER"}
+# Words that, before `gh`, mean the merge is wrapped: a reserved word of a compound command, or a
+# command that runs the next one (perhaps elsewhere: `env -C`, `sudo -D`). The gate does not follow
+# either, so it says so rather than judging a merge that may run in another directory, or not run.
+_RESERVED = frozenset({"if", "then", "else", "elif", "do", "while", "until", "!", "{", "time"})
+_MERGE_PREFIXES = _RESERVED | _WRAPPERS | {"xargs"}
 # What may run before the merge in the same command: it reads, and cannot change the PR, its
 # checks or which PR the merge names. Anything else could (`gh pr ready`, `gh pr checks --watch`,
 # a thread resolved through `gh api`, `gh pr checkout`, `git checkout`, `sleep`), so the gate,
@@ -910,7 +961,13 @@ _GH_FOLLOWED = frozenset(
 _READ_ONLY_GIT = frozenset({"status", "log", "diff", "fetch", "rev-parse"})
 _READ_ONLY_GH_PR = frozenset({"view", "status", "diff", "checks"})
 _READ_ONLY_COMMANDS = frozenset({"echo", "true"})
-_CONTROL = ("&&", "||", "|&", ";", "|", "&", "\n")
+# git's global flags an allowlisted git may carry: none of them changes the repo, config or program
+# it runs (`-c`, `-C`, `--git-dir`, `--work-tree`, `--exec-path` all can).
+_SAFE_GIT_GLOBALS = frozenset(
+    {"--no-pager", "-P", "--no-optional-locks", "--literal-pathspecs", "--no-replace-objects"}
+)
+# Arguments that make an allowlisted git write a file or run a program.
+_GIT_UNSAFE_ARGS = ("--output", "--ext-diff", "--upload-pack")
 
 
 def _quoted(word: str) -> str:
@@ -920,12 +977,27 @@ def _quoted(word: str) -> str:
 @dataclass
 class _Segment:
     """One simple command of a command line: its words (``dynamic`` marks a word holding a shell
-    expansion), and the control operators before and after it ("" at either end)."""
+    expansion), the control operators before and after it ("" at either end), and whether it
+    redirects output to a file (anything but ``/dev/null`` or a descriptor)."""
 
     words: list[str]
     dynamic: list[bool]
     before: str
     after: str = ""
+    writes: bool = False
+
+
+def _redirection_end(text: str, i: int) -> int:
+    """Where the redirection operator at ``text[i]`` ends: ``>``, ``>>``, ``>|``, ``>&``, ``&>``,
+    ``&>>``, ``<``, ``<<``, ``<<-``, ``<<<``, ``<&``, ``<>``."""
+    nxt = text[i + 1 : i + 2]
+    if text[i] == "&":
+        return i + 3 if text[i + 2 : i + 3] == ">" else i + 2
+    if text[i] == ">":
+        return i + 2 if nxt in (">", "|", "&") and nxt else i + 1
+    if nxt == "<":
+        return i + 3 if text[i + 2 : i + 3] in ("<", "-") and text[i + 2 : i + 3] else i + 2
+    return i + 2 if nxt in ("&", ">") and nxt else i + 1
 
 
 def _lex(command: str) -> tuple[list[_Segment], str]:
@@ -941,13 +1013,17 @@ def _lex(command: str) -> tuple[list[_Segment], str]:
     words: list[str] = []
     dynamic: list[bool] = []
     chars: list[str] = []
-    state = {"started": False, "quoted": False, "dynamic": False, "redirect": False}
+    state = {"started": False, "quoted": False, "dynamic": False, "writes": False}
+    redirect = ""  # the redirection operator whose target the next word is
     before = ""
 
     def end_word() -> None:
+        nonlocal redirect
         if state["started"]:
-            if state["redirect"]:
-                state["redirect"] = False  # a redirection's target, not an argument
+            if redirect:  # a redirection's target, not an argument
+                if ">" in redirect and "".join(chars) != "/dev/null":
+                    state["writes"] = True
+                redirect = ""
             else:
                 words.append("".join(chars))
                 dynamic.append(state["dynamic"])
@@ -955,12 +1031,13 @@ def _lex(command: str) -> tuple[list[_Segment], str]:
         state.update(started=False, quoted=False, dynamic=False)
 
     def end_segment(op: str) -> None:
-        nonlocal words, dynamic, before
+        nonlocal words, dynamic, before, redirect
         end_word()
-        state["redirect"] = False
+        redirect = ""
         if words:  # an empty one (a blank line, `&&` then a newline) changes nothing
-            segments.append(_Segment(words, dynamic, before, op))
+            segments.append(_Segment(words, dynamic, before, op, bool(state["writes"])))
             words, dynamic, before = [], [], op
+        state["writes"] = False
 
     i, n = 0, len(text)
     while i < n:
@@ -1019,15 +1096,15 @@ def _lex(command: str) -> tuple[list[_Segment], str]:
                 chars.clear()
                 state["started"] = False  # `2>`: the descriptor is not an argument
             end_word()
-            j = i + 1
-            while j < n and text[j] in "<>&|-" and j - i < 3:
-                j += 1
+            j = _redirection_end(text, i)
             op = text[i:j]
-            if op.endswith("&") and j < n and (text[j].isdigit() or text[j] == "-"):
-                while j < n and (text[j].isdigit() or text[j] == "-"):
-                    j += 1  # `2>&1`, `>&-`: a descriptor, no target word
+            if op.endswith("&") and j < n and text[j] == "-":
+                j += 1  # `>&-`: closes a descriptor, no target word
+            elif op.endswith("&") and j < n and text[j].isdigit():
+                while j < n and text[j].isdigit():
+                    j += 1  # `2>&1`: a descriptor, no target word
             else:
-                state["redirect"] = True
+                redirect = op
             i = j
             continue
         if ch in ";|&\n":
@@ -1124,19 +1201,56 @@ def _cd_takes_effect(segments: list[_Segment], index: int, merge: int) -> bool:
     return all(segments[k].after == "&&" for k in range(index, merge))
 
 
-def _read_only(words: list[str]) -> bool:
-    """Whether a command before the merge only reads (see ``_READ_ONLY_*``)."""
+def _read_only_git(rest: list[str]) -> bool:
+    """Whether ``git <rest>`` is an allowlisted read: only safe globals before the subcommand, and
+    no argument that writes a file or runs a program."""
+    k = 0
+    while k < len(rest) and rest[k].startswith("-"):
+        if rest[k] not in _SAFE_GIT_GLOBALS:
+            return False
+        k += 1
+    if k >= len(rest) or rest[k] not in _READ_ONLY_GIT:
+        return False
+    return not any(w.startswith(_GIT_UNSAFE_ARGS) for w in rest[k + 1 :])
+
+
+def _not_read_only(segment: _Segment) -> str:
+    """Why a command before the merge may change the PR, its checks or which PR the merge names
+    ("" when it only reads, see ``_READ_ONLY_*``). A plain command word is required: a wrapper or
+    an assignment before it (``GIT_EXTERNAL_DIFF=…``) can make a read run something else."""
+    words = segment.words
     ci = _command_index(words)
-    if ci is None:  # only assignments: shell variables, harmless unless they steer gh
-        return not any(w.startswith(("GH_", "GITHUB_")) for w in words)
-    base, rest = words[ci].rsplit("/", 1)[-1], words[ci + 1 :]
+    label = _label(words)
+    changes = (
+        f"{label} runs before the merge in the same command, and may change the PR or which PR "
+        "it is"
+    )
+    if ci is None:  # only assignments: shell variables, harmless unless they steer gh or git
+        return changes if any(w.startswith(("GH_", "GITHUB_", "GIT_")) for w in words) else ""
+    if segment.writes:
+        return f"{label} writes to a file before the merge in the same command"
+    if ci != 0:
+        if _ENV_ASSIGN.match(words[0]):
+            return f"a variable set for {label} before the merge may change what it does"
+        return f"{_quoted(words[0].rsplit('/', 1)[-1])} wraps a command before the merge"
+    base, rest = words[0].rsplit("/", 1)[-1], words[1:]
     if base in _READ_ONLY_COMMANDS:
-        return True
+        return ""
     if base == "git":
-        return _git_subcommand(rest)[0] in _READ_ONLY_GIT
+        if _read_only_git(rest):
+            return ""
+        flags = list(itertools.takewhile(lambda w: w.startswith("-"), rest))
+        if any(w not in _SAFE_GIT_GLOBALS for w in flags) or any(
+            w.startswith(_GIT_UNSAFE_ARGS) for w in rest
+        ):
+            return (
+                "a `git` option before the merge that the gate does not allow (it can write a "
+                "file, run a program or read another repo)"
+            )
     if base == "gh" and rest[:1] == ["pr"] and rest[1:2] and rest[1] in _READ_ONLY_GH_PR:
-        return not (rest[1] == "checks" and any(w.startswith("--watch") for w in rest))
-    return False
+        if not (rest[1] == "checks" and any(w.startswith("--watch") for w in rest)):
+            return ""
+    return changes
 
 
 def _label(words: list[str]) -> str:
@@ -1151,12 +1265,17 @@ def _label(words: list[str]) -> str:
     return f"`{' '.join(shown)}`"
 
 
-def _is_merge(words: list[str]) -> bool:
-    ci = _command_index(words)
-    if ci is None or words[ci].rsplit("/", 1)[-1] != "gh" or "pr" not in words[ci + 1 :]:
-        return False
-    rest = words[ci + 1 :]
-    return rest[rest.index("pr") + 1 : rest.index("pr") + 2] == ["merge"]
+def _merge_gh_index(words: list[str]) -> int:
+    """The index of the `gh` of a `gh pr merge` in ``words``, or -1: in command position after
+    assignments, or behind a wrapper or reserved word (which :func:`pr_merge_target` refuses)."""
+    first = next((k for k, w in enumerate(words) if not _ENV_ASSIGN.match(w)), None)
+    if first is None:
+        return -1
+    if _gh_merge_at(words, first):
+        return first
+    if words[first].rsplit("/", 1)[-1] in _MERGE_PREFIXES:
+        return _wrapped_gh(words, first)
+    return -1
 
 
 def pr_merge_target(command: str, cwd: str) -> MergeTarget | None:
@@ -1173,7 +1292,7 @@ def pr_merge_target(command: str, cwd: str) -> MergeTarget | None:
     ``GH_*`` the gate does not follow. Redirections and comments are dropped as the shell drops
     them. Pure, apart from ``~`` in a ``cd``."""
     segments, stopped = _lex(command)
-    merges = [k for k, segment in enumerate(segments) if _is_merge(segment.words)]
+    merges = [k for k, segment in enumerate(segments) if _merge_gh_index(segment.words) >= 0]
     if not merges:
         if stopped:
             raise UnattributableMerge(f"{stopped} before or around the merge")
@@ -1189,22 +1308,26 @@ def pr_merge_target(command: str, cwd: str) -> MergeTarget | None:
             if not _cd_takes_effect(segments, k, m):
                 raise UnattributableMerge("a `cd` that may not take effect before the merge")
             directory = _cd_target(directory, words[ci + 1 :], segments[k].dynamic[ci + 1 :])
-        elif not _read_only(words):
-            raise UnattributableMerge(
-                f"{_label(words)} runs before the merge in the same command, and may change the "
-                "PR or which PR it is"
-            )
+        else:
+            reason = _not_read_only(segments[k])
+            if reason:
+                raise UnattributableMerge(reason)
     words, dynamic = segments[m].words, segments[m].dynamic
     if any(dynamic):
         raise UnattributableMerge("a shell expansion in the merge")
-    ci = _command_index(words)
-    assert ci is not None  # _is_merge found the command word
-    rest = words[ci + 1 :]
+    g = _merge_gh_index(words)
+    wrapper = next((w for w in words[:g] if not _ENV_ASSIGN.match(w)), None)
+    if wrapper is not None:
+        name = wrapper.rsplit("/", 1)[-1]
+        if name in _RESERVED:
+            raise UnattributableMerge("a compound command around the merge (`if`, `{`, `!`, ...)")
+        raise UnattributableMerge(f"{_quoted(name)} wraps the merge, which may run it elsewhere")
+    rest = words[g + 1 :]
     p = rest.index("pr")
     flags, positionals = _merge_flags([*rest[:p], *rest[p + 2 :]])
-    env = {w.partition("=")[0]: w.partition("=")[2] for w in words[:ci] if _ENV_ASSIGN.match(w)}
+    env = {w.partition("=")[0]: w.partition("=")[2] for w in words[:g]}
     for name in env:
-        if name.startswith("GH_") and name not in _GH_FOLLOWED:
+        if name not in _MERGE_ENV_OK:
             raise UnattributableMerge(f"{_quoted(name)} is set for the merge")
     host = env.get("GH_HOST", "")
     if "GH_HOST" in env and not _GH_HOST.fullmatch(host):
@@ -1219,6 +1342,33 @@ def pr_merge_target(command: str, cwd: str) -> MergeTarget | None:
         raise UnattributableMerge("a repo that is not [HOST/]OWNER/REPO")
     merges_pr = not ({"--disable-auto", "--help"} & set(flags))
     return MergeTarget(selector, repo, directory, merges_pr, host)
+
+
+def _host_name(netloc: str) -> str:
+    """``netloc`` without user info or port, lower-cased."""
+    return netloc.rpartition("@")[2].partition(":")[0].lower()
+
+
+def merge_host(target: MergeTarget) -> str:
+    """The host a merge directs `gh` to, by the command's own words: a URL's, else ``-R``'s
+    ``HOST/OWNER/REPO``, else ``GH_HOST``; "" when it names none (gh then uses the checkout's)."""
+    if target.selector.startswith(("https://", "http://")):
+        return _host_name(target.selector.split("/")[2])
+    parts = target.repo.split("/")
+    if len(parts) == 3:
+        return _host_name(parts[0])
+    return _host_name(target.host)
+
+
+def remote_host(url: str) -> str:
+    """The host of a git remote URL (``scheme://[user@]host[:port]/...`` or ``[user@]host:path``);
+    "" for a local path."""
+    if "://" in url:
+        return _host_name(url.split("://", 1)[1].split("/", 1)[0])
+    head = url.split("/", 1)[0]
+    if ":" in head:
+        return _host_name(head.partition(":")[0])
+    return ""
 
 
 def worktree_branches(porcelain: str) -> dict[str, str]:

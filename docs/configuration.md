@@ -191,8 +191,13 @@ merge-preflight hook. It needs no setting and has none: it applies whether or no
 - **Keep the merge on its own, or after reads only.** The PR is read before the command runs, so a command that changes
   it first — `gh pr checks 7 --watch && gh pr merge 7`, `gh pr ready 7 && gh pr merge 7`, `git checkout x && gh pr
   merge` — is not judged; it merges with a notice saying so. Before the merge, only `cd`, `gh pr view|status|diff`,
-  `gh pr checks` without `--watch`, `git status|log|diff|fetch|rev-parse`, `echo` and `true` keep the gate on. Run
-  `gh pr checks --watch` in one call and the merge in the next.
+  `gh pr checks` without `--watch`, `git status|log|diff|fetch|rev-parse` (without options that pick another repo,
+  write a file or run a program), `echo` and `true`, none writing to a file, keep the gate on. Run `gh pr checks --watch`
+  in one call and the merge in the next, and run `gh pr merge` itself plainly: behind `env`, `sudo`, `timeout`,
+  `xargs`, an `if`/`{ }`/`!`, or with `GIT_DIR` set, it is not judged either.
+- **Which hosts it asks.** Only `github.com` and the host of the checkout's `origin` remote. A merge naming another host
+  (in a URL, `-R HOST/OWNER/REPO` or `GH_HOST`) merges unchecked, with a notice: the hook runs before you are asked to
+  allow the command, so it must not call a host the command chose.
 - **When it lets the merge through unchecked**, always with a one-line notice saying why: `gh` is missing, found only
   through a relative PATH entry, or not logged in; GitHub or the network fails; `gh` does not answer within 12 s; its
   answer cannot be read; the PR is not open; or the command cannot be attributed to one PR as it will be when it merges
