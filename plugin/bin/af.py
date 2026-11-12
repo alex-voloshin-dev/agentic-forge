@@ -829,8 +829,23 @@ def _payload_path(given: str, repo: str) -> tuple[Path, Path]:
     temp directory (``$TMPDIR``, else the system's), as each is spelt and as it resolves (``/tmp``
     is a link on macOS). The widest root that holds it is taken, so the most components are checked
     for a link. Anywhere else is refused: the path is the caller's, and a review payload has no
-    business elsewhere."""
+    business elsewhere.
+
+    It must end in ``.json``. Under the repository no component may start with ``.``: a write
+    keeps an existing file's mode, so ``.git/hooks/pre-commit`` would become an executable hook
+    holding PR text, and ``.husky`` or ``.github`` are run elsewhere. That holds even when the
+    repository is itself under the temp directory."""
     out = Path(os.path.abspath(given))
+    if out.suffix.lower() != ".json":
+        raise ValueError(f"--out {given} must be a .json file")
+    for base in {Path(os.path.abspath(repo)), Path(os.path.realpath(repo))}:
+        if base in out.parents and any(
+            part.startswith(".") for part in out.relative_to(base).parts
+        ):
+            raise ValueError(
+                f"--out {given} is under a hidden directory or names a hidden file in the "
+                "repository (.git, .github, .husky, ...): write the payload elsewhere"
+            )
     roots = sorted(
         {Path(form(base)) for base in (repo, tempfile.gettempdir())
          for form in (os.path.abspath, os.path.realpath)},

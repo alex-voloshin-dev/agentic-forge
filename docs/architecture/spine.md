@@ -155,12 +155,18 @@ What it does, in order:
    system's: Python's `tempfile.gettempdir()`), each as written and as it resolves, and no
    component below that root may be a symlink (`state_io`, with the root as the anchor). Checking
    only the file's own directory let a linked directory higher up carry the write elsewhere.
+   The path must end in `.json`, and under the repository no component of it may start with `.`.
+   A write keeps an existing file's mode, so without that a payload, JSON whose strings carry PR
+   text such as `$(...)`, could replace `.git/hooks/pre-commit` and stay executable, or land in
+   `.husky` or `.github`, which run elsewhere. This holds even for a repository inside the temp
+   directory.
 
 It posts nothing itself. Posting is outward-facing, so the session runs `post.shell`, where the
 guardrail hooks see it (ADR 0104, decision 4). Exit codes are `af.py`'s: 0 built; 1 refused
 (malformed findings, a head that moved, a closed or merged PR, no GitHub `origin`, a `gh` that
 failed, is missing or answered something unreadable, a diff over 16 MB, an `--out` that is a
-directory, outside both roots or through a link), with one line on stderr and nothing on stdout; 2 bad usage. The commit pin
+directory, not `.json`, outside both roots, hidden in the repository or through a link), with
+one line on stderr and nothing on stdout; 2 bad usage. The commit pin
 also covers the gap between building and posting: a push after the build leaves the review on the
 reviewed commit, shown as outdated, rather than on the new head.
 
