@@ -1286,8 +1286,10 @@ def choose_gate(cwd: Path | str) -> list[str] | None:
 # Berry "doesn't seem to have been installed" in a fresh worktree, a corepack download,
 # ERR_PNPM_BAD_PM_VERSION) with exit 1 and a message the fail-open signatures do not know. With no
 # `lint` script there is no gate (it used to run `npm run lint`, fail on the missing script and
-# fail open), so a declared `eslint .` is never run here. And the gate keeps `go vet` where the
-# profile names golangci-lint, which checks more than vet and has no narrowing.
+# fail open), so a declared `eslint .` is never run here. The gate keeps `go vet` where the
+# profile names golangci-lint, which checks more than vet and has no narrowing; and it runs no
+# tflint, which a Terraform profile names when `.tflint.hcl` exists — Terraform was never gated,
+# and tflint may need `tflint --init` (a plugin download) before it can run at all.
 _SHELL_SYNTAX = re.compile(r"[;&|<>$`(){}\\\n'\"*?]")
 _NPM_LINT = ["npm", "run", "lint"]
 
@@ -1302,6 +1304,8 @@ def _gate_argv(lint: str | None) -> list[str] | None:
         return list(_NPM_LINT) if argv[1:] == ["run", "lint"] else None
     if argv[0] == "golangci-lint":
         return list(gate_scope.GO_GATE)
+    if argv[0] == "tflint":
+        return None
     return argv
 
 

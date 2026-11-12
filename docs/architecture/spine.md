@@ -225,9 +225,10 @@ stack-parametric. Mechanism (see [ADR 0015](decisions/0015-by-stack-detection-an
   - Terraform (pack `terraform-patterns`; specificity 0, so any language stack beside it is the
     primary): format `terraform fmt -recursive` (applies, like every stack's format), typecheck
     `terraform init -backend=false && terraform validate`, and `terraform test` only when
-    `tests/*.tftest.hcl` or a root `*.tftest.hcl` exists. The typecheck is a shell command (the
-    commit gate refuses any command with shell syntax, and terraform names no lint), and it is not
-    read-only: `terraform init` downloads the providers and modules into `.terraform/` and may
+    `tests/*.tftest.hcl` or a root `*.tftest.hcl` exists; lint `tflint --recursive` only when
+    `.tflint.hcl` sits in the profile's directory (else none). The typecheck is a shell command (the
+    commit gate refuses any command with shell syntax, and never runs tflint, so Terraform stays
+    ungated at commit), and it is not read-only: `terraform init` downloads the providers and modules into `.terraform/` and may
     rewrite `.terraform.lock.hcl` — review that file in the diff.
 - **The commit gate reads its own, narrower profile** (`stacks.gate_profile`): the cwd only (no
   scan, so a root with no manifest stays ungated), a hint's first name only (an unknown first name
@@ -244,8 +245,9 @@ stack-parametric. Mechanism (see [ADR 0015](decisions/0015-by-stack-detection-an
 **Status:** detection ships for the common stacks, and **every registered stack ships a
 `*-patterns` pack** — python, typescript, javascript, go, rust, jvm, dotnet, ruby, php, and
 terraform. `terraform` shipped detection-only first and gained `terraform-patterns` after a field
-report (an Azure Policy change ran with no IaC conventions): the agent plans and a human applies,
-tests run on mock providers with no cloud credentials, inputs are refused by `validation` blocks,
+report (an Azure Policy change ran with no IaC conventions): the agent runs only offline checks
+(fmt, `init -backend=false`, validate, mock-provider `terraform test`) and names the real-backend
+`terraform plan` / `show -json` / apply as the human's step, tests run on mock providers with no cloud credentials, inputs are refused by `validation` blocks,
 secrets stay out of tfvars, outputs and git, and documents built in HCL (`jsonencode`, policies)
 are reviewed in the rendered plan JSON (`terraform show -json plan.out`), not only in the HCL.
 An **unrecognized** repo (`unknown`) falls back to

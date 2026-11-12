@@ -595,6 +595,29 @@ def test_terraform_beside_a_language_is_not_the_primary(
     assert [p.stack_id for p in profiles] == [stack_id, "terraform"]
 
 
+@pytest.mark.parametrize(
+    ("files", "lint"),
+    [
+        ({"main.tf": ""}, None),  # no config: no tflint, the pack's offline gate stands
+        ({"main.tf": "", ".tflint.hcl": ""}, "tflint --recursive"),
+        ({"main.tf": "", "modules/net/.tflint.hcl": ""}, None),  # beside the root module only
+        ({"main.tf": "", ".tflint.hcl/x": ""}, None),  # a directory is not a config
+    ],
+)
+def test_terraform_lints_with_tflint_only_when_it_is_configured(
+    tmp_path: Path, files: dict[str, str], lint: str | None
+) -> None:
+    p = primary(_repo(tmp_path, files))
+    assert p.stack_id == "terraform"
+    assert p.toolchain.lint == lint
+
+
+def test_terraform_in_a_service_dir_reads_its_own_tflint_config(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, {"infra/main.tf": "", "infra/.tflint.hcl": "", ".tflint.hcl": ""})
+    p = primary(repo)
+    assert (p.stack_id, p.dir, p.toolchain.lint) == ("terraform", "infra", "tflint --recursive")
+
+
 def test_terraform_hint_alias(tmp_path: Path) -> None:
     assert primary(_repo(tmp_path, {"CLAUDE.md": "stack: tf\n"})).stack_id == "terraform"
 

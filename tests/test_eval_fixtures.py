@@ -87,7 +87,7 @@ def test_terraform_fixture_lands_as_a_module_with_its_tests_dir(tmp_path: Path) 
     seed `tests/policy.tftest.hcl`, not a basename at the top."""
     case = load_evals(PLUGIN / "skills" / "terraform-patterns" / "evals" / "evals.json")["evals"][0]
     materialize_fixtures(PLUGIN, case["files"], tmp_path)
-    for name in ("versions.tf", "variables.tf", "main.tf", "tests/policy.tftest.hcl"):
+    for name in ("versions.tf", "variables.tf", "main.tf", "outputs.tf", "tests/policy.tftest.hcl"):
         assert (tmp_path / name).is_file(), name
     assert "mock_provider" in (tmp_path / "tests" / "policy.tftest.hcl").read_text(encoding="utf-8")
 
