@@ -1349,11 +1349,31 @@ def _host_name(netloc: str) -> str:
     return netloc.rpartition("@")[2].partition(":")[0].lower()
 
 
+# A host no allowlist holds: what a URL-shaped value with no readable host stands for, so the gate
+# refuses to ask about it rather than treating it as "names no host".
+_NO_HOST = "invalid.invalid"
+_SCP_LIKE = re.compile(r"\A[^/:@]*@[^/:]+:")
+
+
+def _named_host(value: str) -> str | None:
+    """The host a URL-shaped ``value`` names, or None when it is not URL-shaped. gh parses a
+    selector or ``-R`` value as a URL when it has a scheme (Go lower-cases it, so ``HTTPS://``) and
+    ``-R`` also takes ``git@host:owner/repo``; a URL with no readable host is :data:`_NO_HOST`."""
+    if "://" in value:
+        return _host_name(value.split("://", 1)[1].split("/", 1)[0]) or _NO_HOST
+    if _SCP_LIKE.match(value):
+        return remote_host(value) or _NO_HOST
+    return None
+
+
 def merge_host(target: MergeTarget) -> str:
-    """The host a merge directs `gh` to, by the command's own words: a URL's, else ``-R``'s
-    ``HOST/OWNER/REPO``, else ``GH_HOST``; "" when it names none (gh then uses the checkout's)."""
-    if target.selector.startswith(("https://", "http://")):
-        return _host_name(target.selector.split("/")[2])
+    """The host a merge directs `gh` to, by the command's own words: a URL's (any scheme case), else
+    ``-R``'s URL, ``git@host:`` or ``HOST/OWNER/REPO``, else ``GH_HOST``; "" when it names none (gh
+    then uses the checkout's)."""
+    for value in (target.selector, target.repo):
+        named = _named_host(value)
+        if named is not None:
+            return named
     parts = target.repo.split("/")
     if len(parts) == 3:
         return _host_name(parts[0])
