@@ -1348,6 +1348,19 @@ def test_a_repo_opt_out_holds_from_a_cwd_outside_the_repo_when_repo_is_passed(
     assert scene.calls() == []
 
 
+def test_a_crash_is_a_failed_lens_never_a_changes_verdict(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    # An uncaught exception would exit 1, which callers read as `changes`.
+    def boom(argv: list[str]) -> int:
+        raise RuntimeError("settings exploded")
+
+    monkeypatch.setattr(external_review_cli, "main", boom)
+    assert external_review_cli._main_guarded(["x"]) == _EXIT_FAILED
+    err = capsys.readouterr().err
+    assert "failed (process-failure): RuntimeError" in err and "exploded" not in err
+
+
 def test_a_status_the_cli_does_not_know_is_a_failure_not_a_skip(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture
 ) -> None:
@@ -1448,10 +1461,11 @@ def test_real_git_repo_as_cwd_and_as_repo_reads_that_repos_config_and_stays_clea
     assert status.stdout == ""
 
 
-def test_subdirectory_of_a_git_repo_sees_the_user_opt_out_but_not_the_repos(
+def test_subdirectory_of_a_git_repo_sees_both_the_repos_and_the_users_opt_out(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
 ) -> None:
-    # ADR 0100's stated limit, both halves: a repo's opt-out is read from the workdir only, and the
+    # ADR 0100's stated limit is closed (ADR 0109): without --repo the work-tree root, not the cwd,
+    # is the repo whose settings are read, so its opt-out holds from a subdirectory; and the
     # operator's holds wherever the call is made.
     import json
 
@@ -1466,7 +1480,8 @@ def test_subdirectory_of_a_git_repo_sees_the_user_opt_out_but_not_the_repos(
     target_only = ["x", "--target", str(scene.target)]
     monkeypatch.chdir(repo / "sub")
     assert external_review_cli.main(target_only) == 0
-    assert len(scene.calls()) == 1  # the known limit
+    assert "disabled by this repo's config" in capsys.readouterr().out
+    assert scene.calls() == []  # was 1: the limit ADR 0100 recorded
     (tmp_path / "home" / ".agentic-forge").mkdir(parents=True)
     (tmp_path / "home" / ".agentic-forge" / "config.json").write_text(
         json.dumps({"external_reviewer": {"enabled": False}}), encoding="utf-8"
@@ -1474,7 +1489,7 @@ def test_subdirectory_of_a_git_repo_sees_the_user_opt_out_but_not_the_repos(
     capsys.readouterr()
     assert external_review_cli.main(target_only) == 0
     assert "disabled" in capsys.readouterr().out
-    assert len(scene.calls()) == 1
+    assert scene.calls() == []
 
 
 def test_relative_command_runs_the_operators_program_and_not_a_repo_file_of_that_name(

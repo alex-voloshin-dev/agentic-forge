@@ -15,13 +15,15 @@ the caller's cwd. See ADR 0042 (seam), 0057 (on by default), 0060 / 0061 / 0062 
 every workflow that writes a reviewable deliverable), 0100 (skip reasons + opt-in isolation) under
 docs/architecture/decisions/.
 
-    python plugin/bin/external_review.py --target diff.txt --kind code
-    python plugin/bin/external_review.py --target docs/sdlc/x/plan.md --kind plan --out review.md
-    python plugin/bin/external_review.py --target docs/sdlc/x/ux-spec.md --kind ux
+    python plugin/bin/external_review.py --repo . --target /tmp/x/diff.txt --kind code
+    python plugin/bin/external_review.py --repo . --target docs/sdlc/x/plan.md --kind plan \
+        --out review.md
+    python plugin/bin/external_review.py --repo . --target docs/sdlc/x/ux-spec.md --kind ux
 
 Pass `--repo <the repo whose content this is>`: the repo's own `.agentic-forge/config.json` is read
-from there, so its `external_reviewer.enabled: false` holds. Without `--repo` the cwd stands in for
-it, and outside a git work tree that is refused (exit 3), because no repo's opt-out could be read.
+from there, so its `external_reviewer.enabled: false` holds. Without `--repo` the root of the
+git work tree the cwd sits in stands in for it, and outside a git work tree that is refused
+(exit 3), because no repo's opt-out could be read.
 
 Exit codes (2 is argparse's, for a usage error):
 
@@ -129,10 +131,14 @@ def _absolute_if_path(command: str) -> str:
     return os.path.join(os.getcwd(), command) if named_path else command
 
 
-def _inside_git_work_tree(path: Path) -> bool:
-    """True if ``path`` or a parent holds ``.git`` (a directory, or a linked worktree's file)."""
+def _work_tree_root(path: Path) -> Path | None:
+    """The nearest directory at or above ``path`` that holds ``.git`` (a directory, or a linked
+    worktree's file), or ``None``. Without ``--repo`` this root, not the cwd, is the repo whose
+    settings are read: settings live at the root, and a cwd below it would miss the repo's opt-out.
+    A ``.git`` far above (a dotfiles repo in the home directory) still counts; every skill passes
+    ``--repo``, so that case is manual use only."""
     here = path.resolve()
-    return any((p / ".git").exists() for p in (here, *here.parents))
+    return next((p for p in (here, *here.parents) if (p / ".git").exists()), None)
 
 
 def _refuse(message: str) -> int:
@@ -160,7 +166,8 @@ def main(argv: list[str]) -> int:
     # A symlink could read a file the operator did not mean to send to a third party, or overwrite
     # one they did not mean to replace. Checked before anything runs, so a dangling link counts too.
     # A symlinked directory counts inside the repo, which may be what is under review.
-    repo = (args.repo if args.repo is not None else Path(".")).resolve()
+    work_tree = _work_tree_root(Path.cwd()) if args.repo is None else None
+    repo = (args.repo if args.repo is not None else (work_tree or Path("."))).resolve()
     for flag, path in (("--target", args.target), ("--out", args.out)):
         if path is None:
             continue
@@ -193,7 +200,7 @@ def main(argv: list[str]) -> int:
         return 0
     # Only now, when content would go to the reviewer. Without --repo the cwd's settings are the
     # ones read, and outside a git work tree no repo's own opt-out can be among them.
-    if args.repo is None and not _inside_git_work_tree(Path.cwd()):
+    if args.repo is None and work_tree is None:
         return _refuse(
             "refusing to run without --repo outside a git work tree: the reviewed repo's own "
             f"{settings.CONFIG_PATH} (and an external_reviewer.enabled: false in it) would not be "
@@ -243,5 +250,15 @@ def main(argv: list[str]) -> int:
     return 0 if result["verdict"] == "approve" else 1
 
 
+def _main_guarded(argv: list[str]) -> int:
+    """``main``, with a crash reported as a failed lens (exit 3). An uncaught exception would exit
+    1, which callers read as a ``changes`` verdict."""
+    try:
+        return main(argv)
+    except Exception as exc:  # noqa: BLE001 - any crash is a failed lens, never a verdict
+        print(f"external reviewer failed (process-failure): {type(exc).__name__}", file=sys.stderr)
+        return EXIT_FAILED
+
+
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv))
+    raise SystemExit(_main_guarded(sys.argv))
