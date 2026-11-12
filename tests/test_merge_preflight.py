@@ -67,6 +67,28 @@ def _clean_gh(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.Monk
         ("GH_TOKEN=x gh pr merge 2", True),
         ("gh pr merge 12 --rebase && git pull", True),
         ("echo don't; gh pr merge 3", True),  # unparseable segment: the text match still fires
+        # --- review round 2: seen, so the merge gate can say it cannot judge them -----------
+        ("gh pr \\\nmerge 7", True),  # a continuation between `pr` and `merge`
+        ("if true; then gh pr merge 42; fi", True),
+        ("{ gh pr merge 5; }", True),
+        ("! gh pr merge 5", True),
+        ("(gh pr merge 5)", True),
+        ("while true; do gh pr merge 5; done", True),
+        ("env --chdir=/x gh pr merge 5", True),
+        ("env -C /x gh pr merge 5", True),
+        ("sudo -D /x gh pr merge 5", True),
+        ("echo 5 | xargs gh pr merge", True),
+        ("nice -n 5 gh pr merge 5", True),
+        ("sudo -u bob echo gh pr view", False),  # an argument after a wrapper, still no `gh`
+        ("env -C /x echo gh", False),
+        ("if true; then echo gh pr merge; fi", False),
+        ("sudo -E gh pr merge 5", True),  # a bool flag: `gh` is still found
+        ("timeout 5 echo gh pr merge", False),
+        ("sudo env gh pr merge 5", True),
+        ("sudo -u", False),
+        ("X=1; ls -l", False),
+        ("echo don't", False),  # unparseable, and no merge in its text
+        ("env --chdir=/x GH_REPO=o/n gh pr merge 5", True),
     ],
 )
 def test_is_pr_merge(command: str, expected: bool) -> None:
@@ -211,6 +233,29 @@ def test_git_reads_share_one_deadline(monkeypatch, tmp_path: Path) -> None:
     # ... and with the merge gate's own budget it stays inside the hook's cap in hooks.json
     # (test_merge_gate.py reads that cap).
     assert merge_preflight._BUDGET_SECONDS + merge_preflight._GATE_BUDGET_SECONDS < 30
+
+
+@pytest.mark.parametrize("relative", [False, True])
+def test_no_git_by_an_absolute_path_skips_the_local_checks_with_a_notice(
+    monkeypatch, tmp_path: Path, relative: bool
+) -> None:
+    """The same rule as for `gh`: a relative PATH entry could run a `git` the repo committed."""
+    ran = tmp_path / "planted-git-ran"
+    if relative:
+        planted = tmp_path / "bin"
+        planted.mkdir()
+        (planted / "git").write_text(f"#!/bin/sh\ntouch '{ran}'\n", encoding="utf-8")
+        (planted / "git").chmod(0o755)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("PATH", "bin")
+    else:
+        monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    decision = merge_preflight.preflight(str(tmp_path))
+    assert not decision.block
+    assert decision.message == (
+        "pre-merge: the local checks were skipped: no git on PATH by an absolute path"
+    )
+    assert not ran.exists()
 
 
 def test_exhausted_budget_is_recorded_not_killed(monkeypatch, tmp_path: Path, capsys) -> None:

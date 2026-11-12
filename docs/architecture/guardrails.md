@@ -115,7 +115,16 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
       relative or empty PATH entry could find a `gh` committed to the repo): `gh pr view [<pr>]
       [-R <repo>] --json number,url,mergeStateStatus`, which resolves the PR exactly as `gh pr
       merge` would, and the watcher's own GraphQL query (`pr_watch.PR_QUERY`) for that number,
-      parsed by the watcher's `parse_pr`.
+      parsed by the watcher's `parse_pr`. The GraphQL call always passes `--hostname <host of the
+      resolved PR URL>`, github.com included: a `GH_HOST` for the merge would otherwise send it to
+      another host, and so another PR, than the one `gh pr view` found.
+    - **Which hosts it contacts.** A `PreToolUse` hook runs *before* the permission prompt, so a
+      host the command names — perhaps through injected text — would be called, with any exported
+      `GH_ENTERPRISE_TOKEN`, even if the operator then denied the merge. So before any `gh` call,
+      the host the command names (a URL's, `-R HOST/OWNER/REPO`'s, or `GH_HOST`'s) must be
+      `github.com` or the host of the checkout's own `origin` remote (read locally, `git config
+      --get remote.origin.url`); the host of the PR `gh pr view` resolved is held to the same rule
+      before the GraphQL read. Anything else fails open with a notice that does not echo the host.
     - **Only what reads may run before the merge in the same command.** The gate reads the PR
       *before* the command runs, so anything earlier in it that could change the PR, its checks
       or which PR is meant would make it judge a state the merge never sees — `gh pr checks
@@ -124,8 +133,21 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
       merge`, `git checkout x && gh pr merge`, `sleep 300 && gh pr merge`, an `export GH_REPO=…`.
       The allowlist is short: `cd`/`pushd` (followed), `gh pr view|status|diff`, `gh pr checks`
       without `--watch`, `git status|log|diff|fetch|rev-parse`, `echo`, `true`, and a plain
-      variable assignment that is not `GH_*`/`GITHUB_*`. Anything else, before the merge, makes
-      the command unattributable. What comes *after* the merge does not matter.
+      variable assignment that is not `GH_*`/`GITHUB_*`/`GIT_*`. An allowlisted command must be
+      the plain command word (no wrapper, no assignment before it), redirect output to nothing but
+      `/dev/null` or a descriptor (`echo x > .git/HEAD` writes), and, for git, carry no global
+      flag but `--no-pager`, `-P`, `--no-optional-locks`, `--literal-pathspecs` or
+      `--no-replace-objects` (`-c`, `-C`, `--git-dir`, `--work-tree` and `--exec-path` change
+      the repo or the program) and no `--output*`, `--ext-diff` or `--upload-pack*`. Anything
+      else, before the merge, makes the command unattributable. What comes *after* the merge does
+      not matter.
+    - **The merge itself must be plain**: `gh` as the command word, with only `GH_REPO`, `GH_HOST`,
+      a token or an output-only variable (`NO_COLOR`, `GH_PAGER`, ...) assigned for it. A wrapper
+      before it (`env -C /x`, `sudo -D /x`, `command`, `nice`, `timeout`, `xargs`) may run it
+      elsewhere, a reserved word (`if … then`, `{ … }`, `!`, `while`/`until … do`, `time`) may not
+      run it at all, and `GIT_DIR`/`GIT_WORK_TREE` change which repo `gh` resolves: each fails
+      open, and `is_pr_merge` sees through them (and through a `\`-newline between `pr` and
+      `merge`) so that it is a notice, not silence.
     - **The decision** is `pr_watch.session_merge_gate`, sharing its clauses and their wording with
       the watcher's `merge_readiness`. It exits 2 with `merge gate: #<n>: merge held: <reasons>`
       (plus GitHub's `mergeStateStatus`) when the PR is a **draft**, its check rollup is
@@ -145,14 +167,16 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
     watcher would hold; it does not stop one that sets out to merge. Whatever it cannot attribute
     **fails open with a one-line notice** (on stderr and, since a hook's stderr on exit 0 reaches
     nobody, as a `systemMessage`) — never a silent pass, never a block on a guess: `gh` not on
-    PATH or found through a relative PATH entry, not logged in, an API or network error (any
+    PATH or found through a relative PATH entry, a host that is neither github.com nor the
+    checkout's origin, not logged in, an API or network error (any
     non-zero exit), no answer within the budget, output that is not JSON or does not describe the
     PR it asked about (a tolerant parse of an empty answer would otherwise read as "no checks"), a
     PR that is not open (`gh` refuses it itself, but a lookup that found the wrong PR must not pass
     unremarked), or a command it cannot attribute to one PR as it will be when it merges: two
     merges, a flag `gh pr merge` does not have, a non-bool value for a bool flag, another `GH_*`
     variable for the merge, a shell expansion in it, a command substitution, subshell or group
-    before or around it, a `cd` that may not take effect, anything before it off the allowlist.
+    before or around it, a wrapper or reserved word around it, a `cd` that may not take effect,
+    anything before it off the allowlist.
     The notice says which. Echoed reasons name the `gh` call and its exit code, or a plain word
     from the command, never `gh`'s own output. **What it does not see at all**, and so does not
     gate: a merge through `gh api -X PUT repos/<o>/<r>/pulls/<n>/merge`, through `sh -c '…'` or
@@ -161,7 +185,8 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
     `pr_watch` is imported only on a merge. On a merge, two `gh` calls (two API round trips)
     within one 12 s deadline; the git reads keep their own 12 s, and the hook's timeout in
     `hooks.json` is 30 s (it was 15 s), so a stalled `gh` is a notice rather than a killed hook.
-  - **The local warnings** read `origin/HEAD`, the worktree list and the base branch's
+  - **The local warnings** (git run by its absolute path only, like `gh`; without one they are
+    skipped with a notice) read `origin/HEAD`, the worktree list and the base branch's
     ahead-count, and **warn** when another worktree holds the base branch or local `base` is
     ahead of upstream — the two conditions that break the *local* half of the merge (`'master' is
     already used by worktree`, `Not possible to fast-forward`). These **never block**: the merge
