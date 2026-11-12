@@ -1350,8 +1350,12 @@ def pr_merge_target(command: str, cwd: str) -> MergeTarget | None:
 
 
 def _host_name(netloc: str) -> str:
-    """``netloc`` without user info or port, lower-cased."""
-    return netloc.rpartition("@")[2].partition(":")[0].lower()
+    """``netloc`` without user info or port, lower-cased; a bracketed IPv6 literal keeps its
+    brackets whole (cutting at its first ``:`` would make every address with that prefix match)."""
+    host = netloc.rpartition("@")[2]
+    if host.startswith("["):
+        return host.partition("]")[0].lower() + "]" if "]" in host else _NO_HOST
+    return host.partition(":")[0].lower()
 
 
 # A host no allowlist holds: what a URL-shaped value with no readable host stands for, so the gate
@@ -1369,6 +1373,25 @@ def _named_host(value: str) -> str | None:
     if _SCP_LIKE.match(value):
         return remote_host(value) or _NO_HOST
     return None
+
+
+def merge_hosts(target: MergeTarget) -> list[str]:
+    """EVERY host the command's own words could send gh to: a URL selector's, ``-R``'s (URL,
+    ``git@host:`` or ``HOST/OWNER/REPO``) and ``GH_HOST``. gh uses a selector's host only when it
+    is a PR URL and otherwise falls back to ``-R``, ``GH_HOST`` or the remotes, so the gate must
+    allow all of them, not the first one found. Without ``-R`` the remotes of the directory the
+    merge runs in are candidates too; the caller reads those."""
+    hosts = []
+    for value in (target.selector, target.repo):
+        named = _named_host(value)
+        if named is not None:
+            hosts.append(named)
+    parts = target.repo.split("/")
+    if len(parts) == 3 and _named_host(target.repo) is None:
+        hosts.append(_host_name(parts[0]))
+    if target.host:
+        hosts.append(_host_name(target.host) or _NO_HOST)
+    return hosts
 
 
 def merge_host(target: MergeTarget) -> str:

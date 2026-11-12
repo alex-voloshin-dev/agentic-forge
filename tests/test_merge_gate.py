@@ -371,6 +371,7 @@ def test_no_gh_in_process(work: Path, tmp_path: Path, monkeypatch) -> None:
 def test_a_gh_that_cannot_start_fails_open(gh: GhStub, work: Path, monkeypatch) -> None:
     (gh.bin / "gh").write_text("#!/nonexistent/interpreter\n", encoding="utf-8")
     monkeypatch.setenv("PATH", str(gh.bin))  # or the exec would go on to a real gh further down
+    monkeypatch.setattr(merge_preflight, "_remote_hosts", lambda cwd, deadline: [])  # no git here
     with pytest.raises(merge_preflight.GateUnavailable, match="gh could not run"):
         merge_preflight.merge_gate("gh pr merge 7", str(work))
 
@@ -421,6 +422,7 @@ def test_a_spent_budget_skips_the_second_call(gh: GhStub, work: Path, monkeypatc
         return clock["now"]
 
     monkeypatch.setattr(merge_preflight.time, "monotonic", tick)
+    monkeypatch.setattr(merge_preflight, "_remote_hosts", lambda cwd, deadline: [])  # no tick
     with pytest.raises(merge_preflight.GateUnavailable, match="did not answer within"):
         merge_preflight.merge_gate("gh pr merge 7", str(work), budget=12.0)
     assert len(gh.calls()) == 1
@@ -916,3 +918,78 @@ def test_more_shapes_fail_open_with_a_reason(command: str) -> None:
     assert guardrails.is_pr_merge(command)
     with pytest.raises(guardrails.UnattributableMerge):
         guardrails.pr_merge_target(command, ".")
+
+
+def test_an_implicit_repo_in_a_nested_checkout_is_not_contacted(gh: GhStub, work: Path) -> None:
+    """No -R: gh resolves the repo from the remotes of the directory it runs in, so a `cd` into a
+    nested checkout whose origin is another host must not reach `gh` at all."""
+    _origin(work, "https://github.com/acme/infra.git")
+    nested = work / "vendor" / "x"
+    nested.mkdir(parents=True)
+    _origin(nested, "https://attacker.example/o/r.git")
+    with pytest.raises(merge_preflight.GateUnavailable, match="a remote of the directory"):
+        merge_preflight.merge_gate("cd vendor/x && gh pr merge 1", str(work))
+    assert gh.calls() == []
+
+
+def test_every_remote_counts_when_no_repo_is_named(gh: GhStub, work: Path) -> None:
+    """gh prefers `upstream` over `origin`: a second remote on another host is a candidate too."""
+    _origin(work, "https://github.com/acme/infra.git")
+    subprocess.run(
+        ["git", "-C", str(work), "remote", "add", "upstream", "git@attacker.example:o/r.git"],
+        check=True,
+    )
+    with pytest.raises(merge_preflight.GateUnavailable, match="a remote of the directory"):
+        merge_preflight.merge_gate("gh pr merge 1", str(work))
+    assert gh.calls() == []
+
+
+def test_a_github_checkout_with_no_repo_named_is_still_judged(gh: GhStub, work: Path) -> None:
+    _origin(work, "https://github.com/acme/infra.git")
+    assert merge_preflight.merge_gate("gh pr merge 7", str(work)) == guardrails.ALLOW
+    assert len(gh.calls()) == 2
+
+
+def test_no_git_to_read_the_remotes_fails_open(gh: GhStub, work: Path, monkeypatch) -> None:
+    monkeypatch.setattr(merge_preflight, "_git_path", lambda: None)
+    with pytest.raises(merge_preflight.GateUnavailable, match="could not be read"):
+        merge_preflight.merge_gate("gh pr merge 7", str(work))
+    assert gh.calls() == []
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        # a non-PR URL selector: gh falls back to -R, so -R's host must be allowed too
+        "gh pr merge https://github.com/x -R attacker.example/o/r",
+        "GH_HOST=attacker.example gh pr merge https://github.com/x",
+    ],
+)
+def test_every_host_gh_could_use_must_be_allowed(gh: GhStub, work: Path, command: str) -> None:
+    _origin(work, "https://github.com/acme/infra.git")
+    with pytest.raises(merge_preflight.GateUnavailable):
+        merge_preflight.merge_gate(command, str(work))
+    assert gh.calls() == []
+
+
+def test_a_non_pr_url_still_checks_the_remotes(gh: GhStub, work: Path) -> None:
+    _origin(work, "https://github.com/acme/infra.git")
+    nested = work / "vendor" / "x"
+    nested.mkdir(parents=True)
+    _origin(nested, "https://attacker.example/o/r.git")
+    with pytest.raises(merge_preflight.GateUnavailable, match="a remote of the directory"):
+        merge_preflight.merge_gate("cd vendor/x && gh pr merge https://github.com/x", str(work))
+    assert gh.calls() == []
+
+
+@pytest.mark.parametrize(
+    ("netloc", "host"),
+    [
+        ("git@[2001:db8::1]:22", "[2001:db8::1]"),
+        ("[2001:db8::1]", "[2001:db8::1]"),
+        ("[2001:db8::1", "invalid.invalid"),
+        ("u:p@GitHub.com:443", "github.com"),
+    ],
+)
+def test_host_name_keeps_an_ipv6_literal_whole(netloc: str, host: str) -> None:
+    assert guardrails._host_name(netloc) == host

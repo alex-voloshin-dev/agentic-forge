@@ -174,6 +174,27 @@ def _origin_host(cwd: str, deadline: float) -> str:
     return guardrails.remote_host(url)
 
 
+def _remote_hosts(cwd: str, deadline: float) -> list[str] | None:
+    """The hosts of every remote ``cwd``'s repository has, read locally; None when they cannot be
+    read (no git by an absolute path, a git error, no time). gh picks among ALL remotes (upstream,
+    github, origin...) when a merge names no repository, so all of them are the candidates."""
+    git = _git_path()
+    if git is None or deadline - time.monotonic() <= 0:
+        return None
+    try:
+        lines = _git(
+            git, cwd, "config", "--get-regexp", r"^remote\..*\.url$", deadline=deadline
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    hosts = []
+    for line in lines.splitlines():
+        url = line.partition(" ")[2].strip()
+        if url:
+            hosts.append(guardrails.remote_host(url))
+    return hosts
+
+
 def merge_gate(
     command: str, cwd: str, *, budget: float = _GATE_BUDGET_SECONDS
 ) -> guardrails.Decision:
@@ -210,11 +231,26 @@ def merge_gate(
             origin.append(_origin_host(cwd, deadline))
         return bool(origin[0]) and host == origin[0]
 
-    if guardrails.merge_host(target) and not allowed(guardrails.merge_host(target)):
+    if not all(allowed(host) for host in guardrails.merge_hosts(target)):
         raise GateUnavailable(
             "the merge names a host that is neither github.com nor this checkout's origin, and "
             "the gate does not contact it"
         )
+    if not target.repo:
+        # No repository named: gh resolves it from the remotes of the directory the merge runs in
+        # (a `cd` target may be a nested checkout with its own remotes), also when a URL selector
+        # is not a PR URL gh accepts. Every candidate must be a host this gate may contact, or it
+        # asks nothing.
+        hosts = _remote_hosts(target.cwd, deadline)
+        if hosts is None:
+            raise GateUnavailable(
+                "the remotes of the directory the merge runs in could not be read"
+            )
+        if not all(allowed(host) for host in hosts if host):
+            raise GateUnavailable(
+                "a remote of the directory the merge runs in is neither github.com nor this "
+                "checkout's origin, and the gate does not contact it"
+            )
     view = _gh(
         [gh, "pr", "view", *([target.selector] if target.selector else []),
          *(["-R", target.repo] if target.repo else []), "--json", _VIEW_FIELDS],
