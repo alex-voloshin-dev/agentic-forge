@@ -257,6 +257,7 @@ def test_routing_note_is_switched_off_by_the_documented_config_key(
 def test_the_note_is_reinjected_after_compaction(tmp_path: Path, monkeypatch, capsys) -> None:
     """Deliberate (field thread declined dropping it): the hook has no `source` matcher, so a
     compacted session gets the routing note back."""
+    monkeypatch.delenv("AGENTIC_FORGE_ROUTING_NOTE", raising=False)  # a shell's A/B switch
     payload = {"cwd": str(tmp_path), "source": "compact", "session_id": "s1"}
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
     assert session_start.main() == 0
