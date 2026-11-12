@@ -25,9 +25,17 @@ target; one reviewer per lens, prompted adversarially, returning structured find
 - **Safety defaults** — are protective behaviors enforced, not opt-in? (a sandbox/isolation
   that only holds when a flag is passed is a latent hazard).
 - **Concurrent-change conflicts** (ADR 0074) — *no textual conflict ≠ no semantic conflict.* When the diff
-  adds or changes a **claim, lock, lease, dedup guard, or status transition**, look for other
-  in-flight branches and open PRs touching the **same state transition**, not merely the same
-  files: `gh pr list` plus a grep for the transition's enum values and the table/column it writes.
+  **tightens a contract**: adds or changes a claim, lock, lease, dedup guard or status transition;
+  adds a required input, parameter or field; makes a validation stricter; changes a signature,
+  schema or return type; or removes a default. Then look for that contract's **consumers**, not
+  merely the same files: in the base (`git grep` the name at `origin/<base>`) and in open PRs
+  against the same base (`gh pr list --state open --limit 21`, then `gh pr diff <n>` for each, the
+  PR under review skipped; say so when a 21st exists). When `git merge-base --is-ancestor
+  origin/<base> <head>` says the base moved since the head was cut, run the affected tests on a
+  trial merge. The session runs `gh`, worktrees and tests; a lens may only `git grep` and read.
+  Observed with a contract: one PR made a Terraform module input required in production, another,
+  merged first, added a test planning production without it; each was green alone, the module test
+  went red after both, and the PR showed only UNSTABLE, which does not block a merge.
   Two independent implementations of one shared precondition are usually mutually exclusive.
   Observed: one PR pre-claimed `QUEUED → PROCESSING` in the scheduler, another added an atomic
   `UPDATE … WHERE status = QUEUED` in the worker; different files, clean merge, both CI runs green

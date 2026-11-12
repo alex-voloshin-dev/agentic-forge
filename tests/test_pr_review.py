@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -34,10 +35,10 @@ index 1111111..2222222 100644
 +y = 3
  z = 4
 
-@@ -20,3 +21,3 @@ def f():
+@@ -20,2 +21,2 @@ def f():
  a
 --- removed line that looks like a header
-+++ added line that looks like a header
++++ b/evil.py
 diff --git a/old/name.py b/new/name.py
 similarity index 90%
 rename from old/name.py
@@ -85,7 +86,7 @@ Binary files a/bin.png and b/bin.png differ
 def test_commentable_lines_are_the_right_side_of_each_hunk() -> None:
     files = pr_review.commentable_lines(_DIFF)
     # added (2, 3), context (1, 4, the empty context line 5) in the first hunk; the second hunk's
-    # context line 21 and its added line 22, which only looks like a header
+    # context line 21 and its added line 22, whose raw text is `+++ b/evil.py`: content, by count
     assert files["src/app.py"] == {1, 2, 3, 4, 5, 21, 22}
     assert files["new/name.py"] == {7}  # a renamed file is keyed by its new name
     assert "old/name.py" not in files
@@ -106,6 +107,12 @@ def test_a_deleted_line_is_not_commentable() -> None:
 def test_a_diff_with_no_prefix_and_no_counts() -> None:
     diff = "--- x.py\n+++ x.py\n@@ -3 +3 @@\n-a\n+b\n"
     assert pr_review.commentable_lines(diff) == {"x.py": {3}}
+
+
+def test_a_carriage_return_inside_a_line_is_content() -> None:
+    """Git and GitHub end a line at \\n only; `+a\\r b` is one added line, so `+c` is line 2."""
+    diff = "+++ b/a.py\n@@ -0,0 +1,2 @@\n+a\r b\n+c\n"
+    assert pr_review.commentable_lines(diff) == {"a.py": {1, 2}}
 
 
 def test_a_short_hunk_does_not_swallow_the_next_header() -> None:
@@ -146,34 +153,67 @@ def test_parse_location(location: str, parsed: tuple[str, int, int] | None) -> N
         ("cc @org/team-x.", f"cc @{_ZW}org/team-x."),
         ("(@carol)", f"(@{_ZW}carol)"),
         ("mail a@b.com", "mail a@b.com"),
-        ("snake_@x", "snake_@x"),
-        ("a lone @ sign", "a lone @ sign"),
-        ("é@dave", f"é@{_ZW}dave"),  # GitHub's \W is ASCII: a non-ASCII letter does not protect
-        ("use `@types/node` here", "use `@types/node` here"),
-        ("``a ` @x``", "``a ` @x``"),
-        ("\\`@x`", f"\\`@{_ZW}x`"),  # an escaped backtick opens no span
-        ("`unclosed @x", f"`unclosed @{_ZW}x"),
-        ("`a\n\n@x`", f"`a\n\n@{_ZW}x`"),  # a span ends at a blank line
-        ("```py\n@fixture\n```\n@eve", f"```py\n@fixture\n```\n@{_ZW}eve"),
-        ("~~~\n@fixture\n~~~", "~~~\n@fixture\n~~~"),
-        ("``` `x`\n@y", f"``` `x`\n@{_ZW}y"),  # a backtick in the info: not a fence
+        ("é@dave", f"é@{_ZW}dave"),  # GitHub's \\W is ASCII: a non-ASCII letter does not protect
+        ("x _a_@alice", f"x _a_@{_ZW}alice"),  # `_` is emphasis, not part of a word, before `@`
+        ("@&#97;lice", f"@{_ZW}&#97;lice"),  # what follows the `@` is not looked at
+        ("a lone @ sign", f"a lone @{_ZW} sign"),
         ("bell\x07 @z\r\n", f"bell @{_ZW}z\n"),
+        # code is not exempt
+        ("use `@types/node` here", f"use `@{_ZW}types/node` here"),
+        ("```py\n@fixture\n```", f"```py\n@{_ZW}fixture\n```"),
     ],
 )
 def test_neutralise_mentions(text: str, expected: str) -> None:
     assert pr_review.neutralise_mentions(text) == expected
 
 
-def test_an_open_fence_is_closed_so_it_cannot_swallow_what_follows() -> None:
-    assert pr_review.neutralise_mentions("```\n@x") == "```\n@x\n```"
-    assert pr_review.neutralise_mentions("~~~~\n@x\n~~~") == "~~~~\n@x\n~~~\n~~~~"
-
-
-def test_inside_an_html_block_code_is_not_code_so_everything_is_neutralised() -> None:
-    text = "<div>\n```\n@x\n```\n`@y`\n</div>"
+@pytest.mark.parametrize(
+    "text",
+    [
+        "a `x\n- @alice `y`",  # a list item after an unclosed backtick cuts the span
+        "> ```\n@alice\n```",  # a blockquote's fence ends with the blockquote
+        "<https://x.test/`>@alice`",  # an autolink beats the backtick
+        "| `x | @alice` |\n| - | - |",  # a GFM table cell splits on |
+        '<span title="`">@alice @org/team</span>',  # a raw tag beats the backtick
+        "x _a_@alice",
+        "&#64;alice", "&#064;alice", "&#x40;alice", "&#X40;alice", "&#x0040;alice",
+        "&commat;alice", "&CoMmAt;alice", "&#64alice",
+    ],
+)
+def test_the_bypass_shapes_are_all_neutralised(text: str) -> None:
     out = pr_review.neutralise_mentions(text)
-    assert "@x" not in out and "@y" not in out
-    assert out.count(_ZW) == 2
+    for login in ("alice", "org/team"):
+        if login in out:
+            assert f"@{_ZW}{login}" in out, out
+            assert out.count(f"@{login}") == 0, out
+    assert "&#" not in out and "&commat" not in out.lower()
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("<!-- hide the rest", "\\<!-- hide the rest"),
+        ("ok\n<script>x</script>", "ok\n\\<script>x</script>"),
+        ("   <pre>", "   \\<pre>"),
+        ("> <details>", "> \\<details>"),
+        ("- 1. <div>", "- 1. \\<div>"),
+        ("a <b>inline</b>", "a <b>inline</b>"),  # not at a line start: no block opens
+    ],
+)
+def test_a_tag_at_a_line_start_is_escaped(text: str, expected: str) -> None:
+    assert pr_review.neutralise_mentions(text) == expected
+
+
+def test_neutralising_twice_changes_nothing_more() -> None:
+    text = "<!--\n@a &#64;b `@c`\n> <x>"
+    once = pr_review.neutralise_mentions(text)
+    assert pr_review.neutralise_mentions(once) == once
+
+
+def test_the_source_holds_no_invisible_character() -> None:
+    source = Path(pr_review.__file__).read_text(encoding="utf-8")
+    assert "\u200b" not in source
+    assert '"\\u200b"' in source
 
 
 # --- the findings ---------------------------------------------------------------------------------
@@ -308,7 +348,15 @@ def test_the_argv_shapes() -> None:
     ]
     assert pr_review.diff_argv("o/n", 7)[:5] == ["gh", "pr", "diff", "7", "-R"]
     query = pr_review.head_query_argv("o", "n", 7)
-    assert query[:3] == ["gh", "api", "graphql"] and "number=7" in query
+    assert query[:3] == ["gh", "api", "graphql"]
+
+
+@pytest.mark.parametrize("name", ["2048", "null", "true"])
+def test_owner_and_name_go_as_strings_and_only_the_number_is_typed(name: str) -> None:
+    query = pr_review.head_query_argv("o", name, 7)
+    assert query[query.index(f"name={name}") - 1] == "-f"
+    assert query[query.index("owner=o") - 1] == "-f"
+    assert query[query.index("number=7") - 1] == "-F"
 
 
 # --- the review -----------------------------------------------------------------------------------
@@ -363,11 +411,26 @@ def test_findings_on_the_diff_go_inline_and_the_rest_to_the_body() -> None:
     assert built.omitted == 0
 
 
+@pytest.mark.parametrize(
+    "location",
+    ["src/app.py:3", "b/src/app.py:3", "a/src/app.py:3", "/home/u/repo/src/app.py:3", "app.py:3"],
+)
+def test_a_finding_path_is_matched_at_a_slash(location: str) -> None:
+    built = _build([_finding(location=location)])
+    assert [c["path"] for c in built.payload["comments"]] == ["src/app.py"]
+
+
+@pytest.mark.parametrize("location", ["rc/app.py:3", "/home/u/repo/xsrc/app.py:3"])
+def test_a_path_is_not_matched_inside_a_name(location: str) -> None:
+    assert _build([_finding(location=location)]).payload["comments"] == []
+
+
 def test_an_ambiguous_tail_is_not_guessed() -> None:
     diff = "+++ b/a/x.py\n@@ -1 +1 @@\n-p\n+q\n+++ b/b/x.py\n@@ -1 +1 @@\n-p\n+q\n"
-    review = pr_review.parse_findings([_finding(location="x.py:1")])
-    built = pr_review.build_review(review, diff, head=_HEAD, event="COMMENT", event_reason="r")
-    assert built.payload["comments"] == []
+    for location in ("x.py:1", "/abs/x.py:1"):
+        review = pr_review.parse_findings([_finding(location=location)])
+        built = pr_review.build_review(review, diff, head=_HEAD, event="COMMENT", event_reason="r")
+        assert built.payload["comments"] == []
 
 
 def test_the_body_says_why_an_approve_is_a_comment() -> None:
@@ -386,7 +449,7 @@ def test_the_summary_is_neutralised_too() -> None:
 
 def test_a_location_cannot_break_out_of_its_code_span() -> None:
     built = _build([_finding(location="a`b @x\n\nc")])
-    assert "`a'b @x c`" in built.payload["body"]
+    assert f"`a'b @{_ZW}x c`" in built.payload["body"]
 
 
 def test_a_comment_is_capped_and_its_mentions_still_neutralised() -> None:
@@ -398,13 +461,6 @@ def test_a_comment_is_capped_and_its_mentions_still_neutralised() -> None:
     assert "@zed" not in body
 
 
-def test_a_cut_cannot_open_a_code_span_the_neutraliser_had_closed() -> None:
-    """Cut first, then neutralise: a span cut in half is no span, so its mention is neutralised."""
-    issue = "x" * (pr_review.MAX_COMMENT_CHARS - 200) + " `@inside the span " + "y" * 400 + "`"
-    body = _build([_finding(issue=issue)]).payload["comments"][0]["body"]
-    assert "@inside" not in body and f"@{_ZW}inside" in body
-
-
 def test_the_body_stops_at_its_cap_and_says_how_many_it_left_out() -> None:
     findings = [_finding(location=f"elsewhere.py:{n}", issue="i" * 6000) for n in range(1, 31)]
     built = _build(findings)
@@ -412,6 +468,10 @@ def test_the_body_stops_at_its_cap_and_says_how_many_it_left_out() -> None:
     assert len(body) <= pr_review.MAX_BODY_CHARS
     assert built.omitted > 0
     assert f"_{built.omitted} more finding(s) are not shown" in body
+    dropped = [p for p in built.placements if p.reason == pr_review.OMITTED_REASON]
+    assert len(dropped) == built.omitted
+    assert built.placements[-1].reason == "omitted: body cap"
+    assert built.placements[0].reason == "the file is not in the diff"
 
 
 def test_build_refuses_a_head_that_is_not_a_commit_id() -> None:
