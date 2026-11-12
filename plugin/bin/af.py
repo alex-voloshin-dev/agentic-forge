@@ -45,6 +45,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 _PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -746,6 +747,63 @@ def _pr_conflict_notice(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _pr_head(owner: str, name: str, number: int) -> Any:
+    from agentic_forge import pr_review
+
+    return pr_review.parse_head(
+        json.loads(_read_process(pr_review.head_query_argv(owner, name, number)))
+    )
+
+
+def _pr_review(args: argparse.Namespace) -> int:
+    """Build a review payload pinned to the reviewed head, and print the command that posts it.
+    Posting is outward-facing, so the session runs that command, where the hooks see it."""
+    from agentic_forge import connectors, pr_review, state_io
+
+    repo = _directory(args.repo)
+    head = _matching(pr_review.COMMIT_ID, args.head.lower(), "--head (a full commit id)")
+    review = pr_review.parse_findings(_read_json(args.findings_json))
+    pr_review.review_event(review.verdict, args.event, own_pr=False)  # refused before gh is asked
+    out = os.path.abspath(args.out)
+    if os.path.isdir(out):
+        raise ValueError(f"--out {args.out} is a directory")
+    slug = connectors.remote_slug(repo)
+    if slug is None:
+        raise ValueError(f"the origin of {repo} is not a GitHub repository, so no PR can be read")
+    owner, name = _matching(_REPO_SLUG, slug, "repository").split("/")
+
+    # The head and state before the diff and again after it: the diff read in between is then the
+    # reviewed head's, and a push or a merge since the review is refused rather than reviewed past.
+    before = _pr_head(owner, name, args.pr)
+    problem = pr_review.reviewable_problem(before, head)
+    if problem:
+        raise ValueError(problem)
+    diff = _read_process(pr_review.diff_argv(slug, args.pr))
+    if len(diff) > pr_review.MAX_DIFF_CHARS:
+        raise ValueError(f"the diff is over {pr_review.MAX_DIFF_CHARS} characters")
+    after = _pr_head(owner, name, args.pr)
+    problem = pr_review.reviewable_problem(after, head)
+    if problem:
+        raise ValueError(problem)
+
+    event, reason = pr_review.review_event(review.verdict, args.event, own_pr=after.own)
+    built = pr_review.build_review(review, diff, head=head, event=event, event_reason=reason)
+    # Not through a link at the name or in its directory: the caller names it, in a scratch place.
+    text = json.dumps(built.payload, indent=2) + "\n"
+    state_io.write_text(Path(out), text, anchor=Path(out).parent)
+    _emit({
+        "repo": slug, "number": args.pr, "head": head, "verdict": review.verdict,
+        "event": event, "event_reason": reason,
+        "inline": sum(p.inline for p in built.placements),
+        "in_body": sum(not p.inline for p in built.placements),
+        "omitted": built.omitted,
+        "placements": [dataclasses.asdict(p) for p in built.placements],
+        "payload": out,
+        "post": _command(pr_review.post_argv(slug, args.pr, out)),
+    })
+    return EXIT_OK
+
+
 # --- document delivery ----------------------------------------------------------------------------
 
 
@@ -933,6 +991,23 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--repo-slug", required=True)
     sub.add_argument("--number", type=_positive_int, required=True)
     sub.add_argument("--comments-json", required=True, metavar="FILE", help=_FILE_OR_STDIN)
+
+    sub = with_repo(add(
+        "pr-review", _pr_review, "Build a PR review pinned to its head, and the command posting it."
+    ))
+    sub.add_argument("--pr", type=_positive_int, required=True, help="the pull request number")
+    sub.add_argument("--head", required=True, help="the full commit id that was reviewed")
+    sub.add_argument(
+        "--findings-json", required=True, metavar="FILE",
+        help='the findings: an array, or {"verdict", "summary", "findings"}; '
+        f"{_FILE_OR_STDIN}",
+    )
+    sub.add_argument("--out", required=True, metavar="FILE", help="where to write the payload")
+    sub.add_argument(
+        "--event", choices=("request-changes", "comment", "approve"), default="request-changes",
+        help="request-changes (default): REQUEST_CHANGES for changes, COMMENT for approve; "
+        "comment: COMMENT always; approve: APPROVE, only when the user asked for one",
+    )
 
     sub = with_repo(add("doc-worktree", _doc_worktree, "A feature's shared document worktree."))
     sub.add_argument("--slug", required=True)

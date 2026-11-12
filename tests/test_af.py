@@ -196,7 +196,7 @@ def _as_argv(call: str) -> list[str]:
     """A documented call with its placeholders filled in, split the way a shell would."""
     filled = re.sub(r"--gate-green <[^>]*>", "--gate-green yes", call)
     filled = re.sub(r"--verdict <[^>]*>", "--verdict approve", filled)
-    filled = re.sub(r"--(iteration|number) <[^>]*>", r"--\1 1", filled)
+    filled = re.sub(r"--(iteration|number|pr) <[^>]*>", r"--\1 1", filled)
     filled = re.sub(r"<[^>]*>", "x", filled)
     return shlex.split(filled)
 

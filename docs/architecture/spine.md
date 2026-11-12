@@ -60,6 +60,80 @@ artifact-header validation, synthesis scaffolding) lives in `plugin/lib/agentic_
 unit-tested. New pattern references: **fan-out/fan-in** and **multi-aspect review**; reused:
 worktree, review-loop, handoff, adversarial-review.
 
+## The review phase on a pull request
+
+Two parts of `code-review` exist because of what a pull request adds to a diff.
+
+**A tightened contract breaks consumers in other PRs.** The concurrent-change aspect (ADR 0074)
+used to fire only on a claim, lock, lease, dedup guard or status transition. A field case showed
+the same failure with any contract: PR A made a Terraform module input required in production
+(a validation and preconditions), and PR B, merged first, added a test that planned production
+without it. Each was green alone; after A merged the module test went red, and since that check
+was not required GitHub showed the PR as UNSTABLE, which does not block a merge. So the aspect now
+fires on any contract the diff tightens: a new required input, parameter or field, a stricter
+validation, a changed signature, schema or return type, a removed default, as well as the state
+transitions it already covered. For such a diff the review (1) looks for the contract's consumers
+in the base (`git grep` at `<base>`) and in open PRs (`gh pr list`, then each one's `gh pr diff`,
+the 20 most recent at most, saying if there were more), and (2) when the base moved after the PR's
+CI ran, reviews a head that contains the current base or runs the affected tests on a trial merge
+in a scratch worktree. A consumer that would break is a finding on the tightening diff. It stays
+instruction-level, as ADR 0074 is: nothing enforces the search.
+
+**Posting the review: `af.py pr-review`.** For a PR target the review goes to GitHub instead of
+`review.md` (still the output for a local diff and the spine). The session writes the findings, in
+the review-finding shape of [patterns/handoff.md](../../plugin/patterns/handoff.md), to a JSON file
+and runs:
+
+```bash
+python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" pr-review --repo . --pr <n> --head <sha> \
+  --findings-json <file> --out <payload-file> [--event request-changes|comment|approve]
+```
+
+What it does, in order:
+
+1. Validates the findings (`pr_review.parse_findings`): an array, or an object with `findings`
+   and optionally `verdict` and `summary`; each finding needs `severity` (`blocker`, `major`,
+   `minor`, `nit`), `location`, `issue` (or `description`) and `suggestion` (or `fix`); `evidence`
+   is optional; at most 200. With no `verdict` it is derived (any blocker or major is `changes`),
+   and a given `approve` over a blocker or major is refused. `--head` must be a full commit id.
+   All this happens before `gh` is asked anything.
+2. Resolves `owner/name` from the checkout's `origin` (`connectors.remote_slug`), then reads the
+   PR's state, head and author, and the asking account, in one read-only `gh api graphql` call;
+   reads the diff with `gh pr diff`; and reads the state and head again. Each `gh` read has the
+   60-second bound of every `af.py` read. A PR that is not open, or a head that is not `--head`
+   at either read, is refused: a push between the review and the post would otherwise put the
+   verdict on a commit nobody reviewed, and the diff read in between is then the reviewed head's.
+3. Parses the diff's hunks by their line counts (`commentable_lines`) for the RIGHT-side lines a
+   comment may sit on: added and context lines; a renamed file by its new name; nothing for a
+   deleted file or a hunk-less rename. A finding whose `file:line` or `file:start-end` is on those
+   lines (a unique path suffix such as `app.py:3` for `src/app.py` counts) becomes an inline
+   comment; any other goes into the body with the reason. GitHub answers a review holding one
+   comment outside the diff with a 422 and drops all of it.
+4. Renders each finding as severity, `file:line`, the issue, the fix and the evidence; neutralises
+   every `@mention` with a zero-width space after the `@` (code blocks and code spans are left as
+   written, since GitHub links nothing there, unless the text holds an HTML block, where code is not
+   code), closes any fence left open, and caps each comment at 8,000 characters and the body at
+   60,000. The body opens with the verdict, the counts and the reviewed commit.
+5. Maps the verdict to an event. `request-changes`, the default, sends REQUEST_CHANGES for
+   `changes` and COMMENT for `approve`; `comment` sends COMMENT for both; `approve` sends APPROVE
+   and is refused on a `changes` verdict. An approval is never the default: an APPROVE from the
+   session's account counts toward the approvals branch protection requires, so it could open the
+   merge gate on a model's judgement. On the asking account's own PR, where GitHub refuses both
+   APPROVE and REQUEST_CHANGES, the event is COMMENT, and the body says why.
+6. Writes the payload (`commit_id`, `event`, `body`, `comments[]` with `path`, `line`,
+   `side: RIGHT` and, for a range, `start_line`) to `--out`, never through a symlink, and prints
+   one JSON object: `repo`, `number`, `head`, `verdict`, `event`, `event_reason`, the `inline`,
+   `in_body` and `omitted` counts, a `placements` entry per finding, `payload`, and `post`, the
+   `{"argv", "shell"}` of `gh api -X POST repos/<owner>/<name>/pulls/<n>/reviews --input <payload>`.
+
+It posts nothing itself. Posting is outward-facing, so the session runs `post.shell`, where the
+guardrail hooks see it (ADR 0104, decision 4). Exit codes are `af.py`'s: 0 built; 1 refused
+(malformed findings, a head that moved, a closed or merged PR, no GitHub `origin`, a `gh` that
+failed, is missing or answered something unreadable, a diff over 16 MB, an `--out` that is a
+directory or a link), with one line on stderr and nothing on stdout; 2 bad usage. The commit pin
+also covers the gap between building and posting: a push after the build leaves the review on the
+reviewed commit, shown as outdated, rather than on the new head.
+
 ## Multi-language (by-stack)
 
 The thin slice proved the workflow model on **Python**; by-stack makes the spine
