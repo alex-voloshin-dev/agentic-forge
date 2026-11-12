@@ -15,7 +15,8 @@ The JVM stack pack (Java and Kotlin): loaded by the `software-engineer` / `qa-en
 
 **Prefer the repo's wrapper and scripts** — `./gradlew` (Gradle: `build.gradle[.kts]`) or
 `./mvnw` (Maven: `pom.xml`), and the CI workflow. Defaults (the same commands `stack-detect`
-reports as fallbacks; `mvn` / `gradle` when the repo ships no wrapper):
+reports as fallbacks; the wrapper beside the build file, else the repo root's, else `mvn` /
+`gradle`):
 
 | Job | Conventional command | Gate |
 | --- | --- | --- |

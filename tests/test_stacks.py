@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 from pathlib import Path
@@ -362,7 +363,9 @@ def test_the_package_manager_field_comes_first_and_only_names_a_known_manager(
 @pytest.mark.parametrize(
     ("manager", "lockfile", "exec_prefix"),
     [
-        ("npm", "package-lock.json", "npm exec --"),
+        # npm never installs: without a TTY it assumes --yes and would fetch a missing binary from
+        # the registry (`tsc` is an unrelated package there), so --no, and --package names it.
+        ("npm", "package-lock.json", "npm exec --no --package={pkg} --"),
         ("yarn", "yarn.lock", "yarn run"),
         ("pnpm", "pnpm-lock.yaml", "pnpm exec"),
         ("bun", "bun.lock", "bun run"),
@@ -380,11 +383,27 @@ def test_a_declared_tool_runs_through_the_manager(
         lockfile: "",
     })
     assert primary(repo).toolchain == stacks.Toolchain(
-        test=f"{exec_prefix} vitest run",
-        lint=f"{exec_prefix} eslint .",
-        typecheck=f"{exec_prefix} tsc --noEmit",
-        format=f"{exec_prefix} prettier --write .",
+        test=f"{exec_prefix.format(pkg='vitest')} vitest run",
+        lint=f"{exec_prefix.format(pkg='eslint')} eslint .",
+        typecheck=f"{exec_prefix.format(pkg='typescript')} tsc --noEmit",
+        format=f"{exec_prefix.format(pkg='prettier')} prettier --write .",
     )
+
+
+def test_every_npm_exec_refuses_to_install(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, {
+        "package.json": _pkg(devDependencies={
+            "typescript": "5", "eslint": "9", "prettier": "3", "jest": "29",
+        }),
+        "tsconfig.json": "{}",
+    })
+    commands = [c for c in dataclasses.astuple(primary(repo).toolchain) if c]
+    registry = [
+        c for spec in STACKS.values() for c in dataclasses.astuple(spec.toolchain) if c
+    ]
+    execs = [c for c in commands + registry if c.startswith("npm exec")]
+    assert len(commands) == 4 and len(execs) >= 4
+    assert all(c.startswith("npm exec --no --package=") and " -- " in c for c in execs), execs
 
 
 def test_the_repos_scripts_beat_a_bare_tool(tmp_path: Path) -> None:
@@ -413,7 +432,7 @@ def test_typecheck_script_wins_over_type_check(tmp_path: Path) -> None:
 
 def test_jest_is_the_test_runner_when_vitest_is_absent(tmp_path: Path) -> None:
     repo = _repo(tmp_path, {"package.json": _pkg(devDependencies={"jest": "29"})})
-    assert primary(repo).toolchain.test == "npm exec -- jest"
+    assert primary(repo).toolchain.test == "npm exec --no --package=jest -- jest"
 
 
 def test_typescript_without_a_tsconfig_is_no_typecheck(tmp_path: Path) -> None:
@@ -515,7 +534,7 @@ def test_field_case_a_terraform_root_with_tests_is_terraform(tmp_path: Path) -> 
         test="terraform test",
         lint=None,
         typecheck="terraform init -backend=false && terraform validate",
-        format="terraform fmt -check -recursive",
+        format="terraform fmt -recursive",
     )
     assert stacks.pack_paths("/root", p) == [Path("/root/skills/engineering-standards/SKILL.md")]
 
@@ -537,9 +556,15 @@ def test_terraform_test_only_when_tests_exist(
     assert p.toolchain.test == test
 
 
-def test_terraform_beside_a_language_is_not_the_primary(tmp_path: Path) -> None:
-    profiles = detect(_repo(tmp_path, {"pyproject.toml": "", "infra.tf": ""}))
-    assert [p.stack_id for p in profiles] == ["python", "terraform"]
+@pytest.mark.parametrize(
+    ("language", "stack_id"),
+    [("pyproject.toml", "python"), ("package.json", "javascript"), ("composer.json", "php")],
+)
+def test_terraform_beside_a_language_is_not_the_primary(
+    tmp_path: Path, language: str, stack_id: str
+) -> None:
+    profiles = detect(_repo(tmp_path, {language: "{}", "infra.tf": ""}))
+    assert [p.stack_id for p in profiles] == [stack_id, "terraform"]
 
 
 def test_terraform_hint_alias(tmp_path: Path) -> None:
@@ -740,4 +765,137 @@ def test_a_long_hint_list_stays_linear(tmp_path: Path) -> None:
     _repo(tmp_path, {"CLAUDE.md": line})
     started = time.monotonic()
     assert [p.stack_id for p in detect(tmp_path)] == ["go"]
-    assert time.monotonic() - started < 2
+    assert time.monotonic() - started < 10  # linear: milliseconds; backtracking: minutes
+
+
+# --- review round 1 ----------------------------------------------------------------------------
+
+
+def _root_user() -> bool:
+    return hasattr(os, "geteuid") and os.geteuid() == 0
+
+
+@pytest.mark.skipif(_root_user() or os.name != "posix", reason="root reads a mode-000 directory")
+def test_an_unreadable_subdirectory_is_skipped_not_fatal(tmp_path: Path) -> None:
+    """A bind-mounted ./pgdata owned by another user made detect raise (Path.is_file -> EACCES)."""
+    repo = _repo(tmp_path, {"api/go.mod": "module x\n", "pgdata/PG_VERSION": "16\n"})
+    (repo / "pgdata").chmod(0o000)
+    try:
+        assert [(p.stack_id, p.dir) for p in detect(repo)] == [("go", "api")]
+        assert stacks.declared_gate_sources(repo, detect(repo)) == []
+    finally:
+        (repo / "pgdata").chmod(0o755)
+
+
+def test_a_directory_that_fails_mid_scan_yields_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _repo(tmp_path, {"a/go.mod": "module x\n", "b/go.mod": "module x\n"})
+    real = stacks._manifest_matches
+
+    def flaky(where: Path) -> list:
+        if where.name == "a":
+            raise PermissionError(13, "denied", str(where))
+        return real(where)
+
+    monkeypatch.setattr(stacks, "_manifest_matches", flaky)
+    assert [(p.stack_id, p.dir) for p in detect(repo)] == [("go", "b")]
+
+    def denied(path: Path) -> bool:
+        raise PermissionError(13, "denied", str(path))
+
+    monkeypatch.setattr(stacks, "_inside", lambda root, path: denied(path))
+    _repo(repo, {"a/Makefile": ""})
+    assert stacks.declared_gate_sources(repo, [dataclasses.replace(UNKNOWN, dir="a")]) == []
+
+
+@pytest.mark.parametrize(
+    "name", ["has space", "-flag", "x;rm", "x$(id)", "tab\tname", "quote'd", "é"]
+)
+def test_a_subdirectory_with_an_unsafe_name_is_never_a_service(tmp_path: Path, name: str) -> None:
+    repo = _repo(tmp_path, {f"{name}/go.mod": "module x\n"})
+    assert detect(repo) == [UNKNOWN]
+
+
+def test_a_plain_subdirectory_name_passes(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, {"svc_1.2@x+y-z/go.mod": "module x\n"})
+    assert primary(repo).dir == "svc_1.2@x+y-z"
+
+
+def test_declared_gate_sources_names_only_plain_paths(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, {
+        ".github/workflows/ci.yml": "", ".github/workflows/bad name.yml": "",
+        ".github/workflows/x;id.yaml": "", "has space/Makefile": "",
+    })
+    unsafe = dataclasses.replace(UNKNOWN, dir="has space")
+    assert stacks.declared_gate_sources(repo, [unsafe]) == [".github/workflows/ci.yml"]
+
+
+@pytest.mark.parametrize(
+    ("files", "where", "test"),
+    [
+        # `gradle init`: settings + wrapper at the root, the build file in app/.
+        ({"settings.gradle": "", "gradlew": "", "app/build.gradle": ""}, ".", "./gradlew check"),
+        ({"settings.gradle.kts": "", "app/build.gradle.kts": ""}, ".", "gradle check"),
+        # A service found by the scan uses the root's wrapper, as a path from its own directory.
+        ({"gradlew": "", "app/build.gradle": ""}, "app", "../gradlew check"),
+        ({"mvnw": "", "svc/pom.xml": "<project/>"}, "svc", "../mvnw verify"),
+        ({"mvnw": "", "svc/pom.xml": "<project/>", "svc/mvnw": ""}, "svc", "./mvnw verify"),
+    ],
+)
+def test_jvm_finds_the_wrapper_at_the_root(
+    tmp_path: Path, files: dict[str, str], where: str, test: str
+) -> None:
+    p = primary(_repo(tmp_path, files))
+    assert (p.stack_id, p.dir, p.toolchain.test) == ("jvm", where, test)
+
+
+def test_exact_manifests_are_a_stat_and_wildcards_one_capped_listing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(stacks, "_SCAN_MAX_ENTRIES", 0)
+    assert primary(_repo(tmp_path / "a", {"go.mod": "module x\n"})).stack_id == "go"
+    assert detect(_repo(tmp_path / "b", {"main.tf": ""})) == [UNKNOWN]  # nothing listed
+    monkeypatch.setattr(stacks, "_SCAN_MAX_ENTRIES", 3)
+    repo = _repo(tmp_path / "c", {f"f{i}.txt": "" for i in range(10)})
+    names = stacks._file_names(repo)
+    assert len(names) == 3 and names == sorted(names)
+
+
+def test_a_huge_integer_in_package_json_is_no_obstacle(tmp_path: Path) -> None:
+    """Python 3.9 has no int digit limit (a huge one parses quadratically) and 3.11+ raises past
+    4300 digits; integers are never needed, so they parse to 0."""
+    doc = '{"version": ' + "9" * 200_000 + ', "scripts": {"lint": "x"}}'
+    assert primary(_repo(tmp_path, {"package.json": doc})).toolchain.lint == "npm run lint"
+
+
+def test_terraform_format_applies(tmp_path: Path) -> None:
+    assert primary(_repo(tmp_path, {"main.tf": ""})).toolchain.format == "terraform fmt -recursive"
+
+
+# --- the commit gate's profile: as before multi-name hints and the scan ------------------------
+
+
+def test_gate_profile_reads_a_hints_first_name_only(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, {"CLAUDE.md": "stack: cobol, rust\n", "pyproject.toml": ""})
+    assert primary(repo).stack_id == "rust"  # stack-detect: the first known name
+    gate = stacks.gate_profile(repo)  # the gate: the first name, unknown -> manifests
+    assert (gate.stack_id, gate.source) == ("python", "manifest")
+    hinted = _repo(tmp_path / "h", {"AGENTS.md": "stack: go, python\n"})
+    assert (stacks.gate_profile(hinted).stack_id, stacks.gate_profile(hinted).source) == (
+        "go", "hint"
+    )
+
+
+def test_gate_profile_follows_a_hint_link_out_of_the_cwd(tmp_path: Path) -> None:
+    """Committing from svc/ whose CLAUDE.md links to the repo's: the gate reads it, as it did."""
+    repo = _repo(tmp_path, {"CLAUDE.md": "stack: python\n", "svc/go.mod": "module x\n"})
+    (repo / "svc" / "CLAUDE.md").symlink_to(repo / "CLAUDE.md")
+    assert stacks.gate_profile(repo / "svc").stack_id == "python"
+    assert primary(repo / "svc").stack_id == "go"  # stack-detect keeps the repo boundary
+
+
+def test_gate_profile_never_scans(tmp_path: Path) -> None:
+    assert stacks.gate_profile(_repo(tmp_path, {"svc/go.mod": "module x\n"})) == UNKNOWN
+    both = _repo(tmp_path / "b", {"pyproject.toml": "", "package.json": "{}"})
+    assert stacks.gate_profile(both).stack_id == "python"

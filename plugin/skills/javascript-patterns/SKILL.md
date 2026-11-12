@@ -18,7 +18,8 @@ ADR 0015, by-stack detection + reference packs.)
 **declares** (the `packageManager` field, then `yarn.lock` → `yarn`, `pnpm-lock.yaml` → `pnpm`,
 `bun.lock`/`bun.lockb` → `bun`, `package-lock.json` → `npm`; `npm` when nothing says otherwise).
 The fallbacks `stack-detect` reports name only what `package.json` declares — the script, else a
-declared (dev)dependency run through the manager, else nothing:
+declared (dev)dependency run through the manager (`npm exec --no --package=<pkg> --`, never a
+download), else nothing:
 
 | Job | Fallback (with npm) | Gate |
 | --- | --- | --- |

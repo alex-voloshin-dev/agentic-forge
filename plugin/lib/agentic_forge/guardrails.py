@@ -901,31 +901,35 @@ def choose_gate(cwd: Path | str) -> list[str] | None:
         return ["python", "dev/validate.py"]
     from agentic_forge import stacks
 
-    # The cwd's own stack only: a commit from a root with no manifest stays ungated, however many
-    # services sit below it (ADR 0101), so the monorepo scan is off here.
-    return _gate_argv(stacks.primary(cwd, scan_subdirs=False).toolchain.lint)
+    # `gate_profile`: the cwd's own stack, read as before the monorepo scan and multi-name hints —
+    # a commit from a root with no manifest stays ungated however many services sit below it.
+    return _gate_argv(stacks.gate_profile(cwd).toolchain.lint)
 
 
 # The stack lint is a fallback written for a person or a shell; the gate runs it as argv, and a
 # richer profile must not make the gate block where it used to pass (ADR 0101: it only narrows).
-# So it refuses shell syntax outright; runs a package's lint only when it is the repo's own `lint`
-# script (with no such script the gate used to run `npm run lint`, fail on the missing script and
-# fail open, so a bare `eslint .` through the manager would be new blocking); and keeps `go vet`
-# where the profile names golangci-lint, which checks more than vet and has no narrowing.
+# So it refuses shell syntax outright. A package is gated only by its own `lint` script, and always
+# through `npm run lint`, whatever manager the repo declares: npm runs any package.json script and
+# needs no install state, while `yarn`/`pnpm`/`bun run` can fail before the script starts (Yarn
+# Berry "doesn't seem to have been installed" in a fresh worktree, a corepack download,
+# ERR_PNPM_BAD_PM_VERSION) with exit 1 and a message the fail-open signatures do not know. With no
+# `lint` script there is no gate (it used to run `npm run lint`, fail on the missing script and
+# fail open), so a declared `eslint .` is never run here. And the gate keeps `go vet` where the
+# profile names golangci-lint, which checks more than vet and has no narrowing.
 _SHELL_SYNTAX = re.compile(r"[;&|<>$`(){}\\\n'\"*?]")
-_GO_VET = ["go", "vet", "./..."]
+_NPM_LINT = ["npm", "run", "lint"]
 
 
 def _gate_argv(lint: str | None) -> list[str] | None:
-    from agentic_forge import stacks
+    from agentic_forge import gate_scope, stacks
 
     if not lint or _SHELL_SYNTAX.search(lint):
         return None
     argv = lint.split()
     if argv[0] in stacks.PACKAGE_MANAGERS:
-        return argv if argv[1:] == ["run", "lint"] else None
+        return list(_NPM_LINT) if argv[1:] == ["run", "lint"] else None
     if argv[0] == "golangci-lint":
-        return list(_GO_VET)
+        return list(gate_scope._GO_GATE)
     return argv
 
 
