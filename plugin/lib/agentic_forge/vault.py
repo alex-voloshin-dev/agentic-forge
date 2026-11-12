@@ -61,7 +61,8 @@ _MAX_NOTE_BYTES = 2 * 1024 * 1024  # what a handoff artifact may be: past it, no
 _MAX_DEPTH = 8  # folders below the vault root; a note deeper than that is not read
 _MAX_NOTES = 5000  # note files read
 _MAX_WALK_ENTRIES = 20000  # directory entries looked at, of any kind
-_MAX_VAULT_BYTES = 32 * 1024 * 1024  # note text read, in all
+_MAX_VAULT_BYTES = 32 * 1024 * 1024  # bytes of note files read, in all, charged before parsing
+_MAX_FRONTMATTER_CHARS = 64 * 1024  # a frontmatter block longer than this is not parsed as YAML
 _SUMMARY_TITLE_CHARS = 120  # a title in the session-start summary, past which it is cut
 
 # [[target]] | [[target|alias]] | [[target#heading]] | [[target#heading|alias]] -> target
@@ -182,7 +183,9 @@ def _walk(vpath: Path) -> _Walk:
     convention for templates and attachments), every ``README.md`` (a folder's meta-doc; the root
     one is returned apart), and every symlink, file or folder: a link is never followed, so the walk
     cannot leave the vault or loop. Bounded by ``_MAX_DEPTH``, ``_MAX_NOTES`` and
-    ``_MAX_WALK_ENTRIES``; hitting one sets ``truncated``."""
+    ``_MAX_WALK_ENTRIES``; hitting one sets ``truncated`` (the depth cap only for a folder past it
+    that holds something). The entry cap can stop partway through a folder, and which of its
+    entries were looked at by then is the filesystem's listing order, not name order."""
     found: list[tuple[int, str, Path]] = []
     readme: Path | None = None
     truncated = False
@@ -210,7 +213,7 @@ def _walk(vpath: Path) -> _Walk:
                     if name.startswith("_"):
                         continue
                     if depth >= _MAX_DEPTH:
-                        truncated = True
+                        truncated = truncated or _has_entries(entry.path)
                         continue
                     queue.append((Path(entry.path), depth + 1))
                 elif name.endswith(".md") and entry.is_file(follow_symlinks=False):
@@ -231,22 +234,65 @@ def _walk(vpath: Path) -> _Walk:
     return _Walk(files=tuple(path for _, _, path in found), readme=readme, truncated=truncated)
 
 
-def _read_note(md: Path, vpath: Path) -> Note | None:
-    """The note in ``md``, or None if it is not one this module reads. A note that cannot be read
-    as UTF-8 is skipped: one file in a repo must not take the rest of a session's context with
-    it."""
-    if not state_io.readable(md, vpath):
-        return None  # a linked file is another file: its frontmatter must not reach a session
+def _has_entries(directory: str) -> bool:
+    """True if ``directory`` holds anything: one entry looked at, not a walk."""
     try:
-        if md.stat().st_size > _MAX_NOTE_BYTES:
-            return None
-        text = md.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+        with os.scandir(directory) as listing:
+            return next(listing, None) is not None
+    except OSError:
+        return False
+
+
+def _note_size(md: Path, vpath: Path) -> int | None:
+    """The bytes reading ``md`` costs, or None if it is not read at all: a link (another file,
+    whose frontmatter must not reach a session), not a regular file, or past ``_MAX_NOTE_BYTES``."""
+    if not state_io.readable(md, vpath):
         return None
     try:
-        fm, body = parse_frontmatter(text)
-    except FrontmatterError:
-        fm, body = {}, text  # tolerate a note written without frontmatter
+        size = md.stat().st_size
+    except OSError:
+        return None
+    return None if size > _MAX_NOTE_BYTES else size
+
+
+def _note_text(md: Path) -> str | None:
+    """The text of ``md``, never read past ``_MAX_NOTE_BYTES`` (the file may have grown since it
+    was measured), or None. A note that cannot be read as UTF-8 is None: one file in a repo must
+    not take the rest of a session's context with it. Whether ``md`` is a link is the caller's
+    check, :func:`_note_size`."""
+    try:
+        with open(md, "rb") as handle:
+            raw = handle.read(_MAX_NOTE_BYTES + 1)
+    except OSError:
+        return None
+    if len(raw) > _MAX_NOTE_BYTES:
+        return None
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+def _read_note(md: Path, vpath: Path) -> Note | None:
+    """The note in ``md``, or None if it is not one this module reads (see :func:`_note_size` and
+    :func:`_note_text`). For a caller that does not count what it reads; ``load_vault`` does."""
+    text = _note_text(md) if _note_size(md, vpath) is not None else None
+    return None if text is None else _parse_note(md, text)
+
+
+def _parse_note(md: Path, text: str) -> Note:
+    """The note ``text`` holds. Frontmatter is parsed as YAML only when its block closes within
+    ``_MAX_FRONTMATTER_CHARS``: real frontmatter is a few lines, and pure-Python YAML on a 2 MiB
+    block is where a session's start-up time would go. Past that the note has no frontmatter."""
+    fm: dict[str, object]
+    end = text.find("\n---", 3) if text.startswith("---") else -1
+    if text.startswith("---") and (end == -1 or end > _MAX_FRONTMATTER_CHARS):
+        fm, body = {}, text
+    else:
+        try:
+            fm, body = parse_frontmatter(text)
+        except FrontmatterError:
+            fm, body = {}, text  # tolerate a note written without frontmatter
     name = md.stem
     # Strings only, and checked before any str(): a YAML alias bomb or a huge int would
     # otherwise cost the whole session its context, not this one note its title.
@@ -280,6 +326,20 @@ def load_vault(repo: Path | str) -> Vault:
     shadowed: list[Path] = []
     truncated = walk.truncated
     spent = 0
+
+    def charged_text(md: Path) -> str | None:
+        """``md``'s text, its size charged to the budget before it is read, whether or not it
+        then decodes or parses. None once the budget is spent (``truncated``)."""
+        nonlocal spent, truncated
+        size = _note_size(md, vpath)
+        if size is None:
+            return None
+        if spent + size > _MAX_VAULT_BYTES:
+            spent, truncated = _MAX_VAULT_BYTES, True  # spent: nothing after this one is read
+            return None
+        spent += size
+        return _note_text(md)
+
     for md in walk.files:
         if md.stem.lower() in notes:
             shadowed.append(md)
@@ -287,10 +347,9 @@ def load_vault(repo: Path | str) -> Vault:
         if spent >= _MAX_VAULT_BYTES:
             truncated = True
             break
-        note = _read_note(md, vpath)
-        if note is not None:
-            spent += len(note.body)
-            notes[note.name.lower()] = note
+        text = charged_text(md)
+        if text is not None:
+            notes[md.stem.lower()] = _parse_note(md, text)
     root = next(
         (
             key
@@ -300,10 +359,10 @@ def load_vault(repo: Path | str) -> Vault:
         None,
     )
     if root is None and walk.readme is not None:
-        readme = _read_note(walk.readme, vpath)
-        if readme is not None:
-            root = readme.name.lower()
-            notes[root] = readme
+        text = charged_text(walk.readme)
+        if text is not None:
+            root = walk.readme.stem.lower()
+            notes[root] = _parse_note(walk.readme, text)
     return Vault(repo=repo, notes=notes, root=root, shadowed=tuple(shadowed), truncated=truncated)
 
 
@@ -346,11 +405,14 @@ def validate_vault(repo: Path | str) -> list[str]:
             f"because {kept} is"
         )
     if vault.truncated:
+        # A link to a note past the cap would read as broken, and a note only that one links to
+        # as an orphan: neither check means anything on part of a vault, so neither is run.
         problems.append(
             f"the vault is larger than one load reads ({_MAX_NOTES} notes, {_MAX_DEPTH} folders "
             f"deep, {_MAX_WALK_ENTRIES} entries, {_MAX_VAULT_BYTES // (1024 * 1024)} MiB of "
-            "text): notes past that are not read"
+            "notes): notes past that are not read, so links and orphans were not checked"
         )
+        return problems
     for note in sorted(vault.notes.values(), key=lambda n: n.name):
         for target in note.links:
             if _link_key(target) not in vault.notes:
@@ -411,13 +473,20 @@ def _root_map_path(vpath: Path) -> Path:
 
 
 def _locate(vpath: Path, flat: Path, files: tuple[Path, ...]) -> Path:
-    """Where the note at ``flat`` is now: a file of its name at the vault root (link or not), else
-    the one a reader resolves the name to among ``files``, else ``flat``, where a new one goes."""
+    """Where the note at ``flat`` is now, resolved as :func:`load_vault` resolves it: the first of
+    ``files`` (walk order: nearer the root, then the lower path, so ``X.md`` before ``x.md``) of its
+    name, case aside, that a reader can read. With none, a file of its name at the vault root, link
+    or not, so that the caller refuses a link rather than writing a second file beside it; else the
+    first unreadable one of its name, which the write then replaces; else ``flat``, a new note."""
+    stem = flat.stem.lower()
+    named = [md for md in files if md.stem.lower() == stem]
+    for md in named:
+        if _note_size(md, vpath) is not None and _note_text(md) is not None:
+            return md
     found = _at_root(vpath, flat.name)
     if found is not None:
         return found
-    stem = flat.stem.lower()
-    return next((md for md in files if md.stem.lower() == stem), flat)
+    return named[0] if named else flat
 
 
 def note_path(repo: Path | str, name: str) -> Path:
@@ -477,7 +546,12 @@ def scaffold(repo: Path | str) -> Path:
     Raises :class:`state_io.StateWriteRefused`, before creating anything, for a vault directory that
     resolves outside the repo without the operator's say, or for a dangling link or anything but a
     regular file at a name it would write. One that exists is not written, so it is not checked: a
-    linked README stops nothing (ADR 0102)."""
+    linked README stops nothing (ADR 0102).
+
+    A vault whose root map was its README.md (no MOC, INDEX or Home) gets a ``MOC.md`` that starts
+    with every wikilink the README holds. The new MOC is the root map from then on, and README.md
+    goes back to being the vault's meta-doc, which is never written: so every note the README made
+    reachable stays reachable, and the vault validates as it did before."""
     vpath = vault_path(repo)
     _refuse_outside(repo)
     moc = _root_map_path(vpath)  # a vault whose map is INDEX.md or Home.md gets no MOC.md
@@ -487,12 +561,18 @@ def scaffold(repo: Path | str) -> Path:
             state_io.refuse_unsafe(path, vpath)
     vpath.mkdir(parents=True, exist_ok=True)
     if not moc.is_file():
+        taken_over = _read_note(readme, vpath) if readme.is_file() else None
+        links = [
+            target
+            for target in (taken_over.links if taken_over else ())
+            if _link_key(target) != moc.stem.lower()
+        ]
         state_io.write_text(
             moc,
             _render_note(
                 "Knowledge Map",
                 "The map-of-content for this project's knowledge vault. Link notes here under "
-                "themes.\n\n## Notes\n",
+                "themes.\n\n## Notes\n" + "".join(f"- {wikilink(t)}\n" for t in links),
                 type="moc",
                 tags=("moc",),
             ),
@@ -504,7 +584,7 @@ def scaffold(repo: Path | str) -> Path:
             "# Knowledge vault\n\n"
             "Obsidian-format project knowledge maintained by agentic-forge's `knowledge` skill: "
             "atomic notes (`*.md` with `[[wikilinks]]`), maps-of-content (`type: moc`), entry "
-            f"point `{ROOT_MOC}.md`.\n",
+            f"point `{moc.name}`.\n",
             anchor=vpath,
         )
     return vpath
@@ -626,6 +706,12 @@ def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
+def _shown(text: str) -> str:
+    """``text`` as one line for the session context: runs of whitespace, line breaks included,
+    become one space, and what is still not printable (a control or bidi character) is dropped."""
+    return "".join(ch for ch in " ".join(text.split()) if ch.isprintable())
+
+
 def session_summary(repo: Path | str, *, max_notes: int = 8) -> str:
     """A compact map to inject at session start: the root map + the highest-degree notes.
 
@@ -639,7 +725,8 @@ def session_summary(repo: Path | str, *, max_notes: int = 8) -> str:
     lines = [f"# Project knowledge ({VAULT_DIRNAME}/)", ""]
     root = vault.notes.get(vault.root) if vault.root else None
     if root:
-        lines += [f"Map: [[{root.name}]] — {_clip(root.title, _SUMMARY_TITLE_CHARS)}", ""]
+        title = _clip(_shown(root.title), _SUMMARY_TITLE_CHARS)
+        lines += [f"Map: [[{_shown(root.name)}]] — {title}", ""]
     inbound = _inbound_counts(vault)
     ranked = sorted(
         (n for key, n in vault.notes.items() if key != vault.root),
@@ -648,6 +735,7 @@ def session_summary(repo: Path | str, *, max_notes: int = 8) -> str:
     if ranked:
         lines.append("Key notes:")
         lines += [
-            f"- [[{n.name}]] — {_clip(n.title, _SUMMARY_TITLE_CHARS)}" for n in ranked[:max_notes]
+            f"- [[{_shown(n.name)}]] — {_clip(_shown(n.title), _SUMMARY_TITLE_CHARS)}"
+            for n in ranked[:max_notes]
         ]
     return "\n".join(lines).rstrip() + "\n"
