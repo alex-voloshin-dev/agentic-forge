@@ -901,8 +901,32 @@ def choose_gate(cwd: Path | str) -> list[str] | None:
         return ["python", "dev/validate.py"]
     from agentic_forge import stacks
 
-    lint = stacks.primary(cwd).toolchain.lint
-    return lint.split() if lint else None
+    # The cwd's own stack only: a commit from a root with no manifest stays ungated, however many
+    # services sit below it (ADR 0101), so the monorepo scan is off here.
+    return _gate_argv(stacks.primary(cwd, scan_subdirs=False).toolchain.lint)
+
+
+# The stack lint is a fallback written for a person or a shell; the gate runs it as argv, and a
+# richer profile must not make the gate block where it used to pass (ADR 0101: it only narrows).
+# So it refuses shell syntax outright; runs a package's lint only when it is the repo's own `lint`
+# script (with no such script the gate used to run `npm run lint`, fail on the missing script and
+# fail open, so a bare `eslint .` through the manager would be new blocking); and keeps `go vet`
+# where the profile names golangci-lint, which checks more than vet and has no narrowing.
+_SHELL_SYNTAX = re.compile(r"[;&|<>$`(){}\\\n'\"*?]")
+_GO_VET = ["go", "vet", "./..."]
+
+
+def _gate_argv(lint: str | None) -> list[str] | None:
+    from agentic_forge import stacks
+
+    if not lint or _SHELL_SYNTAX.search(lint):
+        return None
+    argv = lint.split()
+    if argv[0] in stacks.PACKAGE_MANAGERS:
+        return argv if argv[1:] == ["run", "lint"] else None
+    if argv[0] == "golangci-lint":
+        return list(_GO_VET)
+    return argv
 
 
 # Where a project keeps its OWN tools. The gate used to exec the tool name exactly as the stack

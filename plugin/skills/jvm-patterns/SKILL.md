@@ -14,11 +14,12 @@ The JVM stack pack (Java and Kotlin): loaded by the `software-engineer` / `qa-en
 ## Toolchain
 
 **Prefer the repo's wrapper and scripts** — `./gradlew` (Gradle: `build.gradle[.kts]`) or
-`./mvnw` (Maven: `pom.xml`), and the CI workflow. Defaults:
+`./mvnw` (Maven: `pom.xml`), and the CI workflow. Defaults (the same commands `stack-detect`
+reports as fallbacks; `mvn` / `gradle` when the repo ships no wrapper):
 
 | Job | Conventional command | Gate |
 | --- | --- | --- |
-| test | `./gradlew test` / `./mvnw test` | green; new behaviour covered |
+| test | `./gradlew check` / `./mvnw verify` | green, integration tests included (`mvn test` skips failsafe's `*IT`, which run in `verify`); new behaviour covered |
 | build | `./gradlew build` / `./mvnw verify` | compiles + checks pass |
 | format/lint | spotless / ktlint / checkstyle (if configured) | clean |
 
@@ -48,6 +49,6 @@ The JVM stack pack (Java and Kotlin): loaded by the `software-engineer` / `qa-en
 
 ## Definition of done (JVM)
 
-The project compiles and `./gradlew test` / `mvn test` is green with the new boundary/exception
+The project compiles and `./gradlew check` / `./mvnw verify` is green with the new boundary/exception
 cases; the configured formatter/linter (spotless/ktlint/checkstyle) is clean; no swallowed
 exceptions; resources are closed; nulls handled — using the repo's own wrapper and commands.

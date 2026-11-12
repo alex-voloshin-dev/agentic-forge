@@ -30,8 +30,12 @@ designing (`architecture`), task breakdown (`plan`), or reviewing already-writte
    change summary, the slug derived from the request — and the run takes the small-change path
    in step 2. Never stop to ask for a plan when running headless (there is no user to answer);
    ask only when interactive and the scope is genuinely unclear. Detect the target repo's stack —
-   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" stack-detect --repo <repo>` (its `primary`; `profiles` for monorepos) — and note the profile (pack +
-   toolchain); its commands are fallbacks, so **prefer the repo's own declared commands**.
+   `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" stack-detect --repo <repo>` (its `primary`; `profiles` for monorepos, each with the
+   `dir` its service lives in, where its commands run) — and note the profile (pack + toolchain). Its commands
+   are **fallbacks** (`toolchain_role`): the repo's **declared gate wins**. Find it first in the CI
+   workflow (`.github/workflows/*`, `.gitlab-ci.yml`, …), `AGENTS.md` / `CLAUDE.md`, the `Makefile` or
+   task runner, and the `package.json` scripts — `declared_gate_sources` lists the ones present —
+   and run *those* commands as the task's gate.
 2. **Batch the work; set up isolation.** Compute the plan's dependency levels with
    `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" plan-batches --plan <path>` — each level is a set of independent tasks. Process levels **in
    order**; within a level, **fan out one git worktree per task** and run their implementations

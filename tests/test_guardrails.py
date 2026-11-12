@@ -321,6 +321,64 @@ def test_choose_gate_none_when_unknown(tmp_path: Path) -> None:
     assert choose_gate(tmp_path) is None  # no validate.py, no manifest -> unknown stack, no lint
 
 
+def _files(root: Path, files: dict[str, str]) -> Path:
+    for rel, content in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(content, encoding="utf-8")
+    return root
+
+
+def test_choose_gate_never_scans_below_a_root_with_no_manifest(tmp_path: Path) -> None:
+    """stack-detect finds the services one level down; the gate stays ungated there (ADR 0101)."""
+    _files(tmp_path, {"svc/pyproject.toml": "", "api/go.mod": "module x\n"})
+    assert choose_gate(tmp_path) is None
+    assert choose_gate(tmp_path / "svc") == ["ruff", "check", "."]
+
+
+@pytest.mark.parametrize(
+    ("files", "gate"),
+    [
+        # The repo's own lint script, through the manager it declares.
+        ({"package.json": '{"scripts": {"lint": "x"}}', "yarn.lock": ""}, ["yarn", "run", "lint"]),
+        ({"package.json": '{"packageManager": "pnpm@9", "scripts": {"lint": "x"}}'},
+         ["pnpm", "run", "lint"]),
+        # No lint script: the gate used to run `npm run lint`, fail on the missing script and fail
+        # open. A declared eslint is now a fallback for a person, never new blocking for the gate.
+        ({"package.json": '{"devDependencies": {"eslint": "9"}}'}, None),
+        ({"package.json": '{"scripts": {"test": "playwright test"}}'}, None),
+        # golangci-lint checks more than vet: the gate keeps vet, which it can narrow.
+        ({"go.mod": "module x\n", ".golangci.yml": ""}, ["go", "vet", "./..."]),
+        ({"go.mod": "module x\n"}, ["go", "vet", "./..."]),
+        ({"main.tf": "", "tests/a.tftest.hcl": ""}, None),  # terraform names no lint
+        ({"pom.xml": "<project/>", "mvnw": ""}, None),
+    ],
+)
+def test_choose_gate_only_narrows_what_it_ran(
+    tmp_path: Path, files: dict[str, str], gate: list[str] | None
+) -> None:
+    assert choose_gate(_files(tmp_path, files)) == gate
+
+
+@pytest.mark.parametrize(
+    ("lint", "argv"),
+    [
+        (None, None),
+        ("", None),
+        ("ruff check .", ["ruff", "check", "."]),
+        ("cargo clippy", ["cargo", "clippy"]),
+        ("terraform init -backend=false && terraform validate", None),  # shell: never split
+        ("make lint; rm -rf x", None),
+        ("eslint $(cat files)", None),
+        ("npm exec -- eslint .", None),
+        ("yarn run eslint .", None),  # a bin through the manager, not the `lint` script
+        ("bun run lint", ["bun", "run", "lint"]),
+        ("golangci-lint run", ["go", "vet", "./..."]),
+    ],
+)
+def test_gate_argv(lint: str | None, argv: list[str] | None) -> None:
+    assert guardrails._gate_argv(lint) == argv
+
+
 # --- logging: redact + audit -------------------------------------------------
 
 

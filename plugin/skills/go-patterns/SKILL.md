@@ -15,14 +15,14 @@ already knows general Go; this encodes the conventions and gates agentic-forge h
 ## Toolchain
 
 **Prefer the repo's own commands** — read the `Makefile` / CI workflow and run *those*; Go's
-toolchain is otherwise standard. Defaults:
+toolchain is otherwise standard. Defaults (the same commands `stack-detect` reports as fallbacks):
 
 | Job | Conventional command | Gate |
 | --- | --- | --- |
-| test | `go test ./... -race` | green; new behaviour covered; race-clean |
+| test | `go test -race ./...` | green; new behaviour covered; race-clean |
 | build/types | `go build ./...` | compiles (the compiler is the type check) |
-| vet | `go vet ./...` | clean |
-| lint | `golangci-lint run` (if configured) | clean (no new `//nolint`) |
+| vet | `go vet ./...` (the profile's lint when no golangci config exists) | clean |
+| lint | `golangci-lint run` when `.golangci.{yml,yaml,toml,json}` sits beside `go.mod` | clean (no new `//nolint`) |
 | format | `gofmt -w .` (or `goimports -w .`) | applied (canonical; non-negotiable) |
 
 Run `go vet` and the formatter on the change before declaring done; keep `go.mod`/`go.sum` tidy
@@ -44,8 +44,14 @@ Run `go vet` and the formatter on the change before declaring done; keep `go.mod
 
 - Standard `testing` package, **table-driven tests with `t.Run` subtests** (the Go idiom).
   Cover the happy path plus a boundary and an error case. Use `t.Helper()`, `t.TempDir()`.
-- **`go test ./... -race`** for anything concurrent. Tests must be deterministic — no real
+- **`go test -race ./...`** for anything concurrent. Tests must be deterministic — no real
   network/clock; don't depend on map iteration order. Never weaken or delete a test to go green.
+- **A goroutine a test starts must stop before the test ends.** Cancel its context and wait for
+  it (a done channel, or `errgroup.Wait`) in a `t.Cleanup` registered **after** `t.TempDir()`:
+  cleanups run last-in-first-out, so the goroutine stops before the directory it writes into is
+  removed. Bound the wait with a timeout (`select` on the done channel and `time.After`, then
+  `t.Error`) so a hung goroutine fails that test instead of hanging the suite. `-race` does not
+  catch this: the symptom is a flaky `TempDir RemoveAll cleanup: ... directory not empty`.
 
 ## Pitfalls (Go-specific, high-value)
 
@@ -61,5 +67,5 @@ Run `go vet` and the formatter on the change before declaring done; keep `go.mod
 ## Definition of done (Go)
 
 `go build ./...` and `go vet ./...` clean (plus `golangci-lint` if configured), `gofmt` applied,
-`go test ./... -race` green with table-driven boundary/error cases, errors wrapped not swallowed,
+`go test -race ./...` green with table-driven boundary/error cases, errors wrapped not swallowed,
 exported symbols documented, `go.mod` tidy — using the repo's own commands where declared.
