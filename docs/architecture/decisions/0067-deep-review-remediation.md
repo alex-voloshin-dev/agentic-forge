@@ -6,6 +6,8 @@ watch), [0064](0064-tier1-measurement-integrity.md) (Tier-1 parser), [0065](0065
 [0060](0060-skeptic-loop-architecture-plan.md) / [0061](0061-skeptic-loop-research-ux.md) /
 [0062](0062-skeptic-loop-marketing.md).
 
+> **Amended 2026-11-11 by [ADR 0109](0109-four-field-bugs.md):** readiness is decided by `review_decision` when present; `status` is the repository's lifecycle and only a legacy fallback.
+
 ## Context
 
 A six-lens adversarial review of releases 2026.7.5 / 7.6, with every finding verified against source.

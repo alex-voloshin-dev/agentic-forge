@@ -7,6 +7,55 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Fixed
+
+Four bugs reported from real repositories (ADR 0109).
+
+- **The external review lens no longer drops out silently.** `external_review.py` used to pass the whole diff to codex
+  as one command-line argument. Linux caps one argument at 128 KiB, so a larger diff failed. Codex also refused to run
+  from the directory outside the repository where develop writes the diff. Both came back as "skipped", the same as an
+  absent codex, so a review round silently lost the lens. Now:
+  - The prompt goes to codex on stdin with `--skip-git-repo-check`, so diff size and cwd no longer matter.
+  - Every documented call passes `--repo`, so the reviewed repository's own `external_reviewer.enabled: false` is
+    honoured from any cwd. Outside a git work tree the CLI refuses to run without `--repo`.
+  - A failure is now its own outcome with exit 3, and develop records it in the round and reports it.
+  - **Breaking for scripts:** exit 1 now means only a `changes` verdict. A failed call, a timeout or a refused argument
+    exits 3.
+  - Measured on codex 0.167.0: from a non-git directory, codex loads neither a `.codex/config.toml` nor `AGENTS.md`.
+- **The knowledge vault is read from every folder.** A vault whose notes sit in `decisions/`, `learnings/` and so on
+  used to load as one note. Recall found nothing, the session summary was empty, and `vault-validate` reported false
+  broken links. Now:
+  - Notes are found by file name wherever they sit, and `[[folder/name]]` links resolve.
+  - The walk skips dot-folders, `_`-folders, README files and symlinks, and is bounded: 5,000 notes, depth 8, 20,000
+    entries, and 32 MiB, charged per file before it is read.
+  - Duplicate names are reported; the one nearer the root wins.
+  - The root map can be `MOC`, `INDEX`, `Home` or, alone, `README`. `index` and `home` are now reserved note names.
+  - Measured: 2,000 notes load in about 1.2 s.
+- **Readiness no longer reads the repository's `status`.** A plan at `status: in-progress` was "not ready", because
+  readiness meant `status: approved`, although many repositories use `status` for their own lifecycle. Now:
+  - A phase writes `review_decision: revise` with its artifact. The review loop's exit sets `proceed` or `escalate`,
+    and only `proceed` is ready.
+  - When the field is absent, the old `status` rule still applies, so older artifacts keep working.
+  - `af.py handoff-load` reports which field decided (`ready_from`).
+  - Skills never edit an upstream artifact's `status` to make it ready.
+  - Mixed plugin versions disagree on an escalated artifact whose `status` says `approved`, so upgrade a fleet
+    together.
+- **Stack profiles read what the repository declares.**
+  - JS/TS uses the declared package manager (`packageManager`, then the lockfile) and lists a command only when
+    `package.json` has the script or the tool. npm tools run as `npm exec --no --package=<pkg> -- <bin>`, so a missing
+    tool fails instead of being downloaded from the registry.
+  - A monorepo root without a manifest is scanned one level down (bounded; unreadable or oddly named directories are
+    skipped), giving one profile per service with a `dir` field. A `stack:` hint may name several stacks.
+  - Go tests run with `-race`, and lint is golangci-lint when it is configured.
+  - JVM runs `verify` / `check`, through the wrapper when there is one.
+  - Terraform has a profile (fmt, validate, test).
+  - go-patterns adds the rule that a goroutine a test starts must stop before the test ends.
+  - The output says the commands are fallbacks (`toolchain_role`, `declared_gate_sources`). develop prefers the
+    repository's declared gate, but runs only the test, lint, typecheck and build steps of CI files, never deploy,
+    publish or secret-using steps.
+  - The commit gate still only narrows. It runs `npm run lint` only when a `lint` script exists, never the declared
+    manager, which can fail before the script starts.
+
 ## [2026.11.9] - 2026-11-11
 
 ### Changed

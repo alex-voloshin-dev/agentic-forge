@@ -2,6 +2,8 @@
 
 Status: Accepted
 
+> **Amended 2026-11-11 by [ADR 0109](0109-four-field-bugs.md):** JS/TS profiles read the declared package manager and scripts, a manifest-less root is scanned one level down, Go and JVM profiles use the packs' gates, and a Terraform profile exists.
+
 ## Context
 
 ADR 0014 decided *that* stack specialization lives in skills (one `software-engineer` base

@@ -90,7 +90,7 @@ stack-parametric. Mechanism (see [ADR 0015](decisions/0015-by-stack-detection-an
 - **Stack profile input** — each profile carries `stack_id`, `display`, the `pack`
   (`*-patterns` skill name or `None`), a `toolchain` (`test`/`lint`/`typecheck`/`format`
   commands), its evidence `manifests`, its `source` and the `dir` it was found in (`.` = root;
-  run its commands there). Profile commands are **fallbacks**: the repo's declared gate (its CI
+  run its commands there). Profile commands are **fallbacks** (ADR 0109): the repo's declared gate (its CI
   workflow, AGENTS.md / CLAUDE.md, Makefile, package scripts) wins. `af.py stack-detect` says so
   in its `summary` line and its `toolchain_role: "fallback"` field, and lists the files present
   where such a gate is declared in `declared_gate_sources` (root and each profile's `dir`;

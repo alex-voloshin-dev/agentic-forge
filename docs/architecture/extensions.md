@@ -102,7 +102,7 @@ loses terminal escapes and control characters and has secrets redacted before it
 `review.md`. The CLI refuses a symlink for `--target` and `--out`, and a symlinked directory inside the
 repo on the way to either.
 
-**How the call is made.** `_argv` builds `codex exec --sandbox read-only --skip-git-repo-check
+**How the call is made (ADR 0109).** `_argv` builds `codex exec --sandbox read-only --skip-git-repo-check
 [isolation flags] [--model] [-c effort] -`, and `_run_cli` writes the prompt to the process's stdin
 (`subprocess.run(input=...)`), which `codex exec -` reads as the prompt. The prompt used to be the last
 argv element, which failed with `E2BIG` for a diff over 128 KiB, the Linux cap on one argument, and

@@ -4,6 +4,8 @@ Status: Accepted — **implemented** (planned-increment 2; see the [Unreleased] 
 Corrected by [0100](0100-external-reviewer-isolation-and-skip-reasons.md): §5's claim that a committed
 config can't choose an arbitrary binary was wrong, and `command` is now user-level only.
 
+> **Amended 2026-11-11 by [ADR 0109](0109-four-field-bugs.md):** the prompt goes to codex on stdin, not as one argv element, and a failed call is no longer a skip.
+
 ## Context
 
 Planned-increment 2: run an **external** reviewer CLI — `codex` only, for now — as a subagent, to
