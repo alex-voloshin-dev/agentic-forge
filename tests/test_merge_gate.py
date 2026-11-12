@@ -993,3 +993,34 @@ def test_a_non_pr_url_still_checks_the_remotes(gh: GhStub, work: Path) -> None:
 )
 def test_host_name_keeps_an_ipv6_literal_whole(netloc: str, host: str) -> None:
     assert guardrails._host_name(netloc) == host
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("url.https://attacker.example/.insteadOf", "https://github.com/"),
+        ("remote.origin.pushurl", "https://attacker.example/o/r.git"),
+    ],
+)
+def test_the_effective_remote_urls_are_checked(
+    gh: GhStub, work: Path, key: str, value: str
+) -> None:
+    """gh reads `git remote -v`, which applies insteadOf rewrites and shows pushurl: a nested
+    checkout whose github.com origin its own config rewrites, or pushes elsewhere, is not
+    github.com to gh. (The SESSION's own rewrites are the operator's and stay trusted.)"""
+    _origin(work, "https://github.com/acme/infra.git")
+    nested = work / "vendor" / "x"
+    nested.mkdir(parents=True)
+    _origin(nested, "https://github.com/acme/x.git")
+    subprocess.run(["git", "-C", str(nested), "config", key, value], check=True)
+    with pytest.raises(merge_preflight.GateUnavailable, match="a remote of the directory"):
+        merge_preflight.merge_gate("cd vendor/x && gh pr merge 7", str(work))
+    assert gh.calls() == []
+
+
+def test_an_unreadable_origin_host_never_matches(gh: GhStub, work: Path) -> None:
+    """An scp-form IPv6 origin reads as no host; another unreadable host must not equal it."""
+    _origin(work, "git@[2001:db8::1]:o/r.git")
+    with pytest.raises(merge_preflight.GateUnavailable):
+        merge_preflight.merge_gate("gh pr merge https:///o/r/pull/1", str(work))
+    assert gh.calls() == []

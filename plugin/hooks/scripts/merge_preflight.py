@@ -168,7 +168,8 @@ def _origin_host(cwd: str, deadline: float) -> str:
     if git is None or remaining <= 0:
         return ""
     try:
-        url = _git(git, cwd, "config", "--get", "remote.origin.url", deadline=deadline)
+        # get-url applies url.<base>.insteadOf, as gh's own `git remote -v` does
+        url = _git(git, cwd, "remote", "get-url", "origin", deadline=deadline)
     except (OSError, subprocess.SubprocessError):
         return ""
     return guardrails.remote_host(url)
@@ -182,16 +183,16 @@ def _remote_hosts(cwd: str, deadline: float) -> list[str] | None:
     if git is None or deadline - time.monotonic() <= 0:
         return None
     try:
-        lines = _git(
-            git, cwd, "config", "--get-regexp", r"^remote\..*\.url$", deadline=deadline
-        )
+        # `git remote -v` prints the EFFECTIVE fetch and push URLs (insteadOf / pushInsteadOf
+        # rewrites and pushurl applied): what gh itself reads to pick a repository.
+        lines = _git(git, cwd, "remote", "-v", deadline=deadline)
     except (OSError, subprocess.SubprocessError):
         return None
     hosts = []
     for line in lines.splitlines():
-        url = line.partition(" ")[2].strip()
-        if url:
-            hosts.append(guardrails.remote_host(url))
+        fields = line.split()
+        if len(fields) >= 2:
+            hosts.append(guardrails.remote_host(fields[1]))
     return hosts
 
 
@@ -229,7 +230,8 @@ def merge_gate(
             # The SESSION's checkout, never the `cd` target: a command could otherwise `cd` into a
             # submodule whose origin is the host it wants contacted.
             origin.append(_origin_host(cwd, deadline))
-        return bool(origin[0]) and host == origin[0]
+        # a host neither side could read is never "the same host"
+        return bool(origin[0]) and origin[0] != guardrails.NO_HOST and host == origin[0]
 
     if not all(allowed(host) for host in guardrails.merge_hosts(target)):
         raise GateUnavailable(
