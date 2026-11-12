@@ -287,10 +287,10 @@ _SCAN_MAX_DIRS = 64  # subdirectories examined, in name order
 # A subdirectory name reaches `dir`, the summary, `declared_gate_sources` and the working directory
 # a caller runs commands in, so only a plain name passes: no whitespace, quotes or shell syntax, no
 # leading dot or dash (a dot-dir is never a service anyway).
-_SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@+-]{0,127}$")
+_SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@+-]{0,127}\Z")
 # The same shape for a path part of a declared gate source, which may also be a dot-name
 # (`.github`, `.gitlab-ci.yml`).
-_SAFE_SOURCE_PART = re.compile(r"^\.?[A-Za-z0-9][A-Za-z0-9._@+-]{0,127}$")
+_SAFE_SOURCE_PART = re.compile(r"^\.?[A-Za-z0-9][A-Za-z0-9._@+-]{0,127}\Z")
 
 _PACKAGE_JSON_MAX_BYTES = 1024 * 1024
 # The only package managers a profile ever names: the value reaches argv, so a `packageManager`

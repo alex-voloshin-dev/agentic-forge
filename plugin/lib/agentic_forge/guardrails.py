@@ -929,7 +929,7 @@ def _gate_argv(lint: str | None) -> list[str] | None:
     if argv[0] in stacks.PACKAGE_MANAGERS:
         return list(_NPM_LINT) if argv[1:] == ["run", "lint"] else None
     if argv[0] == "golangci-lint":
-        return list(gate_scope._GO_GATE)
+        return list(gate_scope.GO_GATE)
     return argv
 
 

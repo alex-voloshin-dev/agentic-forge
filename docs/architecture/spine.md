@@ -129,7 +129,7 @@ stack-parametric. Mechanism (see [ADR 0015](decisions/0015-by-stack-detection-an
     rewrite `.terraform.lock.hcl` — review that file in the diff.
 - **The commit gate reads its own, narrower profile** (`stacks.gate_profile`): the cwd only (no
   scan, so a root with no manifest stays ungated), a hint's first name only (an unknown first name
-  falls to the manifests), and the hint file read wherever it links, as before multi-name hints.
+  falls to the next hint file, then the manifests), and the hint file read wherever it links, as before multi-name hints.
   It runs a package's lint only as `npm run lint`, whatever manager the repo declares
   ([guardrails](guardrails.md)).
 - **Stack reference packs** — off-listing (`disable-model-invocation: true`) `*-patterns`

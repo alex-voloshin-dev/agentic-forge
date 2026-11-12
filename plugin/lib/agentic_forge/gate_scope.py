@@ -18,7 +18,8 @@ from subprocess import DEVNULL, PIPE, SubprocessError, run
 __all__ = ["NARROWABLE", "Simple", "parse_simple", "narrow", "printable"]
 
 _RUFF_GATE = ["ruff", "check", "."]
-_GO_GATE = ["go", "vet", "./..."]
+GO_GATE = ["go", "vet", "./..."]
+_GO_GATE = GO_GATE  # the name this module uses internally
 NARROWABLE = (_RUFF_GATE, _GO_GATE)
 _RUFF_EXTENSIONS = (".py", ".pyi", ".pyw", ".ipynb")
 _RUFF_CONFIGS = (".ruff.toml", "ruff.toml", "pyproject.toml")

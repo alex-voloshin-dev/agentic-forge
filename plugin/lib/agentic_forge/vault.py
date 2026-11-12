@@ -285,7 +285,10 @@ def _parse_note(md: Path, text: str) -> Note:
     ``_MAX_FRONTMATTER_CHARS``: real frontmatter is a few lines, and pure-Python YAML on a 2 MiB
     block is where a session's start-up time would go. Past that the note has no frontmatter."""
     fm: dict[str, object]
-    end = text.find("\n---", 3) if text.startswith("---") else -1
+    # Search from the end of the opening line: from index 3 a body starting `---\n---` would match
+    # the opening line's own newline and pass the cap while the parser closes the block later.
+    first_nl = text.find("\n") if text.startswith("---") else -1
+    end = text.find("\n---", first_nl + 1) if first_nl != -1 else -1
     if text.startswith("---") and (end == -1 or end > _MAX_FRONTMATTER_CHARS):
         fm, body = {}, text
     else:
@@ -413,9 +416,13 @@ def validate_vault(repo: Path | str) -> list[str]:
             "notes): notes past that are not read, so links and orphans were not checked"
         )
         return problems
+    # The root README is a meta-document, not a note, once another map exists; a link to it (an
+    # Obsidian "Up: [[README]]" back-link, common in a vault that README used to map) still names
+    # a file that is there, so it is not broken.
+    meta = {"readme"} if _at_root(vpath, "README.md") is not None else set()
     for note in sorted(vault.notes.values(), key=lambda n: n.name):
         for target in note.links:
-            if _link_key(target) not in vault.notes:
+            if _link_key(target) not in vault.notes and _link_key(target) not in meta:
                 problems.append(f"{note.name}: broken wikilink [[{target}]]")
     inbound = _inbound_counts(vault)
     for name, count in sorted(inbound.items()):
@@ -565,7 +572,7 @@ def scaffold(repo: Path | str) -> Path:
         links = [
             target
             for target in (taken_over.links if taken_over else ())
-            if _link_key(target) != moc.stem.lower()
+            if _link_key(target) not in (moc.stem.lower(), "readme")
         ]
         state_io.write_text(
             moc,

@@ -633,3 +633,36 @@ def test_a_note_that_vanishes_between_the_checks_is_skipped(
     md.unlink()
     assert vault._note_size(md, vp) is None
     assert vault._note_text(md) is None
+
+
+def test_a_second_fence_right_after_the_first_does_not_slip_past_the_frontmatter_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`---\\n---\\n<big>\\n---\\n`: the closing-fence search used to match the opening line's own
+    newline (index 3, under the cap) while the parser closed the block at the far fence."""
+    pad = "y" * (vault._MAX_FRONTMATTER_CHARS + 10)
+    _write(tmp_path, "MOC.md", "Root", "- [[sneaky]]", kind="moc")
+    sneaky = vault_path(tmp_path) / "sneaky.md"
+    sneaky.write_text(f"---\n---\ntitle: Sneaky\npad: {pad}\n---\nbody\n", encoding="utf-8")
+    parsed = _spy_parse(monkeypatch)
+    notes = load_vault(tmp_path).notes
+    assert notes["sneaky"].title == "sneaky"
+    assert len(parsed) == 1  # MOC.md only
+
+
+def test_a_back_link_to_the_readme_stays_valid_after_a_moc_takes_over(tmp_path: Path) -> None:
+    """Obsidian vaults often link `Up: [[README]]`; README stops being a note once MOC.md maps the
+    vault, but the file is still there, so the link is not broken; and README is not seeded into
+    the new MOC as a link to itself."""
+    _write(tmp_path, "README.md", "Readme", "- [[a-decision]] - [[README]]")
+    _write(tmp_path, "decisions/a-decision.md", "A decision", "Up: [[README]]")
+    add_note(tmp_path, "c", "C", "body")
+    moc = (vault_path(tmp_path) / "MOC.md").read_text(encoding="utf-8")
+    assert "[[README]]" not in moc
+    assert validate_vault(tmp_path) == []
+
+
+def test_a_link_to_a_readme_that_is_not_there_is_still_broken(tmp_path: Path) -> None:
+    _write(tmp_path, "MOC.md", "Root", "- [[a]]", kind="moc")
+    _write(tmp_path, "a.md", "A", "Up: [[README]]")
+    assert validate_vault(tmp_path) == ["a: broken wikilink [[README]]"]

@@ -810,7 +810,7 @@ def test_a_directory_that_fails_mid_scan_yields_nothing(
 
 
 @pytest.mark.parametrize(
-    "name", ["has space", "-flag", "x;rm", "x$(id)", "tab\tname", "quote'd", "é"]
+    "name", ["has space", "-flag", "x;rm", "x$(id)", "tab\tname", "quote'd", "é", "api\n"]
 )
 def test_a_subdirectory_with_an_unsafe_name_is_never_a_service(tmp_path: Path, name: str) -> None:
     repo = _repo(tmp_path, {f"{name}/go.mod": "module x\n"})

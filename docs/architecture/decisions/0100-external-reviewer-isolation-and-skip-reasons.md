@@ -7,7 +7,7 @@ Builds on [0042](0042-external-reviewer.md) (the seam) and
 [0057](0057-external-reviewer-on-by-default.md) (on by default). Corrects 0042 and 0057 on `command`:
 it is no longer repo-configurable at all, and neither are the three settings added here.
 
-> **Amended 2026-11-11 by [ADR 0109](0109-four-field-bugs.md):** `failed` is a third outcome with exit 3 (exit 1 means only `changes`); the prompt goes on stdin, closing the follow-up below; `--skip-git-repo-check` and `--repo` on every call.
+> **Amended 2026-11-11 by [ADR 0109](0109-four-field-bugs.md):** `failed` is a third outcome with exit 3 (exit 1 means only `changes`); the prompt goes on stdin, closing the follow-up below; `--skip-git-repo-check` and `--repo` on every call; without `--repo` the git work-tree root, not the cwd, is the repo whose settings are read, which closes the subdirectory limit recorded below for the CLI (the library `review()` still reads `workdir`).
 
 ## Context
 

@@ -165,9 +165,11 @@ without one a skip. Exit `2` is a usage error from the argument parser.
 
 **Pass `--repo <the repo whose content this is>`.** The repo's own `.agentic-forge/config.json`, and an
 `external_reviewer.enabled: false` in it, is read from `--repo`; the skills always pass it. Without
-`--repo` the cwd is taken as the repo. Outside a git work tree that is refused (`refused-input`, exit `3`)
-just before anything would be sent, because the diff could belong to a repo that opted out and whose
-config would not be read. Inside a git work tree the cwd still works as before.
+`--repo` the git work tree the cwd sits in is taken as the repo: its root (the nearest directory holding
+`.git`), not the cwd, so a call from a subdirectory still reads the root's config. Outside a git work tree
+that is refused (`refused-input`, exit `3`) just before anything would be sent, because the diff could
+belong to a repo that opted out and whose config would not be read. A crash of the CLI itself also exits
+`3`, never `1`, so it is never read as a `changes` verdict.
 
 The review prompt, target included, goes to codex on **stdin** (`codex exec ... -`), not as an argument,
 so a large diff is not cut off by the operating system's limit on one argument (128 KiB on Linux), and a
