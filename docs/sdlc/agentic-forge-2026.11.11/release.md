@@ -74,7 +74,7 @@ against the code before work started. ADR 0110 records the decisions.
   - develop was 2/5 and deep-review 3/5. Every other skill was ≥ 0.75.
   - The difference is about two standard errors at n = 80. The cause is not established; an `--ask-why` run on
     develop is the next diagnostic.
-- **Review loop:** three rounds plus a user-approved confirming check.
+- **Review loop:** three rounds, then user-approved confirming checks.
   - Lenses: four reviewers, a security engineer, and the external codex lens.
   - Round-1 majors fixed include:
     - repository folder names reaching shell commands;
@@ -84,6 +84,9 @@ against the code before work started. ADR 0110 records the decisions.
     - a symlinked output directory in pr-review.
   - Round 3 found that an uppercase URL scheme bypassed the merge gate's host check. It is fixed, together with the
     security engineer's last minors.
+  - The confirming checks found pre-existing ways to reach a host outside the allowlist: a non-PR URL with `-R`, a
+    nested checkout's remotes, and `insteadOf`/`pushurl`. One rule now covers them: every host gh could use must be
+    github.com or the session's origin, otherwise the gate asks nothing. The final security check approved.
 - **QA:** end-to-end tests run every field repro through the shipped entry points as processes. No defects were
   found.
 - **Tier-0:**
