@@ -419,7 +419,9 @@ def validate_vault(repo: Path | str) -> list[str]:
     # The root README is a meta-document, not a note, once another map exists; a link to it (an
     # Obsidian "Up: [[README]]" back-link, common in a vault that README used to map) still names
     # a file that is there, so it is not broken.
-    meta = {"readme"} if _at_root(vpath, "README.md") is not None else set()
+    readme = _at_root(vpath, "README.md")
+    real = readme is not None and readme.is_file() and not readme.is_symlink()
+    meta = {"readme"} if real else set()  # a directory or a link named README.md is not one
     for note in sorted(vault.notes.values(), key=lambda n: n.name):
         for target in note.links:
             if _link_key(target) not in vault.notes and _link_key(target) not in meta:

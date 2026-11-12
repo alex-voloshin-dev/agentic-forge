@@ -151,7 +151,11 @@ def _refuse(message: str) -> int:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Run the external reviewer CLI over a target.")
     parser.add_argument(
-        "--repo", type=Path, default=None, help="the repo whose content this is (default: the cwd)"
+        "--repo",
+        type=Path,
+        default=None,
+        help="the repo whose content this is "
+        "(default: the root of the git work tree the cwd is in)",
     )
     parser.add_argument("--target", type=Path, required=True, help="file to review")
     parser.add_argument("--kind", choices=sorted(external_review.KINDS), default="code")
@@ -198,8 +202,8 @@ def main(argv: list[str]) -> int:
     if not external_review.is_available(command):
         print(f"external reviewer {command!r} not found on PATH — skipping")
         return 0
-    # Only now, when content would go to the reviewer. Without --repo the cwd's settings are the
-    # ones read, and outside a git work tree no repo's own opt-out can be among them.
+    # Only now, when content would go to the reviewer. Without --repo the work-tree root's settings
+    # are the ones read, and outside a git work tree no repo's own opt-out can be among them.
     if args.repo is None and work_tree is None:
         return _refuse(
             "refusing to run without --repo outside a git work tree: the reviewed repo's own "

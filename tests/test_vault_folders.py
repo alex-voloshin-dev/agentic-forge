@@ -666,3 +666,17 @@ def test_a_link_to_a_readme_that_is_not_there_is_still_broken(tmp_path: Path) ->
     _write(tmp_path, "MOC.md", "Root", "- [[a]]", kind="moc")
     _write(tmp_path, "a.md", "A", "Up: [[README]]")
     assert validate_vault(tmp_path) == ["a: broken wikilink [[README]]"]
+
+
+@pytest.mark.parametrize("kind", ["directory", "dangling-link"])
+def test_a_readme_that_is_not_a_file_does_not_excuse_a_link_to_it(
+    tmp_path: Path, kind: str
+) -> None:
+    _write(tmp_path, "MOC.md", "Root", "- [[a]]", kind="moc")
+    _write(tmp_path, "a.md", "A", "Up: [[README]]")
+    readme = vault_path(tmp_path) / "README.md"
+    if kind == "directory":
+        readme.mkdir()
+    else:
+        readme.symlink_to(tmp_path / "nowhere.md")
+    assert validate_vault(tmp_path) == ["a: broken wikilink [[README]]"]
