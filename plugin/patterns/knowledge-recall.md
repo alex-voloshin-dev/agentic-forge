@@ -22,10 +22,13 @@ docs and read whole Markdown files: measured over 19 hours, 20 subagents ran 0 s
 greps and 38 whole-file `.md` reads in a repository that had a search server. The skill's own
 session has the project's MCP tools and a shell, so it does the search once and briefs every role.
 
-- **Use the project's own search when it has one**: an MCP tool the session can see whose name
-  says knowledge or search (e.g. a project `knowledge-search` server), or a search CLI the repo
-  documents in its `AGENTS.md` / `CLAUDE.md`. It knows the project's documents better than any
-  generic ranking.
+- **Use the project's own search when it has one**: a search server **the repository itself
+  configures** in its `.mcp.json` (e.g. a project `knowledge-search` server), or a search command
+  or server the repository documents in its `AGENTS.md` / `CLAUDE.md`. It knows the project's
+  documents better than any generic ranking.
+- **A user-level connector is not the project's search**, whatever its name says: a cloud
+  connector (Notion, Google Drive, a web search) comes from the user's account, not the
+  repository, and searches other data. Do not recall through one.
 - **Otherwise use `vault-recall`** (step 1 below) — the fallback that works in every repo with a
   vault.
 - **Pass the top hits in the `Task` prompt**, bounded: the top 5-8, each a path plus one line on
