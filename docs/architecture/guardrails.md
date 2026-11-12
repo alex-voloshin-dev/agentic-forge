@@ -96,13 +96,50 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
   (field case: `SCORING_VNEXT` matched `SCORING_VNEXT_CRUX_API_KEY` and printed it into the
   transcript). Local dumps, exact-name lookups (`printenv PGHOST`), `env`/`set` used as wrappers,
   and a dump piped through a redaction filter (`| grep -ivE 'KEY|SECRET|…'`) all pass (ADR 0075).
-- **merge preflight** (`PreToolUse` / Bash, `merge_preflight.py`) — on `gh pr merge`, reads
-  `origin/HEAD`, the worktree list and the base branch's ahead-count, and **warns** when another
-  worktree holds the base branch or local `base` is ahead of upstream — the two conditions that
-  break the *local* half of the merge (`'master' is already used by worktree`, `Not possible to
-  fast-forward`). It **never blocks**: the merge itself happens on the server and is durable, the
-  base branch is only approximated from `origin/HEAD`, and refusing a merge would wedge the
-  auto-merge watcher (ADR 0076). The main checkout holding the base is normal and stays silent.
+- **merge preflight** (`PreToolUse` / Bash, `merge_preflight.py`) — on `gh pr merge`, two things:
+  - **The merge gate: blocks** a merge the PR watcher would hold (field report f993da46). GitHub
+    lets a PR merge when its `mergeStateStatus` is `UNSTABLE` (a check that is not *required* is
+    red) and ignores unresolved review threads unless branch protection requires their resolution;
+    the watcher refuses both, but a session running `gh pr merge` itself used to get only the local
+    warnings below. In the field, a PR with a red non-required Terraform test (after a semantic
+    conflict with another PR) and an open review thread was merged that way. Now the hook works
+    out which PR the command names (`guardrails.pr_merge_target`: a number, URL or branch, none for
+    the current branch's PR, `-R`/`--repo` or a `GH_REPO=` prefix, after any literal `cd` in the
+    same command), then makes two read-only `gh` calls: `gh pr view [<pr>] [-R <repo>] --json
+    number,url,mergeStateStatus`, which lets `gh` resolve the PR exactly as `gh pr merge` would,
+    and the watcher's own GraphQL query (`pr_watch.PR_QUERY`) for that number, parsed by the
+    watcher's `parse_pr`. `pr_watch.session_merge_gate` then decides, sharing its clauses and their
+    wording with the watcher's `merge_readiness`. It exits 2 with `merge gate: #<n>: merge held:
+    <reasons>` (plus GitHub's `mergeStateStatus`) when the PR is a **draft**, its check rollup is
+    not `SUCCESS` (**pending, failing, erroring, or no checks at all** — "no builds" is not "green
+    builds", ADR 0063), it has an **unresolved review thread** not by `pr_watcher.bot`, or its
+    thread list is past the 100 the query reads. `--auto` is held like a merge, since auto-merge
+    waits only for *required* checks; `--disable-auto` and `--help` merge nothing and call
+    nothing. The session gate is deliberately a **subset** of the watcher's, so it never refuses a
+    merge the watcher's gate opened: a fork, `mergeable`, a closed PR and a review requesting
+    changes stay the watcher's (GitHub or `gh` refuses the conflicting and closed cases itself).
+    Nothing the PR's author wrote reaches the message — no title, body, thread text or check
+    name; only the PR number and enum values GitHub sends, and a non-enum value reads `UNKNOWN`
+    or is left out. A block is recorded in the diagnostics log (rule `merge-gate`).
+  - **It fails open**, allowing the merge with a one-line notice (on stderr and, since a hook's
+    stderr on exit 0 reaches nobody, as a `systemMessage`), when it cannot tell: `gh` not on
+    PATH, not logged in, an API or network error (any non-zero exit), no answer within the
+    budget, output that is not JSON or does not describe the PR it asked about (a tolerant parse
+    of an empty answer would otherwise read as "no checks" and block), or a command it cannot
+    attribute to exactly one PR (two merges, a flag `gh pr merge` does not have, a `GH_HOST=`
+    prefix, a repo-relative PR after a `cd` only a shell could follow). Echoed reasons name the
+    `gh` call and its exit code, never `gh`'s own output.
+  - **Cost**: nothing for any other command — the check is the existing `is_pr_merge` parse, and
+    `pr_watch` is imported only on a merge. On a merge, two `gh` calls (two API round trips)
+    within one 12 s deadline; the git reads
+    keep their own 12 s, and the hook's timeout in `hooks.json` is 30 s, so a stalled `gh` is a
+    notice rather than a killed hook.
+  - **The local warnings** read `origin/HEAD`, the worktree list and the base branch's
+    ahead-count, and **warn** when another worktree holds the base branch or local `base` is
+    ahead of upstream — the two conditions that break the *local* half of the merge (`'master' is
+    already used by worktree`, `Not possible to fast-forward`). These **never block**: the merge
+    itself happens on the server and is durable, and the base branch is only approximated from
+    `origin/HEAD` (ADR 0076). The main checkout holding the base is normal and stays silent.
 - **pre-router** (`UserPromptSubmit`, `pre_router.py`) — names the skill a prompt clearly
   matches, in the prompt's own `additionalContext`, so the model reads the suggestion at the
   moment it decides whether to invoke a skill or do the work by hand (ADR 0089). Deterministic:
@@ -297,7 +334,8 @@ availability.
 - **Reuse** — the test-gate reuses by-stack (`stacks.py`); budgets use a session-scoped counter
   file; logging reuses the redaction in `guardrails.py`.
 - **Exit-code contract** — `2` = block (reason on stderr, fed back to the model); `0` = allow. A
-  non-blocking warning (budget soft cap, merge preflight, the PR-created notice, a dropped
+  non-blocking warning (budget soft cap, the merge preflight's warnings and fail-open notice, the
+  PR-created notice, a dropped
   config) is JSON on stdout — `systemMessage` for the operator plus
   `hookSpecificOutput.additionalContext` for the model (`diagnostics.hook_notice`). Never stderr:
   Claude Code discards a hook's stderr on exit 0, and two of these warnings reached nobody for

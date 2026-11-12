@@ -30,6 +30,8 @@ __all__ = [
     "classify_command",
     "is_commit_or_push",
     "is_pr_merge",
+    "MergeTarget",
+    "pr_merge_target",
     "worktree_branches",
     "merge_preflight",
     "strip_heredoc_bodies",
@@ -847,6 +849,147 @@ def is_pr_merge(command: str) -> bool:
             if rest[i + 1 : i + 2] == ["merge"]:
                 return True
     return False
+
+
+@dataclass(frozen=True)
+class MergeTarget:
+    """Which PR one `gh pr merge` names, as `gh pr view` takes it (:func:`pr_merge_target`).
+
+    ``selector`` is the number, URL or branch the command gave ("" = the PR of the branch checked
+    out in ``cwd``), ``repo`` its ``-R``/``--repo`` (or a ``GH_REPO=`` prefix; "" = the repo of
+    ``cwd``), ``cwd`` the directory the command runs it in, after any literal ``cd`` before it.
+    ``merges`` is False for a form that merges nothing (``--disable-auto``, ``--help``)."""
+
+    selector: str
+    repo: str
+    cwd: str
+    merges: bool = True
+
+
+# `gh pr merge`'s flags (gh 2.x), by whether they take a value. A flag outside both sets may take
+# one, and its value would then read as the PR — so the command is not attributed to a PR at all.
+_MERGE_VALUE_FLAGS = frozenset(
+    {"-A", "--author-email", "-b", "--body", "-F", "--body-file", "--match-head-commit",
+     "-t", "--subject", "-R", "--repo"}
+)
+_MERGE_BOOL_FLAGS = frozenset(
+    {"--admin", "--auto", "-d", "--delete-branch", "--disable-auto", "-m", "--merge", "-r",
+     "--rebase", "-s", "--squash", "-h", "--help"}
+)
+# `-R`'s value, `[HOST/]OWNER/REPO`. It reaches `gh`'s argv, so it is checked here.
+_GH_REPO = re.compile(r"(?:[A-Za-z0-9][A-Za-z0-9.-]*/)?[A-Za-z0-9._-]+/[A-Za-z0-9._-]+")
+_MAX_SELECTOR = 512
+
+
+def _merge_flags(args: list[str]) -> tuple[dict[str, str], list[str]] | None:
+    """``gh pr merge``'s arguments as ``({flag: value}, positionals)``, read the way gh's flag
+    parser reads them (``--f v``, ``--f=v``, ``-fv``, combined ``-ds``, ``--`` ends the flags).
+    A bool flag maps to "". None on a flag it does not know."""
+    flags: dict[str, str] = {}
+    positionals: list[str] = []
+    i = 0
+    while i < len(args):
+        token = args[i]
+        i += 1
+        if token == "--":
+            positionals.extend(args[i:])
+            break
+        if token.startswith("--"):
+            name, eq, value = token.partition("=")
+            if name in _MERGE_BOOL_FLAGS and not eq:
+                flags[name] = ""
+            elif name in _MERGE_VALUE_FLAGS:
+                if not eq:
+                    if i >= len(args):
+                        return None
+                    value, i = args[i], i + 1
+                flags[name] = value
+            else:
+                return None
+        elif token.startswith("-") and len(token) > 1:
+            j = 1
+            while j < len(token):
+                short = "-" + token[j]
+                j += 1
+                if short in _MERGE_BOOL_FLAGS:
+                    flags[short] = ""
+                    continue
+                if short not in _MERGE_VALUE_FLAGS:
+                    return None
+                value = token[j:]
+                value = value[1:] if value.startswith("=") else value
+                if not value:
+                    if i >= len(args):
+                        return None
+                    value, i = args[i], i + 1
+                flags[short] = value
+                break
+        else:
+            positionals.append(token)
+    return flags, positionals
+
+
+def _after_cd(directory: str | None, args: list[str]) -> str | None:
+    """The directory after ``cd <args>`` from ``directory``; None when it cannot be told without a
+    shell (no argument, ``-``, a variable, a glob)."""
+    if directory is None or len(args) != 1:
+        return None
+    path = args[0]
+    if not path or path == "-" or any(ch in path for ch in "$`*?[{"):
+        return None
+    return os.path.normpath(os.path.join(directory, os.path.expanduser(path)))
+
+
+def pr_merge_target(command: str, cwd: str) -> MergeTarget | None:
+    """The one PR ``command``'s `gh pr merge` names, run from ``cwd`` — or None when that cannot be
+    told for certain, and the merge gate is then not applied: no merge in command position, two of
+    them, a segment that does not tokenize but reads as one, a flag gh pr merge does not have, more
+    than one PR argument, a ``GH_HOST`` prefix, or a repo-relative PR (a number, a branch, none)
+    after a ``cd`` whose target needs a shell to know. Pure, apart from ``~`` in a ``cd``."""
+    segments, balanced = _split_segments(strip_heredoc_bodies(command))
+    if not balanced:
+        return None
+    directory: str | None = cwd
+    found: MergeTarget | None = None
+    for segment in segments:
+        tokens = _shell_tokens(segment)
+        if tokens is None:
+            if _PR_MERGE.search(segment):
+                return None
+            continue
+        ci = _command_index(tokens)
+        if ci is None:
+            continue
+        base, rest = tokens[ci].rsplit("/", 1)[-1], tokens[ci + 1 :]
+        if base in ("cd", "pushd"):
+            directory = _after_cd(directory, rest)
+            continue
+        if base != "gh" or "pr" not in rest:
+            continue
+        p = rest.index("pr")
+        if rest[p + 1 : p + 2] != ["merge"]:
+            continue
+        if found is not None:
+            return None  # two merges in one command
+        parsed = _merge_flags([*rest[:p], *rest[p + 2 :]])
+        if parsed is None:
+            return None
+        flags, positionals = parsed
+        env = {t.partition("=")[0]: t.partition("=")[2] for t in tokens[:ci] if "=" in t}
+        if "GH_HOST" in env or len(positionals) > 1:
+            return None
+        selector = positionals[0] if positionals else ""
+        repo = flags.get("-R", flags.get("--repo", env.get("GH_REPO", "")))
+        if selector.startswith("-") or len(selector) > _MAX_SELECTOR or "\n" in selector:
+            return None
+        if repo and not _GH_REPO.fullmatch(repo):
+            return None
+        is_url = selector.startswith(("https://", "http://"))
+        if directory is None and not is_url and not repo:
+            return None
+        merges = not ({"--disable-auto", "-h", "--help"} & set(flags))
+        found = MergeTarget(selector, repo, directory or cwd, merges)
+    return found
 
 
 def worktree_branches(porcelain: str) -> dict[str, str]:

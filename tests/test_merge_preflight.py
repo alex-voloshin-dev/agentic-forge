@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -26,6 +27,27 @@ from agentic_forge import diagnostics, guardrails  # noqa: E402
 
 _HOOK = _REPO / "plugin" / "hooks" / "scripts" / "merge_preflight.py"
 _MAIN = "/repo"
+
+# A `gh` that answers every PR as clean, so these tests see the local preflight alone and nothing
+# reaches the network; the merge gate itself is tested in test_merge_gate.py.
+_CLEAN_GH = """#!{python}
+import json, sys
+if sys.argv[1:3] == ["pr", "view"]:
+    print(json.dumps({{"number": 1, "url": "https://github.com/o/n/pull/1"}}))
+else:
+    rollup = {{"nodes": [{{"commit": {{"statusCheckRollup": {{"state": "SUCCESS"}}}}}}]}}
+    pr = {{"number": 1, "state": "OPEN", "commits": rollup}}
+    print(json.dumps({{"data": {{"repository": {{"pullRequest": pr}}}}}}))
+"""
+
+
+@pytest.fixture(autouse=True)
+def _clean_gh(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    bin_dir = tmp_path_factory.mktemp("gh-bin")
+    gh = bin_dir / "gh"
+    gh.write_text(_CLEAN_GH.format(python=sys.executable), encoding="utf-8")
+    gh.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
 
 
 @pytest.mark.parametrize(
@@ -186,7 +208,9 @@ def test_git_reads_share_one_deadline(monkeypatch, tmp_path: Path) -> None:
     timeouts = _fake_git(monkeypatch, seconds_per_call=4.0)
     assert merge_preflight.preflight(str(tmp_path), budget=12.0) == guardrails.ALLOW
     assert timeouts == [12.0, 8.0, 4.0]  # each call gets only what is LEFT of the budget
-    assert merge_preflight._BUDGET_SECONDS < 15  # the hook's own cap in hooks.json
+    # ... and with the merge gate's own budget it stays inside the hook's cap in hooks.json
+    # (test_merge_gate.py reads that cap).
+    assert merge_preflight._BUDGET_SECONDS + merge_preflight._GATE_BUDGET_SECONDS < 30
 
 
 def test_exhausted_budget_is_recorded_not_killed(monkeypatch, tmp_path: Path, capsys) -> None:
