@@ -205,7 +205,9 @@ def merge_gate(
         if host == "github.com":
             return True
         if not origin:
-            origin.append(_origin_host(target.cwd, deadline))
+            # The SESSION's checkout, never the `cd` target: a command could otherwise `cd` into a
+            # submodule whose origin is the host it wants contacted.
+            origin.append(_origin_host(cwd, deadline))
         return bool(origin[0]) and host == origin[0]
 
     if guardrails.merge_host(target) and not allowed(guardrails.merge_host(target)):

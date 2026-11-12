@@ -953,7 +953,9 @@ _MERGE_ENV_OK = _GH_FOLLOWED | {"GH_PROMPT_DISABLED", "GH_NO_UPDATE_NOTIFIER", "
 # command that runs the next one (perhaps elsewhere: `env -C`, `sudo -D`). The gate does not follow
 # either, so it says so rather than judging a merge that may run in another directory, or not run.
 _RESERVED = frozenset({"if", "then", "else", "elif", "do", "while", "until", "!", "{", "time"})
-_MERGE_PREFIXES = _RESERVED | _WRAPPERS | {"xargs"}
+_MERGE_PREFIXES = _RESERVED | _WRAPPERS | {
+    "xargs", "stdbuf", "setsid", "doas", "ionice", "chrt", "taskset", "unbuffer",
+}
 # What may run before the merge in the same command: it reads, and cannot change the PR, its
 # checks or which PR the merge names. Anything else could (`gh pr ready`, `gh pr checks --watch`,
 # a thread resolved through `gh api`, `gh pr checkout`, `git checkout`, `sleep`), so the gate,
@@ -967,7 +969,8 @@ _SAFE_GIT_GLOBALS = frozenset(
     {"--no-pager", "-P", "--no-optional-locks", "--literal-pathspecs", "--no-replace-objects"}
 )
 # Arguments that make an allowlisted git write a file or run a program.
-_GIT_UNSAFE_ARGS = ("--output", "--ext-diff", "--upload-pack")
+# `--up` covers `--upload-pack` and every abbreviation `git fetch` accepts for it (`--upload=`).
+_GIT_UNSAFE_ARGS = ("--output", "--ext-diff", "--up")
 
 
 def _quoted(word: str) -> str:
@@ -1226,7 +1229,9 @@ def _not_read_only(segment: _Segment) -> str:
         "it is"
     )
     if ci is None:  # only assignments: shell variables, harmless unless they steer gh or git
-        return changes if any(w.startswith(("GH_", "GITHUB_", "GIT_")) for w in words) else ""
+        # HOME and XDG_* redirect gh's config and stored logins just as GH_* does
+        steers = ("GH_", "GITHUB_", "GIT_", "HOME=", "XDG_")
+        return changes if any(w.startswith(steers) for w in words) else ""
     if segment.writes:
         return f"{label} writes to a file before the merge in the same command"
     if ci != 0:

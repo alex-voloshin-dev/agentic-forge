@@ -884,3 +884,35 @@ def test_the_pr_query_sends_owner_and_name_as_strings() -> None:
 def test_merge_host_reads_every_url_form_gh_accepts(selector: str, repo: str, host: str) -> None:
     target = guardrails.MergeTarget(selector, repo, ".")
     assert guardrails.merge_host(target) == host
+
+
+def test_the_allowed_origin_is_the_sessions_not_a_cd_target(gh: GhStub, work: Path) -> None:
+    """A command cannot `cd` into a nested checkout whose origin is the host it wants contacted."""
+    _origin(work, "https://github.com/acme/infra.git")
+    nested = work / "vendor" / "x"
+    nested.mkdir(parents=True)
+    _origin(nested, "https://attacker.example/o/r.git")
+    with pytest.raises(merge_preflight.GateUnavailable, match="neither github.com"):
+        merge_preflight.merge_gate(
+            "cd vendor/x && gh pr merge -R attacker.example/o/r 1", str(work)
+        )
+    assert gh.calls() == []
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git fetch --upload='cmd' . && gh pr merge 7",  # git accepts abbreviated long options
+        "git fetch --upload-pack=cmd . && gh pr merge 7",
+        "HOME=/tmp/x; gh pr merge 7",
+        "XDG_CONFIG_HOME=/tmp/x; gh pr merge 7",
+        "stdbuf -oL gh pr merge 7",
+        "setsid gh pr merge 7",
+        "ionice -c 3 gh pr merge 7",
+        "doas gh pr merge 7",
+    ],
+)
+def test_more_shapes_fail_open_with_a_reason(command: str) -> None:
+    assert guardrails.is_pr_merge(command)
+    with pytest.raises(guardrails.UnattributableMerge):
+        guardrails.pr_merge_target(command, ".")
