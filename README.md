@@ -77,6 +77,16 @@ Throughout, `knowledge` recalls and saves decisions, and the guardrail hooks gat
 You can enter at any phase — a skill doesn't require the previous artifact to exist. To force
 one, type `/agentic-forge:<skill>` (e.g. `/agentic-forge:release`).
 
+### The session-start routing note
+
+At every session start the plugin adds two sentences to the session's context: agentic-forge skills
+are workflows, so a request that matches one should go through that skill, which scales its process
+to the size of the change. Without it, sessions picked the matching skill for about a third of the
+requests it fit (ADR 0088). It comes back after compaction, on purpose. To switch it off for a
+project, put `{"routing_note": {"enabled": false}}` in `.agentic-forge/config.json` (in the repo, or
+in `~/` for every project), or set `AGENTIC_FORGE_ROUTING_NOTE=0`. See
+[configuration](docs/configuration.md#the-session-start-routing-note).
+
 ## Skills by stage
 
 The `*-patterns` packs (python, typescript, javascript, go, rust, jvm, dotnet, ruby, php) and

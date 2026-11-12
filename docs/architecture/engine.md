@@ -97,7 +97,11 @@ skills link to it rather than restating it:
   body for detail.
 - **Bounded review loop** ([patterns/review-loop.md](../../plugin/patterns/review-loop.md)) —
   writer (skill or role) → `reviewer` → revise, capped at `N = 3`, exiting on `approve`. The
-  orchestrating workflow skill owns the loop and the budget.
+  orchestrating workflow skill owns the loop and the budget. Each round's next step comes from
+  `af.py review-decision`, whose `--verdict` accepts only `approve` or `changes` (either case) and
+  exits 2 on anything else, because the orchestrator types it and a misspelt `approved` used to read
+  as `changes` and spend a round. The library's `handoff.review_loop_decision` keeps reading an
+  unknown verdict as `changes`, the fail-safe for a garbled reviewer reply.
 - **Worktree isolation** ([patterns/worktree.md](../../plugin/patterns/worktree.md)) —
   `software-engineer` runs against a git worktree created by the `develop` workflow, so
   parallel/iterative work does not touch the main checkout.

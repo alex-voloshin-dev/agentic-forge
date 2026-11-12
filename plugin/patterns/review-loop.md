@@ -62,9 +62,9 @@ Three rules, because getting any of them wrong litters the user's repository:
 ## Convergence and exit
 
 The exit criterion is one **pure, tested function** so every orchestrator decides identically:
-`python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" review-decision --verdict <verdict> --iteration <n> --gate-green <yes, no or unknown>` →
+`python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" review-decision --verdict <approve or changes> --iteration <n> --gate-green <yes, no or unknown>` →
 `proceed` | `revise` | `escalate` (and `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" review-blocks --findings-json <file>` is the severity half — a
-`blocker`/`major` must force `changes`). `unknown` is a gate that could not be run (`handoff-load` exited 3) and always escalates. The gate is the workflow's downstream gate: QA green for
+`blocker`/`major` must force `changes`). `unknown` is a gate that could not be run (`handoff-load` exited 3) and always escalates. `--verdict` takes `approve` or `changes`, in either case; anything else (`approved`, `ok`) is bad usage and exits 2 with the valid values, so a misspelt verdict cannot spend a round. The library function behind it, `handoff.review_loop_decision`, still reads an unknown verdict as `changes`: that is the safe reading of a garbled reviewer reply, never a `proceed`. The gate is the workflow's downstream gate: QA green for
 `develop`; the artifact validating for `product`, `research`, `ux-design` and `architecture` (goals
 trace, ADRs weigh real alternatives), and for `plan` also `plan-batches` resolving — no
 cycle. It is not always a schema check: `marketing`'s gate is schema validation for a typed handoff

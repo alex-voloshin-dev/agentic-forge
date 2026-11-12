@@ -812,6 +812,18 @@ def _doc_pr_argv(args: argparse.Namespace) -> int:
 # --- the command line -----------------------------------------------------------------------------
 
 
+# The reviewer's two verdicts (handoff.VERDICTS, which a test keeps this equal to). The library's
+# review_loop_decision reads anything else as `changes`, which is the safe reading of a garbled
+# reply from a reviewer; but at this command line the verdict is typed by the orchestrator, and a
+# misspelt `approved` would have spent a round and, at the third, escalated an approved change.
+_VERDICTS = ("approve", "changes")
+
+
+def _verdict(text: str) -> str:
+    """Normalise before argparse checks ``choices``, so ``Approve`` is ``approve``."""
+    return text.strip().lower()
+
+
 def _positive_int(text: str) -> int:
     value = int(text)
     if value < 1:
@@ -854,7 +866,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--type", required=True, help="the artifact type expected")
 
     sub = add("review-decision", _review_decision, "The review loop's next step.")
-    sub.add_argument("--verdict", required=True)
+    sub.add_argument(
+        "--verdict", required=True, type=_verdict, choices=_VERDICTS,
+        help="the reviewer's verdict, either case: anything else is bad usage (exit 2)",
+    )
     sub.add_argument("--iteration", type=int, required=True, help="1-based")
     sub.add_argument(
         "--gate-green", required=True, choices=("yes", "no", "unknown"),
