@@ -357,3 +357,98 @@ def test_the_event_choices_are_the_librarys() -> None:
     event = next(a for a in commands["pr-review"]._actions if a.dest == "event")
     assert tuple(event.choices) == pr_review.EVENTS
     assert event.default == "request-changes"
+
+
+# --- where the payload may go ---------------------------------------------------------------------
+
+
+def _run_out(
+    tmp_path: Path, env: dict[str, str], out: Path, repo: Path | None = None
+) -> subprocess.CompletedProcess[str]:
+    repo = repo or _checkout(tmp_path)
+    source = _findings(tmp_path, _FINDINGS)
+    return subprocess.run(
+        [_python3(), "-E", str(_AF), "pr-review", "--repo", str(repo), "--pr", "7", "--head",
+         _HEAD, "--findings-json", str(source), "--out", str(out)],
+        cwd=tmp_path, capture_output=True, text=True, env=env, check=False, timeout=60,
+    )
+
+
+def test_a_symlinked_output_directory_is_refused(tmp_path: Path) -> None:
+    env = _stub_gh(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (tmp_path / "link").symlink_to(elsewhere, target_is_directory=True)
+    says = _refused(_run_out(tmp_path, env, tmp_path / "link" / "review.json"))
+    assert "symlink" in says
+    assert list(elsewhere.iterdir()) == []
+    assert _gh_calls(tmp_path) == []  # refused before gh is asked
+
+
+def test_a_symlinked_directory_higher_up_is_refused(tmp_path: Path) -> None:
+    """The case a check of the file's own directory missed: a link two levels up."""
+    env = _stub_gh(tmp_path)
+    real = tmp_path / "real"
+    (real / "deeper").mkdir(parents=True)
+    (tmp_path / "up").symlink_to(real, target_is_directory=True)
+    _refused(_run_out(tmp_path, env, tmp_path / "up" / "deeper" / "review.json"))
+    assert list((real / "deeper").iterdir()) == []
+
+
+def test_an_out_outside_the_repo_and_the_temp_dir_is_refused(tmp_path: Path) -> None:
+    env = _stub_gh(tmp_path)
+    temp = tmp_path / "t"
+    temp.mkdir()
+    env["TMPDIR"] = str(temp)
+    says = _refused(_run_out(tmp_path, env, tmp_path / "other" / "review.json"))
+    assert "not under the repository or the temp directory" in says
+    assert not (tmp_path / "other").exists()
+    assert _gh_calls(tmp_path) == []
+
+
+@pytest.mark.parametrize("where", ["repo", "temp"])
+def test_an_out_under_the_repo_or_the_temp_dir_is_written(tmp_path: Path, where: str) -> None:
+    env = _stub_gh(tmp_path)
+    temp = tmp_path / "t"
+    temp.mkdir()
+    env["TMPDIR"] = str(temp)
+    repo = _checkout(tmp_path)
+    out = (repo if where == "repo" else temp) / "scratch" / "review.json"
+    done = _run_out(tmp_path, env, out, repo=repo)
+    assert done.returncode == 0, done.stderr
+    assert json.loads(out.read_text(encoding="utf-8"))["commit_id"] == _HEAD
+    assert json.loads(done.stdout)["post"]["argv"][-1] == str(out)
+
+
+# --- what gh is asked, and how its answer is read -------------------------------------------------
+
+
+def test_a_carriage_return_in_the_diff_does_not_move_the_lines(tmp_path: Path) -> None:
+    """Read as text, `+a\\r b` became two lines and `+c` fell out of the hunk: line 2 of the file
+    then read as outside the diff, and the comment went to the body (or, mapped wrongly, a 422)."""
+    diff = (
+        "diff --git a/n.txt b/n.txt\nnew file mode 100644\n--- /dev/null\n+++ b/n.txt\n"
+        "@@ -0,0 +1,2 @@\n+a\r b\n+c\n"
+    )
+    env = _stub_gh(tmp_path, diff=diff)
+    findings = [{"severity": "minor", "location": "n.txt:2", "issue": "i", "suggestion": "s"}]
+    done = _run(tmp_path, env, findings=findings)
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout)["inline"] == 1
+    payload = json.loads((tmp_path / "out" / "review.json").read_text(encoding="utf-8"))
+    assert [(c["path"], c["line"]) for c in payload["comments"]] == [("n.txt", 2)]
+
+
+@pytest.mark.parametrize("name", ["2048", "null"])
+def test_a_repo_whose_name_reads_as_a_number_or_null_is_asked_as_a_string(
+    tmp_path: Path, name: str
+) -> None:
+    env = _stub_gh(tmp_path)
+    repo = _checkout(tmp_path, origin=f"https://github.com/o/{name}.git")
+    done = _run(tmp_path, env, repo=repo)
+    assert done.returncode == 0, done.stderr
+    query = _gh_calls(tmp_path)[0]
+    assert query[query.index(f"name={name}") - 1] == "-f"
+    assert query[query.index("owner=o") - 1] == "-f"
+    assert query[query.index("number=7") - 1] == "-F"
+    assert json.loads(done.stdout)["post"]["argv"][4] == f"repos/o/{name}/pulls/7/reviews"

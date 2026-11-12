@@ -73,12 +73,24 @@ without it. Each was green alone; after A merged the module test went red, and s
 was not required GitHub showed the PR as UNSTABLE, which does not block a merge. So the aspect now
 fires on any contract the diff tightens: a new required input, parameter or field, a stricter
 validation, a changed signature, schema or return type, a removed default, as well as the state
-transitions it already covered. For such a diff the review (1) looks for the contract's consumers
-in the base (`git grep` at `<base>`) and in open PRs (`gh pr list`, then each one's `gh pr diff`,
-the 20 most recent at most, saying if there were more), and (2) when the base moved after the PR's
-CI ran, reviews a head that contains the current base or runs the affected tests on a trial merge
-in a scratch worktree. A consumer that would break is a finding on the tightening diff. It stays
+transitions it already covered. For such a diff the session, not a lens (the `role_scope` hook
+keeps `gh`, worktrees and tests from the lens roles; a lens may run the `git grep`), (1) looks for
+the contract's consumers in the base (`git grep` at `origin/<base>`) and in open PRs:
+`gh pr list --state open --limit 21`, keeping those with the same `baseRefName` and skipping the
+PR under review, then each one's `gh pr diff`. Twenty is the bound, and a 21st answer is how it
+knows to say more were open than were searched. (2) After `git fetch origin <base> pull/<n>/head`,
+`git merge-base --is-ancestor origin/<base> <sha>` exiting 1 says the base moved since the head was
+cut, so the PR's CI never saw the current base; it then reviews a head that contains the current
+base, or runs the affected tests on a trial merge in a scratch worktree at `<sha>` (merge
+`origin/<base>` with `--no-commit --no-ff`, run, abort, remove). A consumer that would break is a
+finding on the tightening diff. The `deep-review` lens catalog carries the same trigger. It stays
 instruction-level, as ADR 0074 is: nothing enforces the search.
+
+**The reviewed head is recorded first.** For a PR, step 1 reads `headRefOid` and `baseRefName`
+(`gh pr view <n> --json headRefOid,baseRefName`) before anything else, fetches
+`origin <base> pull/<n>/head`, and reviews `git diff origin/<base>...<sha>`, a commit rather than
+the branch. Step 5 passes that same `<sha>` to `pr-review`, never a fresh lookup: a fresh one would
+make the re-check below compare the PR against a head nobody reviewed, and pass.
 
 **Posting the review: `af.py pr-review`.** For a PR target the review goes to GitHub instead of
 `review.md` (still the output for a local diff and the spine). The session writes the findings, in
@@ -99,7 +111,8 @@ What it does, in order:
    and a given `approve` over a blocker or major is refused. `--head` must be a full commit id.
    All this happens before `gh` is asked anything.
 2. Resolves `owner/name` from the checkout's `origin` (`connectors.remote_slug`), then reads the
-   PR's state, head and author, and the asking account, in one read-only `gh api graphql` call;
+   PR's state, head and author, and the asking account, in one read-only `gh api graphql` call
+   (owner and name as strings, `-f`, so a repository named `2048` or `null` stays a string);
    reads the diff with `gh pr diff`; and reads the state and head again. Each `gh` read has the
    60-second bound of every `af.py` read. A PR that is not open, or a head that is not `--head`
    at either read, is refused: a push between the review and the post would otherwise put the
@@ -107,14 +120,24 @@ What it does, in order:
 3. Parses the diff's hunks by their line counts (`commentable_lines`) for the RIGHT-side lines a
    comment may sit on: added and context lines; a renamed file by its new name; nothing for a
    deleted file or a hunk-less rename. A finding whose `file:line` or `file:start-end` is on those
-   lines (a unique path suffix such as `app.py:3` for `src/app.py` counts) becomes an inline
-   comment; any other goes into the body with the reason. GitHub answers a review holding one
-   comment outside the diff with a 422 and drops all of it.
-4. Renders each finding as severity, `file:line`, the issue, the fix and the evidence; neutralises
-   every `@mention` with a zero-width space after the `@` (code blocks and code spans are left as
-   written, since GitHub links nothing there, unless the text holds an HTML block, where code is not
-   code), closes any fence left open, and caps each comment at 8,000 characters and the body at
-   60,000. The body opens with the verdict, the counts and the reviewed commit.
+   lines becomes an inline comment; any other goes into the body with the reason. A finding's path
+   may also be a unique `/`-bounded suffix of a diff path (`app.py:3` for `src/app.py`), or end
+   with one (an absolute path, or git's `a/`/`b/`). GitHub answers a review holding one comment
+   outside the diff with a 422 and drops all of it. The diff is read as bytes and decoded as UTF-8
+   without newline translation: a lone `\r` in a line is content to git and GitHub, and reading it
+   as a line break would shift every later line number.
+4. Renders each finding as severity, `file:line`, the issue, the fix and the evidence, and
+   neutralises all of the text: a zero-width space after every `@` not right after an ASCII letter
+   or digit (an email address is left alone), `@` written as `&#64;`, `&#x40;` or `&commat;` (any
+   case) turned into the same, and a `<` at the start of a line, after any blockquote or list
+   markers, escaped as `\<`, so that `<!--`, `<pre` or `<script` cannot open an HTML block that
+   hides the findings after it. Code is not exempt. An earlier version left code spans and fences
+   alone, and review showed it bypassable: a list item or a blockquote on the next line cuts a code
+   span, a container ends a fence, an autolink or a tag beats a backtick, a table cell splits on
+   `|`. Each of those notified a real person, where a zero-width space in a code sample costs one
+   character. Each comment is capped at 8,000 characters and the body at 60,000; the body opens
+   with the verdict, the counts and the reviewed commit, and a finding it has no room for is
+   counted in `omitted` and placed as `omitted: body cap`.
 5. Maps the verdict to an event. `request-changes`, the default, sends REQUEST_CHANGES for
    `changes` and COMMENT for `approve`; `comment` sends COMMENT for both; `approve` sends APPROVE
    and is refused on a `changes` verdict. An approval is never the default: an APPROVE from the
@@ -122,16 +145,20 @@ What it does, in order:
    merge gate on a model's judgement. On the asking account's own PR, where GitHub refuses both
    APPROVE and REQUEST_CHANGES, the event is COMMENT, and the body says why.
 6. Writes the payload (`commit_id`, `event`, `body`, `comments[]` with `path`, `line`,
-   `side: RIGHT` and, for a range, `start_line`) to `--out`, never through a symlink, and prints
+   `side: RIGHT` and, for a range, `start_line`) to `--out`, and prints
    one JSON object: `repo`, `number`, `head`, `verdict`, `event`, `event_reason`, the `inline`,
    `in_body` and `omitted` counts, a `placements` entry per finding, `payload`, and `post`, the
    `{"argv", "shell"}` of `gh api -X POST repos/<owner>/<name>/pulls/<n>/reviews --input <payload>`.
+   `--out` must be under the repository (`--repo`) or the temp directory (`$TMPDIR`, else the
+   system's: Python's `tempfile.gettempdir()`), each as written and as it resolves, and no
+   component below that root may be a symlink (`state_io`, with the root as the anchor). Checking
+   only the file's own directory let a linked directory higher up carry the write elsewhere.
 
 It posts nothing itself. Posting is outward-facing, so the session runs `post.shell`, where the
 guardrail hooks see it (ADR 0104, decision 4). Exit codes are `af.py`'s: 0 built; 1 refused
 (malformed findings, a head that moved, a closed or merged PR, no GitHub `origin`, a `gh` that
 failed, is missing or answered something unreadable, a diff over 16 MB, an `--out` that is a
-directory or a link), with one line on stderr and nothing on stdout; 2 bad usage. The commit pin
+directory, outside both roots or through a link), with one line on stderr and nothing on stdout; 2 bad usage. The commit pin
 also covers the gap between building and posting: a push after the build leaves the review on the
 reviewed commit, shown as outdated, rather than on the new head.
 

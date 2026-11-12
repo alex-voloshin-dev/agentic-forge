@@ -43,6 +43,7 @@ import shlex
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -225,6 +226,24 @@ def _read_process(argv: list[str]) -> str:
     if done.returncode != 0:
         raise ValueError(f"{argv[0]} exited {done.returncode}: {done.stderr[-300:]}")
     return done.stdout
+
+
+def _read_raw(argv: list[str]) -> str:
+    """:func:`_read_process` without newline translation: bytes, decoded as UTF-8 with what is not
+    replaced. Text mode reads a lone ``\r`` as a line break, and in a diff that moves every line
+    number after it, so a comment lands on the wrong line or is refused."""
+    try:
+        done = subprocess.run(
+            argv, capture_output=True, check=False, timeout=_READ_TIMEOUT_SECONDS,
+        )
+    except FileNotFoundError:
+        raise ValueError(f"{argv[0]} is not on PATH") from None
+    except subprocess.TimeoutExpired:
+        raise ValueError(f"{argv[0]} timed out after {_READ_TIMEOUT_SECONDS}s") from None
+    if done.returncode != 0:
+        stderr = done.stderr.decode("utf-8", errors="replace")
+        raise ValueError(f"{argv[0]} exited {done.returncode}: {stderr[-300:]}")
+    return done.stdout.decode("utf-8", errors="replace")
 
 
 # --- vault ----------------------------------------------------------------------------------------
@@ -762,6 +781,27 @@ def _pr_head(owner: str, name: str, number: int) -> Any:
     )
 
 
+def _payload_path(given: str, repo: str) -> tuple[Path, Path]:
+    """``--out`` as an absolute path, and the root it may be written under: the repository, or the
+    temp directory (``$TMPDIR``, else the system's), as each is spelt and as it resolves (``/tmp``
+    is a link on macOS). The widest root that holds it is taken, so the most components are checked
+    for a link. Anywhere else is refused: the path is the caller's, and a review payload has no
+    business elsewhere."""
+    out = Path(os.path.abspath(given))
+    roots = sorted(
+        {Path(form(base)) for base in (repo, tempfile.gettempdir())
+         for form in (os.path.abspath, os.path.realpath)},
+        key=lambda root: len(root.parts),
+    )
+    for root in roots:
+        if out != root and root in out.parents:
+            return out, root
+    raise ValueError(
+        f"--out {given} is not under the repository or the temp directory "
+        f"({tempfile.gettempdir()}): write the payload to one of them"
+    )
+
+
 def _pr_review(args: argparse.Namespace) -> int:
     """Build a review payload pinned to the reviewed head, and print the command that posts it.
     Posting is outward-facing, so the session runs that command, where the hooks see it."""
@@ -771,9 +811,10 @@ def _pr_review(args: argparse.Namespace) -> int:
     head = _matching(pr_review.COMMIT_ID, args.head.lower(), "--head (a full commit id)")
     review = pr_review.parse_findings(_read_json(args.findings_json))
     pr_review.review_event(review.verdict, args.event, own_pr=False)  # refused before gh is asked
-    out = os.path.abspath(args.out)
+    out, root = _payload_path(args.out, repo)
     if os.path.isdir(out):
         raise ValueError(f"--out {args.out} is a directory")
+    state_io.refuse_unsafe(out, root)  # now, before gh is asked; the write checks again
     slug = connectors.remote_slug(repo)
     if slug is None:
         raise ValueError(f"the origin of {repo} is not a GitHub repository, so no PR can be read")
@@ -785,7 +826,7 @@ def _pr_review(args: argparse.Namespace) -> int:
     problem = pr_review.reviewable_problem(before, head)
     if problem:
         raise ValueError(problem)
-    diff = _read_process(pr_review.diff_argv(slug, args.pr))
+    diff = _read_raw(pr_review.diff_argv(slug, args.pr))
     if len(diff) > pr_review.MAX_DIFF_CHARS:
         raise ValueError(f"the diff is over {pr_review.MAX_DIFF_CHARS} characters")
     after = _pr_head(owner, name, args.pr)
@@ -795,9 +836,9 @@ def _pr_review(args: argparse.Namespace) -> int:
 
     event, reason = pr_review.review_event(review.verdict, args.event, own_pr=after.own)
     built = pr_review.build_review(review, diff, head=head, event=event, event_reason=reason)
-    # Not through a link at the name or in its directory: the caller names it, in a scratch place.
+    # Not through a link anywhere below the root: a linked directory would carry it elsewhere.
     text = json.dumps(built.payload, indent=2) + "\n"
-    state_io.write_text(Path(out), text, anchor=Path(out).parent)
+    state_io.write_text(out, text, anchor=root)
     _emit({
         "repo": slug, "number": args.pr, "head": head, "verdict": review.verdict,
         "event": event, "event_reason": reason,
@@ -805,8 +846,8 @@ def _pr_review(args: argparse.Namespace) -> int:
         "in_body": sum(not p.inline for p in built.placements),
         "omitted": built.omitted,
         "placements": [dataclasses.asdict(p) for p in built.placements],
-        "payload": out,
-        "post": _command(pr_review.post_argv(slug, args.pr, out)),
+        "payload": str(out),
+        "post": _command(pr_review.post_argv(slug, args.pr, str(out))),
     })
     return EXIT_OK
 

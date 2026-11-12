@@ -27,6 +27,7 @@ __all__ = [
     "MAX_COMMENT_CHARS",
     "MAX_BODY_CHARS",
     "MAX_DIFF_CHARS",
+    "OMITTED_REASON",
     "HEAD_QUERY",
     "Finding",
     "Review",
@@ -59,6 +60,9 @@ MAX_COMMENT_CHARS = 8000
 MAX_BODY_CHARS = 60000
 MAX_DIFF_CHARS = 16 * 1024 * 1024
 _MAX_LOCATION_CHARS = 500
+# The placement reason of a finding the body had no room left for: it is in neither the body nor a
+# comment, and the session has to say so.
+OMITTED_REASON = "omitted: body cap"
 
 # One read: who is asking (GitHub refuses a review that approves or requests changes on one's own
 # PR), and the PR's state, head and author. Read-only.
@@ -73,14 +77,17 @@ _FIX_KEYS = ("suggestion", "fix")
 _LOCATION = re.compile(r"(?P<path>.+?):L?(?P<start>\d+)(?:\s*[-–]\s*L?(?P<end>\d+))?(?::\d+)?")
 _HUNK = re.compile(r"@@ -\d+(?:,(?P<old>\d+))? \+(?P<new>\d+)(?:,(?P<count>\d+))? @@")
 
-# A GitHub mention: `@` after the start or a character that is not an ASCII word character (GitHub's
-# own rule is Ruby's ASCII `\W`), then a login, and optionally `/team`.
-_MENTION = re.compile(r"(?<![A-Za-z0-9_])@(?=[A-Za-z0-9])")
-_ZERO_WIDTH_SPACE = "​"
-_FENCE = re.compile(r" {0,3}(?P<fence>`{3,}|~{3,})")
+# Every `@` that could start a mention: one not right after an ASCII letter or digit (that is an
+# email address, which GitHub does not link), and not already followed by the zero-width space. What
+# follows it is not looked at: `@&#97;lice` renders as `@alice`.
+_ZERO_WIDTH_SPACE = "\u200b"
+_MENTION = re.compile(r"(?<![A-Za-z0-9])@(?!\u200b)")
+# `@` written as a character reference, which GitHub renders as `@` before it looks for mentions.
+_AT_REFERENCE = re.compile(r"&(?:#0*64|#x0*40|commat);?", re.IGNORECASE)
+# A `<` that starts a line, after any blockquote or list markers: it can open an HTML block, and an
+# unclosed `<!--`, `<pre` or `<script` would hide every finding after it.
+_LINE_START_TAG = re.compile(r"^([ \t>*+\-0-9.)]*)<", re.MULTILINE)
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
-_BLANK_LINE = re.compile(r"\n[ \t]*\n")
-_HTML_BLOCK = re.compile(r" {0,3}<[A-Za-z/!?]")
 
 
 @dataclass(frozen=True)
@@ -279,7 +286,8 @@ def commentable_lines(diff: str) -> dict[str, set[int]]:
     """For each file a unified diff changes, the new-file line numbers GitHub accepts an inline
     comment on: the added and context lines of each hunk (the RIGHT side). A deleted file has
     none, and neither has a rename or a mode change without a hunk. A hunk is read by its line
-    counts, so a removed line that reads ``--- x`` is content, not a header."""
+    counts, so a removed line that reads ``--- x`` is content, not a header. Lines end at ``\n``
+    only: a ``\r`` is part of a line, as it is to git and GitHub."""
     files: dict[str, set[int]] = {}
     current: str | None = None
     old_left = new_left = 0
@@ -322,132 +330,43 @@ def commentable_lines(diff: str) -> dict[str, set[int]]:
 
 
 def _resolve_path(path: str, files: dict[str, set[int]]) -> str | None:
-    """The diff's path for a finding's path: the same, or the one diff path it is the tail of."""
+    """The diff's path for a finding's path: the same; else the one diff path that ends with it at a
+    ``/`` (``app.py`` for ``src/app.py``), or that it ends with at a ``/`` (an absolute path, or one
+    with git's ``a/`` or ``b/``). Two candidates is a guess, so None."""
     if path in files:
         return path
-    tails = [name for name in files if name.endswith("/" + path)]
-    return tails[0] if len(tails) == 1 else None
+    found = [
+        name for name in files
+        if name.endswith("/" + path) or path.endswith("/" + name)
+    ]
+    return found[0] if len(found) == 1 else None
 
 
 # --- the text -------------------------------------------------------------------------------------
 
 
-def _neutralise_inline(text: str) -> str:
-    """Mentions in text outside a fenced block. A well-formed code span is left as it is (GitHub
-    does not link a mention there, and an inserted character would corrupt code a reader copies);
-    a backslash-escaped or unmatched backtick opens nothing, and a span ends at a blank line."""
-    out: list[str] = []
-    i = 0
-    plain_start = 0
-    while i < len(text):
-        char = text[i]
-        if char == "\\" and i + 1 < len(text):
-            i += 2
-            continue
-        if char != "`":
-            i += 1
-            continue
-        run_end = i
-        while run_end < len(text) and text[run_end] == "`":
-            run_end += 1
-        run = text[i:run_end]
-        close = _closing_run(text, run_end, len(run))
-        if close is None:
-            i = run_end
-            continue
-        out.append(_MENTION.sub("@" + _ZERO_WIDTH_SPACE, text[plain_start:i]))
-        out.append(text[i:close])
-        i = plain_start = close
-    out.append(_MENTION.sub("@" + _ZERO_WIDTH_SPACE, text[plain_start:]))
-    return "".join(out)
-
-
-def _closing_run(text: str, start: int, length: int) -> int | None:
-    """Where the code span opened by a run of ``length`` backticks ends, or None."""
-    i = start
-    while i < len(text):
-        if text[i] == "`":
-            end = i
-            while end < len(text) and text[end] == "`":
-                end += 1
-            if end - i == length:
-                return end
-            i = end
-            continue
-        if _BLANK_LINE.match(text, i):  # a code span does not cross a paragraph
-            return None
-        i += 1
-    return None
-
-
-def _fence_closes(line: str, fence: str) -> bool:
-    closing = _FENCE.match(line)
-    return bool(
-        closing
-        and closing.group("fence")[0] == fence[0]
-        and len(closing.group("fence")) >= len(fence)
-        and not line[closing.end():].strip()
-    )
-
-
-def _fence_opens(line: str) -> str | None:
-    opened = _FENCE.match(line)
-    if not opened:
-        return None
-    fence = opened.group("fence")
-    if fence[0] == "`" and "`" in line[opened.end():]:  # a backtick fence's info has no backtick
-        return None
-    return fence
-
-
 def neutralise_mentions(text: str) -> str:
-    """``text`` with every ``@name`` that GitHub would turn into a notification broken by a
-    zero-width space after the ``@``, and control characters other than newline and tab removed. An
-    email address is not a mention and is left alone.
+    """``text`` as it is safe to post: every ``@`` that could start a mention followed by a
+    zero-width space, ``@`` written as a character reference (``&#64;``, ``&#x40;``, ``&commat;``,
+    any case) turned into that too, a ``<`` that starts a line escaped, and control characters
+    other than newline and tab removed. An email address (``a@b.com``) is left alone; doing it
+    twice changes nothing more.
 
-    Fenced code blocks and well-formed inline code spans are left as written: GitHub links no
-    mention there, and an inserted character would corrupt code a reader copies. Only the safe
-    mistake is allowed: when the text holds an HTML block (a line opening with a tag), in which
-    Markdown code is not code, every mention is neutralised, code included. A fence left open is
-    closed, so the text cannot turn what follows it in a larger body into code, or a fence in that
-    into prose."""
+    Nothing is exempt, code included. Telling code from prose the way GitHub does is CommonMark plus
+    GFM plus raw HTML (a list item or a blockquote cuts a code span, a container ends a fence, an
+    autolink or a tag beats a backtick, a table cell splits on ``|``), and every mistake there
+    notifies a real person. A zero-width space in a code sample is the mistake that costs nothing
+    but a character."""
     text = _CONTROL.sub("", text.replace("\r\n", "\n"))
-    lines = text.split("\n")
-    marked: list[tuple[str, bool]] = []  # each line, and whether it is in a fenced block
-    fence: str | None = None
-    for line in lines:
-        if fence is None:
-            fence = _fence_opens(line)
-            marked.append((line, fence is not None))
-        else:
-            marked.append((line, True))
-            if _fence_closes(line, fence):
-                fence = None
-    if any(not code and _HTML_BLOCK.match(line) for line, code in marked):
-        out = _MENTION.sub("@" + _ZERO_WIDTH_SPACE, text)
-    else:
-        blocks: list[str] = []
-        prose: list[str] = []
-        for line, code in marked:
-            if code:
-                if prose:
-                    blocks.append(_neutralise_inline("\n".join(prose)))
-                    prose = []
-                blocks.append(line)
-            else:
-                prose.append(line)
-        if prose:
-            blocks.append(_neutralise_inline("\n".join(prose)))
-        out = "\n".join(blocks)
-    if fence is not None:
-        out += "\n" + fence
-    return out
+    text = _AT_REFERENCE.sub("@", text)
+    text = _MENTION.sub("@" + _ZERO_WIDTH_SPACE, text)
+    return _LINE_START_TAG.sub(r"\1\\<", text)
 
 
 def _capped(text: str, cap: int) -> str:
-    """``text`` neutralised and within ``cap`` characters. It is cut *before* neutralising, so a cut
-    cannot open a code span the neutraliser treated as closed; a cut that grew past the cap (one
-    character per mention) is cut shorter and done again."""
+    """``text`` neutralised and within ``cap`` characters. It is cut before it is neutralised, so a
+    cut cannot split a mention from its zero-width space; one that grew past the cap (a character
+    per mention and per escaped ``<``) is cut shorter and done again."""
     limit = cap
     marker = "\n\n_(cut: over the size limit)_"
     while True:
@@ -459,8 +378,7 @@ def _capped(text: str, cap: int) -> str:
 
 
 def _location_code(location: str) -> str:
-    """A location as a code span: no backtick or line break can end it early, and a mention in a
-    code span notifies nobody."""
+    """A location as a code span: no backtick or line break can end it early."""
     clean = " ".join(_CONTROL.sub(" ", location).replace("`", "'").split())
     return f"`{clean}`"
 
@@ -523,9 +441,11 @@ def review_event(verdict: str, requested: str, *, own_pr: bool) -> tuple[str, st
 
 
 def head_query_argv(owner: str, name: str, number: int) -> list[str]:
-    """argv reading :data:`HEAD_QUERY` through ``gh api graphql`` (read-only)."""
+    """argv reading :data:`HEAD_QUERY` through ``gh api graphql`` (read-only). Owner and name go
+    as strings (``-f``): ``-F`` would send a repository named ``2048`` as a number and ``null`` as
+    null, and GitHub would refuse the query; only the number is typed."""
     return [
-        "gh", "api", "graphql", "-F", f"owner={owner}", "-F", f"name={name}",
+        "gh", "api", "graphql", "-f", f"owner={owner}", "-f", f"name={name}",
         "-F", f"number={number}", "-f", f"query={HEAD_QUERY}",
     ]
 
@@ -619,14 +539,14 @@ def build_review(
     files = commentable_lines(diff)
     comments: list[dict[str, Any]] = []
     placements: list[Placement] = []
-    in_body: list[tuple[Finding, str]] = []
+    in_body: list[tuple[Finding, Placement]] = []
     for finding in review.findings:
         placed, comment = _placement(finding, files)
         placements.append(placed)
         if placed.inline:
             comments.append(comment)
         else:
-            in_body.append((finding, placed.reason))
+            in_body.append((finding, placed))
 
     head_text = [
         f"**Review verdict: {review.verdict}** at `{head[:12]}` ({_counts(review.findings)}; "
@@ -638,11 +558,13 @@ def build_review(
         head_text.append(_capped(review.summary, MAX_COMMENT_CHARS))
     body = "\n\n".join(head_text)
     omitted = 0
-    for index, (finding, reason) in enumerate(in_body):
-        entry = _capped(_comment_text(finding) + f"\n\n_({reason}.)_", MAX_COMMENT_CHARS)
+    for index, (finding, placed) in enumerate(in_body):
+        entry = _capped(_comment_text(finding) + f"\n\n_({placed.reason}.)_", MAX_COMMENT_CHARS)
         addition = "\n\n---\n\n" + entry
         if len(body) + len(addition) > MAX_BODY_CHARS - 200:
             omitted = len(in_body) - index
+            for _, left_out in in_body[index:]:
+                left_out.reason = OMITTED_REASON
             body += (
                 f"\n\n---\n\n_{omitted} more finding(s) are not shown: the review body is capped "
                 f"at {MAX_BODY_CHARS} characters._"
