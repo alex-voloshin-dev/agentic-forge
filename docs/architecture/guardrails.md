@@ -180,7 +180,9 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
     The notice says which. Echoed reasons name the `gh` call and its exit code, or a plain word
     from the command, never `gh`'s own output. **What it does not see at all**, and so does not
     gate: a merge through `gh api -X PUT repos/<o>/<r>/pulls/<n>/merge`, through `sh -c '…'` or
-    a script, through a `gh` alias, or by any route that is not `gh pr merge` in command position.
+    a script, through a `gh` alias, inside a `case` arm or a function body, through `env -S`, or by
+    any route that is not `gh pr merge` in command position. The `origin` whose host may be
+    contacted is the session's checkout, never a directory the command `cd`s into.
   - **Cost**: nothing for any other command — the check is the existing `is_pr_merge` parse, and
     `pr_watch` is imported only on a merge. On a merge, two `gh` calls (two API round trips)
     within one 12 s deadline; the git reads keep their own 12 s, and the hook's timeout in
