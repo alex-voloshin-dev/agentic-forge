@@ -19,8 +19,9 @@ designing (`architecture`), task breakdown (`plan`), or reviewing already-writte
 
 ## Process
 
-> **Recall first** — pull the project's relevant prior decisions from the knowledge vault (see
-> [knowledge-recall](../../patterns/knowledge-recall.md)); factor them in, and skip if the vault is empty.
+> **Recall first** — pull the project's relevant prior decisions with its own search, else the
+> knowledge vault (see [knowledge-recall](../../patterns/knowledge-recall.md)); factor them in, pass
+> the top hits (path + one line why) in every `Task` prompt you send, and skip if nothing is found.
 
 1. **Read inputs; fix the slug; detect the stack.** Load `plan.md` if present
    (`python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type plan`; **refuse to build from it unless its `ready` is true**, and never edit its `status` to make it so — that is the repo's lifecycle field) and/or `tech-design.md`; derive

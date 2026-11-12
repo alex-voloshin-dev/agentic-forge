@@ -5,6 +5,9 @@ passing context in a single long conversation. This keeps each phase decoupled, 
 and resumable, and the artifacts double as project documentation (and, in Stage 3, knowledge
 base seeds).
 
+When the consumer of a handoff is a running peer session rather than a later phase, see
+[fleet-coordination.md](fleet-coordination.md).
+
 ## Shape and location
 
 Each artifact is a Markdown file with a **YAML frontmatter header**:
@@ -229,4 +232,5 @@ authorizing the work to continue and unreviewed edits to stay**.
   parses instead of re-deriving them from prose.
 
 See also: [review-loop.md](review-loop.md) (the `review.md` artifact drives the loop) and
-[worktree.md](worktree.md) (where the `develop` phase reads `plan.md`).
+[worktree.md](worktree.md) (where the `develop` phase reads `plan.md`), and
+[fleet-coordination.md](fleet-coordination.md) (handing work to a running peer session).

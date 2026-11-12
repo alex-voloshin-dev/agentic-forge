@@ -99,6 +99,23 @@ a new note's title and tags are quoted, and `moc`, `index`, `home` and `readme` 
 `research` (the outside world). Gated by Tier-1 triggers and a Tier-2 capture-quality contract
 (`run_skill_evals.py`).
 
+## Recall in the spine — the session recalls, the roles receive hits
+
+Each spine phase recalls before it produces its artifact
+([patterns/knowledge-recall.md](../../plugin/patterns/knowledge-recall.md), ADR 0033). **The
+session running the skill does the recall, not the roles it spawns**: a subagent cannot call the
+project's MCP tools (the read-only roles are refused every MCP tool by `role_scope`), and only
+`software-engineer` and `qa-engineer` have a shell. In a field repository with a project search
+server, 20 subagents over 19 hours ran 0 searches, 107 doc greps and 38 whole-file `.md` reads. So
+the session uses the project's own search when it has one (an MCP tool it can see named for
+knowledge or search, or a search CLI documented in the repo's `AGENTS.md` / `CLAUDE.md`), and
+otherwise `af.py vault-recall`, then passes the top 5-8 hits (a path plus one line on why) in each
+`Task` prompt — never whole files. A role may still `Read` a cited file. The same sentence is in
+the spine skills' **Recall first** line and in
+[patterns/fan-out-fan-in.md](../../plugin/patterns/fan-out-fan-in.md)'s spawn step. A repo-level
+search-command setting and an MCP wildcard in the role tools were considered and not taken: the
+first adds configuration the session can already discover, the second widens every read-only role.
+
 ## Session-start injection — the first hook
 
 `plugin/hooks/hooks.json` registers a `SessionStart` command hook (auto-discovered at the plugin
