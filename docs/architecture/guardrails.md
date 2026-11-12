@@ -102,38 +102,63 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
     red) and ignores unresolved review threads unless branch protection requires their resolution;
     the watcher refuses both, but a session running `gh pr merge` itself used to get only the local
     warnings below. In the field, a PR with a red non-required Terraform test (after a semantic
-    conflict with another PR) and an open review thread was merged that way. Now the hook works
-    out which PR the command names (`guardrails.pr_merge_target`: a number, URL or branch, none for
-    the current branch's PR, `-R`/`--repo` or a `GH_REPO=` prefix, after any literal `cd` in the
-    same command), then makes two read-only `gh` calls: `gh pr view [<pr>] [-R <repo>] --json
-    number,url,mergeStateStatus`, which lets `gh` resolve the PR exactly as `gh pr merge` would,
-    and the watcher's own GraphQL query (`pr_watch.PR_QUERY`) for that number, parsed by the
-    watcher's `parse_pr`. `pr_watch.session_merge_gate` then decides, sharing its clauses and their
-    wording with the watcher's `merge_readiness`. It exits 2 with `merge gate: #<n>: merge held:
-    <reasons>` (plus GitHub's `mergeStateStatus`) when the PR is a **draft**, its check rollup is
-    not `SUCCESS` (**pending, failing, erroring, or no checks at all** — "no builds" is not "green
-    builds", ADR 0063), it has an **unresolved review thread** not by `pr_watcher.bot`, or its
-    thread list is past the 100 the query reads. `--auto` is held like a merge, since auto-merge
-    waits only for *required* checks; `--disable-auto` and `--help` merge nothing and call
-    nothing. The session gate is deliberately a **subset** of the watcher's, so it never refuses a
-    merge the watcher's gate opened: a fork, `mergeable`, a closed PR and a review requesting
-    changes stay the watcher's (GitHub or `gh` refuses the conflicting and closed cases itself).
-    Nothing the PR's author wrote reaches the message — no title, body, thread text or check
-    name; only the PR number and enum values GitHub sends, and a non-enum value reads `UNKNOWN`
-    or is left out. A block is recorded in the diagnostics log (rule `merge-gate`).
-  - **It fails open**, allowing the merge with a one-line notice (on stderr and, since a hook's
-    stderr on exit 0 reaches nobody, as a `systemMessage`), when it cannot tell: `gh` not on
-    PATH, not logged in, an API or network error (any non-zero exit), no answer within the
-    budget, output that is not JSON or does not describe the PR it asked about (a tolerant parse
-    of an empty answer would otherwise read as "no checks" and block), or a command it cannot
-    attribute to exactly one PR (two merges, a flag `gh pr merge` does not have, a `GH_HOST=`
-    prefix, a repo-relative PR after a `cd` only a shell could follow). Echoed reasons name the
-    `gh` call and its exit code, never `gh`'s own output.
+    conflict with another PR) and an open review thread was merged that way.
+    - **Which PR.** `guardrails.pr_merge_target` reads the command as a shell would: quotes,
+      `\`-newline continuations, comments, and redirections (`2>&1`, `2>/dev/null`, `> out.txt`,
+      `&>log`) are the shell's, not PR arguments. It takes a number, URL or branch (none: the
+      current branch's PR), `-R`/`--repo` (one flag; the **last** one wins, as in `gh`), a
+      `GH_REPO=` or `GH_HOST=` prefix, and a literal `cd`/`pushd` before the merge that surely
+      takes effect (unconditional, or chained to the merge by `&&` alone; not in a pipeline or
+      the background). Then two read-only `gh` calls, `gh` run by its **absolute** path only (a
+      relative or empty PATH entry could find a `gh` committed to the repo): `gh pr view [<pr>]
+      [-R <repo>] --json number,url,mergeStateStatus`, which resolves the PR exactly as `gh pr
+      merge` would, and the watcher's own GraphQL query (`pr_watch.PR_QUERY`) for that number,
+      parsed by the watcher's `parse_pr`.
+    - **Only what reads may run before the merge in the same command.** The gate reads the PR
+      *before* the command runs, so anything earlier in it that could change the PR, its checks
+      or which PR is meant would make it judge a state the merge never sees — `gh pr checks
+      --watch && gh pr merge` (it would block a merge that waits for green), `gh pr ready && gh pr
+      merge`, resolving threads through `gh api graphql` then merging, `gh pr checkout 12 && gh pr
+      merge`, `git checkout x && gh pr merge`, `sleep 300 && gh pr merge`, an `export GH_REPO=…`.
+      The allowlist is short: `cd`/`pushd` (followed), `gh pr view|status|diff`, `gh pr checks`
+      without `--watch`, `git status|log|diff|fetch|rev-parse`, `echo`, `true`, and a plain
+      variable assignment that is not `GH_*`/`GITHUB_*`. Anything else, before the merge, makes
+      the command unattributable. What comes *after* the merge does not matter.
+    - **The decision** is `pr_watch.session_merge_gate`, sharing its clauses and their wording with
+      the watcher's `merge_readiness`. It exits 2 with `merge gate: #<n>: merge held: <reasons>`
+      (plus GitHub's `mergeStateStatus`) when the PR is a **draft**, its check rollup is
+      **pending, failing or erroring** (anything but `SUCCESS`), it has an **unresolved review
+      thread** not by `pr_watcher.bot`, or its thread list is past the 100 the query reads. A PR
+      with **no checks at all** merges, with a notice: a repo without CI must be able to merge
+      (the watcher still holds it — "no builds" is not "green builds", ADR 0063). `--auto` is held
+      like a merge, since auto-merge waits only for *required* checks — **so a session cannot
+      queue an auto-merge while checks are pending**; it waits for them, then merges.
+      `--disable-auto` and `--help` merge nothing and call nothing. The session gate is a
+      **subset** of the watcher's, so it never refuses a merge the watcher's gate opened: a fork,
+      `mergeable` and a review requesting changes stay the watcher's. Nothing the PR's author wrote
+      reaches the message — no title, body, thread text or check name; only the PR number and enum
+      values GitHub sends, and a non-enum value reads `UNKNOWN` or is left out. A block is recorded
+      in the diagnostics log (rule `merge-gate`).
+  - **An accident guard, not a security boundary.** It stops a session merging by mistake what the
+    watcher would hold; it does not stop one that sets out to merge. Whatever it cannot attribute
+    **fails open with a one-line notice** (on stderr and, since a hook's stderr on exit 0 reaches
+    nobody, as a `systemMessage`) — never a silent pass, never a block on a guess: `gh` not on
+    PATH or found through a relative PATH entry, not logged in, an API or network error (any
+    non-zero exit), no answer within the budget, output that is not JSON or does not describe the
+    PR it asked about (a tolerant parse of an empty answer would otherwise read as "no checks"), a
+    PR that is not open (`gh` refuses it itself, but a lookup that found the wrong PR must not pass
+    unremarked), or a command it cannot attribute to one PR as it will be when it merges: two
+    merges, a flag `gh pr merge` does not have, a non-bool value for a bool flag, another `GH_*`
+    variable for the merge, a shell expansion in it, a command substitution, subshell or group
+    before or around it, a `cd` that may not take effect, anything before it off the allowlist.
+    The notice says which. Echoed reasons name the `gh` call and its exit code, or a plain word
+    from the command, never `gh`'s own output. **What it does not see at all**, and so does not
+    gate: a merge through `gh api -X PUT repos/<o>/<r>/pulls/<n>/merge`, through `sh -c '…'` or
+    a script, through a `gh` alias, or by any route that is not `gh pr merge` in command position.
   - **Cost**: nothing for any other command — the check is the existing `is_pr_merge` parse, and
     `pr_watch` is imported only on a merge. On a merge, two `gh` calls (two API round trips)
-    within one 12 s deadline; the git reads
-    keep their own 12 s, and the hook's timeout in `hooks.json` is 30 s, so a stalled `gh` is a
-    notice rather than a killed hook.
+    within one 12 s deadline; the git reads keep their own 12 s, and the hook's timeout in
+    `hooks.json` is 30 s (it was 15 s), so a stalled `gh` is a notice rather than a killed hook.
   - **The local warnings** read `origin/HEAD`, the worktree list and the base branch's
     ahead-count, and **warn** when another worktree holds the base branch or local `base` is
     ahead of upstream — the two conditions that break the *local* half of the merge (`'master' is

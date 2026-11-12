@@ -7,10 +7,12 @@ and warn about local state that breaks its local half.
 branch protection says so. The PR watcher refuses both; a session running `gh pr merge` itself got
 only the local warnings below. So on a merge this hook reads the PR once more — `gh pr view` to
 learn which PR the command names, then the watcher's own GraphQL query — and **blocks** (exit 2)
-when :func:`pr_watch.session_merge_gate` holds it: a draft, checks not green (pending, failing, or
-none at all), or an unresolved review thread. It **fails open** with a one-line notice when it
-cannot tell: no `gh`, not logged in, an API or network error, a timeout, an answer it cannot read,
-or a command it cannot attribute to one PR. Nothing runs for any other command.
+when :func:`pr_watch.session_merge_gate` holds it: a draft, checks pending or failing, or an
+unresolved review thread. A PR with no checks at all merges, with a notice. It is an accident
+guard, not a security boundary: it **fails open** with a one-line notice when it cannot tell — no
+`gh`, not logged in, an API or network error, a timeout, an answer it cannot read, a PR that is not
+open, or a command it cannot attribute to one PR as it will be when it merges (anything before the
+merge that is not read-only, for one). Nothing runs for any other command.
 
 **The local warnings** (ADR 0076). `gh pr merge` merges on the **server**, then updates your
 **local** checkout. The second half fails on two local conditions, both hit while developing this
@@ -41,9 +43,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
 
 from agentic_forge import diagnostics, guardrails  # noqa: E402
 
-# One deadline for ALL the git reads together. Three reads at 5 s each summed to exactly the hook's
-# own 15 s cap in hooks.json, so a stalled git got the hook killed by Claude Code instead of
-# recorded by the hook; 12 s leaves room for the record.
+# One deadline for ALL the git reads together. Three reads at 5 s each once summed to exactly the
+# hook's whole cap in hooks.json (15 s then), so a stalled git got the hook killed by Claude Code
+# instead of recorded by the hook. 12 s, plus the merge gate's 12 s, leaves room for the record
+# inside the hook's 30 s.
 _BUDGET_SECONDS = 12.0
 # One deadline for the merge gate's two `gh` reads. With the git reads' 12 s that is 24 s at worst,
 # inside the hook's 30 s in hooks.json, so a stalled `gh` is a fail-open notice, not a killed hook.
@@ -66,7 +69,7 @@ class GateUnavailable(Exception):
 
 def _git(cwd: str, *args: str, deadline: float) -> str:
     """Run a read-only git command within the shared ``deadline`` (a ``time.monotonic`` instant);
-    empty string on a non-zero exit (this hook never blocks). Past the deadline it raises
+    empty string on a non-zero exit (the local warnings never block). Past the deadline it raises
     ``TimeoutExpired`` exactly as a stalled call would, and ``main`` records that."""
     remaining = deadline - time.monotonic()
     if remaining <= 0:
@@ -100,13 +103,28 @@ def preflight(cwd: str, *, budget: float = _BUDGET_SECONDS) -> guardrails.Decisi
     )
 
 
-def _gh(args: list[str], *, cwd: str, deadline: float) -> Any:
-    """Run one read-only `gh` call within ``deadline`` and return its JSON. Every way it can fail
-    raises :class:`GateUnavailable` with a reason that echoes nothing `gh` or the PR said."""
+def _gh_path() -> str:
+    """The `gh` to run: the one on PATH, by its absolute path only. A relative or empty PATH entry
+    resolves against the session's directory, where a repo could have committed a `gh` of its own
+    (``role_scope._git_version`` does the same for git)."""
+    gh = shutil.which("gh")
+    if gh is None:
+        raise GateUnavailable("gh is not installed or not on PATH")
+    if not os.path.isabs(gh):
+        raise GateUnavailable("the gh on PATH is found through a relative PATH entry, not run")
+    return gh
+
+
+def _gh(args: list[str], *, cwd: str, deadline: float, host: str = "") -> Any:
+    """Run one read-only `gh` call (``args[0]`` an absolute path) within ``deadline`` and return
+    its JSON; ``host`` is the merge's ``GH_HOST``. Every way it can fail raises
+    :class:`GateUnavailable` with a reason that echoes nothing `gh` or the PR said."""
     remaining = deadline - time.monotonic()
     if remaining <= 0:
         raise GateUnavailable(f"gh did not answer within {_GATE_BUDGET_SECONDS:g} s")
     env = {**os.environ, "GH_PROMPT_DISABLED": "1", "GH_NO_UPDATE_NOTIFIER": "1"}
+    if host:
+        env["GH_HOST"] = host
     try:
         done = subprocess.run(
             args, cwd=cwd, capture_output=True, text=True, timeout=remaining,
@@ -130,35 +148,39 @@ def _gh(args: list[str], *, cwd: str, deadline: float) -> Any:
 def merge_gate(
     command: str, cwd: str, *, budget: float = _GATE_BUDGET_SECONDS
 ) -> guardrails.Decision:
-    """The watcher's merge gate for the PR ``command`` merges: a blocking Decision when it is held,
-    ALLOW when it is open or the command merges nothing. Raises :class:`GateUnavailable` when the
-    gate cannot be applied. Two `gh` reads within ``budget`` seconds together."""
+    """The watcher's merge gate for the PR ``command`` merges: a blocking Decision when it is held;
+    ALLOW when it is open or the command merges nothing; a non-blocking Decision with a notice
+    when it is open only because the PR has no checks at all. Raises :class:`GateUnavailable` when
+    the gate cannot be applied. Two `gh` reads within ``budget`` seconds together."""
     from agentic_forge import pr_watch, settings  # only a merge pays for these
 
-    target = guardrails.pr_merge_target(command, cwd)
-    if target is None:
-        raise GateUnavailable("cannot tell which one PR this command merges")
+    try:
+        target = guardrails.pr_merge_target(command, cwd)
+    except guardrails.UnattributableMerge as unattributable:
+        raise GateUnavailable(f"cannot tell which PR this merges, or as it will be: "
+                              f"{unattributable}") from None
+    if target is None:  # `is_pr_merge` saw one where the command's own reading does not
+        raise GateUnavailable("cannot tell which PR this command merges")
     if not target.merges:
         return guardrails.ALLOW
-    if shutil.which("gh") is None:
-        raise GateUnavailable("gh is not installed or not on PATH")
+    gh = _gh_path()
     if not os.path.isdir(target.cwd):
         raise GateUnavailable("the directory the merge runs in does not exist")
     deadline = time.monotonic() + budget
     view = _gh(
-        ["gh", "pr", "view", *([target.selector] if target.selector else []),
+        [gh, "pr", "view", *([target.selector] if target.selector else []),
          *(["-R", target.repo] if target.repo else []), "--json", _VIEW_FIELDS],
-        cwd=target.cwd, deadline=deadline,
+        cwd=target.cwd, deadline=deadline, host=target.host,
     )
     url = view.get("url") if isinstance(view, dict) else None
     found = _PR_URL.fullmatch(url) if isinstance(url, str) else None
     if found is None:
         raise GateUnavailable("`gh pr view` did not name a PR")
     host, owner, name, number = found.group(1), found.group(2), found.group(3), int(found.group(4))
-    argv = pr_watch.pr_query_argv(owner, name, number)
+    argv = [gh, *pr_watch.pr_query_argv(owner, name, number)[1:]]
     if host != "github.com":
         argv[3:3] = ["--hostname", host]  # after `gh api graphql`
-    data = _gh(argv, cwd=target.cwd, deadline=deadline)
+    data = _gh(argv, cwd=target.cwd, deadline=deadline, host=target.host)
     pr = None
     if isinstance(data, dict) and not data.get("errors"):
         pr = ((data.get("data") or {}).get("repository") or {}).get("pullRequest")
@@ -166,12 +188,21 @@ def merge_gate(
         raise GateUnavailable(f"GitHub's answer does not describe PR #{number}")
     state = pr_watch.parse_pr(data)
     if state.state.upper() != "OPEN":
-        return guardrails.ALLOW  # `gh` refuses a closed or merged PR itself
+        # `gh` refuses a closed or merged PR itself — but a lookup that found the wrong PR must
+        # not pass silently either.
+        shown = state.state if _ENUM.fullmatch(state.state) else "not open"
+        raise GateUnavailable(f"#{number} reads as {shown}, so there is nothing to hold")
     if not _ENUM.fullmatch(state.checks):
         state = replace(state, checks="UNKNOWN")
     bot = settings.resolve(target.cwd).pr_watcher_bot
     decision = pr_watch.session_merge_gate(state, bot=bot)
     if decision.ready:
+        if state.checks == "NONE":
+            return guardrails.Decision(
+                False,
+                f"agentic-forge merge gate: #{number} has no checks at all, so it merges "
+                "without a CI signal (the PR watcher would hold it)",
+            )
         return guardrails.ALLOW
     held = "; ".join(decision.reasons)
     merge_state = view.get("mergeStateStatus")
@@ -207,8 +238,11 @@ def main() -> int:
             gate = merge_gate(command, cwd)
         except GateUnavailable as unavailable:
             notice = f"agentic-forge merge gate not applied, the merge is allowed: {unavailable}"
-            print(notice, file=sys.stderr)
             gate = guardrails.ALLOW
+        if not gate.block and gate.message:
+            notice = gate.message
+        if notice:
+            print(notice, file=sys.stderr)
         if gate.block:
             print(f"agentic-forge {gate.message}", file=sys.stderr)
             diagnostics.emit(

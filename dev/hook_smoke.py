@@ -10,7 +10,9 @@ Four checks, stdlib only:
 
 1. every shipped ``.py`` (hooks, lib, bin, skill scripts) byte-compiles under this interpreter;
 2. every lib module a hook or a skill's command imports — transitively — imports;
-3. every hook runs to exit 0 on a minimal payload for its event and prints nothing or JSON;
+3. every hook runs to exit 0 on a minimal payload for its event and prints nothing or JSON, and
+   the merge-preflight hook runs its merge gate on a `gh pr merge` with no `gh` on PATH, which
+   must fail open with its notice;
 4. ``bin/af.py``, what skills run on this same interpreter (ADR 0104), answers, as a real process.
 
 A hook script with no payload in :data:`PAYLOADS` is a failure too: a new hook must be smoked.
@@ -216,6 +218,36 @@ def check_narrowed_commit(failures: list[str], hook_env: dict[str, str] | None =
     return "narrowed commit run"
 
 
+def check_merge_gate(failures: list[str]) -> str:
+    """The merge gate's own path, which the `git status` payload never reaches: a `gh pr merge` with
+    no `gh` on PATH (so nothing reaches the network) must exit 0 with the fail-open notice. PATH
+    holds only git, when there is one, so the local preflight after the gate does not crash."""
+    with tempfile.TemporaryDirectory() as tmp:
+        base = Path(tmp).resolve()
+        tools, work, scratch = base / "bin", base / "work", base / "tmp"
+        for directory in (tools, work, scratch):
+            directory.mkdir()
+        git = shutil.which("git")
+        if git:
+            (tools / "git").symlink_to(git)
+        payload = {"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(work),
+                   "session_id": "hook-smoke", "tool_input": {"command": "gh pr merge 7 2>&1"}}
+        env = {**os.environ, "PATH": str(tools), "AGENTIC_FORGE_STATE_HOME": str(base / "state"),
+               "TMPDIR": str(scratch), "CLAUDE_PLUGIN_ROOT": str(PLUGIN)}
+        try:
+            done = subprocess.run(
+                [sys.executable, str(HOOKS / "merge_preflight.py")], input=json.dumps(payload),
+                capture_output=True, text=True, cwd=str(work), env=env, timeout=60,
+            )
+        except subprocess.TimeoutExpired:
+            failures.append("merge gate: timed out after 60s")
+            return "merge gate run"
+        if done.returncode != 0 or "merge gate not applied" not in done.stderr:
+            tail = " ".join((done.stderr or "").split())[-300:]
+            failures.append(f"merge gate: exit {done.returncode}, no fail-open notice: {tail}")
+    return "merge gate run"
+
+
 def check_commands(failures: list[str]) -> int:
     """Run ``af.py`` as a skill does: ``python3 -E``, a script, from a temp directory."""
     calls = (["--help"], ["incident-classify", "--outage"], ["vault-recall", "--query", "x"],
@@ -238,12 +270,13 @@ def main(argv: list[str]) -> int:
     mods = check_imports(failures)
     hooks = check_hooks(failures)
     narrowed = check_narrowed_commit(failures)
+    gate = check_merge_gate(failures)
     commands = check_commands(failures)
     version = ".".join(str(v) for v in sys.version_info[:3])
     print(
         f"hook smoke on Python {version}: {compiled} files compiled, "
         f"{len(mods)} hook-reachable modules imported ({' '.join(mods)}), "
-        f"{len(hooks)} hooks run, {narrowed}, "
+        f"{len(hooks)} hooks run, {narrowed}, {gate}, "
         f"{commands} af.py calls"
     )
     for line in failures:

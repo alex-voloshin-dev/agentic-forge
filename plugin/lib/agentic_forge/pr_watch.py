@@ -397,15 +397,17 @@ def actionable_threads(state: PrState, *, bot: str) -> list[ReviewThread]:
     return [t for t in state.threads if not t.resolved and t.id and t.author != bot]
 
 
-def _hold_reasons(state: PrState, *, bot: str) -> list[str]:
+def _hold_reasons(state: PrState, *, bot: str, no_checks_hold: bool = True) -> list[str]:
     """The clauses about the PR's own work, which hold a merge whoever runs it: a draft, checks not
-    green (``NONE`` included), unresolved actionable threads, and a thread list too long to read in
-    full. :func:`merge_readiness` and :func:`session_merge_gate` share them, so the reason a merge
-    is held reads the same from the watcher and from the merge-preflight hook."""
+    green (``NONE`` too, unless ``no_checks_hold`` is False), unresolved actionable threads, and a
+    thread list too long to read in full. :func:`merge_readiness` and :func:`session_merge_gate`
+    share them, so the reason a merge is held reads the same from the watcher and from the
+    merge-preflight hook."""
     reasons: list[str] = []
     if state.draft:
         reasons.append("draft PR")
-    if not state.checks_green:
+    no_checks = (state.checks or "NONE").upper() == "NONE"
+    if not state.checks_green and (no_checks_hold or not no_checks):
         reasons.append(f"checks: {state.checks or 'NONE'}")
     open_threads = actionable_threads(state, bot=bot)
     if open_threads:
@@ -421,12 +423,15 @@ def session_merge_gate(state: PrState, *, bot: str) -> MergeDecision:
     GitHub lets a PR merge whose ``mergeStateStatus`` is ``UNSTABLE`` — a check that is not
     required is red — and does not look at unresolved threads unless branch protection says so;
     the watcher refuses both. This is the part of :func:`merge_readiness` that a merge someone
-    asked for should meet as well: not a draft, checks green, no unresolved thread. It is a subset
-    of the watcher's gate on purpose, so the hook never refuses a merge the watcher's gate opened.
+    asked for should meet as well: not a draft, no check pending or failing, no unresolved thread.
+    A PR with no checks at all is not held here: a repo without CI must be able to merge, and the
+    caller says so instead (the watcher holds it, as "no builds" is not "green builds"). It is a
+    subset of the watcher's gate on purpose, so the hook never refuses a merge the watcher's gate
+    opened.
     The rest stays the watcher's: a fork, ``mergeable`` (which GitHub computes lazily and which
     ``gh`` itself refuses on a conflict), a closed PR (``gh`` says so itself), and a review
     requesting changes (which branch protection can require)."""
-    reasons = _hold_reasons(state, bot=bot)
+    reasons = _hold_reasons(state, bot=bot, no_checks_hold=False)
     return MergeDecision(ready=not reasons, reasons=reasons)
 
 
