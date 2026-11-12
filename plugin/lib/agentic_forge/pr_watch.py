@@ -67,7 +67,8 @@ MERGE_METHODS = ("rebase", "squash", "merge")
 # NONE (a repo with no CI at all) — blocks the merge: no builds is not the same as green builds.
 CHECKS_GREEN = "SUCCESS"
 
-# The GraphQL query the fetch seam runs (`gh api graphql -F owner=.. -F name=.. -F number=..`).
+# The GraphQL query the fetch seam runs (`gh api graphql -f owner=.. -f name=.. -F number=..`;
+# owner and name are raw strings, so a repo named 2048 or null stays a string).
 # Per-thread isResolved is GraphQL-only — `gh pr view --json` can't supply it. `isDraft`,
 # `createdAt`, `reviews` and the last commit's `statusCheckRollup` feed the merge gate (ADR 0063).
 # Adjust here if the `gh` / API shape changes.
@@ -201,7 +202,7 @@ class MergeDecision:
 def pr_query_argv(owner: str, name: str, number: int) -> list[str]:
     """argv reading a PR's state (:data:`PR_QUERY`) through ``gh api graphql``."""
     return [
-        "gh", "api", "graphql", "-F", f"owner={owner}", "-F", f"name={name}",
+        "gh", "api", "graphql", "-f", f"owner={owner}", "-f", f"name={name}",
         "-F", f"number={number}", "-f", f"query={PR_QUERY}",
     ]
 

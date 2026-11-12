@@ -704,3 +704,14 @@ def test_the_session_gate_reasons_read_like_the_watchers() -> None:
     session = pr_watch.session_merge_gate(state, bot="bot").reasons
     assert session == ["draft PR", "checks: PENDING", "1 unresolved review thread(s)"]
     assert pr_watch.merge_readiness(state, bot="bot").reasons == session
+
+
+def test_the_pr_query_sends_owner_and_name_as_strings() -> None:
+    """`-F` lets gh coerce `2048`, `true` or `null` to a JSON non-string, which GraphQL rejects
+    for a repository named that way; `-f` keeps them strings. Only the number is typed."""
+    from agentic_forge import pr_watch
+
+    argv = pr_watch.pr_query_argv("2048", "null", 7)
+    assert argv[argv.index("owner=2048") - 1] == "-f"
+    assert argv[argv.index("name=null") - 1] == "-f"
+    assert argv[argv.index("number=7") - 1] == "-F"
