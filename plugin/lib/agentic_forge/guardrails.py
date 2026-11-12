@@ -1361,6 +1361,7 @@ def _host_name(netloc: str) -> str:
 # A host no allowlist holds: what a URL-shaped value with no readable host stands for, so the gate
 # refuses to ask about it rather than treating it as "names no host".
 _NO_HOST = "invalid.invalid"
+NO_HOST = _NO_HOST  # public: the merge gate never allows it
 _SCP_LIKE = re.compile(r"\A[^/:@]*@[^/:]+:")
 
 

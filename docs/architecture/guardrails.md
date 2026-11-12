@@ -187,6 +187,8 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
     there must be github.com or that origin's host, or the gate asks nothing.
     Every host the command names counts, not the first one found: a URL selector that is not a PR
     URL gh accepts makes gh fall back to `-R`, `GH_HOST` or the remotes, so all of them must pass.
+    Remotes are read as gh reads them (`git remote -v`: `insteadOf` rewrites and `pushurl` applied);
+    the session's own rewrites are the operator's and trusted.
   - **Cost**: nothing for any other command — the check is the existing `is_pr_merge` parse, and
     `pr_watch` is imported only on a merge. On a merge, two `gh` calls (two API round trips)
     within one 12 s deadline; the git reads keep their own 12 s, and the hook's timeout in
