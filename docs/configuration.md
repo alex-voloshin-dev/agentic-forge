@@ -283,9 +283,11 @@ Inside the vault, `vault.add_note` raises an error naming the path if a link or 
 the note or at a map-of-content it would link from, or if one it would have to change is read-only, before writing
 anything: the note was **not** saved, and the skill's user should be told. That holds with the setting too, and on
 a vault that does not exist yet. A map-of-content already holding the link is not changed, and an existing
-`README.md` is not written at all, so neither stops a capture. A linked file in the vault is skipped when reading,
-and so is a note that is not UTF-8. Frontmatter that does not parse costs that note its frontmatter, and a `title`,
-`type` or tag that is not a string is ignored. A note's name and frontmatter title reach the session context by
+`README.md` is not written at all, so neither stops a capture. A linked file or folder in the vault is skipped when
+reading, never followed, wherever it points, and so is a note that is not UTF-8. Notes are read from every folder
+below the vault, within fixed caps on count, depth and size
+(see [the knowledge base](architecture/knowledge.md#how-the-vault-is-read)). Frontmatter that does not parse costs
+that note its frontmatter, and a `title`, `type` or tag that is not a string is ignored. A note's name and frontmatter title reach the session context by
 design (ADR 0018), and a repo chooses both.
 
 ## Env-var overrides

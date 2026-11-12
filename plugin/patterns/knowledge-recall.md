@@ -17,7 +17,8 @@ Every SDLC spine phase (`research → product → architecture → plan → deve
 
 1. **Recall.** Query the vault for notes relevant to the feature/topic — `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" vault-recall --repo . --query '<keywords, letters and digits only>'`
    (ranked) or the `knowledge` skill. Use the phase's subject as the query (the feature slug + the
-   phase's concern, e.g. "auth", "rate limiting").
+   phase's concern, e.g. "auth", "rate limiting"). Notes in every folder of the vault are ranked
+   (`decisions/`, `learnings/`, ...), and each result's `path` is the file to read.
 2. **Factor in.** Let recalled decisions shape the output; don't silently contradict a settled
    decision — call it out if you must diverge.
 2b. **A decision record states an intent, not a deployment.** `status: current` means the decision

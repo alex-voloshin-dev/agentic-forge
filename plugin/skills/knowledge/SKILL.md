@@ -29,6 +29,13 @@ NOTE
 `name` replaces that note, and the result's `replaced` says so. `vault-validate` checks the graph
 before finishing. It exits 1 with the `problems`, and `exists` is false if there is no vault yet.
 
+**Folders.** Notes in every folder below `docs/knowledge/` are read, as Obsidian reads them, and
+`[[name]]` resolves by file name wherever the note sits (folders starting with `.` or `_`, links,
+and folder `README.md` files are skipped). A new note is written at the vault root; an existing
+one is replaced in its folder (`path` says where). The root map is `MOC.md`, else `INDEX.md`,
+`Home.md` or `README.md`. Two notes of one name in two folders is a `vault-validate` problem: rename
+one.
+
 **A refusal is the answer, not an obstacle.** If `vault-add-note` exits non-zero the note was NOT
 saved: report its error to the user as it stands. Do not write the note by hand, or anywhere else,
 to get round it. The vault's rules on where a note may go are in that command, so a note written

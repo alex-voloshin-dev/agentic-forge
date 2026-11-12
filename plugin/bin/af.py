@@ -251,9 +251,9 @@ def _vault_recall(args: argparse.Namespace) -> int:
     repo = _directory(args.repo)
     if not args.query.strip():
         raise ValueError("--query is empty")
-    notes = [
-        {"name": name, "score": score, "path": str(vault.vault_path(repo) / f"{name}.md")}
-        for name, score in vault.recall(repo, args.query)
+    notes = [  # the file it was read from, in whatever folder of the vault
+        {"name": note.name, "score": score, "path": str(note.path)}
+        for note, score in vault.recall_notes(repo, args.query)
     ]
     result: dict[str, Any] = {"notes": notes}
     if importlib.util.find_spec("yaml") is None:
@@ -304,7 +304,7 @@ def _vault_add_note(args: argparse.Namespace) -> int:
 
     repo = _directory(args.repo)
     fields = _note_fields(_read_json(args.json))
-    replaced = (vault.vault_path(repo) / f"{fields['name']}.md").exists()
+    replaced = vault.note_path(repo, fields["name"]).exists()
     name, title, body = fields["name"], fields["title"], fields["body"]
     path = vault.add_note(repo, name, title, body, tags=fields["tags"],
                           moc=fields.get("moc", vault.ROOT_MOC))
