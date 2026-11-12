@@ -9,6 +9,8 @@ Amends [0042](0042-external-reviewer.md), [0057](0057-external-reviewer-on-by-de
 [0015](0015-by-stack-detection-and-packs.md) (stack detection) and [0101](0101-the-commit-gate-only-narrows.md) (the
 commit gate's shapes).
 
+> **Amended 2026-11-12 by [ADR 0110](0110-the-field-queue-items-7-to-15.md):** Terraform now has a pack (`terraform-patterns`).
+
 ## Context
 
 The f4ai fleet (11 sessions on real repositories) reported four bugs. Each was verified against the code before work

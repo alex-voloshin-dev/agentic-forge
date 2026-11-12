@@ -217,6 +217,8 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
 
 ## Role scope
 
+The architect's Write scope outside `docs/` was widened narrowly by ADR 0110.
+
 A plugin agent's `tools:` list does not restrict what a `Bash(...)` specifier names: `reviewer` and
 `security-engineer` declared `Bash(git diff:*)` and got Bash. What kept them read-only was their
 prompt and, in `default` mode, the session's permission prompts; in `bypassPermissions` nothing did

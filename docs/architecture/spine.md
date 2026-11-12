@@ -63,6 +63,8 @@ worktree, review-loop, handoff, adversarial-review.
 
 ## The review phase on a pull request
 
+Since ADR 0110: the widened concurrent-change step and `af.py pr-review`.
+
 Two parts of `code-review` exist because of what a pull request adds to a diff.
 
 **A tightened contract breaks consumers in other PRs.** The concurrent-change aspect (ADR 0074)
