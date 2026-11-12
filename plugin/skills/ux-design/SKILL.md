@@ -59,7 +59,7 @@ the product requirements (`product`).
    `external_reviewer.enabled` (settings), also run the external reviewer over the spec —
    `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/external_review.py" --target <worktree>/docs/sdlc/<feature-slug>/ux-spec.md --repo <worktree> --kind ux`; codex critiques it as an independent-model lens over the same two concerns and its
    `findings` fold into the same worst-first revision. It **degrades gracefully** (absent/disabled
-   codex is skipped, not a failure) and its findings are **advisory** (prompt-injectable) — verify
+   codex is skipped, not a failure; **exit 3 is a failed lens**, not a skip — record it in the round and tell the user) and its findings are **advisory** (prompt-injectable) — verify
    before acting. **Persist each round** — one `review-<artifact>-<iteration>.md` per round under `docs/sdlc/<feature-slug>/`, aggregating **both** lenses; on `proceed` keep only the final round, on `escalate` keep them all (naming + lifecycle: [review-loop.md](../../patterns/review-loop.md)). **Exit criterion (the shared, tested rule):** each round, aggregate both lenses
    (plus the external one) to a single verdict and compute
    `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" review-decision --verdict <verdict> --iteration <n> --gate-green <yes if the ux-spec validates, else no>`

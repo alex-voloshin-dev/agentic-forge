@@ -6,19 +6,28 @@ runs the configured CLI to review one deliverable — `--kind` selects the crite
 failure mode (`external_review.KINDS`: code change, marketing deliverable, plan, product spec,
 research brief, technical design, UX spec) — prints the verdict + findings, and can write a
 `review.md` handoff (`--out`) so a codex review feeds the review-loop / review-scan ecosystem.
-Degrades gracefully (clear message, no crash) when the CLI is absent or disabled, and when a review
-is skipped it prints the actual reason and detail, and writes no `review.md`. See ADR 0042 (seam),
-0057 (on by default), 0060 / 0061 / 0062 (auto-wired into every workflow that writes a reviewable
-deliverable), 0100 (skip reasons + opt-in isolation) under docs/architecture/decisions/.
+Degrades gracefully (clear message, no crash) when the CLI is absent or disabled: that is a skip.
+When the CLI is present and enabled but the attempt produces no review (a timeout, a non-zero exit,
+a reply with no verdict, isolation it cannot honour) that is a **failure**, reported as one with its
+reason and detail, never as a skip. Neither prints a verdict or writes a `review.md`. The target
+goes to the reviewer on stdin, so its size is not limited by argv, and the reviewer runs whatever
+the caller's cwd. See ADR 0042 (seam), 0057 (on by default), 0060 / 0061 / 0062 (auto-wired into
+every workflow that writes a reviewable deliverable), 0100 (skip reasons + opt-in isolation) under
+docs/architecture/decisions/.
 
     python plugin/bin/external_review.py --target diff.txt --kind code
     python plugin/bin/external_review.py --target docs/sdlc/x/plan.md --kind plan --out review.md
     python plugin/bin/external_review.py --target docs/sdlc/x/ux-spec.md --kind ux
 
-Exit 0 on approve / disabled / CLI absent; 1 on a `changes` verdict, any other skip (timeout,
-process failure, invalid output, isolation unsupported), a `--target` / `--out` that is a symlink or
-goes through a symlinked directory inside the repo, which are refused rather than followed, or a
-`--target` that cannot be read as UTF-8 text.
+Exit codes:
+
+- 0: an approve, or a skip (the reviewer is disabled, or not on PATH). The output says which.
+- 1: a `changes` verdict (findings on stdout), or a refused input: a `--target` / `--out` that is a
+  symlink or goes through a symlinked directory inside the repo, a `--target` that cannot be read as
+  UTF-8 text, or an `--out` that cannot be written.
+- 3: a failed review (timeout, process-failure, invalid-output, isolation-unsupported): the reviewer
+  was there and enabled, and produced no verdict. The reason and detail are on stderr. A caller must
+  record it as a lens that dropped out, not as a skip.
 """
 
 from __future__ import annotations
@@ -35,6 +44,8 @@ _PLUGIN_ROOT = Path(__file__).resolve().parents[1]  # plugin/ — this ships to 
 sys.path.insert(0, str(_PLUGIN_ROOT / "lib"))
 
 from agentic_forge import external_review, settings  # noqa: E402
+
+EXIT_FAILED = 3  # the reviewer ran, or was meant to, and produced no review; 2 is argparse's
 
 
 def _render(result: dict[str, Any]) -> str:
@@ -183,10 +194,16 @@ def main(argv: list[str]) -> int:
         options=external_review.ReviewerOptions.from_settings(resolved),
     )
     result = outcome.review
-    if result is None:  # a skip is never an approval: no verdict is printed, no review.md written
+    if result is None:  # never an approval: no verdict is printed, no review.md written
+        if outcome.status == "failed":
+            message = f"external reviewer {command!r} failed ({outcome.reason})"
+            print(f"{message}: {outcome.detail}" if outcome.detail else message, file=sys.stderr)
+            print("no external review was produced: this is a failure, not a skip",
+                  file=sys.stderr)
+            return EXIT_FAILED
         message = f"external reviewer {command!r} skipped ({outcome.reason})"
         print(f"{message}: {outcome.detail}" if outcome.detail else message, file=sys.stderr)
-        return 0 if outcome.reason == "missing-cli" else 1
+        return 0
     print(_render(result))
     if args.out:
         try:

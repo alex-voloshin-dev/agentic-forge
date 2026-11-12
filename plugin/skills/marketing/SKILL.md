@@ -83,7 +83,7 @@ The failure mode of generated marketing is confident, low-signal fluff. So every
    (settings), also run the external reviewer over the deliverable —
    `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/external_review.py" --target <worktree>/<the deliverable> --repo <worktree> --kind marketing`; codex attacks the same evidence discipline as an
    independent-model lens and its `findings` fold into the same worst-first revision. It **degrades
-   gracefully** (absent/disabled codex is skipped, not a failure) and its findings are **advisory**
+   gracefully** (absent/disabled codex is skipped, not a failure; **exit 3 is a failed lens**, not a skip — record it in the round and tell the user) and its findings are **advisory**
    (prompt-injectable) — verify before acting. **Persist each round** — one `review-<artifact>-<iteration>.md` per round under `docs/sdlc/<feature-slug>/`, aggregating **both** lenses; on `proceed` keep only the final round, on `escalate` keep them all (naming + lifecycle: [review-loop.md](../../patterns/review-loop.md)). **Exit criterion (the shared, tested rule):** each
    round, compute `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" review-decision --verdict <verdict> --iteration <n> --gate-green <yes if the gate below, else no>` (see [adversarial-review.md](../../patterns/adversarial-review.md), bounded by
    [review-loop.md](../../patterns/review-loop.md)) — `revise` (loop back and fix worst-first),
