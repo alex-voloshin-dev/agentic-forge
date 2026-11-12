@@ -33,7 +33,10 @@ its diff; use `terraform init -lockfile=readonly` when the change must not move 
 
 - **The agent runs only the offline gate:** `terraform fmt`, `terraform init -backend=false`,
   `terraform validate`, `terraform test` on mock providers (and `tflint` when configured). None
-  of these reads state or reaches a cloud API.
+  of these reads state or reaches a cloud API. "Offline" is about the cloud, not about trust:
+  `init` downloads providers and `tflint` runs the ruleset plugins the repo's `.tflint.hcl` names
+  (`tflint --init` downloads them), so in an untrusted repo they are the same class of risk as
+  running its tests.
 - **Anything against a real backend is the human's step**, named in the hand-off, never run:
   `terraform init` with the backend, `terraform plan -out=plan.out`, `terraform show -json
   plan.out`, and above all `terraform apply`, `terraform destroy`, `import`, `state rm/mv/push`
