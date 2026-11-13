@@ -96,16 +96,24 @@ start directory:
 - **Same work tree.** One `git rev-parse --is-inside-work-tree --show-toplevel --absolute-git-dir` per side. The
   target is used only when both say `true` and both the real top and the real git directory are equal. A linked
   worktree of the same repository is refused: the plugin itself creates detached PR-head worktrees
-  (`run_scheduled`, code review's trial merge) holding someone else's code. A submodule, a nested repository, a
-  directory whose `.git` file points into this repository, and `.git` itself are refused too.
+  (`run_scheduled`, code review's trial merge) holding someone else's code. An initialised submodule, a nested
+  repository, a directory whose `.git` file points into this repository, and `.git` itself are refused too. An
+  uninitialised submodule has no `.git` of its own and so passes this check, but the tracked check below refuses it.
 - **Not ignored.** `git check-ignore --no-index -q -- <target>` must exit 1 (not ignored). `node_modules/<pkg>` is
   inside the work tree, but it is not the project's code. `--no-index` keeps an ignored `dist/` ignored when one file
   in it was force-added. Exit 0 (ignored), an error or no time left keeps the start directory.
-- **Tracked.** `git --literal-pathspecs ls-files --error-unmatch -- <target>` must exit 0: something under the target
-  is in the index. An extracted archive, or a clone with its `.git` removed, is inside the work tree and not ignored,
-  but it holds nothing the repository tracks. The name is matched literally on this read only. As a pathspec glob, an
-  untracked `x*` matched a tracked `xa/f`, and `x?` or `x[b]` a tracked file `xb`. The shared hardening flags are not
-  changed, since other reads take the target as a path, not a pathspec.
+- **A regular tracked file beneath the target.** The check reads `git --literal-pathspecs ls-files -z -s --
+  <target>/` from the start's top. At least one entry must be a regular entry (mode not `160000`) whose path lies
+  strictly beneath the target (`<target>/…`, top-relative; for the top itself, any regular entry). Output that is
+  not `<mode> <sha> <stage>\t<path>\0` records keeps the start directory.
+  - **An exit code is not enough.** `ls-files --error-unmatch` also succeeds when the target is itself an index
+    entry. Two such cases: a tracked file replaced on disk by a directory, and an uninitialised submodule's gitlink
+    whose empty directory was filled with content.
+  - **Refused:** those two; a directory whose only entry is a nested gitlink; an extracted archive or a clone with
+    its `.git` removed (inside the work tree, not ignored, but holding nothing the repository tracks).
+  - **Matched literally, on this read only.** As a pathspec glob, an untracked `x*` matched a tracked `xa/f`, and
+    `x?` or `x[b]` a tracked file `xb`. The shared hardening flags are unchanged: the other reads take the target
+    as a path, not a pathspec.
 
 The reads run git by the absolute path `PATH` gives, never a relative entry, as `merge_preflight` and `role_scope` do.
 They use `gate_scope`'s hardened flags (`--no-replace-objects`, `core.fsmonitor=false`, `safe.bareRepository=explicit`,
@@ -142,9 +150,12 @@ guarantee comes from the matcher's grammar, not from the tests.
   `CHASE_DOTS` in zsh) resolves `cd lnk/..` through the link, so the commit may land in another directory of the same
   work tree than the one gated. The hook sees only its own environment's `CDPATH`, not one set in the shell's rc
   files. Both stay inside the start directory's own work tree, by the checks in §3.
-- **The path checks are not in the 2-second budget.** `os.path.isdir` and `os.path.realpath` on the `cd`/`-C` steps,
-  and the containment check, run before the budget starts and have no timeout of their own. A stalled mount (NFS,
-  FUSE) can hold the hook up to its own 120-second cap. That fails open, and the commit is not gated.
+- **The path checks have no timeout of their own.**
+  - `os.path.isdir` and `os.path.realpath` on the `cd`/`-C` steps run before the 2-second budget starts.
+  - The `realpath` of git's output (the top and git directory) runs inside the budget, but nothing interrupts it.
+
+  A stalled mount (NFS, FUSE) can hold the hook up to its own 120-second cap. That fails open, and the commit is not
+  gated.
 - **The merge gate has a background-`cd` gap.** `pr_merge_target("cd x && git status & gh pr merge 5", "/w")`
   attributes the merge to `/w/x`, while the merge runs in `/w`, because `git status` is read-only. That gate fails
   open and only reads. This is a follow-up.

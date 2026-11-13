@@ -51,21 +51,22 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
   message read as one word, so `cd .. && git commit -m "$(cat <<'EOF' …)" && git push` is followed.
   `cd` is logical, as the shell's; each step must exist, and with `CDPATH` set only `/…`, `.`,
   `..`, `./…` and `../…` are followed. `-C` is physical, as git resolves it, and each step must
-  exist. All
-  commits/pushes must land in one directory. Anything else keeps the start directory: `;`, a
-  newline, `||`, `|`, `&`, a redirection, a subshell or group, `if`/`!`, a wrapper (`env --chdir=`),
-  an assignment or `export`, `~`, a variable, another git option or subcommand, or any failure.
-  The gate runs project scripts before the user is asked, so the result must be **tracked, not
-  ignored, in the start directory's own work tree**. Its real path must lie under the start's top
-  before any git runs there. It must have the same real `git rev-parse --show-toplevel` and
-  `--absolute-git-dir` (no linked worktree, submodule or other repo), and pass
-  `git check-ignore --no-index` (no `node_modules/<pkg>`). It must also hold a tracked file
-  (`git --literal-pathspecs ls-files --error-unmatch`, the name never read as a glob, so no
-  extracted archive). It is read by absolute `git` with the narrowing's hardening in a 2-second
-  budget. A shell set for physical `cd` (`set -P`, `CHASE_LINKS`) and a `CDPATH` set only in the
-  shell's rc are not seen (ADR 0111, Limits). A block on a moved commit tells the model to `cd`
-  there in its own call before committing. The settings, the gate choice, narrowing, tool
-  resolution and both messages use the real path. The stack is the
+  exist. All commits/pushes must land in one directory. Anything else keeps the start directory:
+  `;`, a newline, `||`, `|`, `&`, a redirection, a subshell or group, `if`/`!`, a wrapper
+  (`env --chdir=`), an assignment or `export`, `~`, a variable, another git option or subcommand,
+  or any failure. The gate runs project scripts before the user is asked, so the result must be
+  **tracked, not ignored, in the start directory's own work tree**. Its real path must lie under
+  the start's top before any git runs there. It must have the same real `git rev-parse
+  --show-toplevel` and `--absolute-git-dir` (no linked worktree, initialised submodule or other
+  repo), and pass `git check-ignore --no-index` (no `node_modules/<pkg>`). It must also hold a
+  regular tracked file beneath it: `git --literal-pathspecs ls-files -z -s -- <target>/` must
+  list a non-gitlink entry strictly under the target. That refuses an extracted archive, a
+  tracked file replaced by a directory, and an uninitialised submodule filled with content, and
+  the name is never read as a glob. It is read by absolute `git` with the narrowing's hardening
+  in a 2-second budget. A shell set for physical `cd` (`set -P`, `CHASE_LINKS`) and a `CDPATH`
+  set only in the shell's rc are not seen (ADR 0111, Limits). A block on a moved commit tells the
+  model to `cd` there in its own call before committing. The settings, the gate choice, narrowing,
+  tool resolution and both messages use the real path. The stack is the
   cwd's own, read as before the monorepo scan and multi-name hints (`stacks.gate_profile`: no
   scan, a hint's first name, the hint file wherever it links), and the gate keeps only lint shapes
   that cannot make it block where it used to pass (`guardrails._gate_argv`): a JS/TS package's own

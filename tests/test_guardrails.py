@@ -877,7 +877,7 @@ def layout(tmp_path: Path, monkeypatch) -> dict[str, Path]:
         _git("init", "-q", ".", cwd=directory)
         _git("commit", "-q", "--allow-empty", "-m", "init", cwd=directory)
     tracked = ("sub/deep/f", "a/b/f", "sub/.hidden/f", "a/.hidden/f", "dist/.gitkeep", "sub/xa/f",
-               "sub/xb")  # fmt: skip
+               "sub/xb", "sub/gone")  # fmt: skip
     for name in tracked:
         (repo / name).write_text("x\n")  # git keeps no empty directory
     (repo / ".gitignore").write_text("node_modules/\ndist/\n")
@@ -885,6 +885,17 @@ def layout(tmp_path: Path, monkeypatch) -> dict[str, Path]:
     _git("add", ".", cwd=repo)
     _git("add", "-f", "dist/.gitkeep", cwd=repo)
     (repo / "sub" / "untracked" / "f").write_text("x\n")  # after the add: never tracked
+    # index entries that are the target itself, not a file beneath it: a tracked file replaced on
+    # disk by a directory, an uninitialised submodule's gitlink filled with content, and a
+    # directory whose only entry is such a gitlink
+    (repo / "sub" / "gone").unlink()
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, check=True, capture_output=True,
+                          text=True).stdout.strip()  # fmt: skip
+    for name in ("sub/sm", "sub/holder/inner"):
+        _git("update-index", "--add", "--cacheinfo", f"160000,{head},{name}", cwd=repo)
+    for name in ("sub/gone", "sub/sm", "sub/holder/inner"):
+        (repo / name).mkdir(parents=True)
+        (repo / name / "v").write_text("x\n")
     # untracked, each a pathspec glob matching a tracked path: `x*` crosses `/` to `xa/f`, `x?` and
     # `x[b]` match the file `xb` (only `*` crosses a slash, so they cannot reach `xa/f`)
     for name in ("x*", "x?", "x[b]"):
@@ -1006,6 +1017,11 @@ _MESSAGE = "\"$(cat <<'EOF'\nfix: a; git push && cd /\nEOF\n)\""
         ("cd 'x?' && git commit -m x", "sub"),
         ("git -C 'x[b]' commit -m x", "sub"),
         ("cd xa && git commit -m x", "xa"),  # the tracked one itself
+        # ...an index entry that is the target itself, not a regular file beneath it
+        ("cd gone && git commit -m x", "sub"),  # a tracked file, now a directory on disk
+        ("git -C sm commit -m x", "sub"),  # an uninitialised submodule, filled
+        ("cd holder && git commit -m x", "sub"),  # only a nested gitlink beneath it
+        ("git -C holder/inner commit -m x", "sub"),
     ],
 )
 def test_commit_dir_follows_only_a_plain_line(
@@ -1124,7 +1140,7 @@ def test_commit_dir_reads_git_only_when_the_command_names_another_directory(
     assert len(calls) == 4
     assert [argv[-4:] for argv in calls[:2]] == [work_tree, work_tree]
     assert calls[2][-5:] == ["check-ignore", "--no-index", "-q", "--", repo]
-    assert calls[3][-5:] == ["--literal-pathspecs", "ls-files", "--error-unmatch", "--", repo]
+    assert calls[3][-6:] == ["--literal-pathspecs", "ls-files", "-z", "-s", "--", repo + os.sep]
     for argv in calls:
         assert os.path.isabs(argv[0])  # by absolute path: a relative PATH entry could plant one
         assert "safe.bareRepository=explicit" in argv and "core.fsmonitor=false" in argv
@@ -1176,6 +1192,52 @@ def test_commit_dir_falls_back_unless_git_says_not_ignored(
     monkeypatch.setattr(guardrails.subprocess, "run", check_ignore_says)
     sub = str(layout["sub"])
     assert guardrails.commit_dir("cd .. && git commit", sub) == sub
+
+
+def test_commit_dir_reads_index_paths_with_tabs_and_newlines(layout: dict[str, Path]) -> None:
+    """`-z` output: a path is everything after the first tab, up to the NUL."""
+    odd = layout["sub"] / "odd"
+    odd.mkdir()
+    (odd / "a\tb\nc").write_text("x\n")
+    _git("add", "--", "sub/odd", cwd=layout["repo"])
+    assert guardrails.commit_dir("cd odd && git commit", str(layout["sub"])) == str(odd)
+
+
+@pytest.mark.parametrize(
+    "listing",
+    [
+        b"",  # nothing beneath
+        b"100644 0123 0\tsub",  # cut short: no NUL
+        b"100644 0123\tsub/f\0",  # two fields
+        b"100644 0123 0 sub/f\0",  # no tab
+        b"100644 0123 0\t\0",  # no path
+        b"160000 0123 0\tsub/sm/x\0",  # a gitlink, wherever it sits
+        b"100644 0123 0\tsubx/f\0",  # beside the target, not beneath it
+        b"100644 0123 0\tsub\0",  # the target itself
+    ],
+)
+def test_the_tracked_check_accepts_only_a_regular_entry_beneath(
+    layout: dict[str, Path], monkeypatch, listing: bytes
+) -> None:
+    real = guardrails._git_bytes
+
+    def listed(git, directory, deadline, *args):
+        return (0, listing) if "ls-files" in args else real(git, directory, deadline, *args)
+
+    monkeypatch.setattr(guardrails, "_git_bytes", listed)
+    repo = str(layout["repo"])
+    assert guardrails.commit_dir("cd sub && git commit", repo) == repo
+    monkeypatch.setattr(guardrails, "_git_bytes", lambda *a: (0, b"100644 0123 0\tsub/f\0")
+                        if "ls-files" in a else real(*a))  # fmt: skip
+    assert guardrails.commit_dir("cd sub && git commit", repo) == str(layout["sub"])
+
+
+def test_the_tracked_check_refuses_a_failed_listing(layout: dict[str, Path], monkeypatch) -> None:
+    real = guardrails._git_bytes
+    monkeypatch.setattr(guardrails, "_git_bytes", lambda *a: (128, b"100644 0123 0\tsub/f\0")
+                        if "ls-files" in a else real(*a))  # fmt: skip
+    repo = str(layout["repo"])
+    assert guardrails.commit_dir("cd sub && git commit", repo) == repo
 
 
 def test_commit_dir_keeps_to_its_budget(layout: dict[str, Path], monkeypatch) -> None:
