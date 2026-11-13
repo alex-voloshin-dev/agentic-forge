@@ -1,7 +1,9 @@
 """Narrow the commit gate to what a simple command changes (ADR 0101).
 
-The gate is always what ``guardrails.choose_gate`` picked for the session's cwd. :func:`narrow` can
-only leave it as it is, skip it, or hand `ruff check` the changed files. A command it does not fully
+The gate is always what ``guardrails.choose_gate`` picked for the directory the commit acts on
+(``guardrails.commit_dir``, ADR 0111). :func:`narrow` can only leave it as it is, skip it, or hand
+`ruff check` the changed files. A `cd` or a `git -C` is never a simple command, so it is never
+narrowed against a directory other than that one. A command it does not fully
 understand, or any git failure, leaves the gate as it is: uncertainty is neither an allow nor a new
 block. Hook-reachable, so Python 3.9.
 """

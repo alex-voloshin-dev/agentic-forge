@@ -2,8 +2,10 @@
 """Test-gate hook (PreToolUse): block a git commit/push when the fast gate fails (ADR 0019).
 
 On a `git commit`/`git push` Bash command, run the repo's fast gate (`dev/validate.py` if present,
-else the detected stack's lint) and exit 2 (block) if it fails. A simple command narrows that gate
-to what it changes (`gate_scope`, ADR 0101). Skippable via the `test_gate.skip` setting (or
+else the detected stack's lint) and exit 2 (block) if it fails. The gate runs in the directory the
+commit acts on: a leading `cd`/`pushd` and git's `-C` are followed within the same repository
+(`guardrails.commit_dir`, ADR 0111). A simple command narrows that gate to what it changes
+(`gate_scope`, ADR 0101). Skippable via the `test_gate.skip` setting (or
 AGENTIC_FORGE_SKIP_TEST_GATE — ADR 0041). Fails OPEN on any infrastructure error (missing tool,
 etc.) — only a genuine gate failure blocks.
 """
@@ -142,7 +144,9 @@ def gate_decision(payload: dict[str, Any]) -> guardrails.Decision:
     command = str((payload.get("tool_input") or {}).get("command", ""))
     if not guardrails.is_commit_or_push(command):
         return guardrails.ALLOW
-    cwd = str(payload.get("cwd") or ".")
+    # Where the commit acts, not where the call started: `cd .. && git commit` and `git -C <root>
+    # commit` are gated (and configured) as the root, within the same repository only (ADR 0111).
+    cwd = guardrails.commit_dir(command, str(payload.get("cwd") or "."))
     # resolve config only once we know it's a commit/push (keep the cheap filters first)
     if settings.resolve(cwd).skip_test_gate:
         return guardrails.ALLOW
@@ -214,7 +218,9 @@ def main() -> int:
         return 0
     if decision.block:
         print(f"agentic-forge test-gate {decision.message}", file=sys.stderr)
-        print(json.dumps({"systemMessage": skip_notice(cwd)}))
+        # the config file that decided is the one in the directory the gate ran in (ADR 0111)
+        command = str((payload.get("tool_input") or {}).get("command", ""))
+        print(json.dumps({"systemMessage": skip_notice(guardrails.commit_dir(command, cwd))}))
         diagnostics.emit(
             str(payload.get("cwd") or "."), kind="block", component="commit-gate",
             message=decision.message, severity="major", session_id=payload.get("session_id"),

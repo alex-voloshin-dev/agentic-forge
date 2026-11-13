@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import time
 from pathlib import Path
 
@@ -842,3 +844,210 @@ def test_choose_gate_reads_the_hint_as_before(tmp_path: Path) -> None:
     assert choose_gate(tmp_path / "a") == ["ruff", "check", "."]
     _files(tmp_path / "b", {"CLAUDE.md": "stack: go, python\n"})
     assert choose_gate(tmp_path / "b") == ["go", "vet", "./..."]
+
+
+# --- test-gate: the directory a commit or push acts on (ADR 0111) -----------------------------
+
+
+def _git(*args: str, cwd: Path) -> None:
+    subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", *args],
+        cwd=cwd, check=True, capture_output=True,
+    )  # fmt: skip
+
+
+@pytest.fixture
+def layout(tmp_path: Path, monkeypatch) -> dict[str, Path]:
+    """``repo`` (with ``sub/deep``), a linked worktree of it, another repo, a plain directory."""
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"):
+        monkeypatch.delenv(name, raising=False)
+    base = tmp_path.resolve()
+    repo, other, plain = base / "repo", base / "other", base / "plain"
+    for directory in (repo / "sub" / "deep", other / "sub", plain):
+        directory.mkdir(parents=True)
+    for directory in (repo, other):
+        _git("init", "-q", ".", cwd=directory)
+        _git("commit", "-q", "--allow-empty", "-m", "init", cwd=directory)
+    (repo / "sub" / "deep" / "f").write_text("x\n")  # git keeps no empty directory
+    _git("add", ".", cwd=repo)
+    _git("commit", "-q", "-m", "files", cwd=repo)
+    _git("worktree", "add", "-q", "-b", "wt", str(base / "wt"), cwd=repo)
+    return {"base": base, "repo": repo, "sub": repo / "sub", "deep": repo / "sub" / "deep",
+            "wt": base / "wt", "other": other, "plain": plain}
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("git commit -m x", "sub"),
+        ("cd .. && git commit --allow-empty -m x", "repo"),
+        ("cd deep && git commit -m x", "deep"),
+        ("cd deep; git push", "deep"),
+        ("git add . && cd .. && git commit -m x", "repo"),
+        ("pushd .. && git commit -m x", "repo"),
+        ("cd deep\ngit commit -m x", "deep"),
+        ("X=1 cd .. && git commit -m x", "repo"),
+        ("X=1; cd .. && git commit -m x", "repo"),  # an assignment alone changes no directory
+        ("cd deep && cd .. && cd .. && git commit -m x", "repo"),
+        ("cd .. && git commit -m \"$(cat <<'EOF'\nfix: a; git push\nEOF\n)\"", "repo"),
+        ("cd .. && git commit -m $(cat msg)", "repo"),
+        ("cd .. && git commit -m x && git push", "repo"),
+        ("cd .. && git commit -m x; cd ..", "repo"),  # a cd after the commit is not its directory
+        ("git -C .. commit -m x", "repo"),
+        ("git -C deep push", "deep"),
+        ("git -C .. -C sub/deep commit -m x", "deep"),  # relative to the previous -C, as git does
+        ("cd .. && git -C sub commit -m x", "sub"),
+        ("git -C '' commit -m x", "sub"),  # an empty -C changes nothing in git
+        ("git -c core.x=y -C .. --no-pager commit -m x", "repo"),
+        ("timeout 5 git -C .. commit -m x", "repo"),
+        # fall back to the start directory: what only a shell can tell
+        ("cd ~ && git commit -m x", "sub"),
+        ("cd ~/repo && git commit -m x", "sub"),
+        ("cd $HOME && git commit -m x", "sub"),
+        ('cd "$D" && git commit -m x', "sub"),
+        ("cd && git commit -m x", "sub"),
+        ("cd - && git commit -m x", "sub"),
+        ("cd -P .. && git commit -m x", "sub"),
+        ("cd ../* && git commit -m x", "sub"),
+        ('git -C "$(git rev-parse --show-toplevel)" commit -m x', "sub"),
+        ("git -C ~/repo commit -m x", "sub"),
+        ("git -C", "sub"),
+        # ...a cd that may not take effect
+        ("cd .. || true && git commit -m x", "sub"),
+        ("cd .. || exit; git commit -m x", "sub"),
+        ("cd .. & git commit -m x", "sub"),
+        ("cd .. | cat; git commit -m x", "sub"),
+        ("cd .. && sleep 1 & git commit -m x", "sub"),
+        ("cd .. && false || git commit -m x", "sub"),
+        ("git add . && cd ..; git commit -m x", "sub"),
+        ("true || cd .. && git commit -m x", "sub"),
+        ("(cd .. && git commit -m x)", "sub"),
+        ("{ cd ..; git commit -m x; }", "sub"),
+        ("if true; then cd ..; fi; git commit -m x", "sub"),
+        ("command cd .. && git commit -m x", "sub"),
+        ("cd .. && popd && git commit -m x", "sub"),
+        ("cd .. && source env.sh && git commit -m x", "sub"),
+        # ...another tree, several directories, or a line not read to its end
+        ("GIT_DIR=../.git git -C .. commit -m x", "sub"),
+        ("git --git-dir=../.git -C .. commit -m x", "sub"),
+        ("git --work-tree .. commit -m x", "sub"),
+        ("git -c core.worktree=.. -C .. commit -m x", "sub"),
+        ("git -c Core.WorkTree=.. -C .. commit -m x", "sub"),
+        ("git --config-env=core.worktree=W -C .. commit -m x", "sub"),
+        ("cd .. && git commit -m x && cd sub && git push", "sub"),
+        ("git -C .. commit -m x; git push", "sub"),
+        ("cd .. && git commit -m \"$(cat msg)\" && cd sub && git push", "sub"),
+        ("cd .. && git commit -m 'unbalanced", "sub"),
+        ("cd .. && git status", "sub"),  # not a commit: nothing to resolve
+        ("cd nowhere && git commit -m x", "sub"),  # not an existing directory
+        ("git -C nowhere commit -m x", "sub"),
+        ("cd ../.. && git commit -m x", "sub"),  # outside any working tree
+    ],
+)
+def test_commit_dir_follows_only_what_surely_moves_the_commit(
+    layout: dict[str, Path], command: str, expected: str
+) -> None:
+    assert guardrails.commit_dir(command, str(layout["sub"])) == str(layout[expected])
+
+
+def test_commit_dir_stays_inside_the_same_repository(layout: dict[str, Path]) -> None:
+    """The gate runs project scripts in the result before the user is asked: a command must not
+    steer it into another checkout, or out of any. A linked worktree of the same repo counts."""
+    sub = str(layout["sub"])
+    for place in ("other", "plain"):
+        for command in (f"git -C {layout[place]} commit -m x", f"cd {layout[place]} && git push"):
+            assert guardrails.commit_dir(command, sub) == sub, command
+    assert guardrails.commit_dir(f"git -C {layout['other']}/sub commit", sub) == sub
+    assert guardrails.commit_dir("cd ../../wt && git commit", sub) == str(layout["wt"])
+    assert guardrails.commit_dir(f"git -C {layout['wt']}/sub commit", sub) == f"{layout['wt']}/sub"
+    assert guardrails.commit_dir(f"git -C {layout['repo']} commit", str(layout["wt"])) == str(
+        layout["repo"]
+    )
+    repo = str(layout["repo"])
+    assert guardrails.commit_dir("cd .git && git commit -m x", repo) == repo  # not a work tree
+    plain = str(layout["plain"])  # a start directory outside any repo never moves
+    assert guardrails.commit_dir(f"git -C {repo} commit", plain) == plain
+
+
+def test_commit_dir_reads_cd_dot_dot_logically_as_the_shell_does(layout: dict[str, Path]) -> None:
+    """From a symlink to ``repo/sub``, a shell's ``cd ..`` goes to the link's parent, which is in
+    no repository: the start directory stays. Below the link it is the same repository."""
+    link = layout["base"] / "link"
+    link.symlink_to(layout["sub"])
+    assert guardrails.commit_dir("cd .. && git commit", str(link)) == str(link)
+    assert guardrails.commit_dir("cd deep && git commit", str(link)) == f"{link}/deep"
+
+
+def test_commit_dir_reads_git_only_when_the_command_names_another_directory(
+    layout: dict[str, Path], monkeypatch
+) -> None:
+    calls: list[list[str]] = []
+    real_run = subprocess.run
+
+    def recording(argv, **kwargs):
+        calls.append(list(argv))
+        return real_run(argv, **kwargs)
+
+    monkeypatch.setattr(guardrails.subprocess, "run", recording)
+    sub = str(layout["sub"])
+    for command in ("git commit -m x", "cd . && git commit", "git -C . commit", "cd ~ && git push"):
+        assert guardrails.commit_dir(command, sub) == sub
+    assert calls == []
+    assert guardrails.commit_dir("cd .. && git commit", sub) == str(layout["repo"])
+    assert len(calls) == 2  # the start directory's repo, and the target's
+    for argv in calls:
+        assert os.path.isabs(argv[0])  # by absolute path: a relative PATH entry could plant one
+        assert "safe.bareRepository=explicit" in argv and "core.fsmonitor=false" in argv
+
+
+def test_commit_dir_reads_git_without_the_sessions_steering(
+    layout: dict[str, Path], monkeypatch
+) -> None:
+    """A git variable in the hook's environment points the commit elsewhere: keep the start
+    directory, as the narrowing does (ADR 0101)."""
+    sub = str(layout["sub"])
+    monkeypatch.setenv("GIT_DIR", str(layout["other"] / ".git"))
+    assert guardrails.commit_dir("cd .. && git commit", sub) == sub
+
+
+@pytest.mark.parametrize("found", [None, "git"])
+def test_commit_dir_needs_git_by_an_absolute_path(
+    layout: dict[str, Path], monkeypatch, found: str | None
+) -> None:
+    monkeypatch.setattr(guardrails.shutil, "which", lambda name: found)
+    sub = str(layout["sub"])
+    assert guardrails.commit_dir("cd .. && git commit", sub) == sub
+
+
+@pytest.mark.parametrize(
+    "error", [subprocess.TimeoutExpired(["git"], 2.0), OSError("boom"), RuntimeError("bug")]
+)
+def test_commit_dir_never_raises(layout: dict[str, Path], monkeypatch, error: Exception) -> None:
+    def failing(argv, **kwargs):
+        raise error
+
+    monkeypatch.setattr(guardrails.subprocess, "run", failing)
+    sub = str(layout["sub"])
+    assert guardrails.commit_dir("cd .. && git commit", sub) == sub
+
+
+def test_commit_dir_keeps_to_its_budget(layout: dict[str, Path], monkeypatch) -> None:
+    monkeypatch.setattr(guardrails, "_COMMIT_DIR_BUDGET", 0.0)
+    sub = str(layout["sub"])
+    assert guardrails.commit_dir("cd .. && git commit", sub) == sub
+
+
+def test_lex_partial_keeps_the_command_a_substitution_cut_short() -> None:
+    """Off by default, so the merge gate reads exactly as before; on, the commit a heredoc message
+    cuts short is still seen, with the word holding the substitution marked dynamic."""
+    command = "cd .. && git commit -m \"$(cat <<'EOF'\nmsg\nEOF\n)\" && git push"
+    segments, stopped = guardrails._lex(command)
+    assert stopped == "a command substitution"
+    assert [s.words for s in segments] == [["cd", ".."]]
+    segments, stopped = guardrails._lex(command, partial=True)
+    assert stopped == "a command substitution"
+    assert [s.words for s in segments] == [["cd", ".."], ["git", "commit", "-m", ""]]
+    assert segments[1].dynamic == [False, False, False, True] and segments[1].before == "&&"
+    assert guardrails._lex("$(x)", partial=True)[0] == []  # nothing read: nothing kept

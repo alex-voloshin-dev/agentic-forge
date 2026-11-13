@@ -1983,6 +1983,98 @@ def test_an_xdg_user_config_runs_whole(mono: Mono) -> None:
     assert mono.argvs() == [_narrowed("./new.py")]
 
 
+# --- commit_gate: the directory the commit acts on (ADR 0111) ---------------------------------
+# The field repro: a session that once ran `cd svc` keeps `svc` as its start directory, and
+# `cd .. && git commit` or `git -C <root> commit` was gated by svc's ruff, old findings and all.
+
+HEREDOC_EMPTY = "git commit --allow-empty -m \"$(cat <<'EOF'\nfix: x\nEOF\n)\""
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        f"cd .. && {EMPTY}",
+        f"cd .. && {HEREDOC_EMPTY}",
+        "git -C .. commit --allow-empty -m empty",
+        "git -C {root} commit --allow-empty -m empty",
+        f"cd /tmp && cd {{root}} && {EMPTY}",
+    ],
+)
+def test_a_root_commit_from_a_package_is_gated_as_the_root(mono: Mono, command: str) -> None:
+    command = command.replace("{root}", str(mono.root))
+    assert mono.hook(f"cd . && {EMPTY}").returncode == 2  # the same repo, gated as svc: blocked
+    assert mono.argvs() == [WHOLE_RUFF] and mono.ran()[0]["cwd"] == str(mono.root / "svc")
+    done = mono.hook(command)
+    assert done.returncode == 0, done.stderr
+    assert mono.ran() == []  # the root has no manifest: ungated, as from the root itself
+
+
+def test_a_package_commit_from_the_root_is_gated_as_the_package(mono: Mono) -> None:
+    for command in (f"cd svc && {EMPTY}", "git -C svc commit --allow-empty -m x"):
+        done = mono.hook(command, ".")
+        assert done.returncode == 2, command
+        assert mono.argvs() == [WHOLE_RUFF] and mono.ran()[0]["cwd"] == str(mono.root / "svc")
+        assert f"in {mono.root / 'svc'}\n" in done.stderr and "legacy_bad.py" in done.stderr
+        notice = json.loads(done.stdout)["systemMessage"]  # the config that decided: svc's
+        assert f"{mono.root / 'svc'}/.agentic-forge/config.json" in notice
+    mono.write("svc/.agentic-forge/config.json", '{"test_gate": {"skip": true}}')
+    assert mono.hook(f"cd svc && {EMPTY}", ".").returncode == 0  # and its settings are read
+    assert mono.ran() == []
+
+
+def test_a_commit_from_the_package_itself_is_still_gated(mono: Mono) -> None:
+    mono.stage("svc/new_bad.py", _BAD)
+    assert mono.hook("git commit -m x").returncode == 2
+    assert mono.argvs()[0] == _narrowed("./new_bad.py")
+    assert mono.hook("cd ../svc && git commit -m x").returncode == 2  # a cd back to itself
+    assert mono.argvs() == [WHOLE_RUFF]
+
+
+def test_a_cd_that_may_not_take_effect_keeps_the_start_directory(mono: Mono) -> None:
+    for command in (f"cd .. || true && {EMPTY}", f"cd ~ && {EMPTY}", f"cd $HOME && {EMPTY}",
+                    f"(cd .. && {EMPTY})", f"cd .. && {EMPTY} && cd svc && git push"):
+        assert mono.hook(command).returncode == 2, command  # gated as svc, as before ADR 0111
+        assert mono.ran()[0]["cwd"] == str(mono.root / "svc"), command
+
+
+def test_a_command_cannot_steer_the_gate_into_another_checkout(mono: Mono) -> None:
+    """The gate runs project scripts before the user is asked. Another repo with a failing lint is
+    never linted, from a gated or an ungated start directory."""
+    other = mono.base / "other"
+    other.mkdir()
+    mono.git("init", "-q", ".", cwd=other)
+    (other / "pyproject.toml").write_text("[project]\nname = 'o'\nversion = '0'\n")
+    (other / "bad.py").write_text(_BAD)
+    for start, gated in ((".", False), ("svc", True)):
+        for command in (f"git -C {other} commit --allow-empty -m x", f"cd {other} && {EMPTY}"):
+            done = mono.hook(command, start)
+            assert done.returncode == (2 if gated else 0), (start, command)
+            assert all(entry["cwd"] != str(other) for entry in mono.ran()), (start, command)
+
+
+def test_a_linked_worktree_of_the_same_repo_is_followed(mono: Mono) -> None:
+    linked = mono.base / "linked"
+    mono.git("worktree", "add", "-q", "-b", "wt", str(linked))
+    done = mono.hook(f"git -C {linked}/svc commit --allow-empty -m x", ".")
+    assert done.returncode == 2, done.stderr
+    assert mono.ran()[0]["cwd"] == str(linked / "svc")
+    assert mono.hook(f"cd {mono.root} && {EMPTY}").returncode == 0  # and back from svc to root
+
+
+@pytest.mark.parametrize("command", SIMPLE)
+def test_a_narrowed_command_never_moves_the_directory(mono: Mono, command: str) -> None:
+    """Narrowing reads git in the directory it is given; only a simple command narrows, and none of
+    them names another directory, so the two can never disagree (ADR 0101, ADR 0111)."""
+    assert guardrails.commit_dir(command, str(mono.root / "svc")) == str(mono.root / "svc")
+
+
+@pytest.mark.parametrize(
+    "command", [f"cd .. && {EMPTY}", "git -C .. commit -m x", f"cd .. && {HEREDOC_EMPTY}"]
+)
+def test_a_moved_commit_is_never_narrowed(command: str) -> None:
+    assert gate_scope.parse_simple(command) is None
+
+
 def _recording_git(directory: Path, log: Path) -> dict[str, str]:
     directory.mkdir()
     tool = directory / "git"
