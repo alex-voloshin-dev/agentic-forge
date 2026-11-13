@@ -492,7 +492,7 @@ def test_commit_gate_resolves_python_to_python3(monkeypatch, tmp_path: Path) -> 
     [
         (security, "decide", "security-hook"),
         (budget, "decide", "budget-hook"),
-        (commit_gate, "gate_decision", "commit-gate"),
+        (commit_gate, "decide", "commit-gate"),  # what `main` calls (ADR 0111)
         (audit_log, "write_audit", "audit-hook"),
     ],
 )
@@ -1998,6 +1998,7 @@ HEREDOC_EMPTY = "git commit --allow-empty -m \"$(cat <<'EOF'\nfix: x\nEOF\n)\""
         "git -C .. commit --allow-empty -m empty",
         "git -C {root} commit --allow-empty -m empty",
         f"cd /tmp && cd {{root}} && {EMPTY}",
+        f"cd .. && {HEREDOC_EMPTY} && git push",
     ],
 )
 def test_a_root_commit_from_a_package_is_gated_as_the_root(mono: Mono, command: str) -> None:
@@ -2032,7 +2033,9 @@ def test_a_commit_from_the_package_itself_is_still_gated(mono: Mono) -> None:
 
 def test_a_cd_that_may_not_take_effect_keeps_the_start_directory(mono: Mono) -> None:
     for command in (f"cd .. || true && {EMPTY}", f"cd ~ && {EMPTY}", f"cd $HOME && {EMPTY}",
-                    f"(cd .. && {EMPTY})", f"cd .. && {EMPTY} && cd svc && git push"):
+                    f"(cd .. && {EMPTY})", f"cd .. && {EMPTY} && cd svc && git push",
+                    f"cd ..; {EMPTY}", f"cd .. && {EMPTY} && {{ git push; }}",
+                    f"env --chdir=.. {EMPTY}"):
         assert mono.hook(command).returncode == 2, command  # gated as svc, as before ADR 0111
         assert mono.ran()[0]["cwd"] == str(mono.root / "svc"), command
 
@@ -2052,13 +2055,42 @@ def test_a_command_cannot_steer_the_gate_into_another_checkout(mono: Mono) -> No
             assert all(entry["cwd"] != str(other) for entry in mono.ran()), (start, command)
 
 
-def test_a_linked_worktree_of_the_same_repo_is_followed(mono: Mono) -> None:
+def test_a_linked_worktree_is_not_followed_and_its_validator_never_runs(mono: Mono) -> None:
+    """A linked worktree shares the repository but not its files: the plugin's own PR-head
+    worktrees are detached checkouts of someone else's code. Its `dev/validate.py` must not run
+    before the user is asked."""
     linked = mono.base / "linked"
-    mono.git("worktree", "add", "-q", "-b", "wt", str(linked))
-    done = mono.hook(f"git -C {linked}/svc commit --allow-empty -m x", ".")
-    assert done.returncode == 2, done.stderr
-    assert mono.ran()[0]["cwd"] == str(linked / "svc")
-    assert mono.hook(f"cd {mono.root} && {EMPTY}").returncode == 0  # and back from svc to root
+    mono.git("worktree", "add", "-q", "--detach", str(linked))
+    marker = mono.base / "validator-ran"
+    (linked / "dev").mkdir()
+    (linked / "dev" / "validate.py").write_text(
+        f"open({str(marker)!r}, 'w').close()\nraise SystemExit(1)\n"
+    )
+    for command in (f"git -C {linked} commit --allow-empty -m x", f"cd {linked} && {EMPTY}"):
+        done = mono.hook(command, ".")
+        assert done.returncode == 0, (command, done.stderr)  # gated as the root: ungated
+        assert not marker.exists() and mono.ran() == [], command
+    assert mono.hook(f"cd {mono.root} && {EMPTY}").returncode == 0  # back from svc to its root
+    assert mono.ran() == []
+
+
+def test_an_ignored_directory_is_not_followed(mono: Mono) -> None:
+    """`node_modules/<pkg>` is inside the work tree but not the project's code."""
+    mono.write(".gitignore", ".ruff_cache/\nnode_modules/\n")
+    mono.write("node_modules/pkg/pyproject.toml", "[project]\nname = 'p'\nversion = '0'\n")
+    mono.write("node_modules/pkg/bad.py", _BAD)
+    done = mono.hook(f"cd node_modules/pkg && {EMPTY}", ".")
+    assert done.returncode == 0 and mono.ran() == [], done.stderr
+
+
+def test_decide_names_the_directory_it_decided_in(mono: Mono) -> None:
+    """`main` takes the skip notice's directory from here, not from a second reading."""
+    start = str(mono.root / "svc")
+    for payload in ({"tool_name": "Write", "cwd": start},
+                    {"tool_name": "Bash", "tool_input": {"command": "cd .. && ls"}, "cwd": start}):
+        assert commit_gate.decide(payload) == (guardrails.ALLOW, start)
+    moved = {"tool_name": "Bash", "tool_input": {"command": f"cd .. && {EMPTY}"}, "cwd": start}
+    assert commit_gate.decide(moved)[1] == str(mono.root)
 
 
 @pytest.mark.parametrize("command", SIMPLE)

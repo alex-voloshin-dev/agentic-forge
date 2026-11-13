@@ -12,19 +12,29 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 - **The commit gate runs where the commit happens, not where the Bash call started** (ADR 0111). The hook used the
   payload's `cwd`, the shell's directory when the call starts. After an earlier `cd svc`, `cd .. && git commit` and
   `git -C <root> commit` were gated, and configured, as `svc`, so the package's old lint findings blocked a root
-  commit. The same commit from the root passed. Now `guardrails.commit_dir` reads the command and the gate, its
-  settings, its narrowing, its tool resolution and its messages all use that directory:
-  - It follows a leading `cd`/`pushd` that surely takes effect (joined to the commit by `&&`, `;` or a newline only,
-    a literal target) and git's own `-C`, applied in turn as git applies them. A `"$(cat <<'EOF' …)"` message is read
-    too.
-  - It keeps the start directory when it cannot be sure: `~`, a variable, `cd -`, a `||`/`|`/`&`, a subshell or
-    group, `popd` or `source`, `--git-dir`/`--work-tree`/`core.worktree`/`GIT_DIR`, or commits in more than one
-    directory.
-  - The gate runs the project's own scripts before you are asked, so it only moves inside the same repository: the
-    target must be an existing directory in a working tree that shares the start directory's
-    `git rev-parse --git-common-dir`. A linked worktree of the same repo counts. Git runs by absolute path with
-    the narrowing's hardened flags and environment, within a 2-second budget.
-  - A command with neither a `cd` nor a `-C` reads no git at all.
+  commit. The same commit from the root passed. Now `guardrails.commit_dir` reads the command, and the gate's
+  settings, its choice, its narrowing, its tool resolution and its messages all use that directory:
+  - **What is followed.** Only a line of `&&`-joined plain segments, nothing else in it:
+    - `cd <dir>` or `pushd <dir>`;
+    - `git [-C <dir>]… add|commit|push …`, with a `-m "$(cat <<'EOF' … EOF\n)"` message allowed.
+
+    So `cd .. && git commit -m "$(cat <<'EOF' …)" && git push` is followed. `cd` is logical, as the shell's; `-C`
+    is physical, as git resolves it.
+  - **Anything else keeps the start directory:**
+    - `;` or a newline, `||`, `|`, `&`;
+    - a subshell, `{ }`, `if`, `!`;
+    - a wrapper (`env --chdir=`), a prefix assignment or `export`;
+    - another git option or subcommand;
+    - `~`, a variable, a redirection;
+    - commits in two directories, a directory that does not exist.
+  - **Only the start directory's own work tree.** The gate runs the project's own scripts before you are asked. The
+    target must have the same real `git rev-parse --show-toplevel` and `--absolute-git-dir` as the start directory,
+    and `git check-ignore` must say it is not ignored. These are refused:
+    - another repo, a linked worktree, a submodule or nested repo;
+    - `node_modules/<pkg>`.
+
+    Git runs by absolute path with the narrowing's hardened flags and environment, within a 2-second budget. A line
+    with neither a `cd` nor a `-C` reads no git at all.
 
 ## [2026.11.11] - 2026-11-12
 

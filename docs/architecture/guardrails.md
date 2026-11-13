@@ -43,16 +43,22 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
   **fast** gate (`dev/validate.py` if present, else the detected stack's lint via `stacks.py`) from
   the directory the commit acts on and blocks on failure, so broken code isn't committed. That
   directory (`cwd` below) is `guardrails.commit_dir`'s reading of the command (ADR 0111). It starts
-  from the payload's `cwd`, the shell's directory when the call starts. It follows a leading
-  `cd`/`pushd` that surely takes effect (a literal target, joined to the commit only by `&&`, `;` or
-  a newline) and git's `-C` options in turn; a `"$(cat <<'EOF' …)"` message is read too. It keeps the start
-  directory for anything only a shell can tell (`~`, a variable, `cd -`), a `cd` that may not take
-  effect, a subshell or group, `popd`/`source`, `--git-dir`/`--work-tree`/`core.worktree`/`GIT_DIR`, commits in
-  several directories, or any failure. The gate runs project scripts before the user is asked, so
-  the result must be an existing directory in a working tree of the **same repository** (the same
-  `git rev-parse --git-common-dir`, a linked worktree included), read by absolute `git` with the
+  from the payload's `cwd`, the shell's directory when the call starts, and follows an
+  **allowlist of the whole line**. Every segment is joined by `&&` and is either a plain
+  `cd <dir>`/`pushd <dir>` (one literal argument, no prefix, no option) or a plain
+  `git [-C <dir>]… add|commit|push …` (bare `git`, no prefix or wrapper, no other global option).
+  Words are safe characters and plain quotes, plus a balanced `-m "$(cat <<'EOF' … EOF\n)"`
+  message read as one word, so `cd .. && git commit -m "$(cat <<'EOF' …)" && git push` is followed.
+  `cd` is logical, as the shell's; each step must exist. `-C` is physical, as git resolves it. All
+  commits/pushes must land in one directory. Anything else keeps the start directory: `;`, a
+  newline, `||`, `|`, `&`, a redirection, a subshell or group, `if`/`!`, a wrapper (`env --chdir=`),
+  an assignment or `export`, `~`, a variable, another git option or subcommand, or any failure.
+  The gate runs project scripts before the user is asked, so the result must be in the start
+  directory's **own work tree** (the same real `git rev-parse --show-toplevel` and
+  `--absolute-git-dir`: no linked worktree, submodule or other repo) and **not ignored**
+  (`git check-ignore`, so no `node_modules/<pkg>`). It is read by absolute `git` with the
   narrowing's hardening in a 2-second budget. The settings, the gate choice, narrowing, tool
-  resolution and both messages use it. The stack is the
+  resolution and both messages use the real path. The stack is the
   cwd's own, read as before the monorepo scan and multi-name hints (`stacks.gate_profile`: no
   scan, a hint's first name, the hint file wherever it links), and the gate keeps only lint shapes
   that cannot make it block where it used to pass (`guardrails._gate_argv`): a JS/TS package's own
