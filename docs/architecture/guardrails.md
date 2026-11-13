@@ -60,10 +60,11 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
   before any git runs there. It must have the same real `git rev-parse --show-toplevel` and
   `--absolute-git-dir` (no linked worktree, submodule or other repo), and pass
   `git check-ignore --no-index` (no `node_modules/<pkg>`). It must also hold a tracked file
-  (`git ls-files --error-unmatch`, so no extracted archive). It is read by absolute `git` with the
-  narrowing's hardening in a 2-second budget. A shell set for physical `cd` (`set -P`,
-  `CHASE_LINKS`) and a `CDPATH` set only in the shell's rc are not seen (ADR 0111, Limits). A
-  block on a moved commit tells the model to `cd` there in its own call before committing. The settings, the gate choice, narrowing, tool
+  (`git --literal-pathspecs ls-files --error-unmatch`, the name never read as a glob, so no
+  extracted archive). It is read by absolute `git` with the narrowing's hardening in a 2-second
+  budget. A shell set for physical `cd` (`set -P`, `CHASE_LINKS`) and a `CDPATH` set only in the
+  shell's rc are not seen (ADR 0111, Limits). A block on a moved commit tells the model to `cd`
+  there in its own call before committing. The settings, the gate choice, narrowing, tool
   resolution and both messages use the real path. The stack is the
   cwd's own, read as before the monorepo scan and multi-name hints (`stacks.gate_profile`: no
   scan, a hint's first name, the hint file wherever it links), and the gate keeps only lint shapes

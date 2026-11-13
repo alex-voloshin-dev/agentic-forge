@@ -2093,6 +2093,21 @@ def test_an_untracked_directory_is_not_followed_and_its_validator_never_runs(mon
     assert done.returncode == 2 and marker.exists(), done.stderr  # its gate, run there
 
 
+@pytest.mark.parametrize("name", ["x*", "x[b]", "x?"])
+def test_a_glob_named_untracked_directory_beside_a_tracked_one_is_not_followed(
+    mono: Mono, name: str
+) -> None:
+    """The tracked check reads the name literally: as a pathspec glob, `x*` matched `xa/f.md`, and
+    `x?` and `x[b]` the file `xb`."""
+    mono.commit("xa/f.md", "x\n")
+    mono.commit("xb", "x\n")
+    marker = mono.base / "validator-ran"
+    validator = f"open({str(marker)!r}, 'w').close()\nraise SystemExit(1)\n"
+    mono.write(f"{name}/dev/validate.py", validator)
+    done = mono.hook(f"cd {shlex.quote(name)} && {EMPTY}", ".")
+    assert done.returncode == 0 and not marker.exists() and mono.ran() == [], done.stderr
+
+
 def test_an_ignored_directory_is_not_followed(mono: Mono) -> None:
     """`node_modules/<pkg>` is inside the work tree but not the project's code."""
     mono.write(".gitignore", ".ruff_cache/\nnode_modules/\n")
@@ -2100,6 +2115,13 @@ def test_an_ignored_directory_is_not_followed(mono: Mono) -> None:
     mono.write("node_modules/pkg/bad.py", _BAD)
     done = mono.hook(f"cd node_modules/pkg && {EMPTY}", ".")
     assert done.returncode == 0 and mono.ran() == [], done.stderr
+
+
+def test_the_moved_hint_quotes_the_directory_for_the_shell() -> None:
+    message = commit_gate.block_message(
+        ["ruff", "check", "."], "/x y", scoped=False, tail="t", shape=True, moved=True
+    )
+    assert "running `cd '/x y'` as its own call, then running `git commit`" in message
 
 
 def test_decide_names_the_directory_it_decided_in(mono: Mono) -> None:
