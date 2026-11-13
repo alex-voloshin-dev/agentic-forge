@@ -12,7 +12,8 @@ Four checks, stdlib only:
 2. every lib module a hook or a skill's command imports — transitively — imports;
 3. every hook runs to exit 0 on a minimal payload for its event and prints nothing or JSON, and
    the merge-preflight hook runs its merge gate on a `gh pr merge` with no `gh` on PATH, which
-   must fail open with its notice;
+   must fail open with its notice, and the commit gate runs a narrowed commit and a `cd ..` commit
+   from a package (ADR 0101, ADR 0111);
 4. ``bin/af.py``, what skills run on this same interpreter (ADR 0104), answers, as a real process.
 
 A hook script with no payload in :data:`PAYLOADS` is a failure too: a new hook must be smoked.
@@ -183,14 +184,32 @@ def check_hooks(failures: list[str]) -> list[str]:
 
 def check_narrowed_commit(failures: list[str], hook_env: dict[str, str] | None = None) -> str:
     """The commit gate's own path, which the `git status` payload above never reaches: a real repo,
-    an empty commit from a package, and a stand-in ruff that fails if it runs at all (ADR 0101).
+    an empty commit from a package, and a stand-in ruff that fails if it runs at all (ADR 0101)."""
+    return _commit_from_package(
+        failures, "narrowed commit", "git commit --allow-empty -m empty", hook_env
+    )
+
+
+def check_moved_commit(failures: list[str], hook_env: dict[str, str] | None = None) -> str:
+    """The same package, with `cd .. && git commit`: the gate must follow the `cd` to the repo root,
+    which has no gate, so the package's ruff never runs (ADR 0111). This is what reaches
+    `guardrails.commit_dir` and its git reads on this interpreter."""
+    return _commit_from_package(
+        failures, "moved commit", "cd .. && git commit --allow-empty -m empty", hook_env
+    )
+
+
+def _commit_from_package(
+    failures: list[str], label: str, command: str, hook_env: dict[str, str] | None
+) -> str:
+    """Run the commit gate on ``command`` from a package whose stand-in ruff fails if it runs.
 
     A slim image has no git. Saying so is the honest result there; on CI it is a failure, since a
     floor test that cannot run proves nothing (ADR 0082)."""
     if not shutil.which("git"):
         if os.environ.get("CI"):
-            failures.append("narrowed commit: no git on CI")
-        return "narrowed commit NOT run: no git here"
+            failures.append(f"{label}: no git on CI")
+        return f"{label} NOT run: no git here"
     with tempfile.TemporaryDirectory() as tmp:
         base = Path(tmp).resolve()
         package = base / "repo" / "pkg"
@@ -207,15 +226,15 @@ def check_narrowed_commit(failures: list[str], hook_env: dict[str, str] | None =
             subprocess.run(["git", *args], cwd=str(package.parent), check=True, capture_output=True)
         payload: dict[str, object] = {
             "hook_event_name": "PreToolUse", "tool_name": "Bash",
-            "tool_input": {"command": "git commit --allow-empty -m empty"},
+            "tool_input": {"command": command},
         }
         env = {"PATH": f"{tools}{os.pathsep}{os.environ.get('PATH', '')}", **(hook_env or {})}
         problem = run_hook(
             HOOKS / "commit_gate.py", payload, package, base / "state", base / "tmp", env
         )
         if problem or ruff_ran.exists():
-            failures.append(f"narrowed commit: {problem or 'ruff ran on an empty commit'}")
-    return "narrowed commit run"
+            failures.append(f"{label}: {problem or 'the package ruff ran on an empty commit'}")
+    return f"{label} run"
 
 
 def check_merge_gate(failures: list[str]) -> str:
@@ -270,13 +289,14 @@ def main(argv: list[str]) -> int:
     mods = check_imports(failures)
     hooks = check_hooks(failures)
     narrowed = check_narrowed_commit(failures)
+    moved = check_moved_commit(failures)
     gate = check_merge_gate(failures)
     commands = check_commands(failures)
     version = ".".join(str(v) for v in sys.version_info[:3])
     print(
         f"hook smoke on Python {version}: {compiled} files compiled, "
         f"{len(mods)} hook-reachable modules imported ({' '.join(mods)}), "
-        f"{len(hooks)} hooks run, {narrowed}, {gate}, "
+        f"{len(hooks)} hooks run, {narrowed}, {moved}, {gate}, "
         f"{commands} af.py calls"
     )
     for line in failures:

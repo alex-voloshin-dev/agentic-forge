@@ -66,6 +66,20 @@ def test_the_narrowed_commit_smoke_fails_when_the_gate_runs_on_an_empty_commit(m
     assert failures and "narrowed commit" in failures[0]
 
 
+def test_the_smoke_reaches_the_moved_commit_gate() -> None:
+    failures: list[str] = []
+    assert hook_smoke.check_moved_commit(failures) == "moved commit run"
+    assert failures == []
+
+
+def test_the_moved_commit_smoke_fails_when_the_gate_stays_in_the_package() -> None:
+    """With a git-steering variable in the hook's environment the gate keeps the start directory,
+    so the package's failing ruff runs and the smoke reports it: the check can fail."""
+    failures: list[str] = []
+    hook_smoke.check_moved_commit(failures, hook_env={"GIT_DIR": "x"})
+    assert failures and failures[0].startswith("moved commit")
+
+
 @pytest.mark.parametrize(("ci", "fails"), [("true", True), (None, False)])
 def test_no_git_says_so_and_fails_only_on_ci(monkeypatch, ci: str | None, fails: bool) -> None:
     monkeypatch.setattr(hook_smoke.shutil, "which", lambda name: None)
