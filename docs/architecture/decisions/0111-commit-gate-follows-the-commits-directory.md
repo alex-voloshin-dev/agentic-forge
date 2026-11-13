@@ -101,9 +101,11 @@ start directory:
 - **Not ignored.** `git check-ignore --no-index -q -- <target>` must exit 1 (not ignored). `node_modules/<pkg>` is
   inside the work tree, but it is not the project's code. `--no-index` keeps an ignored `dist/` ignored when one file
   in it was force-added. Exit 0 (ignored), an error or no time left keeps the start directory.
-- **Tracked.** `git ls-files --error-unmatch -- <target>` must exit 0: something under the target is in the index. An
-  extracted archive, or a clone with its `.git` removed, is inside the work tree and not ignored, but it holds nothing
-  the repository tracks.
+- **Tracked.** `git --literal-pathspecs ls-files --error-unmatch -- <target>` must exit 0: something under the target
+  is in the index. An extracted archive, or a clone with its `.git` removed, is inside the work tree and not ignored,
+  but it holds nothing the repository tracks. The name is matched literally on this read only. As a pathspec glob, an
+  untracked `x*` matched a tracked `xa/f`, and `x?` or `x[b]` a tracked file `xb`. The shared hardening flags are not
+  changed, since other reads take the target as a path, not a pathspec.
 
 The reads run git by the absolute path `PATH` gives, never a relative entry, as `merge_preflight` and `role_scope` do.
 They use `gate_scope`'s hardened flags (`--no-replace-objects`, `core.fsmonitor=false`, `safe.bareRepository=explicit`,
@@ -140,6 +142,9 @@ guarantee comes from the matcher's grammar, not from the tests.
   `CHASE_DOTS` in zsh) resolves `cd lnk/..` through the link, so the commit may land in another directory of the same
   work tree than the one gated. The hook sees only its own environment's `CDPATH`, not one set in the shell's rc
   files. Both stay inside the start directory's own work tree, by the checks in §3.
+- **The path checks are not in the 2-second budget.** `os.path.isdir` and `os.path.realpath` on the `cd`/`-C` steps,
+  and the containment check, run before the budget starts and have no timeout of their own. A stalled mount (NFS,
+  FUSE) can hold the hook up to its own 120-second cap. That fails open, and the commit is not gated.
 - **The merge gate has a background-`cd` gap.** `pr_merge_target("cd x && git status & gh pr merge 5", "/w")`
   attributes the merge to `/w/x`, while the merge runs in `/w`, because `git status` is read-only. That gate fails
   open and only reads. This is a follow-up.

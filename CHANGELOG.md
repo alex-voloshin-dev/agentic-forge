@@ -30,11 +30,11 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
   - **Only tracked, not ignored, in the start directory's own work tree.** The gate runs the project's own scripts
     before you are asked. The target's real path must lie under the start directory's top before any git runs in
     it. It must then have the same real `git rev-parse --show-toplevel` and `--absolute-git-dir`, pass
-    `git check-ignore --no-index` as not ignored, and hold a tracked file (`git ls-files --error-unmatch`). These
-    are refused:
+    `git check-ignore --no-index` as not ignored, and hold a tracked file (`git ls-files --error-unmatch`, the name
+    matched literally, never as a glob). These are refused:
     - another repo, a linked worktree, a submodule or nested repo;
     - `node_modules/<pkg>`, an ignored `dist/` even with a force-added file;
-    - an untracked extracted archive.
+    - an untracked extracted archive, even one named `x*` beside a tracked `xa/`.
 
     Git runs by absolute path with the narrowing's hardened flags and environment, within a 2-second budget. A line
     with neither a `cd` nor a `-C` reads no git at all.

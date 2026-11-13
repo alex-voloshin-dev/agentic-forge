@@ -870,23 +870,32 @@ def layout(tmp_path: Path, monkeypatch) -> dict[str, Path]:
     repo, other, plain = base / "repo", base / "other", base / "plain"
     for directory in (repo / "sub" / "deep", repo / "a" / "b", repo / "node_modules" / "pkg",
                       repo / "sub" / ".hidden", repo / "a" / ".hidden", repo / "dist",
-                      repo / "sub" / "untracked", other / "sub", plain):  # fmt: skip
+                      repo / "sub" / "untracked", repo / "sub" / "xa", other / "sub",
+                      plain):  # fmt: skip
         directory.mkdir(parents=True)
     for directory in (repo, other):
         _git("init", "-q", ".", cwd=directory)
         _git("commit", "-q", "--allow-empty", "-m", "init", cwd=directory)
-    for name in ("sub/deep/f", "a/b/f", "sub/.hidden/f", "a/.hidden/f", "dist/.gitkeep"):
+    tracked = ("sub/deep/f", "a/b/f", "sub/.hidden/f", "a/.hidden/f", "dist/.gitkeep", "sub/xa/f",
+               "sub/xb")  # fmt: skip
+    for name in tracked:
         (repo / name).write_text("x\n")  # git keeps no empty directory
     (repo / ".gitignore").write_text("node_modules/\ndist/\n")
     (repo / "sub" / "lnk").symlink_to(Path("..") / "a" / "b")
     _git("add", ".", cwd=repo)
     _git("add", "-f", "dist/.gitkeep", cwd=repo)
     (repo / "sub" / "untracked" / "f").write_text("x\n")  # after the add: never tracked
+    # untracked, each a pathspec glob matching a tracked path: `x*` crosses `/` to `xa/f`, `x?` and
+    # `x[b]` match the file `xb` (only `*` crosses a slash, so they cannot reach `xa/f`)
+    for name in ("x*", "x?", "x[b]"):
+        (repo / "sub" / name).mkdir()
+        (repo / "sub" / name / "f").write_text("x\n")
     _git("commit", "-q", "-m", "files", cwd=repo)
     _git("worktree", "add", "-q", "-b", "wt", str(base / "wt"), cwd=repo)
     return {"base": base, "repo": repo, "sub": repo / "sub", "deep": repo / "sub" / "deep",
             "a": repo / "a", "b": repo / "a" / "b", "wt": base / "wt", "other": other,
-            "plain": plain, "hidden": repo / "sub" / ".hidden"}  # fmt: skip
+            "plain": plain, "hidden": repo / "sub" / ".hidden",
+            "xa": repo / "sub" / "xa"}  # fmt: skip
 
 
 _MESSAGE = "\"$(cat <<'EOF'\nfix: a; git push && cd /\nEOF\n)\""
@@ -992,6 +1001,11 @@ _MESSAGE = "\"$(cat <<'EOF'\nfix: a; git push && cd /\nEOF\n)\""
         ("git -C untracked commit -m x", "sub"),
         ("cd ../dist && git commit -m x", "sub"),  # ignored, though it holds a tracked file
         ("git -C ../node_modules/pkg commit -m x", "sub"),
+        # ...an untracked name that, read as a glob, would match the tracked `xa/`: read literally
+        ("cd 'x*' && git commit -m x", "sub"),
+        ("cd 'x?' && git commit -m x", "sub"),
+        ("git -C 'x[b]' commit -m x", "sub"),
+        ("cd xa && git commit -m x", "xa"),  # the tracked one itself
     ],
 )
 def test_commit_dir_follows_only_a_plain_line(
@@ -1110,7 +1124,7 @@ def test_commit_dir_reads_git_only_when_the_command_names_another_directory(
     assert len(calls) == 4
     assert [argv[-4:] for argv in calls[:2]] == [work_tree, work_tree]
     assert calls[2][-5:] == ["check-ignore", "--no-index", "-q", "--", repo]
-    assert calls[3][-4:] == ["ls-files", "--error-unmatch", "--", repo]
+    assert calls[3][-5:] == ["--literal-pathspecs", "ls-files", "--error-unmatch", "--", repo]
     for argv in calls:
         assert os.path.isabs(argv[0])  # by absolute path: a relative PATH entry could plant one
         assert "safe.bareRepository=explicit" in argv and "core.fsmonitor=false" in argv

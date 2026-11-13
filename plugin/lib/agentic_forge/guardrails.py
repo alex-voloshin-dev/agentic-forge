@@ -1471,7 +1471,7 @@ def merge_preflight(
 # :func:`commit_dir` follows those forms and nothing else: an ALLOWLIST of the whole line, since a
 # denylist of what may move a shell missed `{ }`, `!`, `if`, `env --chdir=` and `export GIT_DIR`.
 # The gate runs project scripts in what it returns before the user is asked, so it only ever moves
-# inside the start directory's own work tree, to a directory git does not ignore.
+# to a directory that is tracked, not ignored, in the start directory's own work tree.
 
 # A balanced `-m "$(cat <<'EOF' … EOF\n)"` message, the form agents commit with, read as one opaque
 # word: quoted delimiter (no expansion in the body), and the first line starting with the delimiter
@@ -1615,8 +1615,8 @@ def commit_dir(command: str, cwd: str) -> str:
     environment variable in the hook's environment that points git elsewhere, no ``git`` by an
     absolute path, a target outside ``cwd``'s own work tree (another repo, a linked worktree, a
     submodule; checked on the path before any git runs there), one git ignores
-    (``node_modules/…``) or one holding nothing tracked (an extracted archive), a timeout or any
-    failure. The gate runs
+    (``node_modules/…``) or one holding nothing tracked (an extracted archive; the name is matched
+    literally, never as a glob), a timeout or any failure. The gate runs
     the project's own scripts in the result before the user is asked, so a command must not steer
     it into files the session has not been working in. Never raises; reads git only when the line
     names another directory."""
@@ -1643,7 +1643,9 @@ def commit_dir(command: str, cwd: str) -> str:
         )
         if ignored != 1:  # 0 ignored, 128 an error, -1 out of time
             return cwd
-        tracked, _ = _git_read(git, ours[0], deadline, "ls-files", "--error-unmatch", "--", target)
+        # literal: as a pathspec glob, an untracked `x*` would match a tracked `xa/` beside it
+        literal = ("--literal-pathspecs", "ls-files", "--error-unmatch", "--", target)
+        tracked, _ = _git_read(git, ours[0], deadline, *literal)
         return target if tracked == 0 else cwd  # an untracked tree is not the project's code
     except Exception:  # noqa: BLE001 — any doubt keeps the start directory, as before ADR 0111
         return cwd
