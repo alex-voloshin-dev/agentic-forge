@@ -49,15 +49,21 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
   `git [-C <dir>]… add|commit|push …` (bare `git`, no prefix or wrapper, no other global option).
   Words are safe characters and plain quotes, plus a balanced `-m "$(cat <<'EOF' … EOF\n)"`
   message read as one word, so `cd .. && git commit -m "$(cat <<'EOF' …)" && git push` is followed.
-  `cd` is logical, as the shell's; each step must exist. `-C` is physical, as git resolves it. All
+  `cd` is logical, as the shell's; each step must exist, and with `CDPATH` set only `/…`, `.`,
+  `..`, `./…` and `../…` are followed. `-C` is physical, as git resolves it, and each step must
+  exist. All
   commits/pushes must land in one directory. Anything else keeps the start directory: `;`, a
   newline, `||`, `|`, `&`, a redirection, a subshell or group, `if`/`!`, a wrapper (`env --chdir=`),
   an assignment or `export`, `~`, a variable, another git option or subcommand, or any failure.
-  The gate runs project scripts before the user is asked, so the result must be in the start
-  directory's **own work tree** (the same real `git rev-parse --show-toplevel` and
-  `--absolute-git-dir`: no linked worktree, submodule or other repo) and **not ignored**
-  (`git check-ignore`, so no `node_modules/<pkg>`). It is read by absolute `git` with the
-  narrowing's hardening in a 2-second budget. The settings, the gate choice, narrowing, tool
+  The gate runs project scripts before the user is asked, so the result must be **tracked, not
+  ignored, in the start directory's own work tree**. Its real path must lie under the start's top
+  before any git runs there. It must have the same real `git rev-parse --show-toplevel` and
+  `--absolute-git-dir` (no linked worktree, submodule or other repo), and pass
+  `git check-ignore --no-index` (no `node_modules/<pkg>`). It must also hold a tracked file
+  (`git ls-files --error-unmatch`, so no extracted archive). It is read by absolute `git` with the
+  narrowing's hardening in a 2-second budget. A shell set for physical `cd` (`set -P`,
+  `CHASE_LINKS`) and a `CDPATH` set only in the shell's rc are not seen (ADR 0111, Limits). A
+  block on a moved commit tells the model to `cd` there in its own call before committing. The settings, the gate choice, narrowing, tool
   resolution and both messages use the real path. The stack is the
   cwd's own, read as before the monorepo scan and multi-name hints (`stacks.gate_profile`: no
   scan, a hint's first name, the hint file wherever it links), and the gate keeps only lint shapes

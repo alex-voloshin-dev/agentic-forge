@@ -858,8 +858,9 @@ def _git(*args: str, cwd: Path) -> None:
 
 @pytest.fixture
 def layout(tmp_path: Path, monkeypatch) -> dict[str, Path]:
-    """``repo`` (``sub/deep``, ``a/b``, an ignored ``node_modules/pkg``, a symlink ``sub/lnk`` to
-    ``a/b``), a linked worktree of it, another repo, and a plain directory."""
+    """``repo`` (``sub/deep``, ``sub/.hidden``, ``a/b``, ``a/.hidden``, a symlink ``sub/lnk`` to
+    ``a/b``, an ignored ``node_modules/pkg``, an ignored ``dist/`` holding one force-added file, an
+    untracked ``sub/untracked``), a linked worktree of it, another repo, and a plain directory."""
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
     monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
     monkeypatch.delenv("CDPATH", raising=False)
@@ -868,21 +869,24 @@ def layout(tmp_path: Path, monkeypatch) -> dict[str, Path]:
     base = tmp_path.resolve()
     repo, other, plain = base / "repo", base / "other", base / "plain"
     for directory in (repo / "sub" / "deep", repo / "a" / "b", repo / "node_modules" / "pkg",
-                      other / "sub", plain):  # fmt: skip
+                      repo / "sub" / ".hidden", repo / "a" / ".hidden", repo / "dist",
+                      repo / "sub" / "untracked", other / "sub", plain):  # fmt: skip
         directory.mkdir(parents=True)
     for directory in (repo, other):
         _git("init", "-q", ".", cwd=directory)
         _git("commit", "-q", "--allow-empty", "-m", "init", cwd=directory)
-    for name in ("sub/deep/f", "a/b/f"):  # git keeps no empty directory
-        (repo / name).write_text("x\n")
-    (repo / ".gitignore").write_text("node_modules/\n")
+    for name in ("sub/deep/f", "a/b/f", "sub/.hidden/f", "a/.hidden/f", "dist/.gitkeep"):
+        (repo / name).write_text("x\n")  # git keeps no empty directory
+    (repo / ".gitignore").write_text("node_modules/\ndist/\n")
     (repo / "sub" / "lnk").symlink_to(Path("..") / "a" / "b")
     _git("add", ".", cwd=repo)
+    _git("add", "-f", "dist/.gitkeep", cwd=repo)
+    (repo / "sub" / "untracked" / "f").write_text("x\n")  # after the add: never tracked
     _git("commit", "-q", "-m", "files", cwd=repo)
     _git("worktree", "add", "-q", "-b", "wt", str(base / "wt"), cwd=repo)
     return {"base": base, "repo": repo, "sub": repo / "sub", "deep": repo / "sub" / "deep",
             "a": repo / "a", "b": repo / "a" / "b", "wt": base / "wt", "other": other,
-            "plain": plain}  # fmt: skip
+            "plain": plain, "hidden": repo / "sub" / ".hidden"}  # fmt: skip
 
 
 _MESSAGE = "\"$(cat <<'EOF'\nfix: a; git push && cd /\nEOF\n)\""
@@ -910,6 +914,7 @@ _MESSAGE = "\"$(cat <<'EOF'\nfix: a; git push && cd /\nEOF\n)\""
         ("git -C '' commit -m x", "sub"),  # an empty -C changes nothing in git
         ("git -C lnk/.. commit -m x", "a"),  # -C is physical: git chdir()s through the link
         ("cd lnk/.. && git commit -m x", "sub"),  # cd is logical, as the shell's
+        ("cd .hidden && git commit -m x", "hidden"),  # no CDPATH: a dot-name is local
         # the start directory: anything but plain `cd`/`pushd`/`git -C` segments joined by &&
         ("cd deep; git push", "sub"),
         ("cd deep\ngit commit -m x", "sub"),
@@ -980,6 +985,13 @@ _MESSAGE = "\"$(cat <<'EOF'\nfix: a; git push && cd /\nEOF\n)\""
         ("cd nowhere && git commit -m x", "sub"),
         ("cd nowhere/../.. && git commit -m x", "sub"),  # bash and zsh refuse it
         ("git -C nowhere commit -m x", "sub"),
+        ("git -C nowhere/../deep commit -m x", "sub"),  # git refuses a missing step
+        ("git -C deep -C nowhere/.. commit -m x", "sub"),
+        # ...a directory that is not the project's tracked code
+        ("cd untracked && git commit -m x", "sub"),
+        ("git -C untracked commit -m x", "sub"),
+        ("cd ../dist && git commit -m x", "sub"),  # ignored, though it holds a tracked file
+        ("git -C ../node_modules/pkg commit -m x", "sub"),
     ],
 )
 def test_commit_dir_follows_only_a_plain_line(
@@ -1037,14 +1049,44 @@ def test_commit_dir_returns_the_real_path(layout: dict[str, Path]) -> None:
     assert guardrails.commit_dir("cd .. && git commit", str(link)) == str(link)
 
 
-def test_commit_dir_with_cdpath_follows_only_an_explicit_relative_cd(
+def test_commit_dir_with_cdpath_follows_only_what_bash_and_zsh_do_not_search(
     layout: dict[str, Path], monkeypatch
 ) -> None:
-    monkeypatch.setenv("CDPATH", str(layout["a"]))  # `cd b` would go to a/b, not sub/b
+    """With CDPATH set, `cd .hidden` goes to `a/.hidden` (searched first), not `sub/.hidden`; only
+    `/…`, `.`, `..`, `./…` and `../…` are not searched."""
+    monkeypatch.setenv("CDPATH", str(layout["a"]))
     sub = str(layout["sub"])
-    assert guardrails.commit_dir("cd deep && git commit", sub) == sub
+    searched = ("cd deep && git commit", "cd .hidden && git commit", "cd .hidden/.. && git push")
+    for command in searched:
+        assert guardrails.commit_dir(command, sub) == sub, command
+    assert guardrails.commit_dir("cd ./.hidden && git commit", sub) == str(layout["hidden"])
     assert guardrails.commit_dir("cd ./deep && git commit", sub) == str(layout["deep"])
     assert guardrails.commit_dir("cd .. && git commit", sub) == str(layout["repo"])
+    assert guardrails.commit_dir("cd ../a && git commit", sub) == str(layout["a"])
+    assert guardrails.commit_dir(f"cd {layout['a']} && git commit", sub) == str(layout["a"])
+    assert guardrails.commit_dir("cd . && git -C deep commit", sub) == str(layout["deep"])
+    # git's -C reads no CDPATH
+    assert guardrails.commit_dir("git -C .hidden commit", sub) == str(layout["hidden"])
+
+
+def test_commit_dir_runs_no_git_in_a_target_outside_the_start_top(
+    layout: dict[str, Path], monkeypatch
+) -> None:
+    """Containment is checked on the path first: another repo or a linked worktree outside the
+    start directory's top never has git run in it."""
+    places: list[str] = []
+    real_run = subprocess.run
+
+    def recording(argv, **kwargs):
+        places.append(str(kwargs.get("cwd")))
+        return real_run(argv, **kwargs)
+
+    monkeypatch.setattr(guardrails.subprocess, "run", recording)
+    sub = str(layout["sub"])
+    for command in (f"git -C {layout['other']} commit", "cd ../../wt && git push",
+                    f"cd {layout['plain']} && git commit"):  # fmt: skip
+        assert guardrails.commit_dir(command, sub) == sub, command
+    assert places == [sub, sub, sub]  # the start-side read only
 
 
 def test_commit_dir_reads_git_only_when_the_command_names_another_directory(
@@ -1064,9 +1106,11 @@ def test_commit_dir_reads_git_only_when_the_command_names_another_directory(
     assert calls == []
     assert guardrails.commit_dir("cd .. && git commit", sub) == str(layout["repo"])
     work_tree = ["rev-parse", "--is-inside-work-tree", "--show-toplevel", "--absolute-git-dir"]
-    assert [argv[-4:] for argv in calls] == [
-        work_tree, work_tree, ["check-ignore", "-q", "--", str(layout["repo"])]
-    ]
+    repo = str(layout["repo"])
+    assert len(calls) == 4
+    assert [argv[-4:] for argv in calls[:2]] == [work_tree, work_tree]
+    assert calls[2][-5:] == ["check-ignore", "--no-index", "-q", "--", repo]
+    assert calls[3][-4:] == ["ls-files", "--error-unmatch", "--", repo]
     for argv in calls:
         assert os.path.isabs(argv[0])  # by absolute path: a relative PATH entry could plant one
         assert "safe.bareRepository=explicit" in argv and "core.fsmonitor=false" in argv

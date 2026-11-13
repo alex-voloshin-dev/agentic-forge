@@ -13,6 +13,7 @@ etc.) — only a genuine gate failure blocks.
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
 import sys
 import time
@@ -113,15 +114,18 @@ def _run_gate(
 
 
 def block_message(
-    gate: list[str], cwd: str, *, scoped: bool, tail: str, shape: bool = False
+    gate: list[str], cwd: str, *, scoped: bool, tail: str, shape: bool = False, moved: bool = False
 ) -> str:
     """For the model, on stderr: what ran on what, its output, and what to do. It does not say how
     to turn the guardrail off, which is the operator's call (:func:`skip_notice`), and a linter
     quotes what it reads, a linked credentials file included."""
     scope = "on the changed files only" if scoped else "run whole"
+    # A bare `git commit` runs in the call's start directory: when the gate moved (ADR 0111), the
+    # way to a narrowed gate goes through the directory first.
+    first = f"running `cd {shlex.quote(cwd)}` as its own call, then " if moved else ""
     hint = (
-        "This command shape ran whole; running `git commit` or `git push` as its own call gates "
-        "only what changed.\n" if shape else ""
+        f"This command shape ran whole; {first}running `git commit` or `git push` as its own call "
+        "gates only what changed.\n" if shape else ""
     )
     return gate_scope.printable(
         f"blocked: gate failed (`{_shown(gate)}`) {scope}, in {cwd}\n"
@@ -208,7 +212,11 @@ def _gate(payload: dict[str, Any], command: str, cwd: str) -> guardrails.Decisio
                       payload.get("session_id"))
             return guardrails.ALLOW
         return guardrails.Decision(
-            True, block_message(ran, cwd, scoped=scoped, tail=found or tail, shape=shape)
+            True,
+            block_message(
+                ran, cwd, scoped=scoped, tail=found or tail, shape=shape,
+                moved=cwd != str(payload.get("cwd") or "."),
+            ),
         )
     return guardrails.ALLOW
 

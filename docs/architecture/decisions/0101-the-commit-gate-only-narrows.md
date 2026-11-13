@@ -7,7 +7,7 @@ Amends [0019](0019-l4-guardrails.md) (what the test-gate runs on). Closes part o
 
 > **Amended 2026-11-11 by [ADR 0109](0109-four-field-bugs.md):** the gate runs `npm run lint` only when a `lint` script exists, reads only the cwd's stack and a hint's first name, and refuses shell syntax.
 
-> **Amended 2026-11-13 by [ADR 0111](0111-commit-gate-follows-the-commits-directory.md):** "cwd" here is now the directory the commit acts on: a plain `&&` line of `cd <dir>` and `git -C <dir> add|commit|push` segments is followed, within the start directory's own work tree and not into an ignored directory. Narrowing is unchanged: such a line is never simple, so it runs whole in that directory.
+> **Amended 2026-11-13 by [ADR 0111](0111-commit-gate-follows-the-commits-directory.md):** "cwd" here is now the directory the commit acts on: a plain `&&` line of `cd <dir>` and `git -C <dir> add|commit|push` segments is followed, only to a directory that is tracked, not ignored, in the start directory's own work tree. Narrowing is unchanged: such a line is never simple, so it runs whole in that directory.
 
 ## Context
 

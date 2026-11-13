@@ -2016,6 +2016,12 @@ def test_a_package_commit_from_the_root_is_gated_as_the_package(mono: Mono) -> N
         assert done.returncode == 2, command
         assert mono.argvs() == [WHOLE_RUFF] and mono.ran()[0]["cwd"] == str(mono.root / "svc")
         assert f"in {mono.root / 'svc'}\n" in done.stderr and "legacy_bad.py" in done.stderr
+        # the narrowed way goes through the directory: a bare `git commit` would run at the root
+        assert "ran whole; running `git commit`" not in done.stderr, command
+        assert (
+            f"running `cd {mono.root / 'svc'}` as its own call, then running `git commit` or `git "
+            "push` as its own call gates only what changed" in done.stderr
+        ), command
         notice = json.loads(done.stdout)["systemMessage"]  # the config that decided: svc's
         assert f"{mono.root / 'svc'}/.agentic-forge/config.json" in notice
     mono.write("svc/.agentic-forge/config.json", '{"test_gate": {"skip": true}}')
@@ -2072,6 +2078,19 @@ def test_a_linked_worktree_is_not_followed_and_its_validator_never_runs(mono: Mo
         assert not marker.exists() and mono.ran() == [], command
     assert mono.hook(f"cd {mono.root} && {EMPTY}").returncode == 0  # back from svc to its root
     assert mono.ran() == []
+
+
+def test_an_untracked_directory_is_not_followed_and_its_validator_never_runs(mono: Mono) -> None:
+    """An extracted archive or a clone with its `.git` removed is inside the work tree but holds
+    nothing tracked: not the project's code. Once tracked, it is followed."""
+    marker = mono.base / "validator-ran"
+    validator = f"open({str(marker)!r}, 'w').close()\nraise SystemExit(1)\n"
+    mono.write("extracted/dev/validate.py", validator)
+    done = mono.hook(f"cd extracted && {EMPTY}", ".")
+    assert done.returncode == 0 and not marker.exists() and mono.ran() == [], done.stderr
+    mono.git("add", "extracted")
+    done = mono.hook(f"cd extracted && {EMPTY}", ".")
+    assert done.returncode == 2 and marker.exists(), done.stderr  # its gate, run there
 
 
 def test_an_ignored_directory_is_not_followed(mono: Mono) -> None:

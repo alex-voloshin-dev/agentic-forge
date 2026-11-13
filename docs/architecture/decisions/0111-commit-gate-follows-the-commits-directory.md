@@ -8,7 +8,8 @@ Amends [0101](0101-the-commit-gate-only-narrows.md) ("no following `git -C` or `
 
 ## Context
 
-A field report, verified on 2026.11.11. `commit_gate.gate_decision` took `cwd = payload["cwd"]`. That is the shell's
+A field report, verified on 2026.11.11. The hook (`commit_gate.gate_decision` then, `decide`/`_gate` now) took
+`cwd = payload["cwd"]`. That is the shell's
 directory when the Bash call **starts**. Claude Code keeps the shell's directory between calls, so one `cd svc` makes
 `svc` the start directory of every later call. Then:
 
@@ -33,11 +34,13 @@ kept.
 
 ## Decision
 
-**The hook resolves the directory first, with `guardrails.commit_dir(command, cwd)`, and uses it for every `cwd` use in
-`gate_decision`.** Everything ADR 0101 says about "cwd" now means that directory. `commit_dir` returns either the payload
-`cwd` unchanged (what the gate always did) or the real path of a directory it is sure of. The same path is used for the
-checks below and for the run. `commit_gate.decide` returns the decision with that directory, so `main` names the right
-config file in the skip notice without resolving it twice.
+**`commit_gate.decide` resolves the directory first, with `guardrails.commit_dir(command, cwd)`, and `_gate` uses it for
+every `cwd` use.** Everything ADR 0101 says about "cwd" now means that directory. `commit_dir` returns either the
+payload `cwd` unchanged (what the gate always did) or the real path of a directory it is sure of. The same path is used
+for the checks below and for the run. `decide` returns the decision with that directory, so `main` names the right
+config file in the skip notice without resolving it twice (`gate_decision` remains as a wrapper returning the
+decision alone). When the directory moved, a block's shape hint does not advise a bare `git commit`, which would run in
+the start directory under another gate: it says to run `cd <dir>` as its own call, then the commit as its own call.
 
 **1. An allowlist of the whole line.** A first version read the line with the merge gate's lexer and refused what it knew
 could move a shell. Review found what it did not know:
@@ -68,7 +71,8 @@ segment must be one of:
 At least one segment must be a commit or push, and all of them must resolve to the same directory. Only `&&` joins the
 segments, so a `cd` that fails stops the line before the commit, and a misread failure cannot move the gate. Each `cd`
 step must still exist, both as written and as normalised: bash and zsh refuse `cd nowhere/..`, dash does not. With
-`CDPATH` set in the hook's environment, only a `cd` to `/…` or `.…` is followed.
+`CDPATH` set in the hook's environment, only the forms bash and zsh do not search are followed: `/…`, `.`, `..`, `./…`
+and `../…`. `cd .github` is searched like any other name.
 
 The heredoc message is the shape `gate_scope._HEREDOC_MESSAGES` already accepts: a quoted delimiter, so the body is
 not expanded, and the first line starting with the delimiter must be exactly it, followed by `)"`. bash also closes the
@@ -79,23 +83,31 @@ The merge gate's lexer (`_lex`) is not used and is unchanged.
 
 **2. `cd` is logical, `-C` physical.** `cd ..` from a directory reached through a symlink goes to the link's parent, as
 the shell's does. git `chdir()`s to each `-C` in turn, so each step is `os.path.realpath(os.path.join(dir, arg))`, and
-`git -C lnk/..` lands in the parent of the link's target. `-C ''` changes nothing, as in git.
+`git -C lnk/..` lands in the parent of the link's target. Each step's joined path must exist before it is resolved, as
+git refuses `-C missing/../x`. `-C ''` changes nothing, as in git.
 
-**3. Only the start directory's own work tree, and not an ignored directory.** The gate runs project scripts
+**3. Only tracked, not ignored, in the start directory's own work tree.** The gate runs project scripts
 (`dev/validate.py`, `npm run lint`, `ruff`) before the user's permission prompt, so a command must not be able to steer
-it into files the session has not been working in.
+it into files the session has not been working in. The checks run in this order, and the first that fails keeps the
+start directory:
 
+- **Under the start's top, on the path.** The start side is read first. The target's real path must be the start
+  directory's real top or lie under it, before any git runs in the target.
 - **Same work tree.** One `git rev-parse --is-inside-work-tree --show-toplevel --absolute-git-dir` per side. The
   target is used only when both say `true` and both the real top and the real git directory are equal. A linked
   worktree of the same repository is refused: the plugin itself creates detached PR-head worktrees
   (`run_scheduled`, code review's trial merge) holding someone else's code. A submodule, a nested repository, a
   directory whose `.git` file points into this repository, and `.git` itself are refused too.
-- **Not ignored.** `git check-ignore -q -- <target>` must exit 1 (not ignored). `node_modules/<pkg>` is inside the
-  work tree, but it is not the project's code. Exit 0 (ignored), an error or no time left keeps the start directory.
+- **Not ignored.** `git check-ignore --no-index -q -- <target>` must exit 1 (not ignored). `node_modules/<pkg>` is
+  inside the work tree, but it is not the project's code. `--no-index` keeps an ignored `dist/` ignored when one file
+  in it was force-added. Exit 0 (ignored), an error or no time left keeps the start directory.
+- **Tracked.** `git ls-files --error-unmatch -- <target>` must exit 0: something under the target is in the index. An
+  extracted archive, or a clone with its `.git` removed, is inside the work tree and not ignored, but it holds nothing
+  the repository tracks.
 
 The reads run git by the absolute path `PATH` gives, never a relative entry, as `merge_preflight` and `role_scope` do.
 They use `gate_scope`'s hardened flags (`--no-replace-objects`, `core.fsmonitor=false`, `safe.bareRepository=explicit`,
-…) and its environment allowlist, with `GIT_NO_LAZY_FETCH=1`, and share one 2-second budget for the three calls. A
+…) and its environment allowlist, with `GIT_NO_LAZY_FETCH=1`, and share one 2-second budget for the four calls. A
 git-steering variable in the hook's own environment (the list `narrow` refuses) keeps the start directory. A line
 naming no other directory (every plain commit) reads no git at all. Any exception keeps the start directory:
 `commit_dir` never raises.
@@ -114,7 +126,7 @@ guarantee comes from the matcher's grammar, not from the tests.
 - **Gate from the repository root always.** It would change which gate runs for every commit, not only the moved
   ones, and contradicts ADR 0101's rule that the root with no manifest stays ungated.
 - **Compare `diagnostics.main_repo_root` instead of asking git.** It parses `.git` files without git and approximates
-  submodules and moved worktree pointers. Asking git costs three process starts, only when the line names a directory.
+  submodules and moved worktree pointers. Asking git costs up to four process starts, only when the line names a directory.
 
 ## Limits
 
@@ -124,6 +136,10 @@ guarantee comes from the matcher's grammar, not from the tests.
 - **Only the plain shapes are followed.** `cd x; git commit`, a wrapper, a multi-line message in plain quotes and
   `-F - <<'EOF'` all keep the start directory, as before this ADR. A `cd` hidden in an alias, a function or a shell
   hook (`zoxide`, `auto_cd`) is not seen. The work-tree check bounds where one could land.
+- **The shell's own settings are not seen.** A shell set for physical `cd` (`set -P` in bash, `CHASE_LINKS` or
+  `CHASE_DOTS` in zsh) resolves `cd lnk/..` through the link, so the commit may land in another directory of the same
+  work tree than the one gated. The hook sees only its own environment's `CDPATH`, not one set in the shell's rc
+  files. Both stay inside the start directory's own work tree, by the checks in §3.
 - **The merge gate has a background-`cd` gap.** `pr_merge_target("cd x && git status & gh pr merge 5", "/w")`
   attributes the merge to `/w/x`, while the merge runs in `/w`, because `git status` is read-only. That gate fails
   open and only reads. This is a follow-up.
