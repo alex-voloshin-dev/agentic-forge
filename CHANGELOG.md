@@ -7,6 +7,10 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.11.12] - 2026-11-13
+
+Field report 6b032379, item 7 on the board: the commit gate follows the commit's directory (ADR 0111).
+
 ### Fixed
 
 - **The commit gate runs where the commit happens, not where the Bash call started** (ADR 0111). The hook used the
