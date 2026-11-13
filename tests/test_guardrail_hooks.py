@@ -2108,6 +2108,28 @@ def test_a_glob_named_untracked_directory_beside_a_tracked_one_is_not_followed(
     assert done.returncode == 0 and not marker.exists() and mono.ran() == [], done.stderr
 
 
+@pytest.mark.parametrize("shape", ["replaced-file", "filled-gitlink", "nested-gitlink"])
+def test_an_index_entry_that_is_not_a_file_beneath_is_not_followed(mono: Mono, shape: str) -> None:
+    """`ls-files --error-unmatch` passed these: the target is itself an index entry (a tracked file
+    replaced on disk by a directory, an uninitialised submodule's gitlink filled with content) or
+    holds only a gitlink. None is the project's code, so its `dev/validate.py` never runs."""
+    target = {"replaced-file": "gone", "filled-gitlink": "sm", "nested-gitlink": "holder"}[shape]
+    if shape == "replaced-file":
+        mono.commit("gone", "x\n")
+        (mono.root / "gone").unlink()
+    else:
+        head = mono.git("rev-parse", "HEAD").strip()
+        link = "sm" if shape == "filled-gitlink" else "holder/inner"
+        mono.git("update-index", "--add", "--cacheinfo", f"160000,{head},{link}")
+        mono.write(f"{link}/v", "x\n")
+    marker = mono.base / "validator-ran"
+    validator = f"open({str(marker)!r}, 'w').close()\nraise SystemExit(1)\n"
+    mono.write(f"{target}/dev/validate.py", validator)
+    for command in (f"cd {target} && {EMPTY}", f"git -C {target} commit --allow-empty -m x"):
+        done = mono.hook(command, ".")
+        assert done.returncode == 0 and not marker.exists() and mono.ran() == [], (command, done)
+
+
 def test_an_ignored_directory_is_not_followed(mono: Mono) -> None:
     """`node_modules/<pkg>` is inside the work tree but not the project's code."""
     mono.write(".gitignore", ".ruff_cache/\nnode_modules/\n")

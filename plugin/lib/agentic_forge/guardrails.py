@@ -1575,22 +1575,57 @@ def _commit_target(command: str, cwd: str) -> str | None:
     return found.pop() if len(found) == 1 else None
 
 
-def _git_read(git: str, directory: str, deadline: float, *args: str) -> tuple[int, list[str]]:
+def _git_bytes(git: str, directory: str, deadline: float, *args: str) -> tuple[int, bytes]:
     """``git <args>`` in ``directory`` as ``gate_scope`` reads: its hardening flags, its environment
-    allowlist, git by absolute path, within ``deadline``. ``(exit code, output lines)``; a timeout
+    allowlist, git by absolute path, within ``deadline``. ``(exit code, raw output)``; a timeout
     raises, which :func:`commit_dir` turns into the start directory."""
     from agentic_forge import gate_scope
 
     left = deadline - time.monotonic()
     if left <= 0:
-        return -1, []
+        return -1, b""
     env = {name: os.environ[name] for name in gate_scope._READ_ENV if name in os.environ}
     done = subprocess.run(
         [git, *gate_scope._GIT[1:], *args],
         cwd=directory, env={**env, "GIT_NO_LAZY_FETCH": "1"}, stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=left,
     )  # fmt: skip
-    return done.returncode, os.fsdecode(done.stdout).splitlines()
+    return done.returncode, done.stdout
+
+
+def _git_read(git: str, directory: str, deadline: float, *args: str) -> tuple[int, list[str]]:
+    """:func:`_git_bytes`, its output as lines."""
+    code, out = _git_bytes(git, directory, deadline, *args)
+    return code, os.fsdecode(out).splitlines()
+
+
+_GITLINK = b"160000"
+
+
+def _tracks_a_file_beneath(git: str, top: str, target: str, deadline: float) -> bool:
+    """Whether the index holds a regular entry (not a gitlink) strictly beneath ``target``, read
+    from ``top`` with ``git --literal-pathspecs ls-files -z -s -- <target>/``. An exit code alone
+    is not enough: ``--error-unmatch`` also succeeds when the target itself is an entry, a tracked
+    file replaced on disk by a directory, or an uninitialised submodule's gitlink filled with
+    content. Literal, since as a glob an untracked `x*` matched a tracked `xa/f`. Any doubt is
+    False."""
+    code, out = _git_bytes(
+        git, top, deadline, "--literal-pathspecs", "ls-files", "-z", "-s", "--", target + os.sep
+    )
+    if code != 0:
+        return False
+    rel = os.path.relpath(target, top)
+    prefix = "" if rel == os.curdir else rel.replace(os.sep, "/") + "/"
+    if out and not out.endswith(b"\0"):
+        return False  # cut short
+    for record in out.split(b"\0")[:-1]:
+        meta, tab, path = record.partition(b"\t")
+        fields = meta.split(b" ")
+        if not tab or len(fields) != 3 or not path:
+            return False  # not the shape `<mode> <sha> <stage>\t<path>`: do not guess
+        if fields[0] != _GITLINK and os.fsdecode(path).startswith(prefix):
+            return True
+    return False
 
 
 def _work_tree(git: str, directory: str, deadline: float) -> tuple[str, str] | None:
@@ -1615,8 +1650,9 @@ def commit_dir(command: str, cwd: str) -> str:
     environment variable in the hook's environment that points git elsewhere, no ``git`` by an
     absolute path, a target outside ``cwd``'s own work tree (another repo, a linked worktree, a
     submodule; checked on the path before any git runs there), one git ignores
-    (``node_modules/…``) or one holding nothing tracked (an extracted archive; the name is matched
-    literally, never as a glob), a timeout or any failure. The gate runs
+    (``node_modules/…``) or one with no regular tracked file beneath it (an extracted archive, a
+    tracked file replaced by a directory, a filled gitlink; see :func:`_tracks_a_file_beneath`), a
+    timeout or any failure. The gate runs
     the project's own scripts in the result before the user is asked, so a command must not steer
     it into files the session has not been working in. Never raises; reads git only when the line
     names another directory."""
@@ -1643,10 +1679,8 @@ def commit_dir(command: str, cwd: str) -> str:
         )
         if ignored != 1:  # 0 ignored, 128 an error, -1 out of time
             return cwd
-        # literal: as a pathspec glob, an untracked `x*` would match a tracked `xa/` beside it
-        literal = ("--literal-pathspecs", "ls-files", "--error-unmatch", "--", target)
-        tracked, _ = _git_read(git, ours[0], deadline, *literal)
-        return target if tracked == 0 else cwd  # an untracked tree is not the project's code
+        # an untracked tree, a file replaced by a directory, a filled gitlink: not the project's
+        return target if _tracks_a_file_beneath(git, ours[0], target, deadline) else cwd
     except Exception:  # noqa: BLE001 — any doubt keeps the start directory, as before ADR 0111
         return cwd
 
