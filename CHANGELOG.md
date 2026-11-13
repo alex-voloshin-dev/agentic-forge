@@ -43,6 +43,8 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
   - **With `CDPATH` set,** only `/…`, `.`, `..`, `./…` and `../…` are followed. Each `-C` step must exist.
   - **A block on a moved commit** says to run `cd <dir>` as its own call before the commit, not a bare `git commit`,
     which would run in the start directory.
+  - **The Python 3.9 hook smoke covers it.** `dev/hook_smoke.py` now also runs `cd .. && git commit` from a package
+    whose stand-in ruff fails if it runs, so CI's 3.9 job reaches `commit_dir` and its git reads.
 
 ## [2026.11.11] - 2026-11-12
 
