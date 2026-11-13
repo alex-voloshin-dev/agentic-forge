@@ -1480,7 +1480,7 @@ def merge_preflight(
 _HEREDOC_WORD = re.compile(r"""("\$\(cat <<'(\w+)'\n(?:(?!\2)[^\n]*\n)*\2\n\)")""")
 _BLANKS = re.compile(r"[ \t]+")
 _GIT_FOLLOWED = frozenset({"add", "commit", "push"})  # what a followed line's git may run
-_COMMIT_DIR_BUDGET = 2.0  # seconds for all three git reads (the hook is capped at 120)
+_COMMIT_DIR_BUDGET = 2.0  # seconds for all four git reads (the hook is capped at 120)
 
 
 def _plain_segments(command: str) -> list[list[str | None]] | None:
@@ -1519,6 +1519,12 @@ def _plain_segments(command: str) -> list[list[str | None]] | None:
     return segments if segments[-1] else None
 
 
+def _cdpath_exempt(target: str) -> bool:
+    """Whether bash and zsh ``cd`` to ``target`` without searching ``CDPATH``: an absolute path,
+    ``.``, ``..``, or one starting ``./`` or ``../``. ``.github`` is searched like any name."""
+    return target.startswith(("/", "./", "../")) or target in (".", "..")
+
+
 def _literal_dir(word: str | None) -> str | None:
     """A ``cd``/``-C`` argument read as a directory name, or None: an option (``-P``, ``-``), a
     stack index (``+1``), a tilde or the opaque message are refused."""
@@ -1541,7 +1547,7 @@ def _commit_target(command: str, cwd: str) -> str | None:
     for words in segments:
         if words[0] in ("cd", "pushd"):
             target = _literal_dir(words[1]) if len(words) == 2 else None
-            if target is None or (cdpath and not target.startswith(("/", "."))):
+            if target is None or (cdpath and not _cdpath_exempt(target)):
                 return None  # with CDPATH set, `cd sub` may go anywhere CDPATH names
             written = os.path.join(directory, target)
             directory = os.path.normpath(written)
@@ -1556,7 +1562,11 @@ def _commit_target(command: str, cwd: str) -> str | None:
             step = words[k + 1] if k + 1 < len(words) else None
             if step is None or (step and _literal_dir(step) is None):
                 return None
-            here = os.path.realpath(os.path.join(here, step)) if step else here  # `-C ''`: no-op
+            if step:  # `-C ''` is a no-op; git refuses `-C missing/../x`, so each step must exist
+                joined = os.path.join(here, step)
+                if not os.path.isdir(joined):
+                    return None
+                here = os.path.realpath(joined)
             k += 2
         if k >= len(words) or words[k] not in _GIT_FOLLOWED:
             return None
@@ -1604,7 +1614,9 @@ def commit_dir(command: str, cwd: str) -> str:
     ``cwd`` itself in every other case: any other shape, commits in different places, a git
     environment variable in the hook's environment that points git elsewhere, no ``git`` by an
     absolute path, a target outside ``cwd``'s own work tree (another repo, a linked worktree, a
-    submodule) or one git ignores (``node_modules/…``), a timeout or any failure. The gate runs
+    submodule; checked on the path before any git runs there), one git ignores
+    (``node_modules/…``) or one holding nothing tracked (an extracted archive), a timeout or any
+    failure. The gate runs
     the project's own scripts in the result before the user is asked, so a command must not steer
     it into files the session has not been working in. Never raises; reads git only when the line
     names another directory."""
@@ -1621,10 +1633,18 @@ def commit_dir(command: str, cwd: str) -> str:
             return cwd
         deadline = time.monotonic() + _COMMIT_DIR_BUDGET
         ours = _work_tree(git, cwd, deadline)
-        if ours is None or ours != _work_tree(git, target, deadline):
+        if ours is None or os.path.commonpath([ours[0], target]) != ours[0]:
+            return cwd  # no git runs in a target outside the start directory's own top
+        if ours != _work_tree(git, target, deadline):
             return cwd
-        ignored, _ = _git_read(git, ours[0], deadline, "check-ignore", "-q", "--", target)
-        return target if ignored == 1 else cwd  # 0 ignored, 128 an error, -1 out of time
+        # --no-index: an ignored `dist/` with one force-added file is still ignored
+        ignored, _ = _git_read(
+            git, ours[0], deadline, "check-ignore", "--no-index", "-q", "--", target
+        )
+        if ignored != 1:  # 0 ignored, 128 an error, -1 out of time
+            return cwd
+        tracked, _ = _git_read(git, ours[0], deadline, "ls-files", "--error-unmatch", "--", target)
+        return target if tracked == 0 else cwd  # an untracked tree is not the project's code
     except Exception:  # noqa: BLE001 — any doubt keeps the start directory, as before ADR 0111
         return cwd
 

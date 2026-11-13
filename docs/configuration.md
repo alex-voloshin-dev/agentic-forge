@@ -93,7 +93,7 @@ else nothing. That directory is the session's cwd, unless the command moves the 
 `cd .. && git commit` and `git -C <root> commit` are gated as the root, `cd svc && git commit` as `svc` (ADR 0111). Only a
 line of `&&`-joined plain `cd <dir>`, `pushd <dir>` and `git [-C <dir>] add|commit|push` segments is followed (a
 `-m "$(cat <<'EOF' ...)"` message included). `;`, a newline, `||`, a subshell, a wrapper, `~`, a variable, a linked worktree,
-another repository, an ignored directory such as `node_modules/<pkg>`, or anything uncertain leaves the session's cwd. "cwd"
+another repository, an ignored directory such as `node_modules/<pkg>`, an untracked one, or anything uncertain leaves the session's cwd. "cwd"
 below means that directory.
 A commit from a repo root with no manifest is **not gated**. That has not changed. A simple command then narrows that gate to
 what it changes (ADR 0101):
