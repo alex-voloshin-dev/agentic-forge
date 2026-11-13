@@ -2170,6 +2170,156 @@ def test_a_moved_commit_is_never_narrowed(command: str) -> None:
     assert gate_scope.parse_simple(command) is None
 
 
+# --- commit_gate e2e: the field repro with a gated root (ADR 0111) -----------------------------
+# The `mono` root is ungated, so a moved commit there runs nothing at all. The field monorepo had a
+# root gate of its own beside a package with old lint findings: a moved commit must run the ROOT's
+# gate, in the root, with the root's tools and settings, and a block must name the root. The real
+# hook runs as Claude Code runs it (stdin payload, exit code, stderr, stdout JSON), under this
+# interpreter and, when one is on PATH, under Python 3.9: the floor a hook runs on (CLAUDE.md).
+
+_PY39 = shutil.which("python3.9")
+_HOOK_PYTHONS = [
+    pytest.param(sys.executable, id="current"),
+    pytest.param(
+        _PY39 or "python3.9", id="py39",
+        marks=pytest.mark.skipif(not _PY39, reason="no python3.9 on PATH"),
+    ),
+]
+
+_ROOT_VALIDATOR = """import json, os, sys
+with open(os.environ["TOOL_LOG"], "a", encoding="utf-8") as log:
+    log.write(json.dumps({"tool": "validate", "cwd": os.getcwd(), "argv": sys.argv[1:]}) + "\\n")
+if os.path.exists("FAIL"):
+    print("root-finding: the root validator says no")
+    sys.exit(1)
+"""
+
+# The field's own shape: commit with a heredoc message, then push, after a `cd` to the root.
+FIELD_COMMIT = (
+    "cd .. && git commit -m \"$(cat <<'EOF'\nfix(root): the field repro\n\n"
+    "Body: a colon, 'quotes', <angles> and a $dollar.\n\n"
+    "Co-Authored-By: t <t@example.invalid>\nEOF\n)\" && git push"
+)
+
+_NAMED_TOOL = """#!{python}
+import json, os, sys
+with open(os.environ["TOOL_LOG"], "a", encoding="utf-8") as log:
+    log.write(json.dumps({{"tool": {name!r}, "cwd": os.getcwd(), "argv": sys.argv[1:]}}) + "\\n")
+print({name!r} + ": finding.py:1:1: F401")
+sys.exit(int(os.environ.get({rc!r}, "0")))
+"""
+
+
+def _hook_as(
+    mono: Mono, python: str, command: str, cwd: str = "svc", env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess:
+    """`Mono.hook`, under ``python``."""
+    mono.log.unlink(missing_ok=True)
+    payload = {
+        "hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": command},
+        "cwd": str(mono.root / cwd), "session_id": "s",
+    }
+    return subprocess.run(
+        [python, str(HOOKS / "commit_gate.py")], input=json.dumps(payload),
+        env={**mono.env, **(env or {})}, capture_output=True, text=True, errors="replace",
+        timeout=120,
+    )
+
+
+def _gated_root(mono: Mono) -> dict[str, object]:
+    """A root `dev/validate.py` (the gate this repo itself has), committed and pushed; what one
+    run of it in the root records."""
+    mono.commit("dev/validate.py", _ROOT_VALIDATOR)
+    mono.git("push", "-q")
+    return {"tool": "validate", "cwd": str(mono.root), "argv": []}
+
+
+@pytest.mark.parametrize("python", _HOOK_PYTHONS)
+def test_field_repro_a_root_commit_from_a_failing_package_runs_the_roots_gate(
+    mono: Mono, python: str
+) -> None:
+    root_run = _gated_root(mono)
+    mono.stage("docs/note.md", "x\n")
+    done = _hook_as(mono, python, f"cd . && {EMPTY}")  # the package's gate: its old finding
+    assert done.returncode == 2 and "legacy_bad.py" in done.stderr, done.stderr
+    for command in (FIELD_COMMIT, f"git -C {mono.root} commit -m x", "git -C .. commit -m x",
+                    f"cd {mono.root} && git add docs && {EMPTY} && git push"):
+        done = _hook_as(mono, python, command)
+        assert done.returncode == 0, (command, done.stderr)
+        assert mono.ran() == [root_run], command  # the root's gate, in the root; no ruff
+    # the allowed line is the shell line it was read as: it commits and pushes from svc
+    subprocess.run(["bash", "-c", FIELD_COMMIT], cwd=mono.root / "svc", env=mono.env, check=True,
+                   capture_output=True)
+    assert mono.git("log", "-1", "--format=%s").strip() == "fix(root): the field repro"
+    head = mono.git("rev-parse", "HEAD").strip()
+    assert mono.git("ls-remote", str(mono.origin), "refs/heads/main").split()[0] == head
+    # a plain commit from the package is still the package's: a new finding blocks
+    mono.stage("svc/new_bad.py", _BAD)
+    done = _hook_as(mono, python, "git commit -m x")
+    assert done.returncode == 2 and "new_bad.py" in done.stderr, done.stderr
+    assert f"in {mono.root / 'svc'}\n" in done.stderr
+    assert mono.ran() and all(
+        entry["tool"] == "ruff" and entry["cwd"] == str(mono.root / "svc") for entry in mono.ran()
+    )
+
+
+@pytest.mark.parametrize("python", _HOOK_PYTHONS)
+def test_a_moved_block_names_the_moved_directory_and_reads_its_settings(
+    mono: Mono, python: str
+) -> None:
+    root_run = _gated_root(mono)
+    (mono.root / "FAIL").write_text("")
+    mono.stage("docs/note.md", "x\n")
+    svc = str(mono.root / "svc")
+    for command in (FIELD_COMMIT, f"git -C {mono.root} commit -m x"):
+        done = _hook_as(mono, python, command)
+        assert done.returncode == 2, (command, done.stderr)
+        assert done.stderr.startswith("agentic-forge test-gate blocked: gate failed (`"), command
+        assert f"dev/validate.py`) run whole, in {mono.root}\n" in done.stderr, done.stderr
+        assert "root-finding" in done.stderr and "legacy_bad" not in done.stderr, command
+        assert mono.ran() == [root_run], command
+        notice = json.loads(done.stdout)["systemMessage"]
+        assert f"set `test_gate.skip: true` in {mono.root}/.agentic-forge/config.json" in notice
+        assert svc not in notice and svc not in done.stderr, command
+    # the package's skip is the package's: it does not ungate a root commit made from there
+    mono.write("svc/.agentic-forge/config.json", '{"test_gate": {"skip": true}}')
+    assert _hook_as(mono, python, FIELD_COMMIT).returncode == 2
+    assert mono.ran() == [root_run]
+    assert _hook_as(mono, python, EMPTY).returncode == 0 and mono.ran() == []  # its own: skipped
+    mono.write(".agentic-forge/config.json", '{"test_gate": {"skip": true}}')
+    done = _hook_as(mono, python, FIELD_COMMIT)
+    assert done.returncode == 0 and mono.ran() == [], done.stderr  # the root's skip decides
+
+
+@pytest.mark.parametrize("python", _HOOK_PYTHONS)
+def test_a_moved_gate_resolves_the_tools_of_the_directory_it_moved_to(
+    mono: Mono, python: str
+) -> None:
+    """`resolve_gate`/`gate_env` take the moved directory: from svc, svc's own `.venv/bin/ruff`
+    comes first, so a root commit made from svc would run svc's linter in svc's venv."""
+    mono.commit("pyproject.toml", "[project]\nname = 'root'\nversion = '0'\n")
+    for where, name, rc in (("", "root-venv-ruff", "ROOT_RC"), ("svc/", "svc-venv-ruff", "SVC_RC")):
+        tool = mono.write(f"{where}.venv/bin/ruff", _NAMED_TOOL.format(
+            python=sys.executable, name=name, rc=rc))
+        tool.chmod(0o755)
+    fail = {"ROOT_RC": "1", "SVC_RC": "1"}
+    done = _hook_as(mono, python, f"cd . && {EMPTY}", env=fail)
+    assert done.returncode == 2 and mono.ran() == [
+        {"tool": "svc-venv-ruff", "cwd": str(mono.root / "svc"), "argv": ["check", "."]}
+    ], done.stderr
+    root_run = {"tool": "root-venv-ruff", "cwd": str(mono.root), "argv": ["check", "."]}
+    done = _hook_as(mono, python, f"cd .. && {EMPTY}", env={"SVC_RC": "1"})
+    assert done.returncode == 0 and mono.ran() == [root_run], done.stderr
+    done = _hook_as(mono, python, f"cd .. && {EMPTY}", env=fail)
+    assert done.returncode == 2 and mono.ran() == [root_run], done.stderr
+    # a ruff gate's shape hint goes through the root, not a bare commit in svc
+    assert f"/.venv/bin/ruff check .`) run whole, in {mono.root}\n" in done.stderr
+    assert (
+        f"running `cd {mono.root}` as its own call, then running `git commit` or `git push` as "
+        "its own call gates only what changed" in done.stderr
+    ), done.stderr
+
+
 def _recording_git(directory: Path, log: Path) -> dict[str, str]:
     directory.mkdir()
     tool = directory / "git"
