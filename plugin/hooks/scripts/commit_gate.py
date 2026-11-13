@@ -3,9 +3,9 @@
 
 On a `git commit`/`git push` Bash command, run the repo's fast gate (`dev/validate.py` if present,
 else the detected stack's lint) and exit 2 (block) if it fails. The gate runs in the directory the
-commit acts on: a leading `cd`/`pushd` and git's `-C` are followed within the same repository
-(`guardrails.commit_dir`, ADR 0111). A simple command narrows that gate to what it changes
-(`gate_scope`, ADR 0101). Skippable via the `test_gate.skip` setting (or
+commit acts on: a plain `cd <dir> && … git -C <dir> commit` line is followed within the start
+directory's own work tree (`guardrails.commit_dir`, ADR 0111). A simple command narrows that gate
+to what it changes (`gate_scope`, ADR 0101). Skippable via the `test_gate.skip` setting (or
 AGENTIC_FORGE_SKIP_TEST_GATE — ADR 0041). Fails OPEN on any infrastructure error (missing tool,
 etc.) — only a genuine gate failure blocks.
 """
@@ -138,15 +138,25 @@ def skip_notice(cwd: str) -> str:
     )
 
 
-def gate_decision(payload: dict[str, Any]) -> guardrails.Decision:
+def decide(payload: dict[str, Any]) -> tuple[guardrails.Decision, str]:
+    """The decision, and the directory it was taken in: where the commit acts, not where the call
+    started. `cd .. && git commit` and `git -C <root> commit` are gated (and configured) as the
+    root, within the start directory's own work tree only (ADR 0111)."""
+    start = str(payload.get("cwd") or ".")
     if payload.get("tool_name") != "Bash":
-        return guardrails.ALLOW
+        return guardrails.ALLOW, start
     command = str((payload.get("tool_input") or {}).get("command", ""))
     if not guardrails.is_commit_or_push(command):
-        return guardrails.ALLOW
-    # Where the commit acts, not where the call started: `cd .. && git commit` and `git -C <root>
-    # commit` are gated (and configured) as the root, within the same repository only (ADR 0111).
-    cwd = guardrails.commit_dir(command, str(payload.get("cwd") or "."))
+        return guardrails.ALLOW, start
+    cwd = guardrails.commit_dir(command, start)
+    return _gate(payload, command, cwd), cwd
+
+
+def gate_decision(payload: dict[str, Any]) -> guardrails.Decision:
+    return decide(payload)[0]
+
+
+def _gate(payload: dict[str, Any], command: str, cwd: str) -> guardrails.Decision:
     # resolve config only once we know it's a commit/push (keep the cheap filters first)
     if settings.resolve(cwd).skip_test_gate:
         return guardrails.ALLOW
@@ -210,7 +220,7 @@ def main() -> int:
         payload = json.load(sys.stdin)
         cwd = str(payload.get("cwd") or ".")
         session_id = payload.get("session_id")
-        decision = gate_decision(payload)
+        decision, where = decide(payload)
     except Exception as exc:  # fail open, but record + announce the hook crash (ADR 0039)
         crash = diagnostics.hook_crash(cwd, "commit-gate", exc, session_id=session_id)
         if crash:
@@ -219,8 +229,7 @@ def main() -> int:
     if decision.block:
         print(f"agentic-forge test-gate {decision.message}", file=sys.stderr)
         # the config file that decided is the one in the directory the gate ran in (ADR 0111)
-        command = str((payload.get("tool_input") or {}).get("command", ""))
-        print(json.dumps({"systemMessage": skip_notice(guardrails.commit_dir(command, cwd))}))
+        print(json.dumps({"systemMessage": skip_notice(where)}))
         diagnostics.emit(
             str(payload.get("cwd") or "."), kind="block", component="commit-gate",
             message=decision.message, severity="major", session_id=payload.get("session_id"),

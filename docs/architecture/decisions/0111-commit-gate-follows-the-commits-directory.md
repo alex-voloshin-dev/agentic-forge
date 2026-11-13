@@ -27,90 +27,114 @@ reached everything the hook does with `cwd`:
 - where the gate runs;
 - the block and skip messages, which named the wrong config file.
 
-ADR 0101 had deliberately refused to follow `cd` and `-C`, but for narrowing: a narrowed gate is computed from git
-reads in one directory. Running the whole gate in the directory the command leaves was never the intent; it was the
-old behaviour, kept.
+ADR 0101 had refused to follow `cd` and `-C`, but for narrowing: a narrowed gate is computed from git reads in one
+directory. Running the whole gate in the directory the command leaves was never the intent; it was the old behaviour,
+kept.
 
 ## Decision
 
 **The hook resolves the directory first, with `guardrails.commit_dir(command, cwd)`, and uses it for every `cwd` use in
 `gate_decision`.** Everything ADR 0101 says about "cwd" now means that directory. `commit_dir` returns either the payload
-`cwd` unchanged (what the gate always did) or a directory it is sure of.
+`cwd` unchanged (what the gate always did) or the real path of a directory it is sure of. The same path is used for the
+checks below and for the run. `commit_gate.decide` returns the decision with that directory, so `main` names the right
+config file in the skip notice without resolving it twice.
 
-**1. Reading the command.** It reuses the merge gate's lexer (`_lex`, `_cd_takes_effect`, `_cd_target`,
-`_git_subcommand`). The lexer gains a `partial` mode, off for the merge gate. When a command substitution cuts a
-command short, it keeps the words read so far and marks the word holding the substitution as dynamic. Without it,
-the form agents commit with, `git commit -m "$(cat <<'EOF' …)"`, would never be read. For each `git commit`/`git
-push` in command position, start from `cwd` and:
+**1. An allowlist of the whole line.** A first version read the line with the merge gate's lexer and refused what it knew
+could move a shell. Review found what it did not know:
 
-- apply each earlier `cd`/`pushd` with one literal argument. It counts only when the merge gate's rule says it takes
-  effect, and when nothing but `&&`, `;` or a newline separates it from the commit. The merge gate's rule alone would
-  accept `cd x && sleep 1 & git commit`, where the `cd` runs in a background subshell;
-- then apply the commit segment's global `-C` options in order, a relative one relative to the one before. That is
-  how git applies them. `-C ""` changes nothing, as in git.
+- a push inside `{ }`, after `!` or `if`, or in a trailing subshell, which it did not count;
+- a `cd` joined by `;` that fails at run time, so the commit runs in the start directory;
+- `env --chdir=` and `sudo --chdir=`;
+- `CDPATH=` before a `cd`;
+- `export GIT_DIR`.
 
-**2. What keeps the start directory** (`cwd` returned unchanged):
+So the line is now followed only when **every character** is one of:
 
-- **A target only a shell can work out:** `~`, a variable, a glob, `cd` alone, `cd -`, `cd -P x`.
-- **A `cd` that may not take effect:** `||`, `|`, `&`, a subshell, a `{ }` group or a compound command.
-- **A directory change the reading does not follow:** `popd`, `source`/`.`, `eval`, `builtin`, `command cd`.
-- **Another tree:** `--git-dir`/`--work-tree`, `-c core.worktree=`, `--config-env`, or `GIT_DIR=`/`GIT_WORK_TREE=` on
-  the commit. The same holds when the hook's own environment has one of the variables that make `narrow` leave the
-  gate as it is.
-- **An uncertain line:** an unbalanced quote; several commits/pushes that resolve to different directories; or a
-  line cut short by a substitution where the trigger (`is_commit_or_push`) counts more commits/pushes than were read,
-  which means one may hide in the unread tail.
-- **The target is not safe to use:** not an existing directory, or not inside a working tree.
-- **No absolute `git`, a timeout, or any other failure.** It never raises.
+- a word of safe characters and plain quotes (`gate_scope._WORD`: no `$`, backtick, backslash, glob, `~`, brace or
+  newline, and no word starting with `=`);
+- a balanced `-m "$(cat <<'EOF' … EOF\n)"` message, read as one opaque word;
+- blanks;
+- `&&`.
 
-**3. Only inside the same repository.** The gate runs project scripts (`dev/validate.py`, `npm run lint`, `ruff`) before the
-user's permission prompt, so a command must not be able to steer it into another checkout. The target is used only when
-`git rev-parse --is-inside-work-tree --git-common-dir` says `true` in both directories and the common directories
-resolve to the same real path. A linked worktree of the same repository counts. That is the same trust the session already
-extends to that repository, and the shared common directory means the same hooks and config.
+There is then no `;`, newline, `||`, `|`, `&`, redirection, comment, subshell or group anywhere. Each `&&`-joined
+segment must be one of:
+
+- **`cd <dir>` or `pushd <dir>`**: exactly one argument, with no prefix assignment and no option (`-P`, `-`, `+1`,
+  `~…` are refused).
+- **A plain `git`**: the bare word `git`, with no prefix assignment and no wrapper. Its global options may only be
+  `-C <dir>`, and its subcommand must be `add`, `commit` or `push`. Any other git subcommand falls back, to keep it
+  simple.
+
+At least one segment must be a commit or push, and all of them must resolve to the same directory. Only `&&` joins the
+segments, so a `cd` that fails stops the line before the commit, and a misread failure cannot move the gate. Each `cd`
+step must still exist, both as written and as normalised: bash and zsh refuse `cd nowhere/..`, dash does not. With
+`CDPATH` set in the hook's environment, only a `cd` to `/…` or `.…` is followed.
+
+The heredoc message is the shape `gate_scope._HEREDOC_MESSAGES` already accepts: a quoted delimiter, so the body is
+not expanded, and the first line starting with the delimiter must be exactly it, followed by `)"`. bash also closes the
+body on a line like `EOF)`, so that shape is refused. Here it may sit anywhere in the line, so the field's commit-then-push
+(`cd .. && git commit -m "$(cat <<'EOF' …)" && git push`) is followed. A test proves that case.
+
+The merge gate's lexer (`_lex`) is not used and is unchanged.
+
+**2. `cd` is logical, `-C` physical.** `cd ..` from a directory reached through a symlink goes to the link's parent, as
+the shell's does. git `chdir()`s to each `-C` in turn, so each step is `os.path.realpath(os.path.join(dir, arg))`, and
+`git -C lnk/..` lands in the parent of the link's target. `-C ''` changes nothing, as in git.
+
+**3. Only the start directory's own work tree, and not an ignored directory.** The gate runs project scripts
+(`dev/validate.py`, `npm run lint`, `ruff`) before the user's permission prompt, so a command must not be able to steer
+it into files the session has not been working in.
+
+- **Same work tree.** One `git rev-parse --is-inside-work-tree --show-toplevel --absolute-git-dir` per side. The
+  target is used only when both say `true` and both the real top and the real git directory are equal. A linked
+  worktree of the same repository is refused: the plugin itself creates detached PR-head worktrees
+  (`run_scheduled`, code review's trial merge) holding someone else's code. A submodule, a nested repository, a
+  directory whose `.git` file points into this repository, and `.git` itself are refused too.
+- **Not ignored.** `git check-ignore -q -- <target>` must exit 1 (not ignored). `node_modules/<pkg>` is inside the
+  work tree, but it is not the project's code. Exit 0 (ignored), an error or no time left keeps the start directory.
 
 The reads run git by the absolute path `PATH` gives, never a relative entry, as `merge_preflight` and `role_scope` do.
 They use `gate_scope`'s hardened flags (`--no-replace-objects`, `core.fsmonitor=false`, `safe.bareRepository=explicit`,
-…) and its twelve-name environment allowlist, with `GIT_NO_LAZY_FETCH=1`, and share one 2-second budget. A command with
-neither a `cd` nor a `-C` (every plain commit) reads no git at all.
+…) and its environment allowlist, with `GIT_NO_LAZY_FETCH=1`, and share one 2-second budget for the three calls. A
+git-steering variable in the hook's own environment (the list `narrow` refuses) keeps the start directory. A line
+naming no other directory (every plain commit) reads no git at all. Any exception keeps the start directory:
+`commit_dir` never raises.
 
-**4. Narrowing is untouched and cannot disagree with it.** `gate_scope.parse_simple` refuses any `cd` or `-C`, so a
-command that moves the directory always runs whole in the new directory, and every command that narrows resolves to the
-start directory itself. Two tests hold this: every `SIMPLE` shape resolves to `cwd`, and every moved shape fails
-`parse_simple`.
-
-**5. Messages.** The block names the resolved directory ("in <dir>"). The operator's skip notice names
-`<dir>/.agentic-forge/config.json`, the file that decided. The hook's `main` resolves it again only on a block. The
-diagnostics records use it too; they land in the same main repository either way.
+**4. Narrowing cannot pair with a moved directory, by construction.** `gate_scope.parse_simple` accepts only `git commit`,
+`git push`, or one `git add <paths> && git commit`, with no `cd` and no global option. Such a line never names another
+directory, so `commit_dir` returns the start directory for it, and a command that moves the directory always runs the
+whole gate there. The tests check both directions over the matcher's own `SIMPLE` table and the moved shapes. The
+guarantee comes from the matcher's grammar, not from the tests.
 
 ## Rejected alternatives
 
+- **A denylist over the merge gate's lexer.** This was the first version, and review found five ways past it (§1).
+- **The same repository, linked worktrees included.** It trusts files the session never worked in: a detached PR-head
+  worktree, or any directory with a `.git` file pointing at the repository.
 - **Gate from the repository root always.** It would change which gate runs for every commit, not only the moved
   ones, and contradicts ADR 0101's rule that the root with no manifest stays ungated.
-- **Follow any directory the command names.** The hook runs project scripts before the user is asked. A prompt-injected
-  `git -C /elsewhere commit` would make it run another checkout's `dev/validate.py`.
-- **Compare `diagnostics.main_repo_root` instead of asking git.** It parses `.git` files without git, which is cheap but
-  approximates: a submodule, `GIT_DIR` layouts and a worktree whose pointer moved are read differently from how the
-  commit will see them. Asking git costs two process starts, only when the command names a directory.
-- **Make the merge gate's `_cd_takes_effect` stricter in the same change.** The extra separator check lives in
-  `commit_dir` only, so the merge gate's behaviour is unchanged by this ADR. The merge gate has the same gap: `cd x &&
-  git status & gh pr merge 5` is attributed to `x`, while the merge runs in the start directory, because `git status`
-  is read-only. That gate fails open and only reads, so the gap is recorded as a follow-up, not fixed here.
+- **Compare `diagnostics.main_repo_root` instead of asking git.** It parses `.git` files without git and approximates
+  submodules and moved worktree pointers. Asking git costs three process starts, only when the line names a directory.
 
 ## Limits
 
-- **`CDPATH` is not read.** With `CDPATH` set, `cd sub` can go somewhere other than `./sub`. The same-repository check
-  bounds where that can land.
-- **A `cd` hidden in an alias, a function or a script** is not seen. The start directory stays, as before.
-- **A wrapper before the commit is followed through as `is_commit_or_push` follows it** (`timeout 5 git -C .. commit`).
-  `env -C dir git commit` is not a commit to either.
-- **Logical `cd ..`.** From a start directory reached through a symlink, `cd ..` goes to the link's parent, as the shell's
-  does. If that is outside the repository, the start directory stays.
+- **One `cd` can turn the gate off for a whole commit.** A `cd` into a subdirectory with no gate, or with its own
+  `test_gate.skip`, ungates a commit that records the whole index. This was reachable before in two calls (`cd sub`,
+  then commit). The gate guards against accidents; it is not a boundary against the model.
+- **Only the plain shapes are followed.** `cd x; git commit`, a wrapper, a multi-line message in plain quotes and
+  `-F - <<'EOF'` all keep the start directory, as before this ADR. A `cd` hidden in an alias, a function or a shell
+  hook (`zoxide`, `auto_cd`) is not seen. The work-tree check bounds where one could land.
+- **The merge gate has a background-`cd` gap.** `pr_merge_target("cd x && git status & gh pr merge 5", "/w")`
+  attributes the merge to `/w/x`, while the merge runs in `/w`, because `git status` is read-only. That gate fails
+  open and only reads. This is a follow-up.
+- **`gate_scope._git` runs git by bare name.** The narrowing reads resolve `git` through the subprocess `PATH`, where
+  a relative entry resolves against the directory. `commit_dir` uses an absolute path; the narrowing reads were not
+  changed here. This is a follow-up.
 
 ## Consequences
 
 - A root commit from a package's start directory is gated as the root, and a package commit from the root as the package.
-  That one blocks where it used to pass: it now meets the package's gate, which is the gate it should have met.
+  The package commit blocks where it used to pass: it now meets the package's gate, which is the gate it should have met.
 - `test_gate.skip` is read from the directory the commit acts on.
 - ADR 0101's invariant now reads "only the gate of the directory the commit acts on, from that directory". Its design
   test is unchanged: its commands use `cd .` and `-C .`, which resolve to the start directory.
