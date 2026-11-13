@@ -41,7 +41,18 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
   `refs/heads/` on the destination, since that is the form `pr-state`'s `push` takes.
 - **test-gate** (`PreToolUse` / Bash, `commit_gate.py`) — on `git commit`/`git push`, runs the
   **fast** gate (`dev/validate.py` if present, else the detected stack's lint via `stacks.py`) from
-  the session's `cwd` and blocks on failure, so broken code isn't committed. The stack is the
+  the directory the commit acts on and blocks on failure, so broken code isn't committed. That
+  directory (`cwd` below) is `guardrails.commit_dir`'s reading of the command (ADR 0111). It starts
+  from the payload's `cwd`, the shell's directory when the call starts. It follows a leading
+  `cd`/`pushd` that surely takes effect (a literal target, joined to the commit only by `&&`, `;` or
+  a newline) and git's `-C` options in turn; a `"$(cat <<'EOF' …)"` message is read too. It keeps the start
+  directory for anything only a shell can tell (`~`, a variable, `cd -`), a `cd` that may not take
+  effect, a subshell or group, `popd`/`source`, `--git-dir`/`--work-tree`/`core.worktree`/`GIT_DIR`, commits in
+  several directories, or any failure. The gate runs project scripts before the user is asked, so
+  the result must be an existing directory in a working tree of the **same repository** (the same
+  `git rev-parse --git-common-dir`, a linked worktree included), read by absolute `git` with the
+  narrowing's hardening in a 2-second budget. The settings, the gate choice, narrowing, tool
+  resolution and both messages use it. The stack is the
   cwd's own, read as before the monorepo scan and multi-name hints (`stacks.gate_profile`: no
   scan, a hint's first name, the hint file wherever it links), and the gate keeps only lint shapes
   that cannot make it block where it used to pass (`guardrails._gate_argv`): a JS/TS package's own
@@ -62,6 +73,8 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
   (ADR 0058, tightened by ADR 0059).
   **A simple command narrows that gate, and can only narrow it** (`gate_scope.py`, ADR 0101). The
   gate is still what `choose_gate(cwd)` picks: a commit from a root with no manifest stays ungated.
+  A command with a `cd` or `-C` is never simple, so narrowing never reads another directory than
+  the one the gate runs in.
   A small strict matcher accepts an optional single `git add <literal paths>` / `-A` / `.` joined by
   `&&`, then `git commit` with flags that cannot widen what it takes (a `-m "$(cat <<'EOF' …)"`
   message or `-F -` included), or `git push`, `git push <r>`, `git push <r> HEAD` or `git push <r>

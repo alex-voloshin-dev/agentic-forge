@@ -19,6 +19,8 @@ import os
 import re
 import shlex
 import shutil
+import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -39,6 +41,7 @@ __all__ = [
     "worktree_branches",
     "merge_preflight",
     "strip_heredoc_bodies",
+    "commit_dir",
     "choose_gate",
     "gate_bin_dirs",
     "resolve_gate",
@@ -1003,14 +1006,16 @@ def _redirection_end(text: str, i: int) -> int:
     return i + 2 if nxt in ("&", ">") and nxt else i + 1
 
 
-def _lex(command: str) -> tuple[list[_Segment], str]:
+def _lex(command: str, *, partial: bool = False) -> tuple[list[_Segment], str]:
     """``command`` (heredoc bodies stripped) as shell words split into simple commands, with
     redirections and comments dropped and ``\\``-newline joined, the way a shell reads them.
 
     Lexing stops at a command substitution, a subshell or a group: what follows is not read, and
     the second element says why ("" when the whole line was read). The command it stopped in is
-    left out, so a merge inside it or after it is not found. An unbalanced quote raises
-    :class:`UnattributableMerge` — the shell would run nothing of it."""
+    left out, so a merge inside it or after it is not found — unless ``partial``: then a command
+    cut short by a substitution is kept with the words read so far plus one dynamic word for the
+    one holding the substitution (``git commit -m "$(cat <<'EOF' …`` keeps ``git commit -m``).
+    An unbalanced quote raises :class:`UnattributableMerge` — the shell would run nothing of it."""
     text = strip_heredoc_bodies(command)
     segments: list[_Segment] = []
     words: list[str] = []
@@ -1041,6 +1046,11 @@ def _lex(command: str) -> tuple[list[_Segment], str]:
             segments.append(_Segment(words, dynamic, before, op, bool(state["writes"])))
             words, dynamic, before = [], [], op
         state["writes"] = False
+
+    def cut_short() -> list[_Segment]:
+        if partial and words:
+            segments.append(_Segment([*words, ""], [*dynamic, True], before))
+        return segments
 
     i, n = 0, len(text)
     while i < n:
@@ -1076,7 +1086,7 @@ def _lex(command: str) -> tuple[list[_Segment], str]:
                     j += 2
                     continue
                 if c == "`" or (c == "$" and text[j + 1 : j + 2] == "("):
-                    return segments, "a command substitution"
+                    return cut_short(), "a command substitution"
                 if c == "$":
                     state["dynamic"] = True
                 chars.append(c)
@@ -1085,7 +1095,7 @@ def _lex(command: str) -> tuple[list[_Segment], str]:
             i = j + 1
             continue
         if ch == "`" or (ch == "$" and nxt == "("):
-            return segments, "a command substitution"
+            return cut_short(), "a command substitution"
         if ch in "()":
             return segments, "a subshell"
         if ch == "$":
@@ -1459,6 +1469,159 @@ def merge_preflight(
     if not problems:
         return ALLOW
     return Decision(False, "pre-merge: " + "; ".join(problems))
+
+
+# --- test-gate: the directory a commit or push acts on (ADR 0111) ------------------------------
+# The hook payload's `cwd` is the shell's directory when the Bash call STARTS. `cd .. && git commit`
+# and `git -C <root> commit` commit somewhere else, and the gate used to run (and read its settings)
+# in the start directory: a subdirectory's linter blocked a root commit it had nothing to do with.
+# :func:`commit_dir` follows the plain forms. It runs project scripts in what it returns before the
+# user is asked, so it only ever moves inside the same repository, and anything it cannot tell
+# keeps the start directory — what the gate always did.
+
+# Before the commit, a command that may change the directory in a way not read here (a compound
+# command, a group, `popd`, a sourced script) keeps the start directory.
+_DIR_UNKNOWN = _RESERVED | {"}", "popd", "source", ".", "eval", "builtin"}
+_SAFE_AFTER_CD = ("&&", ";", "\n")  # what may follow a `cd`, up to the commit, for it to hold
+# git flags and variables naming another tree (`-c core.worktree=` is checked where `-c` is read)
+_GIT_ELSEWHERE = ("--git-dir", "--work-tree", "--config-env")
+_GIT_ELSEWHERE_VARS = ("GIT_DIR=", "GIT_WORK_TREE=")
+_COMMIT_DIR_BUDGET = 2.0  # seconds for both repository reads (the hook is capped at 120)
+
+
+def _git_run_dir(args: list[str], dynamic: list[bool], directory: str) -> str | None:
+    """Where ``git <args>`` runs when it is a commit or push started in ``directory``: each global
+    ``-C`` applied in turn, a relative one relative to the one before, as git does (an empty one
+    changes nothing). None for another subcommand, or one that cannot be told."""
+    j = 0
+    while j < len(args):
+        token = args[j]
+        if token == "-C":
+            if j + 1 >= len(args) or dynamic[j + 1] or args[j + 1].startswith("~"):
+                return None
+            if args[j + 1]:
+                directory = os.path.normpath(os.path.join(directory, args[j + 1]))
+            j += 2
+        elif token == "-c":
+            if args[j + 1 : j + 2] and args[j + 1].lower().startswith("core.worktree"):
+                return None
+            j += 2
+        elif token.startswith(_GIT_ELSEWHERE):
+            return None
+        elif token.startswith("-"):
+            j += 1
+        else:
+            return directory if token in ("commit", "push") else None
+    return None
+
+
+def _commit_target(command: str, cwd: str) -> str | None:
+    """The one directory every commit/push of ``command`` runs in, read from the command alone, or
+    None when it cannot be told. Pure, and stricter than the merge gate's reading of a ``cd``: no
+    ``~``, and nothing but ``&&``, ``;`` or a newline between it and the commit."""
+    try:
+        segments, _ = _lex(command, partial=True)
+    except UnattributableMerge:  # an unbalanced quote
+        return None
+    commits: list[tuple[int, int]] = []  # (segment, index of its `git`)
+    for k, segment in enumerate(segments):
+        ci = _command_index(segment.words)
+        if ci is not None and segment.words[ci].rsplit("/", 1)[-1] == "git":
+            if _git_subcommand(segment.words[ci + 1 :])[0] in ("commit", "push"):
+                commits.append((k, ci))
+    # Every commit/push the trigger saw must be one read here: a cut-short line may hide another.
+    expected = sum(
+        1
+        for base, rest, segment in _segment_commands(command)
+        if (not base and _COMMIT_PUSH.search(segment))
+        or (base == "git" and _git_subcommand(rest)[0] in ("commit", "push"))
+    )
+    if not commits or len(commits) != expected:
+        return None
+    found: set[str] = set()
+    for m, ci in commits:
+        directory = cwd
+        for k in range(m):
+            words, dynamic = segments[k].words, segments[k].dynamic
+            first = next((i for i, w in enumerate(words) if not _ENV_ASSIGN.match(w)), None)
+            if first is None:
+                continue  # only assignments
+            command_word = _command_index(words)
+            if words[first] in ("cd", "pushd"):
+                args = words[first + 1 :]
+                if any(arg.startswith("~") for arg in args) or not (
+                    _cd_takes_effect(segments, k, m)
+                    and all(segments[j].after in _SAFE_AFTER_CD for j in range(k, m))
+                ):
+                    return None
+                try:
+                    directory = _cd_target(directory, args, dynamic[first + 1 :])
+                except UnattributableMerge:  # `cd`, `cd -`, a variable, a glob
+                    return None
+            elif words[first] in _DIR_UNKNOWN or (
+                command_word is not None and words[command_word] in ("cd", "pushd")
+            ):
+                return None  # also `command cd x`: a wrapper the reading does not follow
+        words, dynamic = segments[m].words, segments[m].dynamic
+        if any(w.startswith(_GIT_ELSEWHERE_VARS) for w in words[:ci]):
+            return None
+        target = _git_run_dir(words[ci + 1 :], dynamic[ci + 1 :], directory)
+        if target is None:
+            return None
+        found.add(target)
+    return found.pop() if len(found) == 1 else None
+
+
+def _work_tree_repo(git: str, directory: str, deadline: float) -> str | None:
+    """The real path of the repository whose working tree holds ``directory`` (its common git
+    directory, which a linked worktree shares with the main one), or None. Read the way
+    ``gate_scope`` reads: the same hardening and environment, and git by its absolute path."""
+    from agentic_forge import gate_scope
+
+    left = deadline - time.monotonic()
+    if left <= 0:
+        return None
+    env = {name: os.environ[name] for name in gate_scope._READ_ENV if name in os.environ}
+    done = subprocess.run(
+        [git, *gate_scope._GIT[1:], "rev-parse", "--is-inside-work-tree", "--git-common-dir"],
+        cwd=directory, env={**env, "GIT_NO_LAZY_FETCH": "1"}, stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=left,
+    )  # fmt: skip
+    lines = os.fsdecode(done.stdout).splitlines()
+    if done.returncode != 0 or len(lines) != 2 or lines[0] != "true":
+        return None
+    return os.path.realpath(os.path.join(directory, lines[1]))
+
+
+def commit_dir(command: str, cwd: str) -> str:
+    """The directory ``command``'s `git commit`/`git push` acts on, started in ``cwd``: after a
+    leading ``cd``/``pushd`` that surely takes effect, and git's own ``-C``.
+
+    ``cwd`` itself whenever that is not certain and safe: a target only a shell can work out
+    (``~``, a variable, ``cd -``), a ``cd`` that may not take effect, a compound command, several
+    commits in different places, a line the reading cannot finish, a target that is not an
+    existing directory in the working tree of the same repository as ``cwd`` (a linked worktree of
+    it counts), a git environment pointing elsewhere, or any failure. The gate runs the project's
+    own scripts in the result before the user is asked, so a command must not steer it into
+    another checkout. Never raises; reads git only when the command names another directory."""
+    try:
+        from agentic_forge import gate_scope
+
+        target = _commit_target(command, cwd)
+        if target is None or os.path.realpath(target) == os.path.realpath(cwd):
+            return cwd
+        if not os.path.isdir(target) or any(n in os.environ for n in gate_scope._GIT_STEERING):
+            return cwd
+        git = shutil.which("git")
+        if not git or not os.path.isabs(git):  # a relative PATH entry could find a planted git
+            return cwd
+        deadline = time.monotonic() + _COMMIT_DIR_BUDGET
+        ours = _work_tree_repo(git, cwd, deadline)
+        if ours is not None and ours == _work_tree_repo(git, target, deadline):
+            return target
+    except Exception:  # noqa: BLE001 — any doubt keeps the start directory, as before ADR 0111
+        return cwd
+    return cwd
 
 
 def choose_gate(cwd: Path | str) -> list[str] | None:

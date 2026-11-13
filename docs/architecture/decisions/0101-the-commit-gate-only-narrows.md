@@ -7,6 +7,8 @@ Amends [0019](0019-l4-guardrails.md) (what the test-gate runs on). Closes part o
 
 > **Amended 2026-11-11 by [ADR 0109](0109-four-field-bugs.md):** the gate runs `npm run lint` only when a `lint` script exists, reads only the cwd's stack and a hint's first name, and refuses shell syntax.
 
+> **Amended 2026-11-13 by [ADR 0111](0111-commit-gate-follows-the-commits-directory.md):** "cwd" here is now the directory the commit acts on: a leading `cd` that surely takes effect and git's `-C` are followed, within the same repository only. Narrowing is unchanged: a command with a `cd` or `-C` is never simple, so it runs whole in that directory.
+
 ## Context
 
 `commit_gate.py` passed the hook payload's `cwd` to `guardrails.choose_gate` and ran the result there. It never asked
