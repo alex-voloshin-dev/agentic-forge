@@ -34,9 +34,10 @@ nobody and left behind in the user's tree.
   checkout, or on another branch. Interactive, say so and ask (commit or merge it first, or point at
   another file); headless, change nothing, stop and report. Do not copy it over from the checkout.
 - **`unsafe` set** (a symlink, or not a regular file): never edit through it; stop and report.
-- **Format**: `artifact.format`: `handoff` when it opens with `---` and its frontmatter says
-  `type: prd`, else `foreign` (a `| **Status** | … |` metadata table, another tool's header, plain
-  headings).
+- **Format**: `artifact.format`: `handoff` when it opens with `---`, directly or after one
+  `# Title` line (ADR 0112), and its frontmatter says `type: prd`, else `foreign` (a
+  `| **Status** | … |` metadata table, another tool's header, plain headings). When amend mode edits
+  the header of a title-first PRD (its `review_decision`), keep the title line first.
 
 ## 2. Start clean, and clear the previous amendment's round
 

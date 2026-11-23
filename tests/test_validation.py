@@ -1,6 +1,18 @@
 from __future__ import annotations
 
-from agentic_forge.validation import validate_skill
+import ast
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from agentic_forge import pre_router
+from agentic_forge.validation import validate_agent, validate_skill
+
+_REPO = Path(__file__).resolve().parents[1]
 
 
 def test_anchor_link_resolves(make_skill) -> None:
@@ -154,3 +166,104 @@ def test_skill_wrong_component_type(make_skill) -> None:
     skill = make_skill(evals=bad)
     report = validate_skill(skill)
     assert any("component.type must be 'skill'" in i.message for i in report.errors)
+
+
+# --- the title-first form stays a handoff-only opt-in (ADR 0112) ---------------------------------
+
+_STRICT = "missing or malformed YAML frontmatter (expected leading '---' block)"
+_TITLE = "# Demo\n\n"
+
+
+def test_a_title_first_skill_md_is_refused_with_the_strict_message(make_skill) -> None:
+    skill = make_skill()
+    md = skill / "SKILL.md"
+    md.write_text(_TITLE + md.read_text(encoding="utf-8"), encoding="utf-8")
+    report = validate_skill(skill)
+    assert [i.message for i in report.errors] == [_STRICT]  # not the handoff's two-form message
+
+
+def test_a_title_first_agent_is_refused_with_the_strict_message(tmp_path: Path) -> None:
+    agent = tmp_path / "demo-agent.md"
+    agent.write_text(_TITLE + "---\nname: demo-agent\ndescription: d\n---\nDo.\n", "utf-8")
+    assert [i.message for i in validate_agent(agent).errors] == [_STRICT]
+
+
+def _standalone_plugin(root: Path, skill: Path) -> Path:
+    """A plugin holding only ``skill`` (a ``make_skill`` directory), moved into its skills/."""
+    plugin = root / "plugin"
+    (plugin / ".claude-plugin").mkdir(parents=True)
+    (plugin / ".claude-plugin" / "plugin.json").write_text(
+        '{"name": "p", "version": "1"}', encoding="utf-8"
+    )
+    (plugin / "skills").mkdir()
+    skill.rename(plugin / "skills" / skill.name)
+    return plugin
+
+
+@pytest.mark.parametrize("title", ["", _TITLE], ids=["header-first", "title-first"])
+def test_dev_validate_refuses_a_title_first_skill_md(
+    make_skill, tmp_path: Path, title: str
+) -> None:
+    """`dev/validate.py` as CI runs it, on a one-skill plugin: the same SKILL.md passes header-first
+    and fails title-first, so the failure is the title and nothing else."""
+    skill = make_skill()
+    md = skill / "SKILL.md"
+    md.write_text(title + md.read_text(encoding="utf-8"), encoding="utf-8")
+    plugin = _standalone_plugin(tmp_path, skill)
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    done = subprocess.run(
+        [sys.executable, str(_REPO / "dev" / "validate.py"), str(plugin)], capture_output=True,
+        text=True, cwd=tmp_path, env=env, timeout=120, check=False,
+    )
+    if not title:
+        assert done.returncode == 0, done.stdout + done.stderr
+        return
+    assert done.returncode == 1, done.stdout + done.stderr
+    assert f"demo/SKILL.md: {_STRICT}" in done.stdout
+
+
+def test_the_pre_router_skips_a_title_first_skill(tmp_path: Path) -> None:
+    sk = tmp_path / "skills" / "titled"
+    (sk / "evals").mkdir(parents=True)
+    (sk / "SKILL.md").write_text(_TITLE + "---\nname: titled\ndescription: x\n---\n", "utf-8")
+    (sk / "evals" / "evals.json").write_text(
+        json.dumps({"triggers": {"should_trigger": ["do titled"]}}), encoding="utf-8"
+    )
+    index = pre_router.build_index(tmp_path)
+    assert index.skills == []
+    (reason,) = index.skipped
+    assert reason == f"titled: FrontmatterError: {_STRICT}"
+
+
+def _calls_with(keyword: str | None, name: str) -> set[str]:
+    """Every ``module:function`` under plugin/ and dev/ that calls ``name`` (with ``keyword``)."""
+    found: set[str] = set()
+    for path in sorted([*(_REPO / "plugin").rglob("*.py"), *(_REPO / "dev").rglob("*.py")]):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for func in ast.walk(tree):
+            if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for node in ast.walk(func):
+                if not isinstance(node, ast.Call):
+                    continue
+                callee = node.func
+                called = callee.attr if isinstance(callee, ast.Attribute) else getattr(
+                    callee, "id", None
+                )
+                if keyword is not None and any(k.arg == keyword for k in node.keywords):
+                    found.add(f"{path.relative_to(_REPO)}:{func.name}")
+                elif keyword is None and called == name:
+                    found.add(f"{path.relative_to(_REPO)}:{func.name}")
+    return found
+
+
+def test_only_the_handoff_parser_opts_into_the_title() -> None:
+    """The opt-in did not leak: one call passes ``allow_title`` and one probe calls
+    ``split_title``; every other frontmatter reader stays strict."""
+    assert _calls_with("allow_title", "parse") == {
+        "plugin/lib/agentic_forge/handoff.py:parse_artifact"
+    }
+    assert _calls_with(None, "split_title") == {
+        "plugin/lib/agentic_forge/frontmatter.py:parse",
+        "plugin/lib/agentic_forge/artifact_home.py:artifact_format",
+    }

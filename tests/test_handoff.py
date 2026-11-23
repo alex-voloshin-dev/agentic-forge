@@ -383,6 +383,49 @@ def test_load_artifact_missing_file(tmp_path: Path) -> None:
         load_artifact(tmp_path / "does-not-exist.md")
 
 
+# --- the title-first form (ADR 0112) -----------------------------------------------------------
+
+_REVIEW_HEADER = "type: review\ntarget: diff\niteration: 1\nverdict: approve"
+
+
+def test_a_title_may_open_the_artifact_and_stays_in_the_body() -> None:
+    text = "# Search review\n\n" + _artifact_text(_REVIEW_HEADER, body="\nAll good.\n")
+    art = parse_artifact(text, expected_type="review")
+    assert art.header["verdict"] == "approve"
+    assert art.body == "# Search review\n\nAll good.\n"
+
+
+def test_load_artifact_reads_a_title_first_file(tmp_path: Path) -> None:
+    path = tmp_path / "review.md"
+    path.write_bytes(
+        ("# Search review\n" + _artifact_text(_REVIEW_HEADER, body="Ok.\n"))
+        .replace("\n", "\r\n")
+        .encode("utf-8")
+    )
+    art = load_artifact(path, expected_type="review")
+    assert art.type == "review"
+    assert art.body == "# Search review\nOk.\n"  # read_text translates CRLF, as it always has
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    ["# Search review\n# Again\n", "## Search review\n", "#Search review\n", "Intro\n", "\ufeff"],
+)
+def test_only_one_h1_title_may_come_before_the_header(prefix: str) -> None:
+    with pytest.raises(HandoffError, match="'# Title' line"):
+        parse_artifact(prefix + _artifact_text(_REVIEW_HEADER))
+
+
+def test_a_title_with_no_header_after_it_is_refused() -> None:
+    with pytest.raises(HandoffError, match="'# Title' line"):
+        parse_artifact("# Search review\n\nAll good.\n")
+
+
+def test_a_title_first_header_is_still_validated() -> None:
+    with pytest.raises(HandoffError, match="goals"):
+        parse_artifact("# Search\n" + _artifact_text("type: prd\nfeature: x\nstatus: draft"))
+
+
 def test_module_exposes_vocabularies() -> None:
     assert handoff.VERDICTS == ["approve", "changes"]
     assert "blocker" in handoff.SEVERITIES

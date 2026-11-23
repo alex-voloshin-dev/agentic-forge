@@ -49,6 +49,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from .frontmatter import split_title
+
 __all__ = [
     "ADR_DIR_NAMES",
     "DOCUMENT_KINDS",
@@ -551,8 +553,9 @@ def resolve(found: Scan, slug: str, kind: str | None = None) -> dict[str, Any]:
 
 def artifact_format(text: str, artifact_type: str) -> str:
     """``handoff`` when ``text`` opens with a ``---`` frontmatter fence whose ``type`` is
-    ``artifact_type``; ``foreign`` for anything else (a metadata table, another tool's header)."""
-    lines = text.splitlines()
+    ``artifact_type``, directly or after one ``# Title`` line (ADR 0112); ``foreign`` for anything
+    else (a metadata table, another tool's header)."""
+    lines = split_title(text)[1].splitlines()
     if not lines or lines[0].strip() != "---":
         return "foreign"
     for line in lines[1:]:

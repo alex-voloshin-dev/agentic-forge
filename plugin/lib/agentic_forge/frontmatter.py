@@ -1,30 +1,65 @@
-"""Parse YAML frontmatter from a SKILL.md (or any markdown) file."""
+"""Parse YAML frontmatter from a SKILL.md (or any markdown) file.
+
+The header must open the text. One opt-in exception, for handoff artifacts only (ADR 0112): with
+``allow_title=True`` a single ATX H1 line (``# `` and some text), with blank lines around it, may
+come before the header, for a repository whose documents must open with a title.
+"""
 
 from __future__ import annotations
 
 import re
 from typing import Any
 
-__all__ = ["FrontmatterError", "parse"]
+__all__ = ["FrontmatterError", "parse", "split_title"]
 
 _FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*\r?\n?(.*)\Z", re.DOTALL)
+# Blank lines, one `# Title` line (its text checked in `split_title`), blank lines, then the
+# header's opening fence. Every repetition consumes a newline, so the match stays linear.
+_TITLE_FIRST = re.compile(r"\A(?:[ \t]*\r?\n)*(# [^\r\n]*\r?\n)(?:[ \t]*\r?\n)*(?=---)")
+# A CommonMark closing sequence: trailing `#`s that are the whole text or follow a blank. `# #` is
+# an empty heading; `# C#` is not.
+_CLOSING = re.compile(r"(?:\A|[ \t])#+\Z")
+_MISSING = "missing or malformed YAML frontmatter (expected leading '---' block)"
+_MISSING_AFTER_TITLE = (
+    "missing or malformed YAML frontmatter (expected a leading '---' block, or one '# Title' line "
+    "and then the '---' block)"
+)
 
 
 class FrontmatterError(ValueError):
     """Raised when frontmatter is missing or malformed."""
 
 
-def parse(text: str) -> tuple[dict[str, Any], str]:
+def split_title(text: str) -> tuple[str, str]:
+    """``(title, rest)`` when ``text`` opens with one ``# Title`` line followed by a line starting
+    ``---``; ``("", text)`` otherwise. The header itself is checked by the caller.
+
+    ``title`` is the title line as written, with its own line ending; ``rest`` starts at the
+    ``---`` line. Blank lines before and after the title are dropped. The title needs text once a
+    closing sequence of ``#``s is removed, so ``# #`` and ``# ###`` are empty and ``# C#`` is not.
+    Anything else before the header (a second H1, an H2, ``#Title`` without the space, prose, a
+    BOM) is not a title, so the text comes back whole and the strict header check refuses it.
+    """
+    head = _TITLE_FIRST.match(text)
+    if head is None or not _CLOSING.sub("", head.group(1)[2:].strip()).strip():
+        return "", text
+    return head.group(1), text[head.end() :]
+
+
+def parse(text: str, *, allow_title: bool = False) -> tuple[dict[str, Any], str]:
     """Split markdown text into (frontmatter_mapping, body).
 
     Raises FrontmatterError if the leading YAML frontmatter block is missing or is
-    not a mapping.
+    not a mapping. With ``allow_title`` (handoff artifacts only, ADR 0112) one ``# Title`` line
+    may come before the block (:func:`split_title`); the body then starts with that line, so the
+    title is not lost.
     """
+    title = ""
+    if allow_title:
+        title, text = split_title(text)
     match = _FRONTMATTER.match(text)
     if match is None:
-        raise FrontmatterError(
-            "missing or malformed YAML frontmatter (expected leading '---' block)"
-        )
+        raise FrontmatterError(_MISSING_AFTER_TITLE if allow_title else _MISSING)
 
     try:
         import yaml  # lazy: a guardrail hook may run under a python3 without PyYAML installed
@@ -55,4 +90,4 @@ def parse(text: str) -> tuple[dict[str, Any], str]:
     if not isinstance(data, dict):
         raise FrontmatterError("frontmatter must be a mapping")
 
-    return data, match.group(2)
+    return data, title + match.group(2)

@@ -229,6 +229,25 @@ def test_scan_reviews_finds_only_non_converged(tmp_path: Path) -> None:
     assert len(events) == 1 and events[0]["context"]["target"] == "feat-a.py"
 
 
+def test_scan_reviews_reads_a_title_first_round(tmp_path: Path) -> None:
+    """A repository whose documents must open with `# Title` (ADR 0112): its review rounds are
+    still read, so an exhausted loop is still reported."""
+    feature = tmp_path / "features" / "in-progress" / "export"
+    feature.mkdir(parents=True)
+    (feature / "prd.md").write_text("# Export\n\n---\ntype: prd\n---\n", encoding="utf-8")
+    (feature / "review-prd-3.md").write_text(
+        "# Export review, round 3\n\n---\ntype: review\ntarget: export/prd.md\niteration: 3\n"
+        "verdict: changes\n---\nbody\n",
+        encoding="utf-8",
+    )
+    (feature / "review-prd-2.md").write_text(  # two titles: not a title-first artifact, skipped
+        "# Export\n# review\n---\ntype: review\ntarget: x\niteration: 3\nverdict: changes\n---\n",
+        encoding="utf-8",
+    )
+    events = diagnostics.scan_reviews(tmp_path, now="t")
+    assert [e["context"]["target"] for e in events] == ["export/prd.md"]
+
+
 def test_scan_reviews_empty_repo(tmp_path: Path) -> None:
     assert diagnostics.scan_reviews(tmp_path) == []
 
