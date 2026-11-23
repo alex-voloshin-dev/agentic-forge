@@ -7,6 +7,8 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.11.13] - 2026-11-23
+
 Field report 64a85c8a: a handoff artifact may open with a title (ADR 0112).
 
 ### Changed
