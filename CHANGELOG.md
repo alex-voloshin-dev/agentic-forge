@@ -7,6 +7,29 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+Field report 64a85c8a: a handoff artifact may open with a title (ADR 0112).
+
+### Changed
+
+- **A handoff artifact may open with one `# Title` line, then its header** (ADR 0112). A documentation repository's CI
+  requires every document's first nonblank line to be a `# Title`. Since 2026.11.11 the phases write into that
+  repository's feature folder, and the plugin refused its own artifacts there: `frontmatter.parse` wanted the `---`
+  header first, so `af.py handoff-load` failed and `af.py artifact-home` reported `format: foreign`. Now:
+  - **What is accepted.** Exactly one line of `# ` and some text, blank lines allowed before and after it, then the
+    usual `---` header. The title stays the first line of the body, so nothing written above the header is lost.
+  - **Where.** `handoff.parse_artifact` and `load_artifact` (and so `af.py handoff-load` and `af.py plan-batches`,
+    `diagnostics` and the Tier-3 spine checks) parse with the new keyword-only
+    `frontmatter.parse(text, allow_title=True)`. `artifact_home.artifact_format` skips the title with the new
+    `frontmatter.split_title` and reads the header as before.
+  - **What is still refused.** A title with no header after it, two H1 lines, an H2, `#Title` without the space, an
+    empty title (`# #` and `# ###` count as empty, as in CommonMark; `# C#` does not), or prose before the header.
+    The message names both accepted forms. A BOM (U+FEFF) before `---` is refused as before; CRLF is read as before.
+  - **What does not change.** `frontmatter.parse`'s default: skill and agent frontmatter (`validate.py`, the eval
+    runners, the pre-router, `skill_contract`, `sync_models`, the vault) stays strictly header-first. The pattern
+    keeps header-first as the default and asks for the title-first form only where the repository requires a leading
+    title (`plugin/patterns/handoff.md`), and notes its cost: no renderer shows that header as frontmatter, and under
+    CommonMark the YAML renders as a second heading.
+
 ## [2026.11.12] - 2026-11-13
 
 Field report 6b032379, item 7 on the board: the commit gate follows the commit's directory (ADR 0111).

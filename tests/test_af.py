@@ -848,6 +848,24 @@ def test_handoff_load_refuses_what_is_wrong(
     assert says in _refused("handoff-load", "--path", name, "--type", artifact_type, cwd=tmp_path)
 
 
+def test_handoff_load_reads_a_title_first_artifact(tmp_path: Path) -> None:
+    # A documentation repository's CI wants `# Title` as the first line (ADR 0112).
+    name = _write(tmp_path / "prd.md", "# Search\n\n" + _ARTIFACT)
+    result = _ok("handoff-load", "--path", name, "--type", "prd", cwd=tmp_path)
+    assert (result["type"], result["ready"]) == ("prd", True)
+    assert result["header"]["goals"] == ["a"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["# Search\n# Again\n" + _ARTIFACT, "## Search\n" + _ARTIFACT, "# Search\n\nBody\n"],
+)
+def test_handoff_load_refuses_what_is_not_one_title(tmp_path: Path, text: str) -> None:
+    name = _write(tmp_path / "prd.md", text)
+    message = _refused("handoff-load", "--path", name, "--type", "prd", cwd=tmp_path)
+    assert "'# Title' line" in message
+
+
 def test_handoff_load_on_a_missing_file_is_refused(tmp_path: Path) -> None:
     message = _refused("handoff-load", "--path", "a.md", "--type", "prd", cwd=tmp_path)
     assert "No such file" in message
@@ -2601,6 +2619,91 @@ def test_the_printed_commands_run_safely_from_a_hostile_checkout(tmp_path: Path)
     assert load.returncode in (1, 3) and "Traceback" not in load.stderr  # foreign: refused, run
     assert shlex.split(commands["handoff_load"]["shell"])[5] == str(plain.resolve() / "prd.md")
     assert not (tmp_path / "PWNED").exists() and not (repo / "PWNED").exists()
+
+
+# The field report behind ADR 0112: a documentation repository whose CI wants `# Title` first.
+_TITLE_FIRST_PRD = (
+    "# Search\n\n---\ntype: prd\nfeature: search\nstatus: in-review\nreview_decision: proceed\n"
+    "goals: [a]\nacceptance: [b]\n---\n\n## Goals\n"
+)
+_TITLE_FIRST_PLAN = (
+    "# Search plan\r\n\r\n---\r\ntype: plan\r\nfeature: search\r\nstatus: draft\r\n"
+    "review_decision: revise\r\ntasks:\r\n  - id: a\r\n  - {id: b, deps: [a]}\r\n  - {id: c}\r\n"
+    "---\r\n\r\n## Tasks\r\n"
+)
+
+
+def _title_first_repo(root: Path) -> Path:
+    """A git repository whose feature folder holds a committed title-first prd.md and plan.md."""
+    root.mkdir(exist_ok=True)
+    _git_repo(root)
+    feature = root / "features" / "in-progress" / "search"
+    feature.mkdir(parents=True)
+    (feature / "prd.md").write_text(_TITLE_FIRST_PRD, encoding="utf-8")
+    (feature / "plan.md").write_bytes(_TITLE_FIRST_PLAN.encode("utf-8"))  # CRLF, as written
+    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(root), "commit", "-qm", "x"], check=True, capture_output=True)
+    return feature
+
+
+@pytest.mark.parametrize(
+    ("kind", "artifact_type", "ready"),
+    [("prd", "prd", True), ("plan", "plan", False)],
+)
+def test_the_field_repro_a_title_first_feature_folder_reads_back_end_to_end(
+    tmp_path: Path, kind: str, artifact_type: str, ready: bool
+) -> None:
+    """artifact-home reports the plugin's own title-first document as ``handoff``, and the
+    handoff_load command it prints runs through a real shell and reads it back (ADR 0112)."""
+    repo = tmp_path / "docs repo"
+    repo.mkdir()
+    feature = _title_first_repo(repo)
+    result = _ok("artifact-home", "--repo", str(repo), "--slug", "search", "--kind", kind,
+                 cwd=tmp_path)
+    assert result["feature_dir"] == "features/in-progress/search"
+    artifact = result["artifact"]
+    assert (artifact["exists"], artifact["format"]) == (True, "handoff")
+    assert artifact["abs"] == str(feature.resolve() / f"{kind}.md")
+    load = subprocess.run(["bash", "-c", artifact["commands"]["handoff_load"]["shell"]],
+                          cwd=tmp_path, env=_env(), capture_output=True, text=True, check=False)
+    assert load.returncode == 0, load.stderr
+    assert load.stderr == ""
+    loaded = json.loads(load.stdout)
+    assert (loaded["type"], loaded["ready"], loaded["ready_from"]) == (
+        artifact_type, ready, "review_decision"
+    )
+    assert loaded["header"]["feature"] == "search"
+    # read, never rewritten: the title is still the first line on disk
+    assert (feature / f"{kind}.md").read_bytes().startswith(b"# Search")
+
+
+def test_plan_batches_reads_the_title_first_plan_artifact_home_names(tmp_path: Path) -> None:
+    feature = _title_first_repo(tmp_path / "repo")
+    result = _ok("artifact-home", "--repo", str(tmp_path / "repo"), "--slug", "search",
+                 "--kind", "plan", cwd=tmp_path)
+    plan = result["documents"]["plan"]
+    assert shlex.split(plan["arg"]) == [str(feature.resolve() / "plan.md")]
+    done = subprocess.run(
+        ["bash", "-c", f'python3 -E "$AF" plan-batches --plan {plan["arg"]}'], cwd=tmp_path,
+        env=_env(AF=str(_AF)), capture_output=True, text=True, check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout) == {"levels": [["a", "c"], ["b"]]}
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    ["# Plan\n# Again\n", "## Plan\n", "#Plan\n", "# #\n", "# Plan\n\nintro\n"],
+)
+def test_plan_batches_refuses_what_is_not_one_title(tmp_path: Path, prefix: str) -> None:
+    name = _write(tmp_path / "plan.md", prefix + _plan("  - id: a\n"))
+    assert "'# Title' line" in _refused("plan-batches", "--plan", name, cwd=tmp_path)
+
+
+def test_plan_batches_reads_a_title_first_plan(tmp_path: Path) -> None:
+    tasks = _plan("  - id: a\n  - {id: b, deps: [a]}\n")
+    name = _write(tmp_path / "plan.md", "\n# Plan\n\n" + tasks)
+    assert _ok("plan-batches", "--plan", name, cwd=tmp_path) == {"levels": [["a"], ["b"]]}
 
 
 def test_the_mkdir_it_prints_creates_the_adr_folder(tmp_path: Path) -> None:

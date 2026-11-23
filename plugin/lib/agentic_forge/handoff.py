@@ -6,6 +6,9 @@ parses. This module loads those artifacts (reusing :mod:`frontmatter`) and valid
 header against a small per-type JSON Schema, so a downstream phase can rely on the key
 fields being present and well-typed.
 
+The header opens the file, or follows one ``# Title`` line for a repository whose documents must
+open with a title (ADR 0112); the title then stays the first line of the body.
+
 Artifact types and their producers (see docs/architecture/engine.md):
 
 - ``research-brief`` — Explore-based research phase.
@@ -365,9 +368,11 @@ def validate_header(
 
 
 def parse_artifact(text: str, *, expected_type: str | None = None) -> Artifact:
-    """Parse artifact text into a validated Artifact, or raise HandoffError."""
+    """Parse artifact text into a validated Artifact, or raise HandoffError.
+
+    The header may follow one ``# Title`` line (ADR 0112); ``body`` then starts with that line."""
     try:
-        header, body = parse(text)
+        header, body = parse(text, allow_title=True)
     except FrontmatterError as exc:
         raise HandoffError(str(exc)) from exc
     errors = validate_header(header, expected_type=expected_type)

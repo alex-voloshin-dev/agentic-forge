@@ -15,6 +15,38 @@ Each artifact is a Markdown file with a **YAML frontmatter header**:
 - The **header** carries the structured fields the next phase parses (status, lists, ids).
 - The **body** carries the detail for humans and Claude.
 
+The header opens the file. **One exception, the title-first form** (ADR 0112): when the repository
+requires its documents to open with a title — a CI check, a docs linter or a retrieval index that
+reads the first line — the file may open with exactly one `# Title` line (a single `#`, a space,
+then the text; blank lines around it are fine) and then the header:
+
+```markdown
+# Search export
+
+---
+type: prd
+feature: search-export
+status: draft
+review_decision: revise
+goals: [export a search as CSV]
+acceptance: [the CSV opens in a spreadsheet]
+---
+
+The body.
+```
+
+`handoff-load` and `artifact-home` read it exactly like the default form, and the title stays the
+first line of the body. Anything else before the header is refused, loudly: a second `#` line, a
+`##` heading, `#Title` without the space, prose, or a title with no header after it. Use the form
+only when the repository asks for it; the default stays header-first. **When you update the header
+of a title-first file** (the loop's `review_decision`), keep the title line where it is.
+
+In this form no Markdown renderer shows the header as frontmatter, which is recognised only at the
+very start of a file: under CommonMark the opening `---` is a thematic break and the YAML above the
+closing `---` renders as a second-level (setext) heading, which a heading-based linter or index may
+see. That is the cost of the form, and one more reason to use it only where the repository's own
+check demands a leading title.
+
 Artifacts live in the target repo in the **feature's folder** and are committed: the folder the
 repository already keeps for that feature, or `docs/sdlc/<feature-slug>/` when it keeps none
 (below). The slug is a short kebab-case name for the feature (e.g. `search`, `oauth-login`).
@@ -38,7 +70,7 @@ It prints one JSON object (`path`s relative to `--repo`, `/`-separated; `abs` on
 | --- | --- |
 | `feature_dir`, `feature_abs` | Where the feature's documents go; the skills write it `<feature-dir>`. A directory named exactly `<slug>` that holds `prd.md`, `plan.md`, `design.md`, `tech-design.md`, `research-brief.md` or `ux-spec.md`; with several, the one holding the most, then the shallowest. With none, `docs/sdlc/<slug>`. |
 | `detected`, `existing` | Whether `feature_dir` already existed, and the feature documents in it. |
-| `documents` | One entry per kind (`research`, `prd`, `design`, `plan`, `ux`): `path` (the spelling on disk, e.g. `PRD.md`, else the plugin's name), `abs`, `arg` (`abs` quoted for a shell), `exists`, `format` (`handoff`: opens with a `---` frontmatter naming its `type`; `foreign`: anything else, a metadata table or another tool's header), `unsafe` when set, and `commands`: `handoff_load`, `external_review`, `status`, `diff`, `diff_check`, `diff_stat`, `restore` (`git checkout --`), each `{"argv", "shell"}` with every path quoted. An entry marked `unsafe` has no `arg` and no `commands`: there is nothing to run on it. |
+| `documents` | One entry per kind (`research`, `prd`, `design`, `plan`, `ux`): `path` (the spelling on disk, e.g. `PRD.md`, else the plugin's name), `abs`, `arg` (`abs` quoted for a shell), `exists`, `format` (`handoff`: opens with a `---` frontmatter naming its `type`, directly or after one `# Title` line; `foreign`: anything else, a metadata table or another tool's header), `unsafe` when set, and `commands`: `handoff_load`, `external_review`, `status`, `diff`, `diff_check`, `diff_stat`, `restore` (`git checkout --`), each `{"argv", "shell"}` with every path quoted. An entry marked `unsafe` has no `arg` and no `commands`: there is nothing to run on it. |
 | `adr` | The decision series to continue: `dir`, `abs_dir`, `arg_dir`, `pattern`, `highest`, `next_id`, `next_file`, `scope` (`feature`: the feature's own; `shared`; `none`: no series, so `adr-<decision>.md` beside the design, as before), `create_dir` with `commands.mkdir`, `unsafe` when set, and the `series` seen, nearest first, with `series_count`. |
 | `ambiguous`, `ambiguities` | Why the pick is not the only reasonable one: several folders named `<slug>`, a folder skipped for its name, equally near ADR series, a shared series beside feature-local ones, several spellings of one document, or a walk cut short by a cap (`truncated`). |
 | `artifact` | With `--kind`: that document's entry (for `adr`, the next record's path). With `--path <file>` too, the document the user named, mapped into `--repo` (below). |
@@ -144,7 +176,8 @@ named built-in agent (`Explore`/`Plan`) or engine role(s).
 
 ## Producing an artifact
 
-Write the header first, then the body. Set `type` to the exact id above and `feature` to the
+Write the header first (in the title-first form above: the `# Title` line, then the header), then
+the body. Set `type` to the exact id above and `feature` to the
 slug — the file itself is named `<type>.md` (e.g. `incident.md`, `deploy-status.md`), so any
 artifact's on-disk name follows from its type. A loop-gated phase also writes
 `review_decision: revise` on this first write (its loop's exit sets the final value) and leaves

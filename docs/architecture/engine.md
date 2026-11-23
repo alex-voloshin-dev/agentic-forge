@@ -65,7 +65,11 @@ Phases communicate by writing artifacts the next phase reads — auditable and d
   continue the repository's own decision series when it has one. Detected, not configured: a
   repository's config may only switch things off (ADR 0102/0103).
 - **Shape:** Markdown body (for humans and Claude) with a YAML frontmatter header carrying
-  the fields the next phase parses.
+  the fields the next phase parses. The header opens the file, or follows exactly one `# Title`
+  line when the repository requires its documents to open with a title (ADR 0112): `handoff.py`
+  parses with `frontmatter.parse(text, allow_title=True)` and keeps the title as the body's first
+  line, and `artifact_home.artifact_format` reads the same form. Skill and agent frontmatter stays
+  strictly header-first.
 
 The artifact types, their producers, and key header fields are specified canonically in
 [patterns/handoff.md](../../plugin/patterns/handoff.md) (and enforced by the per-type schemas

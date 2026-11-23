@@ -73,6 +73,16 @@ def test_load_vault_title_defaults_to_name(tmp_path: Path) -> None:
     assert load_vault(tmp_path).notes["bare"].title == "bare"
 
 
+def test_a_title_first_note_has_no_frontmatter(tmp_path: Path) -> None:
+    # The title-first form is a handoff-only opt-in (ADR 0112): a vault note stays strict, so a
+    # header after a `# Title` is body text, read exactly like a note without frontmatter.
+    scaffold(tmp_path)
+    text = "# Titled\n\n---\ntitle: Real title\ntags: [x]\n---\nSee [[moc]].\n"
+    (vault_path(tmp_path) / "titled.md").write_text(text, encoding="utf-8")
+    note = load_vault(tmp_path).notes["titled"]
+    assert (note.title, note.tags, note.body) == ("titled", (), text)
+
+
 # --- validate_vault ----------------------------------------------------------
 
 

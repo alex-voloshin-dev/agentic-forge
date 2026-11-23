@@ -13,6 +13,7 @@ import pytest
 
 from agentic_forge import artifact_home as ah
 from agentic_forge import doc_delivery
+from agentic_forge.frontmatter import FrontmatterError, parse
 
 
 def _touch(root: Path, *relatives: str, text: str = "x\n") -> None:
@@ -326,10 +327,75 @@ _TABLE_PRD = "# Export\n\n| Field | Value |\n| --- | --- |\n| **Status** | Draft
         ("---\ntype: plan\n---\n", "foreign"),
         ("", "foreign"),
         ("intro\n---\ntype: prd\n---\n", "foreign"),
+        # one `# Title` line may come first (ADR 0112)
+        ("# Export\n---\ntype: prd\nfeature: foo\n---\nbody\n", "handoff"),
+        ("\n# Export\n\n---\ntype: prd\n---\n", "handoff"),
+        ("# Export\r\n\r\n---\r\ntype: prd\r\n---\r\n", "handoff"),
+        ("# Export\n---\ntype: plan\n---\n", "foreign"),
+        ("# Export\n---\ntitle: Export\n---\n", "foreign"),
+        ("# Export\n# Again\n---\ntype: prd\n---\n", "foreign"),
+        ("## Export\n---\ntype: prd\n---\n", "foreign"),
+        ("#Export\n---\ntype: prd\n---\n", "foreign"),
+        ("\ufeff---\ntype: prd\n---\n", "foreign"),
     ],
 )
 def test_the_format_is_ours_only_with_our_header(text: str, expected: str) -> None:
     assert ah.artifact_format(text, "prd") == expected
+
+
+# One input set, two readers: `artifact_format` (a line probe, stdlib only) and the parser behind
+# `handoff-load` must agree on what is a title-first `prd`. Left out on purpose, because the two
+# already differed on them before ADR 0112, title or not: an indented `---`, a header that never
+# closes, invalid YAML after the `type` line (the probe says handoff, the parser refuses), and
+# `type: prd # comment` (the probe reads the comment as part of the value).
+_AGREEMENT = [
+    "---\ntype: prd\n---\nbody\n",
+    "---\ntype: 'prd'\n---\n",
+    "---\ntype: plan\n---\n",
+    "--- \ntype: prd\n--- \n",  # blanks after a fence: both readers accept them
+    "---\ntitle: Export\n---\n",
+    "",
+    "intro\n---\ntype: prd\n---\n",
+    "# Export\n---\ntype: prd\n---\nbody\n",
+    "\n\n# Export\n\n---\ntype: prd\nfeature: foo\n---\n",
+    "# Export\r\n\r\n---\r\ntype: prd\r\n---\r\n",
+    "# Title #\n---\ntype: prd\n---\n",
+    "# C#\n---\ntype: prd\n---\n",
+    "# Export\n---\ntype: plan\n---\n",
+    "# Export\n---\ntitle: Export\n---\n",
+    "# Export\n",
+    "# Export\n\nintro\n---\ntype: prd\n---\n",
+    "# Export\n# Again\n---\ntype: prd\n---\n",
+    "## Export\n---\ntype: prd\n---\n",
+    "#Export\n---\ntype: prd\n---\n",
+    "  # Export\n---\ntype: prd\n---\n",
+    "# \n---\ntype: prd\n---\n",
+    "# #\n---\ntype: prd\n---\n",
+    "# ###\n---\ntype: prd\n---\n",
+    "\ufeff---\ntype: prd\n---\n",
+    "\ufeff# Export\n---\ntype: prd\n---\n",
+    _TABLE_PRD,
+]
+
+
+def _parses_as_prd(text: str) -> bool:
+    try:
+        header, _ = parse(text, allow_title=True)
+    except FrontmatterError:
+        return False
+    return header.get("type") == "prd"
+
+
+@pytest.mark.parametrize("text", _AGREEMENT)
+def test_the_format_probe_agrees_with_the_parser(text: str) -> None:
+    assert (ah.artifact_format(text, "prd") == "handoff") is _parses_as_prd(text)
+
+
+def test_an_existing_title_first_prd_is_ours(tmp_path: Path) -> None:
+    text = "# Export\n\n---\ntype: prd\nfeature: foo\nstatus: draft\n---\n\n## Goals\n"
+    _touch(tmp_path, "features/in-progress/foo/prd.md", text=text)
+    artifact = _home(tmp_path, kind="prd")["artifact"]
+    assert (artifact["exists"], artifact["format"]) == (True, "handoff")
 
 
 def test_an_existing_prd_reports_its_format(tmp_path: Path) -> None:

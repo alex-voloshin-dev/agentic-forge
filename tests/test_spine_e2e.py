@@ -206,6 +206,22 @@ def test_check_research_product_plan(tmp_path: Path) -> None:
     assert check_plan(repo)[0].passed
 
 
+def test_checkpoints_read_title_first_artifacts(tmp_path: Path) -> None:
+    """The spine's checkpoints load artifacts through `handoff.load_artifact`, so a title-first
+    artifact (ADR 0112) passes as its header-first twin does, and two titles still fail."""
+    repo = prepare_scenario(PLUGIN, tmp_path, SPINE)
+    sdlc = repo / "docs" / "sdlc" / "task-priorities"
+    sdlc.mkdir(parents=True, exist_ok=True)
+    for name, text in (("prd.md", PRD_MD), ("plan.md", PLAN_MD), ("review.md", REVIEW_MD)):
+        (sdlc / name).write_text("# Task priorities\n\n" + text, encoding="utf-8")
+    assert check_product(repo)[0].passed
+    assert check_plan(repo)[0].passed
+    cps = check_code_review(repo)
+    assert len(cps) == 2 and all(c.passed for c in cps)
+    (sdlc / "prd.md").write_text("# Task priorities\n# Again\n" + PRD_MD, encoding="utf-8")
+    assert not check_product(repo)[0].passed
+
+
 # --- checkpoints -------------------------------------------------------------
 
 
