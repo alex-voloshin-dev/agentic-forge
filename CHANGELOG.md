@@ -7,6 +7,39 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+Open item 6, first steps: cheap delegation (ADR 0113).
+
+### Added
+
+- **`patterns/cheap-delegation.md`: when to hand work to a cheap subagent** (ADR 0113, thread 3c001b52). A fleet's
+  field numbers showed cache reads and writes at about 70 % of the spend and subagents at 5 to 12 %, and that a cheaper
+  default subagent model alone never made a session delegate. The pattern says:
+  - **When.** The caller does not need the text verbatim afterwards, and the work is about four tool calls or 20k
+    tokens of input: a failing run's log, a long diff, a long review thread, a sweep, a long document read for a few
+    facts; or mechanical edits across files the caller has not read.
+  - **When not.** A one-call edit, text the caller writes anyway, a verdict or decision, anything that sends, pushes,
+    merges or touches a secret, and anything the caller must read anyway.
+  - **How.** A fresh subagent, never a fork; a cheaper model and low effort named in the call rather than host-wide, so
+    the roles that review and decide keep theirs; a brief with the answer's form and a line cap; a clerk keeps
+    everything not named, changes nothing where an anchor is not found exactly once, and always edits in its own
+    worktree, pinned to the caller's commit by its first step (`git checkout --detach <commit>`: a Claude Code subagent
+    worktree branches from the default branch unless `worktree.baseRef` is `"head"`), the caller committing its own
+    work first when the edits belong on top of it; the caller confirms the worktree's changed files are exactly the
+    brief's list, checks one item at its source, then applies the change.
+  - **What holds it, said plainly.** Nothing per call narrows a built-in subagent's tools (only its agent type, the
+    user's permission rules and the brief); the worktree isolates edits but is not a security boundary, so only the
+    host's enforced permissions or a sandbox stop an outward action.
+  - `fan-out-fan-in.md` links it as its one-unit case. The low-cost `reader` and `clerk` roles and a sentence in the
+    routing note wait for their own Tier-2 and Tier-1b runs.
+
+### Changed
+
+- **The `grader` role starts without CLAUDE.md** (ADR 0113). `plugin/agents/grader.md` sets `omitClaudeMd: true`
+  (Claude Code 2.1.271 or later; older versions ignore it): everything it judges comes in the delegation prompt, and a
+  project rule could only bend a grading. Managed policy files still load. It applies when a session delegates to
+  `grader` live; the eval harness passes the role body as the system prompt and is unaffected. The review lenses keep
+  CLAUDE.md.
+
 ## [2026.11.13] - 2026-11-23
 
 Field report 64a85c8a: a handoff artifact may open with a title (ADR 0112).

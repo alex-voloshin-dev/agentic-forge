@@ -50,8 +50,8 @@ def test_handoff_names_the_fleet_pattern_as_its_caller() -> None:
     ("doc", "needle"),
     [
         ("docs/architecture/engine.md", "(../../plugin/patterns/fleet-coordination.md)"),
-        ("docs/architecture/overview.md", "knowledge-recall / fleet-coordination patterns"),
-        ("docs/architecture/overview.md", "knowledge-recall, fleet-coordination) that workflow"),
+        ("docs/architecture/overview.md", "knowledge-recall / fleet-coordination /"),
+        ("docs/architecture/overview.md", "knowledge-recall, fleet-coordination,"),
     ],
 )
 def test_the_fleet_pattern_is_indexed_with_the_others(doc: str, needle: str) -> None:

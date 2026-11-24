@@ -99,6 +99,8 @@ output-heaviest lenses are the ones that fail — and they are not the redundant
   review (one reviewer per aspect → one verdict).
 - **[adversarial-review.md](adversarial-review.md)** is the verify-heavy specialisation for
   audits.
+- **[cheap-delegation.md](cheap-delegation.md)** is the one-unit case whose point is the caller's
+  context: bulk reading or mechanical edits on a cheaper model, a capped answer, one check.
 - Choosing between them: **multi-aspect** is the code-review gate (fixed aspects, fast, inside
   `develop`); **adversarial** is for non-trivial audits and non-code targets (variable lenses,
   multi-vote verify).
