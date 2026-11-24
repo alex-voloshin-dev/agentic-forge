@@ -7,6 +7,8 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.11.14] - 2026-11-24
+
 Open item 6, first steps: cheap delegation (ADR 0113).
 
 ### Added
