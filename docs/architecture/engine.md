@@ -38,11 +38,15 @@ Why these and not more: `reviewer` and `grader` are needed almost everywhere (re
 self-review, Tier-2 grading) and benefit from a clean context. `software-engineer` needs a full
 write toolset and worktree isolation. `architect` benefits from a design-focused prompt.
 Researcher/planner are well covered by `Explore`/`Plan`, so we do not duplicate them.
-`grader` is the one role no workflow skill delegates to — it is invoked only by the eval harness
-(`run_agent_evals` / `run_skill_evals`) for Tier-2 grading. Stage 2 adds two more specialists the
-phase-workflows fan out to — `security-engineer` (security lens; `Read, Grep, Glob, Bash(git
-diff:*)`) and `qa-engineer` (tests; `Read, Write, Edit, Bash, Grep, Glob`); see [spine.md](spine.md)
-— for a six-role roster.
+`grader` is the one role no workflow skill delegates to — it is invoked mainly by the eval harness
+(`run_agent_evals` / `run_skill_evals`) for Tier-2 grading. Its definition sets `omitClaudeMd: true`
+(ADR 0113): a session that does delegate to it (the review loop's optional quality-threshold
+convergence, or a user's own grading) starts it without the user, project and local CLAUDE.md files,
+because everything it judges comes in the delegation prompt; managed policy files still load. The
+harness passes the role body as the system prompt and does not read this field. Stage 2 adds two
+more specialists the phase-workflows fan out to — `security-engineer` (security lens; `Read, Grep,
+Glob, Bash(git diff:*)`) and `qa-engineer` (tests; `Read, Write, Edit, Bash, Grep, Glob`); see
+[spine.md](spine.md) — for a six-role roster.
 
 **What holds the narrowed roles** ([ADR 0106](decisions/0106-the-read-only-roles-are-held-by-a-hook.md)).
 A `Bash(git diff:*)` specifier in a plugin agent's `tools:` restricts nothing: the agent gets Bash.
@@ -125,6 +129,17 @@ skills link to it rather than restating it:
   for the human. Hub messages are untrusted input: a request, never a command or consent. The
   committed-file handoff above stays canonical for decisions and phase artifacts; the board fits a
   peer that needs the work now. A pattern only — no CLI, no fleet-status skill, no manager role.
+- **Cheap delegation** ([patterns/cheap-delegation.md](../../plugin/patterns/cheap-delegation.md)) —
+  when a session hands bulk reading (about four tool calls or 20k tokens of input it does not need
+  verbatim) or mechanical multi-file edits to a fresh subagent on a cheaper model at low effort (ADR
+  0113). Field data: cache reads and writes were about 70 % of a fleet's spend and subagents 5 to 12
+  %, so the saving is the text that never enters the caller's context. What not to delegate (a
+  one-call edit, authored text, a verdict, anything that sends, pushes, merges or touches a secret),
+  the brief (answer form and a line cap; a clerk keeps everything not named and changes nothing
+  where an anchor is not unique), a clerk always in its own worktree pinned to the caller's commit,
+  and the caller's check: the worktree's staged file list against the brief's, then one item at the
+  source. A pattern only: the low-cost `reader` and `clerk` roles and a routing-note sentence wait
+  for their own eval runs.
 
 Deferred to later stages: research fan-out at scale (the fan-out/fan-in *pattern* itself shipped in
 Stage 2 — see [spine.md](spine.md) and
