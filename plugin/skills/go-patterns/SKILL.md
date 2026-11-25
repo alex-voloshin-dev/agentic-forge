@@ -7,7 +7,7 @@ disable-model-invocation: true
 # Go patterns
 
 The Go stack pack: loaded by the `software-engineer` / `qa-engineer` roles (and the
-`code-review` lint aspect) when `stacks.detect` reports Go. It carries only what is
+`code-review` lint aspect) when `af.py stack-detect` reports Go. It carries only what is
 **Go-specific** on top of [`engineering-standards`](../engineering-standards/SKILL.md) — Claude
 already knows general Go; this encodes the conventions and gates agentic-forge holds Go work to.
 (Mechanism: ADR 0015, by-stack detection + reference packs.)

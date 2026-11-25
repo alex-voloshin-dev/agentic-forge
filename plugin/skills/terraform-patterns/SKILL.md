@@ -7,7 +7,7 @@ disable-model-invocation: true
 # Terraform patterns
 
 The Terraform stack pack: loaded by the `software-engineer` / `qa-engineer` roles (and the
-`code-review` lint aspect) when `stacks.detect` reports Terraform. It carries only what is
+`code-review` lint aspect) when `af.py stack-detect` reports Terraform. It carries only what is
 **Terraform-specific** on top of [`engineering-standards`](../engineering-standards/SKILL.md) —
 Claude already knows HCL; this encodes the conventions and gates agentic-forge holds
 infrastructure changes to. (Mechanism: ADR 0015, by-stack detection + reference packs.)

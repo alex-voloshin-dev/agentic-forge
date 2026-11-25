@@ -7,7 +7,7 @@ disable-model-invocation: true
 # Ruby patterns
 
 The Ruby stack pack: loaded by the `software-engineer` / `qa-engineer` roles (and the
-`code-review` lint aspect) when `stacks.detect` reports Ruby. It carries only what is
+`code-review` lint aspect) when `af.py stack-detect` reports Ruby. It carries only what is
 **Ruby-specific** on top of [`engineering-standards`](../engineering-standards/SKILL.md).
 (Mechanism: ADR 0015, by-stack detection + reference packs.)
 

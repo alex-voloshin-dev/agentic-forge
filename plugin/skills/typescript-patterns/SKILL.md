@@ -7,7 +7,7 @@ disable-model-invocation: true
 # TypeScript patterns
 
 The TypeScript stack pack: loaded by the `software-engineer` / `qa-engineer` roles (and the
-`code-review` lint aspect) when `stacks.detect` reports TypeScript. It carries only what is
+`code-review` lint aspect) when `af.py stack-detect` reports TypeScript. It carries only what is
 **TypeScript-specific** on top of [`engineering-standards`](../engineering-standards/SKILL.md) —
 Claude already knows general TS; this encodes the conventions and gates agentic-forge holds TS
 work to. (Mechanism: ADR 0015, by-stack detection + reference packs.)

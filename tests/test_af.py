@@ -3011,6 +3011,30 @@ def test_tier0_is_clean_on_the_real_plugin_and_runs_in_the_gate(tmp_path: Path) 
     assert "patterns/p.md:1" in [i.location for i in validation.validate_plugin(plugin).errors]
 
 
+_STACK_LIBRARY_CALL = re.compile(r"\bstacks\.(?:detect|primary|pack_path)")
+
+
+def test_no_role_or_skill_tells_the_model_to_detect_the_stack_through_the_library() -> None:
+    # A plugin-only install has no importable `agentic_forge` on the model's path: the stack is
+    # detected with `af.py stack-detect` (ADR 0104). Prose naming `stacks.detect` / `stacks.primary`
+    # / `stacks.pack_path(s)` sends a role after a call it cannot make. Skill scripts are code and
+    # run in script mode, so only the prose (markdown) and the eval contracts (json) are scanned.
+    hits = [
+        f"{path.relative_to(_PLUGIN).as_posix()}:{n}"
+        for root in ("agents", "skills")
+        for path in sorted((_PLUGIN / root).rglob("*"))
+        if path.suffix in {".md", ".json"}
+        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        if _STACK_LIBRARY_CALL.search(line)
+    ]
+    assert hits == []
+    # The roles name the command that replaced it.
+    for role in ("software-engineer", "qa-engineer"):
+        text = (_PLUGIN / "agents" / f"{role}.md").read_text(encoding="utf-8")
+        assert 'python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" stack-detect --repo' in text, role
+        assert "`pack_paths`" in text, role
+
+
 def test_the_knowledge_skill_has_no_way_round_a_refusal() -> None:
     text = (_PLUGIN / "skills" / "knowledge" / "SKILL.md").read_text(encoding="utf-8")
     assert "by hand" not in text.replace("Do not write the note by hand", "")
