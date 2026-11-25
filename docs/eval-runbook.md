@@ -295,9 +295,13 @@ runners; `--runner api` additionally needs the `eval` extra: `pip install -c con
 # Verify wiring only — no credentials, no model calls (also runs in CI on every eval job):
 python dev/run_agent_evals.py --runner dry
 
-# Real Tier-2 on your subscription, all roles (recorded results used Opus 4.8):
+# Real Tier-2 on your subscription, all roles (recorded results: Opus 5.5 and Sonnet 5.5, ADR 0114):
 export CLAUDE_CODE_OAUTH_TOKEN=...        # and keep ANTHROPIC_API_KEY unset
-python dev/run_agent_evals.py --runner claude --model claude-opus-4-8
+python dev/run_agent_evals.py --runner claude --model claude-opus-5-5
+
+# One role at a cheaper tier, graded by the usual judge (the grader never moves with the role):
+python dev/run_agent_evals.py --runner claude --role reviewer --model claude-sonnet-5-5 \
+  --grader-model claude-opus-5-5
 
 # Write roles in isolation (fresh temp workdir per case; best for software-engineer/architect):
 python dev/run_agent_evals.py --role software-engineer --role architect --runner claude --isolate
@@ -393,7 +397,10 @@ failure; for team CI prefer a team/enterprise account's token.
 ```
 
 The runners resolve each component via `models.model_for(...)`, so the **Tier-1 / Tier-2 gate
-validates the choice**: a cheaper tier ships only if that component still clears its bar at that
+validates the choice**. The judge does not follow: the grader runs on `--grader-model`, or on the
+global `--model` when that is absent, whatever tier the component under test was given (ADR 0114).
+Before 0114 a component moved to `simple` was also graded by `simple`, so the run changed the
+instrument together with the thing it measured: a cheaper tier ships only if that component still clears its bar at that
 tier (use `--baseline` to weigh the quality/cost trade-off). **Validate before you flip** — never
 assume a downgrade is free; re-record the numbers at the new tier. Recommended starting candidates:
 routing / grading / recall / simple synthesis → `simple` or `cheap`; implementation / design /
@@ -414,8 +421,13 @@ into the committed policy and sync the agent frontmatter:
 4. **Gate** — `python dev/validate.py` (Tier-0) **enforces** frontmatter == policy, so a drift or an
    un-synced promotion fails the build. `dev/sync_models.py` (no `--apply`) is the CI-friendly check.
 
-The committed policy ships **all-`default`** (every agent `model: inherit`), so there is no runtime
-downgrade until you deliberately promote one through this gated flow.
+Since ADR 0114 the committed policy promotes two roles, `grader` and `qa-engineer`, to `simple`
+(`model: claude-sonnet-5-5`); the other four stay `default` (`model: inherit`). The Tier-2 sets of
+all six scored about 1.0 at both Opus 5.5 and Sonnet 5.5, so they cannot tell the tiers apart:
+promote a reviewing, designing or implementing role only after harder, discriminating cases show
+it holds at the cheaper tier. A user who wants every subagent on one model sets
+`CLAUDE_CODE_SUBAGENT_MODEL=<model>` with `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`, which overrides an
+agent's `model:` field.
 
 ## Recording results
 
@@ -423,8 +435,8 @@ Tier-2 numbers are run artifacts, not contract fields, so they are not committed
 `evals.json`. After a run, record the achieved `mean`/`stddev`/`lower_bound`/`n` per role in
 the CHANGELOG entry (or a milestone note) next to the thresholds, per the eval-loop guide
 ("record the final numbers"). If a role misses the bar, improve its prompt/return contract
-and re-run. Tier-2 numbers are model-dependent — record which model produced them (current
-baseline: `claude-opus-4-8`).
+and re-run. Tier-2 numbers are model-dependent — record which model produced them, and which
+model graded them (current baseline: `claude-opus-5-5`, graded by `claude-opus-5-5`; ADR 0114).
 
 The latest skill Tier-2 baseline (the ADR-0020 fidelity pass) is recorded in the `CHANGELOG.md`
 "Tier-2 eval fidelity" entry: the 7 reframed/improved gates are proven at **n = 5** (all clear
