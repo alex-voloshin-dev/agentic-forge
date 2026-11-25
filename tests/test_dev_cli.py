@@ -1721,6 +1721,38 @@ def test_agent_eval_uses_model_tier_from_settings(
     assert judges["reviewer"] == models_lib.TIERS["default"]
 
 
+def test_agent_eval_runs_a_promoted_role_at_its_shipped_tier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ADR 0114: with no settings.models, a role promoted in VALIDATED_TIERS runs at that tier and
+    an unpromoted one at --model; settings.models still wins."""
+    from agentic_forge import models as models_lib
+
+    seen: dict[str, str] = {}
+
+    def fake_build(
+        runner: str, role: str, plugin_dir: object, model: str, *, grader_model: str | None = None
+    ) -> tuple[object, object]:
+        seen[role] = model
+        return (object(), object())
+
+    monkeypatch.setattr(run_agent_evals, "_build_runners", fake_build)
+    monkeypatch.setattr(run_agent_evals.agent_eval, "run_role", lambda *a, **k: _FakeReport(True))
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(
+        run_agent_evals.settings, "resolve", lambda *a, **k: types.SimpleNamespace(models={})
+    )
+    run_agent_evals.main(["x", "--runner", "claude", "--role", "grader", "--role", "reviewer"])
+    assert seen == {"grader": models_lib.TIERS["simple"], "reviewer": models_lib.TIERS["default"]}
+    monkeypatch.setattr(
+        run_agent_evals.settings,
+        "resolve",
+        lambda *a, **k: types.SimpleNamespace(models={"grader": "default"}),
+    )
+    run_agent_evals.main(["x", "--runner", "claude", "--role", "grader"])
+    assert seen["grader"] == models_lib.TIERS["default"]  # the operator's setting wins
+
+
 def test_agent_eval_grader_model_flag_sets_the_judge(monkeypatch: pytest.MonkeyPatch) -> None:
     judges: dict[str, tuple[str, str | None]] = {}
 
@@ -1737,9 +1769,9 @@ def test_agent_eval_grader_model_flag_sets_the_judge(monkeypatch: pytest.MonkeyP
     report = _FakeReport(True)
     monkeypatch.setattr(run_agent_evals.agent_eval, "run_role", lambda *a, **k: report)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    argv = ["x", "--runner", "claude", "--role", "grader", "--model", "m-role"]
+    argv = ["x", "--runner", "claude", "--role", "reviewer", "--model", "m-role"]
     run_agent_evals.main([*argv, "--grader-model", "m-judge"])
-    assert judges["grader"] == ("m-role", "m-judge")
+    assert judges["reviewer"] == ("m-role", "m-judge")
     assert report.benchmark["grader_model"] == "m-judge"  # the benchmark names its judge
 
 
@@ -1931,31 +1963,41 @@ def _agent_file(d: Path, role: str, model_line: str | None) -> Path:
 def test_sync_models_check_clean_skips_malformed(
     tmp_path: Path, capsys: pytest.CaptureFixture
 ) -> None:
-    _agent_file(tmp_path, "grader", "inherit")  # matches policy (default -> inherit)
+    _agent_file(tmp_path, "reviewer", "inherit")  # matches policy (default -> inherit)
     (tmp_path / "broken.md").write_text("no frontmatter here", encoding="utf-8")  # skipped
     assert sync_models_cli.main(["sync"], agents_dir=tmp_path) == 0
     assert "all agents match" in capsys.readouterr().out
 
 
 def test_sync_models_check_reports_drift(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
-    _agent_file(tmp_path, "grader", "claude-opus-4-8")  # drift: policy expects inherit
+    _agent_file(tmp_path, "reviewer", "claude-opus-4-8")  # drift: policy expects inherit
     assert sync_models_cli.main(["sync"], agents_dir=tmp_path) == 1  # check fails on drift
-    assert "drift grader" in capsys.readouterr().err
+    assert "drift reviewer" in capsys.readouterr().err
 
 
 def test_sync_models_apply_rewrites(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
-    p = _agent_file(tmp_path, "grader", "claude-opus-4-8")
+    p = _agent_file(tmp_path, "reviewer", "claude-opus-4-8")
     assert sync_models_cli.main(["sync", "--apply"], agents_dir=tmp_path) == 0
     assert "model: inherit" in p.read_text(encoding="utf-8")  # rewritten to the policy value
-    assert "synced grader" in capsys.readouterr().out
+    assert "synced reviewer" in capsys.readouterr().out
 
 
 def test_sync_models_apply_without_model_line_errors(
     tmp_path: Path, capsys: pytest.CaptureFixture
 ) -> None:
-    _agent_file(tmp_path, "grader", None)  # no model: line -> drift (None != inherit)
+    _agent_file(tmp_path, "reviewer", None)  # no model: line -> drift (None != inherit)
     assert sync_models_cli.main(["sync", "--apply"], agents_dir=tmp_path) == 1
     assert "no 'model:' line" in capsys.readouterr().err
+
+
+def test_sync_models_apply_writes_a_promoted_roles_model_id(tmp_path: Path) -> None:
+    """A role promoted in VALIDATED_TIERS (ADR 0114) syncs to the tier's full model id."""
+    from agentic_forge import models as models_lib
+
+    p = _agent_file(tmp_path, "grader", "inherit")
+    assert sync_models_cli.main(["sync", "--apply"], agents_dir=tmp_path) == 0
+    expected = models_lib.TIERS[models_lib.VALIDATED_TIERS["grader"]]
+    assert f"model: {expected}\n" in p.read_text(encoding="utf-8")
 
 
 def test_sync_models_apply_never_corrupts_body(

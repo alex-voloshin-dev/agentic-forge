@@ -27,7 +27,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO_ROOT / "plugin" / "lib"))
 
 import _eval_cli  # noqa: E402
-from agentic_forge import agent_eval, spine_e2e  # noqa: E402
+from agentic_forge import agent_eval, models, spine_e2e  # noqa: E402
 
 
 def _selected(names: list[str] | None) -> list[str]:
@@ -43,7 +43,7 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Run Tier-3 E2E scenarios.")
     parser.add_argument("--plugin", type=Path, default=_REPO_ROOT / "plugin")
     parser.add_argument("--runner", choices=["dry", "claude"], default="dry")
-    parser.add_argument("--model", default="claude-opus-5-5")
+    parser.add_argument("--model", default=models.TIERS["default"])
     parser.add_argument("--workspace", type=Path, default=None)
     parser.add_argument(
         "--scenario",

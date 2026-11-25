@@ -132,7 +132,7 @@ def main(  # noqa: PLR0913 - seams are injected for testing; production uses the
     parser.add_argument("--max-iterations", type=int, default=10)
     parser.add_argument("--stall-after", type=int, default=2, help="stop after N no-progress iters")
     parser.add_argument("--done-cmd", default=None, help="command whose exit 0 means done")
-    parser.add_argument("--model", default="claude-opus-5-5")
+    parser.add_argument("--model", default=models.TIERS["default"])
     parser.add_argument("--apply", action="store_true", help="run the loop (else dry plan)")
     args = parser.parse_args(argv[1:])
 

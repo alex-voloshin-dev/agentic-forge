@@ -3021,7 +3021,7 @@ def test_no_role_or_skill_tells_the_model_to_detect_the_stack_through_the_librar
     # run in script mode, so only the prose (markdown) and the eval contracts (json) are scanned.
     hits = [
         f"{path.relative_to(_PLUGIN).as_posix()}:{n}"
-        for root in ("agents", "skills")
+        for root in ("agents", "skills", "patterns")
         for path in sorted((_PLUGIN / root).rglob("*"))
         if path.suffix in {".md", ".json"}
         for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)

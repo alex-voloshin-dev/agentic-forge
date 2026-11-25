@@ -425,7 +425,7 @@ def main(  # noqa: PLR0913 - the seams are injected for testing; production uses
     parser.add_argument("--owner", required=True)
     parser.add_argument("--name", required=True, help="repository name")
     parser.add_argument("--pr", type=int, required=True, help="PR number")
-    parser.add_argument("--model", default="claude-opus-5-5")
+    parser.add_argument("--model", default=models.TIERS["default"])
     parser.add_argument("--max-threads", type=int, default=None)
     parser.add_argument("--apply", action="store_true", help="apply fixes + push (else dry plan)")
     # Trust-boundary overrides (ADR 0067): the scheduled driver resolves these BEFORE checking out

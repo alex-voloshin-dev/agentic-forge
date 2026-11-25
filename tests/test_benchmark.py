@@ -146,3 +146,26 @@ def test_summarize_attaches_sessions_when_given() -> None:
     assert out["run_summary"]["without_skill"]["sessions"] == {"total": 4}
     plain = benchmark.summarize([{"summary": {"pass_rate": 1.0}}])
     assert "sessions" not in plain["run_summary"]["with_skill"]
+
+
+# --- the judge is part of the instrument (ADR 0114) --------------------------------------------
+
+
+def test_make_record_names_the_judge_when_the_benchmark_does() -> None:
+    bench = {"run_summary": {"with_skill": {"pass_rate": {"mean": 1.0, "stddev": 0.0}, "n": 5}}}
+    assert "grader_model" not in benchmark.make_record("reviewer", "m", bench)
+    rec = benchmark.make_record("reviewer", "m", {**bench, "grader_model": "judge"})
+    assert rec["grader_model"] == "judge"
+
+
+def test_prior_record_compares_only_runs_graded_by_the_same_judge() -> None:
+    legacy = {"component": "reviewer", "model": "m-role", "mean": 0.9, "stddev": 0.0, "n": 5}
+    judged = {**legacy, "mean": 0.8, "grader_model": "m-judge"}
+    history = [legacy, judged]
+    # No judge given: the latest record for the (component, model), as before.
+    assert benchmark.prior_record(history, "reviewer", "m-role") is judged
+    assert benchmark.prior_record(history, "reviewer", "m-role", grader_model="m-judge") is judged
+    # A legacy record was graded by its own model, so it matches only that judge.
+    assert benchmark.prior_record(history, "reviewer", "m-role", grader_model="m-role") is legacy
+    assert benchmark.prior_record(history, "reviewer", "m-role", grader_model="other") is None
+    assert benchmark.judge_of(legacy) == "m-role" and benchmark.judge_of(judged) == "m-judge"

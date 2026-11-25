@@ -179,25 +179,46 @@ def summarize(
 
 
 def make_record(component: str, model: str, benchmark: dict[str, Any]) -> dict[str, Any]:
-    """A history record extracted from a benchmark mapping (the `with_skill` pass-rate stats)."""
+    """A history record extracted from a benchmark mapping (the `with_skill` pass-rate stats).
+
+    It names the judge (``grader_model``) when the benchmark does (ADR 0114): a record graded by
+    another model is another instrument, and :func:`prior_record` keeps the two apart."""
     ws = (benchmark.get("run_summary") or {}).get("with_skill") or {}
     pr = ws.get("pass_rate") or {}
-    return {
+    record: dict[str, Any] = {
         "component": component,
         "model": model,
         "mean": float(pr.get("mean", 0.0)),
         "stddev": float(pr.get("stddev", 0.0)),
         "n": int(ws.get("n", 0)),
     }
+    if benchmark.get("grader_model"):
+        record["grader_model"] = str(benchmark["grader_model"])
+    return record
+
+
+def judge_of(record: dict[str, Any]) -> Any:
+    """The model that graded ``record``. A record from before ADR 0114 names none: the runners then
+    graded on the component's own model, so its ``model`` was its judge."""
+    return record.get("grader_model") or record.get("model")
 
 
 def prior_record(
-    history: list[dict[str, Any]], component: str, model: str
+    history: list[dict[str, Any]],
+    component: str,
+    model: str,
+    *,
+    grader_model: str | None = None,
 ) -> dict[str, Any] | None:
-    """The most recent record for ``(component, model)`` (the prior version's baseline), or None."""
+    """The most recent record for ``(component, model)`` (the prior version's baseline), or None.
+
+    With ``grader_model``, only a record graded by that same judge counts (ADR 0114); a legacy
+    record's judge is its own ``model`` (:func:`judge_of`)."""
     record: dict[str, Any]
     for record in reversed(history):
-        if record.get("component") == component and record.get("model") == model:
+        if record.get("component") != component or record.get("model") != model:
+            continue
+        if grader_model is None or judge_of(record) == grader_model:
             return record
     return None
 

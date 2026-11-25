@@ -28,7 +28,7 @@ sys.path.insert(0, str(_REPO_ROOT / "plugin" / "lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import _eval_cli  # noqa: E402
-from agentic_forge import activation  # noqa: E402
+from agentic_forge import activation, models  # noqa: E402
 from agentic_forge.agent_eval import Runner  # noqa: E402
 
 # The tools a real session has when deciding whether to reach for a skill or just do the work. The
@@ -102,7 +102,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--plugin", type=Path, default=_REPO_ROOT / "plugin")
     parser.add_argument("--skill", dest="skills", action="append")
     parser.add_argument("--runner", choices=["dry", "claude"], default="dry")
-    parser.add_argument("--model", default="claude-opus-5-5")
+    parser.add_argument("--model", default=models.TIERS["default"])
     # 4, not 3: at 3 the cap stopped `develop` between reading the plan and invoking the skill
     # (ADR 0091) — investigate-first skills need one more turn to reach the decision.
     parser.add_argument("--max-turns", type=int, default=4)

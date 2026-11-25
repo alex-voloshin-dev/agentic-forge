@@ -400,7 +400,7 @@ The runners resolve each component via `models.model_for(...)`, so the **Tier-1 
 validates the choice**. The judge does not follow: the grader runs on `--grader-model`, or on the
 global `--model` when that is absent, whatever tier the component under test was given (ADR 0114).
 Before 0114 a component moved to `simple` was also graded by `simple`, so the run changed the
-instrument together with the thing it measured: a cheaper tier ships only if that component still clears its bar at that
+instrument together with the thing it measured. A cheaper tier ships only if that component still clears its bar at that
 tier (use `--baseline` to weigh the quality/cost trade-off). **Validate before you flip** — never
 assume a downgrade is free; re-record the numbers at the new tier. Recommended starting candidates:
 routing / grading / recall / simple synthesis → `simple` or `cheap`; implementation / design /
@@ -422,7 +422,9 @@ into the committed policy and sync the agent frontmatter:
    un-synced promotion fails the build. `dev/sync_models.py` (no `--apply`) is the CI-friendly check.
 
 Since ADR 0114 the committed policy promotes two roles, `grader` and `qa-engineer`, to `simple`
-(`model: claude-sonnet-5-5`); the other four stay `default` (`model: inherit`). The Tier-2 sets of
+(`model: claude-sonnet-5-5`); the other four stay `default` (`model: inherit`). `run_agent_evals`
+runs a promoted role at its shipped tier unless `settings.models` names another, so a default
+Tier-2 run measures what live delegation runs. The Tier-2 sets of
 all six scored about 1.0 at both Opus 5.5 and Sonnet 5.5, so they cannot tell the tiers apart:
 promote a reviewing, designing or implementing role only after harder, discriminating cases show
 it holds at the cheaper tier. A user who wants every subagent on one model sets
@@ -436,7 +438,8 @@ Tier-2 numbers are run artifacts, not contract fields, so they are not committed
 the CHANGELOG entry (or a milestone note) next to the thresholds, per the eval-loop guide
 ("record the final numbers"). If a role misses the bar, improve its prompt/return contract
 and re-run. Tier-2 numbers are model-dependent — record which model produced them, and which
-model graded them (current baseline: `claude-opus-5-5`, graded by `claude-opus-5-5`; ADR 0114).
+model graded them (current baseline: `claude-opus-5-5`, graded by `claude-opus-5-5`; `grader` and
+`qa-engineer` ship at `claude-sonnet-5-5` and a default run measures them there; ADR 0114).
 
 The latest skill Tier-2 baseline (the ADR-0020 fidelity pass) is recorded in the `CHANGELOG.md`
 "Tier-2 eval fidelity" entry: the 7 reframed/improved gates are proven at **n = 5** (all clear
