@@ -7,6 +7,10 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.11.17] - 2026-11-25
+
+Field item 11 (thread 58b37c1c): a `changes` review on one's own PR holds the merge (ADR 0110 amendment).
+
 ### Fixed
 
 - **A `changes` review on one's own PR now holds the merge (field item 11, thread 58b37c1c; ADR 0110, amendment).**
