@@ -7,7 +7,10 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
-Open item 6, step 3: model tiers measured at 5.5 (ADR 0114).
+## [2026.11.16] - 2026-11-25
+
+Open item 6, step 3: model tiers measured at 5.5 (ADR 0114); roles and packs name `af.py stack-detect`; field item 9:
+the external lens names a read-only `CODEX_HOME`.
 
 ### Changed
 
