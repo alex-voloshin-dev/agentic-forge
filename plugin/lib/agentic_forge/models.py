@@ -35,8 +35,8 @@ TIERS: dict[str, str] = {
 # `model:` frontmatter value Claude Code reads when delegating.
 VALIDATED_TIERS: dict[str, str] = {
     "architect": "default",
-    "grader": "default",
-    "qa-engineer": "default",
+    "grader": "simple",  # Tier-2 1.000 at claude-sonnet-5-5, n=5 (ADR 0114)
+    "qa-engineer": "simple",  # Tier-2 1.000 at claude-sonnet-5-5, n=5 (ADR 0114)
     "reviewer": "default",
     "security-engineer": "default",
     "software-engineer": "default",
