@@ -54,7 +54,7 @@ note by hand to get round it.
 ## Output
 
 A seeded knowledge vault (atomic notes, linked, validating clean) plus an `onboarding` handoff
-mapping components, entry points, conventions, and risks — all grounded in the real code.
+mapping components, entry points, conventions, and risks.
 
 ## Definition of done
 

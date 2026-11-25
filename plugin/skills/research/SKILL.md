@@ -89,8 +89,7 @@ art, market/competitors, user needs, technical feasibility. Not for deciding req
 **A full research run produces the finished brief: a validated `research-brief.md`** (see
 [patterns/handoff.md](../../patterns/handoff.md)) — synthesized findings, cited sources, and a
 recommendation — that survived the bounded skeptic loop to `proceed`, ready as the input to
-`product`. A run whose loop `escalate`s (unresolved gaps at N = 3) surfaces them and stops; it does
-**not** hand off a brief built on unsupported claims.
+`product`.
 
 ## Definition of done
 

@@ -107,8 +107,7 @@ task breakdown (`plan`), or implementation (`develop`).
 decision record per decision** — the design in the feature's folder (`docs/sdlc/<feature-slug>/`
 unless the repository keeps its own), the records continuing the repository's ADR series when it
 has one (see [patterns/handoff.md](../../patterns/handoff.md)) that survived the bounded skeptic loop to
-`proceed` — what `plan` and `develop` read. A run whose loop `escalate`s (unresolved gaps at N = 3)
-surfaces them and stops; it does **not** hand off an unsound design.
+`proceed` — what `plan` and `develop` read.
 
 ## Definition of done
 

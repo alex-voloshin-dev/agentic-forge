@@ -131,9 +131,7 @@ implemented, reviewed to `approve`, and tested green** — the integrated base i
 structured change summary (files, tests, assumptions) and the final review verdict. The main
 checkout is never modified. (develop's gate is the review **verdict** + QA that drives the loop; the
 canonical `review.md` handoff artifact belongs to the dedicated `code-review` phase, though the
-review engine may emit one into the worktree.) A run that cannot reach this — the loop `escalate`s
-(review still `changes` at N = 3) or QA can't go green — stops and surfaces the blockers; it does
-**not** hand off partial code.
+review engine may emit one into the worktree.)
 
 ## Definition of done
 

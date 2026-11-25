@@ -99,8 +99,7 @@ The failure mode of generated marketing is confident, low-signal fluff. So every
 **A full marketing run produces the finished deliverable for the sub-area** — a validated
 `market-brief` or `marketing-strategy` handoff (see [handoff.md](../../patterns/handoff.md)), or the
 untyped offer doc / content files / audit report — with every claim cited or labelled, that survived
-the bounded claims loop to `proceed`. A run whose loop `escalate`s (unsourced claims still standing
-at N = 3) surfaces them and stops; it does **not** ship fluff.
+the bounded claims loop to `proceed`.
 
 ## Definition of done
 

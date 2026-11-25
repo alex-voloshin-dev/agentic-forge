@@ -62,7 +62,7 @@ python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" release-commits --repo . | python3 
 ## Output
 
 A `release` handoff artifact: the proposed version, the grouped changelog, and the breaking
-changes — ready for the user to review and tag. Nothing is tagged or pushed without an explicit ask.
+changes — ready for the user to review and tag.
 
 ## Definition of done
 
