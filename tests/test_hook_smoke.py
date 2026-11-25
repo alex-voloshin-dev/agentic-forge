@@ -80,6 +80,26 @@ def test_the_moved_commit_smoke_fails_when_the_gate_stays_in_the_package() -> No
     assert failures and failures[0].startswith("moved commit")
 
 
+def test_the_smoke_reaches_the_untrusted_tool_gate() -> None:
+    failures: list[str] = []
+    assert hook_smoke.check_untrusted_tool(failures) == "untrusted-tool commit run"
+    assert failures == []
+
+
+def test_the_untrusted_tool_smoke_fails_when_no_gate_runs() -> None:
+    """With the gate skipped, PATH's ruff never runs and the smoke says so: the check can fail."""
+    failures: list[str] = []
+    hook_smoke.check_untrusted_tool(failures, hook_env={"AGENTIC_FORGE_SKIP_TEST_GATE": "1"})
+    assert failures == ["untrusted-tool commit: the gate did not run the ruff on PATH"]
+
+
+def test_the_untrusted_tool_smoke_says_when_there_is_no_git(monkeypatch) -> None:
+    monkeypatch.setattr(hook_smoke.shutil, "which", lambda name: None)
+    monkeypatch.delenv("CI", raising=False)
+    failures: list[str] = []
+    assert "NOT run" in hook_smoke.check_untrusted_tool(failures) and failures == []
+
+
 @pytest.mark.parametrize(("ci", "fails"), [("true", True), (None, False)])
 def test_no_git_says_so_and_fails_only_on_ci(monkeypatch, ci: str | None, fails: bool) -> None:
     monkeypatch.setattr(hook_smoke.shutil, "which", lambda name: None)

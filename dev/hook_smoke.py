@@ -13,7 +13,9 @@ Four checks, stdlib only:
 3. every hook runs to exit 0 on a minimal payload for its event and prints nothing or JSON, and
    the merge-preflight hook runs its merge gate on a `gh pr merge` with no `gh` on PATH, which
    must fail open with its notice, and the commit gate runs a narrowed commit and a `cd ..` commit
-   from a package (ADR 0101, ADR 0111);
+   from a package (ADR 0101, ADR 0111), and a commit in a repo that tracks `.venv/bin/ruff`, which
+   must run the ruff on PATH and never the tracked one, with no credential-named variable
+   (ADR 0115);
 4. ``bin/af.py``, what skills run on this same interpreter (ADR 0104), answers, as a real process.
 
 A hook script with no payload in :data:`PAYLOADS` is a failure too: a new hook must be smoked.
@@ -237,6 +239,56 @@ def _commit_from_package(
     return f"{label} run"
 
 
+def check_untrusted_tool(failures: list[str], hook_env: dict[str, str] | None = None) -> str:
+    """A repo that commits its own `.venv/bin/ruff`, and a staged file: the gate must run the ruff
+    on PATH, never the tracked one, and without a credential-named variable (ADR 0115). This is what
+    reaches `guardrails.bin_dirs`, its git read and `gate_env` on this interpreter."""
+    label = "untrusted-tool commit"
+    if not shutil.which("git"):
+        if os.environ.get("CI"):
+            failures.append(f"{label}: no git on CI")
+        return f"{label} NOT run: no git here"
+    with tempfile.TemporaryDirectory() as tmp:
+        base = Path(tmp).resolve()
+        repo = base / "repo"
+        planted, seen = base / "planted-ran", base / "ruff-env"
+        (repo / ".venv" / "bin").mkdir(parents=True)
+        (repo / "pyproject.toml").write_text("[project]\nname = 'smoke'\n", encoding="utf-8")
+        tools = base / "bin"
+        tools.mkdir()
+        for tool, body in ((repo / ".venv" / "bin" / "ruff", f'touch "{planted}"'),
+                           (tools / "ruff", f'env > "{seen}"')):  # fmt: skip
+            tool.write_text(f"#!/bin/sh\n{body}\nexit 0\n", encoding="utf-8")
+            tool.chmod(0o755)
+        (base / "tmp").mkdir()
+        identity = ("-c", "user.name=smoke", "-c", "user.email=smoke@example.invalid")
+        for args in (("init", "-q"), ("add", "."), (*identity, "commit", "-qm", "init")):
+            subprocess.run(["git", *args], cwd=str(repo), check=True, capture_output=True)
+        (repo / "a.py").write_text("x = 1\n", encoding="utf-8")
+        subprocess.run(["git", "add", "a.py"], cwd=str(repo), check=True, capture_output=True)
+        payload: dict[str, object] = {
+            "hook_event_name": "PreToolUse", "tool_name": "Bash",
+            "tool_input": {"command": "git commit -m x"},
+        }
+        env = {
+            "PATH": f"{tools}{os.pathsep}{os.environ.get('PATH', '')}",
+            "SMOKE_TOKEN": "x",
+            **(hook_env or {}),
+        }
+        problem = run_hook(
+            HOOKS / "commit_gate.py", payload, repo, base / "state", base / "tmp", env
+        )
+        if not problem and planted.exists():
+            problem = "the tracked .venv/bin/ruff ran"
+        elif not problem and not seen.exists():
+            problem = "the gate did not run the ruff on PATH"
+        elif not problem and "SMOKE_TOKEN=" in seen.read_text(encoding="utf-8"):
+            problem = "a credential-named variable reached the gate"
+        if problem:
+            failures.append(f"{label}: {problem}")
+    return f"{label} run"
+
+
 def check_merge_gate(failures: list[str]) -> str:
     """The merge gate's own path, which the `git status` payload never reaches: a `gh pr merge` with
     no `gh` on PATH (so nothing reaches the network) must exit 0 with the fail-open notice. PATH
@@ -290,13 +342,14 @@ def main(argv: list[str]) -> int:
     hooks = check_hooks(failures)
     narrowed = check_narrowed_commit(failures)
     moved = check_moved_commit(failures)
+    untrusted = check_untrusted_tool(failures)
     gate = check_merge_gate(failures)
     commands = check_commands(failures)
     version = ".".join(str(v) for v in sys.version_info[:3])
     print(
         f"hook smoke on Python {version}: {compiled} files compiled, "
         f"{len(mods)} hook-reachable modules imported ({' '.join(mods)}), "
-        f"{len(hooks)} hooks run, {narrowed}, {moved}, {gate}, "
+        f"{len(hooks)} hooks run, {narrowed}, {moved}, {untrusted}, {gate}, "
         f"{commands} af.py calls"
     )
     for line in failures:

@@ -3,6 +3,8 @@
 Status: Accepted (implemented)
 Date: 2026-09-11
 
+> **Amended 2026-11-24 by [ADR 0115](0115-the-commit-gate-trusts-no-tracked-tool.md):** §5's project-local bins are used for argv[0] and the gate's `PATH` only when git tracks nothing in them (a tracked or unverifiable one is skipped with a notice, and a package-script gate beside one is not run), and the gate subprocess no longer inherits credential-named environment variables.
+
 ## Context
 
 A 60-day diagnostics bundle arrived from one workstation running `2026.7.11` against a polyglot

@@ -468,9 +468,11 @@ def test_commit_gate_resolves_python_to_python3(monkeypatch, tmp_path: Path) -> 
     (tmp_path / "dev").mkdir()
     (tmp_path / "dev" / "validate.py").write_text("", encoding="utf-8")
     monkeypatch.delenv("AGENTIC_FORGE_SKIP_TEST_GATE", raising=False)
-    monkeypatch.setattr(
-        guardrails.shutil, "which", lambda name: "/usr/bin/python3" if name == "python3" else None
-    )
+    tools = tmp_path / "bin"  # a PATH with `python3` and no `python`, as on that host
+    tools.mkdir()
+    (tools / "python3").write_text("#!/bin/sh\n", encoding="utf-8")
+    (tools / "python3").chmod(0o755)
+    monkeypatch.setenv("PATH", str(tools))
     seen: dict[str, object] = {}
 
     def run(cmd, **kwargs):
@@ -481,7 +483,8 @@ def test_commit_gate_resolves_python_to_python3(monkeypatch, tmp_path: Path) -> 
     commit_gate.gate_decision(
         {"tool_name": "Bash", "tool_input": {"command": "git commit"}, "cwd": str(tmp_path)}
     )
-    assert seen["cmd"] == ["python3", "dev/validate.py"]
+    # by absolute path since ADR 0115: no relative PATH entry or cwd search picks the program
+    assert seen["cmd"] == [str(tools / "python3"), "dev/validate.py"]
 
 
 # --- a hook crash is recorded WITHOUT the diagnostics toggle, and announced once (A5) ---------

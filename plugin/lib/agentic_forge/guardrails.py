@@ -13,6 +13,7 @@ predictable, and unit-testable without a model.
 
 from __future__ import annotations
 
+import errno
 import itertools
 import json
 import os
@@ -21,8 +22,9 @@ import shlex
 import shutil
 import subprocess
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any
 
 from . import state_io
@@ -43,8 +45,16 @@ __all__ = [
     "strip_heredoc_bodies",
     "commit_dir",
     "choose_gate",
+    "BinDirs",
+    "bin_dirs",
     "gate_bin_dirs",
+    "BIN_DIR_TRACKED",
+    "BIN_DIR_UNCHECKED",
     "resolve_gate",
+    "executable",
+    "looks_like_credential",
+    "withheld_names",
+    "looks_like_auth_failure",
     "gate_env",
     "gate_unrunnable",
     "GATE_UNRUNNABLE_EXIT_CODES",
@@ -1739,22 +1749,177 @@ def _gate_argv(lint: str | None) -> list[str] | None:
 # two months and nothing said so. Resolve the tool the way the project itself does (ADR 0081).
 _LOCAL_BIN_DIRS = ("node_modules/.bin", ".venv/bin", "venv/bin", ".venv/Scripts", "venv/Scripts")
 
+# The gate is a PreToolUse hook: it runs before the user is asked about the commit. A tool directory
+# the repository itself ships is not the project's installed tools — an installed venv or
+# `node_modules` is never committed — so one git tracks anything in, or that git could not be asked
+# about, is skipped: argv[0] is not taken from it and the hook does not put it on the gate's PATH
+# (ADR 0115). Outside a checkout nothing is tracked, and the directory is used as ADR 0081 has it.
+BIN_DIR_TRACKED = "tracked by git"
+BIN_DIR_UNCHECKED = "could not be checked with git"
+_BIN_DIR_BUDGET = 2.0  # seconds for all the git reads of one hook run
+_NODE_BIN = "node_modules/.bin"
 
-def gate_bin_dirs(cwd: Path | str) -> list[Path]:
-    """Existing project-local tool directories for ``cwd`` and its main repo root, in that order.
 
-    Both levels matter in a monorepo: the commit may happen in a service directory whose venv holds
-    the linter, or at the root whose `node_modules/.bin` holds it for every workspace."""
+@dataclass(frozen=True)
+class BinDirs:
+    """The project-local tool directories of one gate run, read once (ADR 0115).
+
+    ``trusted``: the existing directories at the commit's directory and its main repo root, in that
+    order, that git tracks nothing in; argv[0] resolution and the gate's ``PATH`` prefix use only
+    these. ``skipped``: the other existing ones there, each with :data:`BIN_DIR_TRACKED` or
+    :data:`BIN_DIR_UNCHECKED`. ``script_skipped``: every skipped ``node_modules/.bin`` at the
+    directory or any parent — the ones a package manager puts on a script's ``PATH`` by itself —
+    read only when asked for (``package_script=True``)."""
+
+    trusted: tuple[Path, ...] = ()
+    skipped: tuple[tuple[Path, str], ...] = ()
+    script_skipped: tuple[tuple[Path, str], ...] = ()
+
+
+def _in_a_checkout(path: Path) -> bool:
+    """Whether a ``.git`` (directory, file or link) sits at ``path`` or above it, as git looks."""
+    return any(os.path.lexists(str(p / ".git")) for p in (path, *path.parents))
+
+
+def _spelled_as_named(base: Path, parts: Sequence[str]) -> bool:
+    """Whether each of ``parts``, walked down from ``base``, is listed in its parent with exactly
+    that spelling. On a case-insensitive filesystem `.venv/bin` opens a tracked `.VENV/bin`, and
+    `svc/.venv/bin` a tracked `SVC/.venv/bin`; `ls-files` of the name as written lists neither."""
+    here = base
+    for part in parts:
+        try:
+            if part not in os.listdir(str(here)):
+                return False
+        except OSError:
+            return False
+        here = here / part
+    return True
+
+
+def _top(git: str, root: Path, deadline: float, tops: dict[Path, str | None]) -> str | None:
+    """The work-tree top of ``root`` as git reports it (asked once per root), or None."""
+    if root not in tops:
+        try:
+            code, lines = _git_read(git, str(root), deadline, "rev-parse", "--show-toplevel")
+        except (OSError, ValueError, subprocess.SubprocessError):
+            code, lines = -1, []
+        tops[root] = lines[0] if code == 0 and len(lines) == 1 and lines[0] else None
+    return tops[root]
+
+
+def _parts_below(
+    top: str, root: str, pure: type[PurePath] = Path
+) -> tuple[str, ...] | None:
+    """The components of ``root`` below the work-tree ``top`` git printed, or None when ``root`` is
+    not under it. Compared as paths of the host's flavour (``pure``), not as strings: git on Windows
+    prints `C:/x/y` where the hook has `C:\\x\\y`, and a Windows path ignores case. Both sides are
+    resolved first where the flavour is the host's, so a linked component on either side matches."""
+    top_path, root_path = pure(top), pure(root)
+    if pure is Path:
+        try:
+            top_path, root_path = Path(top).resolve(), Path(root).resolve()
+        except (OSError, RuntimeError):
+            return None
+    try:
+        return root_path.relative_to(top_path).parts
+    except ValueError:
+        return None
+
+
+def _bin_dir_doubt(
+    root: Path, name: str, deadline: float, tops: dict[Path, str | None] | None = None
+) -> str:
+    """Why the tool directory ``root/name`` is not trusted, or ``""`` when it is.
+
+    Asked of the repo the directory really belongs to: ``git ls-files`` run inside its real path
+    (a submodule or a nested repo answers for itself), plus each link on the way from ``root``,
+    since git lists a tracked link as an entry and nothing through it. Every component from the
+    work-tree top (``git rev-parse --show-toplevel``) down to the directory must be spelled on disk
+    exactly as written; outside a checkout, those of ``name``. A name spelled otherwise, any git
+    failure, a timeout or no ``git`` by an absolute path is doubt."""
+    parts = name.split("/")
+    real = (root / name).resolve()
+    in_root, in_real = _in_a_checkout(root), _in_a_checkout(real)
+    if not in_root and not in_real:
+        return "" if _spelled_as_named(root, parts) else BIN_DIR_UNCHECKED
+    git = shutil.which("git")
+    if not git or not os.path.isabs(git):  # a relative PATH entry could find a planted git
+        return BIN_DIR_UNCHECKED
+    if in_root:
+        top = _top(git, root, deadline, {} if tops is None else tops)
+        below = None if top is None else _parts_below(top, str(root))
+        if top is None or below is None or not _spelled_as_named(Path(top), [*below, *parts]):
+            return BIN_DIR_UNCHECKED
+    elif not _spelled_as_named(root, parts):
+        return BIN_DIR_UNCHECKED
+    checks = [(real, ".")] if in_real else []
+    if in_root:
+        links = ["/".join(parts[:i]) for i in range(1, len(parts) + 1)]
+        checks += [(root, link) for link in links if (root / link).is_symlink()]
+    for where, pathspec in checks:
+        try:
+            code, out = _git_bytes(
+                git, str(where), deadline, "--literal-pathspecs", "ls-files", "-z", "--", pathspec
+            )
+        except (OSError, ValueError, subprocess.SubprocessError):
+            return BIN_DIR_UNCHECKED
+        if code != 0:  # 128 an error, -1 out of time
+            return BIN_DIR_UNCHECKED
+        if out:
+            return BIN_DIR_TRACKED
+    return ""
+
+
+def bin_dirs(cwd: Path | str, *, package_script: bool = False) -> BinDirs:
+    """The :class:`BinDirs` of ``cwd``, every git read within one 2-second budget and each
+    directory asked once. ``package_script``: also read every parent's ``node_modules/.bin``, as
+    npm, pnpm and yarn put them all on a script's ``PATH`` themselves."""
     from agentic_forge import diagnostics
 
-    roots = [Path(cwd).resolve()]
+    start = Path(cwd).resolve()
+    roots = [start]
     try:
         root = diagnostics.main_repo_root(cwd).resolve()
     except Exception:  # noqa: BLE001 — a gate must resolve even outside a checkout
-        root = roots[0]
+        root = start
     if root not in roots:
         roots.append(root)
-    return [d for r in roots for name in _LOCAL_BIN_DIRS if (d := r / name).is_dir()]
+    deadline = time.monotonic() + _BIN_DIR_BUDGET
+    doubts: dict[Path, str] = {}
+    tops: dict[Path, str | None] = {}
+
+    def doubt(where: Path, name: str) -> str:
+        if where / name not in doubts:
+            doubts[where / name] = _bin_dir_doubt(where, name, deadline, tops)
+        return doubts[where / name]
+
+    trusted: list[Path] = []
+    skipped: list[tuple[Path, str]] = []
+    for r in roots:
+        for name in _LOCAL_BIN_DIRS:
+            if (r / name).is_dir():
+                why = doubt(r, name)
+                if why:
+                    skipped.append((r / name, why))
+                else:
+                    trusted.append(r / name)
+    script_skipped: list[tuple[Path, str]] = []
+    if package_script:
+        for parent in (start, *start.parents):
+            if (parent / _NODE_BIN).is_dir():
+                why = doubt(parent, _NODE_BIN)
+                if why:
+                    script_skipped.append((parent / _NODE_BIN, why))
+    return BinDirs(tuple(trusted), tuple(skipped), tuple(script_skipped))
+
+
+def gate_bin_dirs(cwd: Path | str) -> list[Path]:
+    """Existing, trusted project-local tool directories for ``cwd`` and its main repo root, in that
+    order (trusted: git tracks nothing in them, see :func:`bin_dirs`).
+
+    Both levels matter in a monorepo: the commit may happen in a service directory whose venv holds
+    the linter, or at the root whose `node_modules/.bin` holds it for every workspace."""
+    return list(bin_dirs(cwd).trusted)
 
 
 # Interpreters whose bare name is not guaranteed to exist. A modern macOS or a Homebrew install has
@@ -1764,9 +1929,14 @@ def gate_bin_dirs(cwd: Path | str) -> list[Path]:
 _TOOL_ALTERNATIVES = {"python": ("python3",)}
 
 
-def resolve_gate(argv: list[str], cwd: Path | str) -> list[str]:
-    """``argv`` with its executable resolved project-first: a project-local bin, then ``PATH``,
-    then a known alternative name for the same tool (``python`` -> ``python3``).
+def resolve_gate(
+    argv: list[str], cwd: Path | str, dirs: BinDirs | None = None, path: str | None = None
+) -> list[str]:
+    """``argv`` with its executable resolved project-first: a trusted project-local bin (``dirs``,
+    else read now), then ``PATH``, then a known alternative name for the same tool (``python`` ->
+    ``python3``). What the hook shows; :func:`executable` is what it runs. ``PATH`` is ``path``
+    (the gate's, else the hook's), searched as :func:`executable` searches it, so the fallback is
+    chosen by the lookup that will run it.
 
     Project-first is the order npm and a virtualenv already use — the repo's pinned linter beats
     whatever happens to be installed globally. An unresolvable tool is returned unchanged: the
@@ -1776,27 +1946,181 @@ def resolve_gate(argv: list[str], cwd: Path | str) -> list[str]:
     tool = argv[0]
     if os.sep in tool:  # already a path
         return argv
-    for directory in gate_bin_dirs(cwd):
+    for directory in (bin_dirs(cwd) if dirs is None else dirs).trusted:
         candidate = directory / tool
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return [str(candidate), *argv[1:]]
-    if shutil.which(tool) is None:
+    search = os.environ.get("PATH", "") if path is None else path
+    if _find_program(tool, search) is None:
         for alternative in _TOOL_ALTERNATIVES.get(tool, ()):
-            if shutil.which(alternative):
+            if _find_program(alternative, search):
                 return [alternative, *argv[1:]]
     return argv  # nothing resolved: the fail-open reports the name the project asked for
 
 
-def gate_env(cwd: Path | str, env: dict[str, str] | None = None) -> dict[str, str]:
-    """The environment for a gate subprocess, with project-local bin dirs prepended to ``PATH``.
+_WINDOWS = os.name == "nt"
+_SAFE_POSIX_PATH = "/usr/bin:/bin"
+
+
+def _absolute_path(path: str) -> str:
+    """``path`` (a ``PATH`` value) without its empty and relative entries, which name the current
+    directory: the gate runs in the repository."""
+    return os.pathsep.join(p for p in path.split(os.pathsep) if p and os.path.isabs(p))
+
+
+def _safe_default_path() -> str:
+    """The ``PATH`` a gate gets when no absolute entry is left: fixed and absolute, never
+    ``os.defpath``, whose POSIX value can start with an empty entry (the current directory)."""
+    if _WINDOWS:
+        return os.path.join(os.environ.get("SystemRoot") or "C:\\Windows", "System32")
+    return _SAFE_POSIX_PATH
+
+
+# On Windows a `.bat`/`.cmd` runs through cmd.exe, which reads `& ^ % ( )` in its arguments, and the
+# narrowed gate passes repository file names as arguments: only `.exe`/`.com` are run, except for a
+# gate whose whole argv is fixed, with no word from the repository (ADR 0115).
+_WINDOWS_BINARIES = (".exe", ".com")
+_FIXED_SCRIPT_GATES = (("npm", "run", "lint"),)  # `npm.cmd run lint`
+
+
+def _program_names(name: str, scripts: bool = False) -> list[str]:
+    """The file names ``name`` may have on disk: itself on POSIX; on Windows ``name`` + each
+    ``PATHEXT`` extension that may run (`.exe`/`.com`, any with ``scripts``), and the bare name
+    first when it already carries one of those."""
+    if not _WINDOWS:
+        return [name]
+    exts = [e for e in os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD").split(";") if e]
+    if not scripts:
+        exts = [e for e in exts if e.lower() in _WINDOWS_BINARIES]
+    has_ext = os.path.splitext(name)[1].lower() in (e.lower() for e in exts)
+    return ([name] if has_ext else []) + [name + ext for ext in exts]
+
+
+def _find_program(name: str, path: str, scripts: bool = False) -> str | None:
+    """``name`` looked up by this module in the absolute entries of ``path`` only, as
+    :func:`executable` runs it and :func:`resolve_gate` chooses it. Not ``shutil.which``: on Windows
+    it searches the current directory first unless the hook's own environment says otherwise."""
+    for entry in _absolute_path(path).split(os.pathsep):
+        if not entry:
+            continue
+        for candidate_name in _program_names(name, scripts):
+            candidate = os.path.join(entry, candidate_name)
+            if os.path.isfile(candidate) and (_WINDOWS or os.access(candidate, os.X_OK)):
+                return candidate
+    return None
+
+
+def executable(argv: list[str], path: str) -> list[str]:
+    """``argv`` as the gate runs it: a bare argv[0] looked up by :func:`_find_program` in the
+    absolute entries of ``path`` (the gate's ``PATH``) and replaced by that absolute path
+    (ADR 0115).
+    On Windows only an `.exe`/`.com` is run, unless the whole argv is a fixed gate such as
+    `npm run lint`. Nothing found: ``FileNotFoundError``, so the run fails open without any process
+    started — a bare name is never spawned. A path is returned as is, unless on Windows it names a
+    script the rule above refuses."""
+    if not argv:
+        return argv
+    scripts = tuple(argv) in _FIXED_SCRIPT_GATES
+    if os.sep in argv[0] or (os.altsep and os.altsep in argv[0]):
+        suffix = os.path.splitext(argv[0])[1].lower()
+        if _WINDOWS and not scripts and suffix and suffix not in _WINDOWS_BINARIES:
+            raise FileNotFoundError(errno.ENOENT, "not an .exe or .com", argv[0])
+        return argv
+    found = _find_program(argv[0], path, scripts)
+    if found is None:
+        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), argv[0])
+    return [found, *argv[1:]]
+
+
+# Names that carry a credential, as words of an environment variable's name (ADR 0115). A name is
+# split on anything not a letter or digit and at camelCase humps, then upper-cased.
+_CREDENTIAL_WORDS = frozenset(
+    "TOKEN TOKENS SECRET SECRETS PASSWORD PASSWORDS PASSWD CREDENTIAL CREDENTIALS AUTH APIKEY PAT"
+    " PASS DSN".split()
+)
+_CREDENTIAL_SUFFIXES = ("TOKEN", "SECRET", "PASSWORD", "PASSWD")  # PGPASSWORD, GITHUBTOKEN
+_CREDENTIAL_PAIRS = frozenset({("API", "KEY"), ("PRIVATE", "KEY"), ("ACCESS", "KEY"),
+                               ("SESSION", "KEY")})  # fmt: skip
+_CREDENTIAL_NAMES = frozenset({"KRB5CCNAME"})  # a Kerberos ticket cache
+_CAMEL_HUMP = re.compile(r"(?<=[a-z])(?=[A-Z])|(?<=[A-Za-z0-9])(?=[A-Z][a-z])")
+_NAME_WORDS = re.compile(r"[^A-Z0-9]+")
+
+
+def looks_like_credential(name: str) -> bool:
+    """Whether the environment variable ``name`` looks like it holds a credential.
+
+    Its words — split on anything but letters and digits and at camelCase humps (`authToken`,
+    `APIKey`), then upper-cased — are read. A credential when: a word is TOKEN(S), SECRET(S),
+    PASSWORD(S), PASSWD, CREDENTIAL(S), AUTH, APIKEY, PAT, PASS or DSN; a word ends in TOKEN,
+    SECRET, PASSWORD or PASSWD (`PGPASSWORD`); a word is PWD in a name of two or more words
+    (`MYSQL_PWD`; `PWD` alone is the working directory); the last of two or more words is KEY or
+    KEYS (`OPENAI_KEY`); two adjacent words are API KEY, PRIVATE KEY, ACCESS KEY or SESSION KEY;
+    the name starts with AWS_SECRET; or it is KRB5CCNAME.
+
+    Whole words only: ``GIT_AUTHOR_NAME``, ``OAUTHLIB_INSECURE_TRANSPORT`` and
+    ``TOKENIZERS_PARALLELISM`` are kept."""
+    upper = name.upper()
+    if upper.startswith("AWS_SECRET") or upper in _CREDENTIAL_NAMES:
+        return True
+    words = [word for word in _NAME_WORDS.split(_CAMEL_HUMP.sub("_", name).upper()) if word]
+    several = len(words) > 1
+    return (
+        any(word in _CREDENTIAL_WORDS or word.endswith(_CREDENTIAL_SUFFIXES) for word in words)
+        or (several and ("PWD" in words or words[-1] in ("KEY", "KEYS")))
+        or any(
+            pair in _CREDENTIAL_PAIRS
+            for pair in zip(words, words[1:])  # noqa: B905 (no `strict=` on 3.9)
+        )
+    )
+
+
+def withheld_names(env: dict[str, str] | None = None) -> list[str]:
+    """The names (never the values) :func:`gate_env` leaves out of ``env`` (the hook's environment
+    by default), sorted: what a gate that failed for want of a credential did not get."""
+    source = os.environ if env is None else env
+    return sorted(name for name in source if looks_like_credential(name))
+
+
+# What a tool prints when it could not authenticate: the case where a withheld variable, not the
+# code, may be why the gate failed (ADR 0115). An HTTP status counts only beside a word that marks
+# it as one, so a lint finding at line 401 does not.
+_AUTH_FAILURE = re.compile(
+    r"(?i)\bcode\s+E40[13]\b|\bENEEDAUTH\b|could not read Username|Permission denied \(publickey"
+    r"|terminal prompts disabled|authentication (?:failed|required)|\b401 Unauthorized\b"
+    r"|\b403 Forbidden\b|\bHTTP(?:/\d(?:\.\d)?)?\s+40[13]\b"
+)
+
+
+def looks_like_auth_failure(output: str) -> bool:
+    """Whether a gate's ``output`` reads like an authentication or access failure, by phrases a
+    rule id or a path does not hold: npm's `code E401`/`code E403` and `ENEEDAUTH`, `HTTP 401`,
+    `401 Unauthorized`, `403 Forbidden`, "authentication failed/required", git's "could not read
+    Username" and "terminal prompts disabled", ssh's "Permission denied (publickey)". Not ruff's
+    `E401` rule, and not a path such as `app/authentication/views.py`."""
+    return bool(_AUTH_FAILURE.search(output))
+
+
+def gate_env(
+    cwd: Path | str, env: dict[str, str] | None = None, dirs: BinDirs | None = None
+) -> dict[str, str]:
+    """The environment for a gate subprocess: no credential-named variables, and the trusted
+    project-local bin dirs (``dirs``, else read now) prepended to ``PATH``.
 
     Resolving argv[0] is not enough: `npm run lint` runs a package script that invokes `eslint`
     itself, and the field case was exactly that — `node_modules/.bin/eslint` existed one directory
-    away from the worktree the gate ran in."""
-    base = dict(os.environ if env is None else env)
-    dirs = [str(d) for d in gate_bin_dirs(cwd)]
-    if dirs:
-        base["PATH"] = os.pathsep.join([*dirs, base.get("PATH", "")]).rstrip(os.pathsep)
+    away from the worktree the gate ran in. The gate runs before the user is asked about the
+    commit, so a variable :func:`looks_like_credential` is dropped (ADR 0115). That can make a gate
+    that needs one fail, or block; the hook names :func:`withheld_names` when it blocks. ``PATH``
+    keeps only absolute entries (a fixed safe default when none is left, never empty), and on
+    Windows ``NoDefaultCurrentDirectoryInExePath`` is set, so no lookup of the gate's falls back to
+    the repository it runs in."""
+    source = os.environ if env is None else env
+    base = {name: value for name, value in source.items() if not looks_like_credential(name)}
+    found = [str(d) for d in (bin_dirs(cwd) if dirs is None else dirs).trusted]
+    rest = _absolute_path(base.get("PATH", "")) or _safe_default_path()
+    base["PATH"] = os.pathsep.join([*found, rest])
+    if _WINDOWS:
+        base["NoDefaultCurrentDirectoryInExePath"] = "1"
     return base
 
 
