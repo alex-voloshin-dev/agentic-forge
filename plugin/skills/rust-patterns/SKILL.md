@@ -7,7 +7,7 @@ disable-model-invocation: true
 # Rust patterns
 
 The Rust stack pack: loaded by the `software-engineer` / `qa-engineer` roles (and the
-`code-review` lint aspect) when `stacks.detect` reports Rust. It carries only what is
+`code-review` lint aspect) when `af.py stack-detect` reports Rust. It carries only what is
 **Rust-specific** on top of [`engineering-standards`](../engineering-standards/SKILL.md) —
 Claude already knows general Rust; this encodes the conventions and gates agentic-forge holds
 Rust work to. (Mechanism: ADR 0015, by-stack detection + reference packs.)

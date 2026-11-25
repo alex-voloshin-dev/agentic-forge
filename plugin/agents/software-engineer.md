@@ -15,10 +15,11 @@ Consult the standards we hold to and the project's stack. The standards and the 
 skills that are **off the listing** (`disable-model-invocation: true`), so you cannot invoke them
 by name — **`Read` them from disk**. Always read `engineering-standards`
 (`${CLAUDE_PLUGIN_ROOT}/skills/engineering-standards/SKILL.md` — the principles we always
-follow). For the stack, detect it deterministically with `stacks.detect` / `stacks.primary` (from
-`agentic_forge`) on the worktree, then read the `<stack>-patterns` pack the profile names at
-`${CLAUDE_PLUGIN_ROOT}/skills/<pack>/SKILL.md` (e.g. `python-patterns`;
-`stacks.pack_paths(plugin_root, profile)` returns both paths in reading order — the caller
+follow). For the stack, detect it deterministically on the worktree — run
+`python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" stack-detect --repo <worktree>` and read its
+`primary` (the profile: `pack`, `toolchain`, `dir`; `profiles` for monorepos) — then read the
+`<stack>-patterns` pack the profile names at `${CLAUDE_PLUGIN_ROOT}/skills/<pack>/SKILL.md` (e.g.
+`python-patterns`; the output's `pack_paths` lists both paths in reading order — the caller
 usually passes them resolved); if the profile has no pack, fall back to the standards plus the
 profile's toolchain. **Prefer the repo's own declared commands** (pyproject / Makefile / scripts)
 over the profile defaults. Don't restate what you already know — read only what's project- or

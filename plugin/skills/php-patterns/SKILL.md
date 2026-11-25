@@ -7,7 +7,7 @@ disable-model-invocation: true
 # PHP patterns
 
 The PHP stack pack: loaded by the `software-engineer` / `qa-engineer` roles (and the
-`code-review` lint aspect) when `stacks.detect` reports PHP. It carries only what is
+`code-review` lint aspect) when `af.py stack-detect` reports PHP. It carries only what is
 **PHP-specific** on top of [`engineering-standards`](../engineering-standards/SKILL.md).
 (Mechanism: ADR 0015, by-stack detection + reference packs.)
 

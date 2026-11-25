@@ -7,7 +7,7 @@ disable-model-invocation: true
 # JavaScript patterns
 
 The plain-JavaScript stack pack: loaded by the `software-engineer` / `qa-engineer` roles (and
-the `code-review` lint aspect) when `stacks.detect` reports JavaScript (a `package.json` with no
+the `code-review` lint aspect) when `af.py stack-detect` reports JavaScript (a `package.json` with no
 `tsconfig.json` — a TypeScript repo uses `typescript-patterns`). It carries only what is
 **JS-specific** on top of [`engineering-standards`](../engineering-standards/SKILL.md). (Mechanism:
 ADR 0015, by-stack detection + reference packs.)

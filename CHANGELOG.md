@@ -7,6 +7,15 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Fixed
+
+- **Roles and stack packs name the stack command a plugin install can run** (ADR 0104). The `software-engineer` and
+  `qa-engineer` roles, the ten `*-patterns` packs and the Terraform pack's eval contract still told the model to
+  detect the stack with the library calls `stacks.detect` / `stacks.primary` / `stacks.pack_path`, which a
+  plugin-only install cannot import. They now name `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" stack-detect --repo
+  <worktree>`, the command the `develop` skill already runs, and read its `primary` profile and `pack_paths`. A test
+  in `tests/test_af.py` fails if a role or skill names the library calls again.
+
 ## [2026.11.15] - 2026-11-25
 
 The commit gate trusts no tracked tool (ADR 0115); a board known limit since ADR 0101.

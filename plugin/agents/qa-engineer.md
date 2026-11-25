@@ -17,7 +17,8 @@ Given a change (and the worktree it lives in):
    flows across components.
 2. Add tests that close the highest-value gaps, following the project's test conventions —
    `Read` the `<stack>-patterns` pack at `${CLAUDE_PLUGIN_ROOT}/skills/<pack>/SKILL.md` (detect
-   via `stacks.detect`/`stacks.primary`; `stacks.pack_path` builds the path — the pack is off the
+   by running `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" stack-detect --repo <worktree>`: its
+   `primary` names the pack and its `pack_paths` lists the paths to read — the pack is off the
    listing, so it cannot be invoked by name) for the stack's testing idioms. Keep every existing
    test; add, don't replace.
 3. Run the suite (the repo's declared test command, else the stack profile's) and report the

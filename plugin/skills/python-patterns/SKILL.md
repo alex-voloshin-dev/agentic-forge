@@ -7,7 +7,7 @@ disable-model-invocation: true
 # Python patterns
 
 The Python stack pack: loaded by the `software-engineer` / `qa-engineer` roles (and the
-`code-review` lint aspect) when `stacks.detect` reports Python. It carries only what is
+`code-review` lint aspect) when `af.py stack-detect` reports Python. It carries only what is
 **Python-specific** on top of [`engineering-standards`](../engineering-standards/SKILL.md) —
 Claude already knows general Python; this encodes the conventions and gates agentic-forge
 holds Python work to. (Mechanism: ADR 0015, by-stack detection + reference packs.)

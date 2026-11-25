@@ -7,7 +7,7 @@ disable-model-invocation: true
 # JVM patterns
 
 The JVM stack pack (Java and Kotlin): loaded by the `software-engineer` / `qa-engineer` roles
-(and the `code-review` lint aspect) when `stacks.detect` reports JVM. It carries only what is
+(and the `code-review` lint aspect) when `af.py stack-detect` reports JVM. It carries only what is
 **JVM-specific** on top of [`engineering-standards`](../engineering-standards/SKILL.md).
 (Mechanism: ADR 0015, by-stack detection + reference packs.)
 
