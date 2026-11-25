@@ -7,6 +7,26 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+Open item 6, step 3: model tiers measured at 5.5 (ADR 0114).
+
+### Changed
+
+- **Two roles run on Sonnet 5.5; the tier table is the 5.5 family** (ADR 0114). With the owner's go for live runs, all
+  six roles were measured at Tier-2 (n = 5) on Opus 5.5 and on Sonnet 5.5, judged by Opus 5.5 both times. Every role
+  cleared the gate at both tiers, at about 1.0, so the sets show that Sonnet handles these cases, not that it holds on
+  the hard ones. So:
+  - **`grader` and `qa-engineer` move to `simple`**: their agent files say `model: claude-sonnet-5-5` (the full id,
+    because on Bedrock and Vertex the `sonnet` alias maps to an older Sonnet). A live delegation to either runs on
+    Sonnet 5.5 whatever the session's model; `CLAUDE_CODE_SUBAGENT_MODEL` with `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`
+    overrides it.
+  - **`reviewer`, `security-engineer`, `architect` and `software-engineer` stay `inherit`** until harder cases can
+    tell the tiers apart.
+  - **`TIERS`** is `claude-opus-5-5` / `claude-sonnet-5-5` / `claude-haiku-5-5` (was Opus 4.8 / Sonnet 4.6 / Haiku
+    4.5), and every eval CLI, `pr_watch` and the eval workflow default to `claude-opus-5-5`.
+- **The Tier-2 judge no longer moves with the component** (ADR 0114). `run_agent_evals` and `run_skill_evals` took the
+  grader's model from the component's tier, so measuring a role at `simple` also graded it with `simple`. Both now
+  grade on `--grader-model`, or on `--model` when it is absent, and the benchmark records `grader_model`.
+
 ### Fixed
 
 - **Roles and stack packs name the stack command a plugin install can run** (ADR 0104). The `software-engineer` and

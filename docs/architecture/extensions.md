@@ -42,6 +42,17 @@ validated tier onto each agent's `model:` frontmatter, and Tier-0 (`validate_age
 agent's committed `model:` drifts from the validated policy — so live `Task` delegation can never run
 on an unvalidated tier. `dev/sync_models.py` regenerates the frontmatter from the policy.
 
+**The policy today (ADR 0114).** The tiers are Opus 5.5 / Sonnet 5.5 / Haiku 5.5
+(`claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5`), and every eval CLI takes its `--model`
+default from `TIERS["default"]`. `grader` and `qa-engineer` run at `simple` (`model:
+claude-sonnet-5-5`); `reviewer`, `security-engineer`, `architect` and `software-engineer` stay
+`default` (`model: inherit`), because their Tier-2 sets scored about 1.0 at both tiers and so cannot
+show that a cheaper model holds on the hard cases those roles exist for. The frontmatter carries the
+full model id, not the `sonnet` alias: on Bedrock and Vertex an Anthropic id maps to the provider's
+id for that version, while the alias resolves to an older Sonnet there; on Microsoft Foundry the id
+must name a deployment or have a `modelOverrides` entry. The Tier-2 runners keep the judge fixed
+(`--grader-model`, default `--model`) whatever tier the component under test runs at.
+
 ## External reviewer seam (`external_review.py`, ADR 0042 / 0057 / 0060 / 0100)
 
 A different model is an independent review lens — it catches what a same-family `reviewer` pass

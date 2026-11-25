@@ -28,7 +28,7 @@ TIERS: dict[str, str] = {
 }
 
 # The committed runtime tier policy (ADR 0046): the gate-validated tier each subagent role runs at
-# in LIVE `Task` delegation. It ships **all-`default`** (no downgrade); a role is promoted to a
+# in LIVE `Task` delegation. `default` means no downgrade (`model: inherit`); a role is promoted to a
 # cheaper tier here only after it passes the eval gate at that tier (validate via settings.models +
 # the eval gate -> edit here -> `dev/sync_models.py --apply` -> Tier-0 green). It ships with the
 # agents, so a clean install is always self-consistent; `frontmatter_model` turns it into the
