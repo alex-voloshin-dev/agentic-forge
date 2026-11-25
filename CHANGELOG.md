@@ -7,6 +7,10 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.11.15] - 2026-11-25
+
+The commit gate trusts no tracked tool (ADR 0115); a board known limit since ADR 0101.
+
 ### Security
 
 - **The commit gate no longer runs a tool the repository ships, and hands its gate no credential-named variables
