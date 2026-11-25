@@ -187,7 +187,7 @@ jobs:
         if: ${{ always() }}
         run: |
           if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-            echo "Measured: **Tier-2 quality** (agents + skills) and **Tier-3 E2E** on \`$EVAL_MODEL\`." >> "$GITHUB_STEP_SUMMARY"
+            echo "Measured: **Tier-2 quality** (agents + skills) and **Tier-3 E2E** on \`$EVAL_MODEL\`; roles promoted in VALIDATED_TIERS (grader, qa-engineer) at their shipped tier (ADR 0114)." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "**Skipped** — no subscription token, so no threshold was checked." >> "$GITHUB_STEP_SUMMARY"
           fi
