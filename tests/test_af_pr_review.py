@@ -214,6 +214,58 @@ def test_on_your_own_pr_it_is_a_comment_that_says_why(tmp_path: Path) -> None:
     assert "your own pull request" in result["event_reason"]
 
 
+def test_on_your_own_pr_a_changes_verdict_holds_the_merge_by_threads(tmp_path: Path) -> None:
+    """GitHub refuses REQUEST_CHANGES there, and the merge gates hold on threads, not on a body."""
+    env = _stub_gh(tmp_path, heads=[_answer(author={"login": "rev"})])
+    done = _run(tmp_path, env)
+    assert done.returncode == 0, done.stderr
+    assert done.stderr == ""
+    result = json.loads(done.stdout)
+    assert result["event"] == "COMMENT"
+    assert (result["inline"], result["in_body"]) == (1, 1)
+    assert result["threads"] == [
+        {"location": "README.md:1", "path": "src/app.py", "line": 2, "side": "RIGHT"}
+    ]
+    assert result["warnings"] == []
+    payload = json.loads((tmp_path / "out" / "review.json").read_text(encoding="utf-8"))
+    held = payload["comments"][1]
+    assert (held["path"], held["line"], held["side"]) == ("src/app.py", 2, "RIGHT")
+    assert held["body"].startswith(
+        "Finding at `README.md:1`. This thread sits here only to hold the merge; the line it is "
+        "attached to is not the finding's."
+    )
+    assert "README.md:1" in payload["body"] and "holds the merge" in payload["body"]
+
+
+def test_on_your_own_pr_a_diff_with_nothing_to_anchor_on_warns(tmp_path: Path) -> None:
+    diff = "diff --git a/a.py b/b.py\nsimilarity index 100%\nrename from a.py\nrename to b.py\n"
+    env = _stub_gh(tmp_path, heads=[_answer(author={"login": "rev"})], diff=diff)
+    done = _run(tmp_path, env)
+    assert done.returncode == 0, done.stderr
+    assert done.stderr == f"af.py: pr-review: warning: {pr_review.NO_ANCHOR_WARNING}\n"
+    result = json.loads(done.stdout)
+    assert result["threads"] == [] and result["warnings"] == [pr_review.NO_ANCHOR_WARNING]
+    payload = json.loads((tmp_path / "out" / "review.json").read_text(encoding="utf-8"))
+    assert payload["comments"] == []
+    assert pr_review.NO_ANCHOR_WARNING in payload["body"]
+
+
+@pytest.mark.parametrize(
+    ("author", "extra"), [("ann", ()), ("rev", ("--event", "comment"))]
+)
+def test_no_hold_threads_where_the_review_does_not_need_them(
+    tmp_path: Path, author: str, extra: tuple[str, ...]
+) -> None:
+    """Another's PR gets REQUEST_CHANGES; `--event comment` is a review that chose not to hold."""
+    env = _stub_gh(tmp_path, heads=[_answer(author={"login": author})])
+    done = _run(tmp_path, env, *extra)
+    assert done.returncode == 0, done.stderr
+    result = json.loads(done.stdout)
+    assert result["threads"] == [] and result["warnings"] == []
+    payload = json.loads((tmp_path / "out" / "review.json").read_text(encoding="utf-8"))
+    assert [c["line"] for c in payload["comments"]] == [3]
+
+
 def test_approve_on_a_changes_verdict_is_refused(tmp_path: Path) -> None:
     says = _refused(_run(tmp_path, _stub_gh(tmp_path), "--event", "approve"))
     assert "cannot approve" in says

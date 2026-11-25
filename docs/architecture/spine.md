@@ -124,7 +124,8 @@ What it does, in order:
    deleted file or a hunk-less rename. A finding whose `file:line` or `file:start-end` is on those
    lines becomes an inline comment; any other goes into the body with the reason. A finding's path
    may also be a unique `/`-bounded suffix of a diff path (`app.py:3` for `src/app.py`), or end
-   with one (an absolute path, or git's `a/`/`b/`). GitHub answers a review holding one comment
+   with one (an absolute path, or git's `a/`/`b/`), or a renamed file's old path, which resolves
+   to its new one (`rename from`/`rename to`). GitHub answers a review holding one comment
    outside the diff with a 422 and drops all of it. The diff is read as bytes and decoded as UTF-8
    without newline translation: a lone `\r` in a line is content to git and GitHub, and reading it
    as a line break would shift every later line number.
@@ -146,10 +147,28 @@ What it does, in order:
    session's account counts toward the approvals branch protection requires, so it could open the
    merge gate on a model's judgement. On the asking account's own PR, where GitHub refuses both
    APPROVE and REQUEST_CHANGES, the event is COMMENT, and the body says why.
+   **A `changes` verdict on one's own PR still holds the merge** (ADR 0110, amendment 2026-11-25).
+   The merge gates hold a PR on unresolved review threads, not on a COMMENT's body. So when
+   `holds_by_thread` is true (a `changes` verdict, `--event request-changes`, one's own PR), every
+   finding that goes into the body is also posted as an inline comment, which opens a thread. It
+   is anchored on the nearest added or context line of its own file (the lower on a tie); for a
+   deleted file, on its nearest removed line (`side: LEFT`, old number); else on the diff's first
+   added line, else its first context line, else its first removed line (LEFT). It opens with
+   ``Finding at `<location>`. This thread sits here only to hold the merge; the line it is attached
+   to is not the finding's.`` (or `Finding without a file:line.` and the same sentence), so the PR
+   watcher's fixer, handed "Address this review comment on <anchor>:", does not edit the anchor.
+   Then the finding as the body has it, through the same neutralising and 8,000-character cap. The
+   body still lists each one and names the line its thread sits on; a finding the body cap leaves
+   out still gets its thread. With no line a comment can sit on (renames without hunks, binary
+   changes), nothing can be anchored: the body, `warnings` and stderr say "nothing in the diff to
+   anchor a thread on; this review will not hold a merge". `--event comment` adds no threads: that
+   is the caller choosing a review that does not hold.
 6. Writes the payload (`commit_id`, `event`, `body`, `comments[]` with `path`, `line`,
    `side: RIGHT` and, for a range, `start_line`) to `--out`, and prints
    one JSON object: `repo`, `number`, `head`, `verdict`, `event`, `event_reason`, the `inline`,
-   `in_body` and `omitted` counts, a `placements` entry per finding, `payload`, and `post`, the
+   `in_body` and `omitted` counts, a `placements` entry per finding, the hold `threads`
+   (`location`, `path`, `line`, `side`) and `warnings` of step 5 (each warning also one
+   `af.py: pr-review: warning: ...` line on stderr), `payload`, and `post`, the
    `{"argv", "shell"}` of `gh api -X POST repos/<owner>/<name>/pulls/<n>/reviews --input <payload>`.
    `--out` must be under the repository (`--repo`) or the temp directory (`$TMPDIR`, else the
    system's: Python's `tempfile.gettempdir()`), each as written and as it resolves, and no

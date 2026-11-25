@@ -9,6 +9,11 @@ unified diff for the lines GitHub accepts a comment on, places each finding inli
 neutralises every mention, caps the sizes, and maps the verdict to a review event. The ``gh`` reads
 and the file write are ``af.py``'s; posting is the session's, from the printed command.
 
+On one's own PR GitHub refuses REQUEST_CHANGES, so a ``changes`` verdict posts as a COMMENT, and the
+merge gates hold a PR on unresolved review threads, not on a comment's body. There every finding
+that would sit in the body only is also posted as a thread anchored on the diff (ADR 0110,
+amendment), so the review still holds the merge until the threads are resolved.
+
 Hook-reachable through ``af.py`` (ADR 0104), so Python 3.9 and the standard library only.
 """
 
@@ -28,17 +33,20 @@ __all__ = [
     "MAX_BODY_CHARS",
     "MAX_DIFF_CHARS",
     "OMITTED_REASON",
+    "NO_ANCHOR_WARNING",
     "HEAD_QUERY",
     "Finding",
     "Review",
     "PrHead",
     "Placement",
+    "HoldThread",
     "BuiltReview",
     "parse_findings",
     "parse_location",
     "commentable_lines",
     "neutralise_mentions",
     "review_event",
+    "holds_by_thread",
     "head_query_argv",
     "diff_argv",
     "post_argv",
@@ -60,9 +68,20 @@ MAX_COMMENT_CHARS = 8000
 MAX_BODY_CHARS = 60000
 MAX_DIFF_CHARS = 16 * 1024 * 1024
 _MAX_LOCATION_CHARS = 500
-# The placement reason of a finding the body had no room left for: it is in neither the body nor a
-# comment, and the session has to say so.
+# The placement reason of a finding the body had no room left for: it is not in the body, and the
+# session has to say so. Unless a hold thread carries it (see build_review), it is nowhere.
 OMITTED_REASON = "omitted: body cap"
+# What a hold thread opens with: where the finding really is, and that the line it is attached to
+# is a stand-in. Explicit, because the PR watcher's fixer is handed a thread as "Address this review
+# comment on <anchor>:" and would otherwise take the anchor for the place to edit.
+_HOLD_NOTE = (
+    "This thread sits here only to hold the merge; the line it is attached to is not the finding's."
+)
+_OUTSIDE_PREFIX = "Finding at {location}. " + _HOLD_NOTE
+_NO_LOCATION_PREFIX = "Finding without a file:line. " + _HOLD_NOTE
+NO_ANCHOR_WARNING = (
+    "nothing in the diff to anchor a thread on; this review will not hold a merge"
+)
 
 # One read: who is asking (GitHub refuses a review that approves or requests changes on one's own
 # PR), and the PR's state, head and author. Read-only.
@@ -75,7 +94,9 @@ HEAD_QUERY = (
 _ISSUE_KEYS = ("issue", "description")
 _FIX_KEYS = ("suggestion", "fix")
 _LOCATION = re.compile(r"(?P<path>.+?):L?(?P<start>\d+)(?:\s*[-–]\s*L?(?P<end>\d+))?(?::\d+)?")
-_HUNK = re.compile(r"@@ -\d+(?:,(?P<old>\d+))? \+(?P<new>\d+)(?:,(?P<count>\d+))? @@")
+_HUNK = re.compile(
+    r"@@ -(?P<from>\d+)(?:,(?P<old>\d+))? \+(?P<new>\d+)(?:,(?P<count>\d+))? @@"
+)
 
 # Every `@` that could start a mention: one not right after an ASCII letter or digit (that is an
 # email address, which GitHub does not link), and not already followed by the zero-width space. What
@@ -137,13 +158,28 @@ class Placement:
     reason: str = ""
 
 
+@dataclass(frozen=True)
+class HoldThread:
+    """A finding the body carries that was also posted as a thread, so the review holds the merge:
+    the finding's own location, and the diff line the thread is anchored on. ``side`` is ``RIGHT``
+    for an added or context line (its new number), ``LEFT`` for a removed one (its old number)."""
+
+    location: str
+    path: str
+    line: int
+    side: str = "RIGHT"
+
+
 @dataclass
 class BuiltReview:
-    """The payload, where each finding went, and how many did not fit the body."""
+    """The payload, where each finding went, how many did not fit the body, the hold threads, and
+    what the session must be told (each also stated in the body)."""
 
     payload: dict[str, Any]
     placements: list[Placement] = field(default_factory=list)
     omitted: int = 0  # findings that did not fit the body's cap
+    threads: list[HoldThread] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
 
 # --- the findings ---------------------------------------------------------------------------------
@@ -271,15 +307,34 @@ def _unquote(name: str) -> str:
     return raw.decode("utf-8", errors="replace")
 
 
-def _new_path(line: str) -> str | None:
-    """The file a ``+++`` line names, without git's ``b/``; None for a deletion."""
+def _header_path(line: str, prefix: str) -> str | None:
+    """The file a ``---``/``+++`` line names, without git's ``a/``/``b/`` (``prefix``); None for
+    ``/dev/null`` (the old side of an added file, the new side of a deleted one)."""
     name = line[4:]
     if name.endswith("\t"):  # git ends a name holding a space with a tab
         name = name[:-1]
     name = _unquote(name)
     if name == "/dev/null":
         return None
-    return name[2:] if name.startswith("b/") else name
+    return name[2:] if name.startswith(prefix) else name
+
+
+def _new_path(line: str) -> str | None:
+    """The file a ``+++`` line names, without git's ``b/``; None for a deletion."""
+    return _header_path(line, "b/")
+
+
+@dataclass
+class _DiffMap:
+    """What a review needs from a unified diff. ``right``: :func:`commentable_lines`. ``left``: the
+    removed lines' old numbers, keyed by the name GitHub gives the file (the new one; the old one
+    for a deletion). ``first_added``: the first added line in diff order. ``renamed``: old path to
+    new path."""
+
+    right: dict[str, set[int]] = field(default_factory=dict)
+    left: dict[str, set[int]] = field(default_factory=dict)
+    first_added: tuple[str, int] | None = None
+    renamed: dict[str, str] = field(default_factory=dict)
 
 
 def commentable_lines(diff: str) -> dict[str, set[int]]:
@@ -288,26 +343,42 @@ def commentable_lines(diff: str) -> dict[str, set[int]]:
     none, and neither has a rename or a mode change without a hunk. A hunk is read by its line
     counts, so a removed line that reads ``--- x`` is content, not a header. Lines end at ``\n``
     only: a ``\r`` is part of a line, as it is to git and GitHub."""
-    files: dict[str, set[int]] = {}
-    current: str | None = None
+    return _read_diff(diff).right
+
+
+def _read_diff(diff: str) -> _DiffMap:
+    """The :class:`_DiffMap` of ``diff``, read as :func:`commentable_lines` reads it. A rename is
+    taken from ``rename from``/``rename to`` (a rename with no hunk has only those) and from a
+    ``---``/``+++`` pair that names two paths."""
+    found = _DiffMap()
+    current: str | None = None  # the new path, which RIGHT lines are keyed by
+    removed_key: str | None = None  # the name LEFT lines are keyed by
+    old_name: str | None = None
+    rename_from: str | None = None
     old_left = new_left = 0
-    right = 0
+    right = left = 0
     for line in diff.split("\n"):
         if old_left > 0 or new_left > 0:
             tag = line[:1]
             if tag == "+" and new_left > 0:
                 if current is not None:
-                    files[current].add(right)
+                    found.right[current].add(right)
+                    if found.first_added is None:
+                        found.first_added = (current, right)
                 right += 1
                 new_left -= 1
                 continue
             if tag == "-" and old_left > 0:
+                if removed_key is not None:
+                    found.left.setdefault(removed_key, set()).add(left)
+                left += 1
                 old_left -= 1
                 continue
             if (tag == " " or line == "") and old_left > 0 and new_left > 0:
                 if current is not None:
-                    files[current].add(right)
+                    found.right[current].add(right)
                 right += 1
+                left += 1
                 old_left -= 1
                 new_left -= 1
                 continue
@@ -315,31 +386,59 @@ def commentable_lines(diff: str) -> dict[str, set[int]]:
                 continue
             old_left = new_left = 0  # a short hunk: read the line as a header
         if line.startswith("diff --git "):
-            current = None
+            current = removed_key = old_name = rename_from = None
+        elif line.startswith("rename from "):
+            rename_from = _unquote(line[len("rename from "):])
+        elif line.startswith("rename to ") and rename_from is not None:
+            found.renamed[rename_from] = _unquote(line[len("rename to "):])
+        elif line.startswith("--- "):
+            old_name = _header_path(line, "a/")
         elif line.startswith("+++ "):
             current = _new_path(line)
+            removed_key = current if current is not None else old_name
             if current is not None:
-                files.setdefault(current, set())
+                found.right.setdefault(current, set())
+                if old_name is not None and old_name != current:
+                    found.renamed.setdefault(old_name, current)
+            old_name = None  # used: a later `+++` without its own `---` must not inherit it
         elif line.startswith("@@ "):
             hunk = _HUNK.match(line)
             if hunk:  # a deleted file's hunk too: its counts say where the next header is
                 old_left = int(hunk.group("old") or 1)
                 new_left = int(hunk.group("count") or 1)
                 right = int(hunk.group("new"))
-    return files
+                left = int(hunk.group("from"))
+    return found
 
 
-def _resolve_path(path: str, files: dict[str, set[int]]) -> str | None:
-    """The diff's path for a finding's path: the same; else the one diff path that ends with it at a
+def _match(path: str, names: Any) -> str | None:
+    """The one of ``names`` a finding's path names: the same; else the one that ends with it at a
     ``/`` (``app.py`` for ``src/app.py``), or that it ends with at a ``/`` (an absolute path, or one
     with git's ``a/`` or ``b/``). Two candidates is a guess, so None."""
-    if path in files:
+    if path in names:
         return path
     found = [
-        name for name in files
+        name for name in names
         if name.endswith("/" + path) or path.endswith("/" + name)
     ]
     return found[0] if len(found) == 1 else None
+
+
+def _resolve_path(path: str, diff: _DiffMap) -> str | None:
+    """The diff's (new) path for a finding's path, as :func:`_match` finds it among the files with
+    a right side; else, when it names a renamed file's old path, that file's new path. An exact
+    name wins over a suffix match on either side: a finding at ``a.py`` after ``a.py`` was renamed
+    is that file, not another changed ``other/a.py``."""
+    if path in diff.right:
+        return path
+    if path in diff.renamed and diff.renamed[path] in diff.right:
+        return diff.renamed[path]
+    found = _match(path, diff.right)
+    if found is None:
+        old = _match(path, diff.renamed)
+        if old is not None and diff.renamed[old] in diff.right:
+            found = diff.renamed[old]
+    return found
 
 
 # --- the text -------------------------------------------------------------------------------------
@@ -437,6 +536,18 @@ def review_event(verdict: str, requested: str, *, own_pr: bool) -> tuple[str, st
     return wanted, "a changes verdict requests changes"
 
 
+def holds_by_thread(verdict: str, requested: str, *, own_pr: bool) -> bool:
+    """Whether every finding must sit on a review thread so the review holds the merge: a
+    ``changes`` verdict that :func:`review_event` downgraded to COMMENT because the PR is one's own.
+
+    The merge gates (the watcher's and the merge-preflight hook's) hold a PR on unresolved threads,
+    not on a COMMENT's body, and in a fleet that pushes as one login every PR is one's own. Not for
+    ``--event comment``: that is the caller choosing a review that does not request changes, and on
+    another's PR REQUEST_CHANGES was there to choose. Not for a body as the marker either: a body
+    is editable text, which a gate must not trust."""
+    return verdict == "changes" and requested == "request-changes" and own_pr
+
+
 # --- gh -------------------------------------------------------------------------------------------
 
 
@@ -499,15 +610,15 @@ def reviewable_problem(head: PrHead, reviewed: str) -> str | None:
 # --- the review -----------------------------------------------------------------------------------
 
 
-def _placement(finding: Finding, files: dict[str, set[int]]) -> tuple[Placement, dict[str, Any]]:
+def _placement(finding: Finding, diff: _DiffMap) -> tuple[Placement, dict[str, Any]]:
     parsed = parse_location(finding.location)
     if parsed is None:
         return Placement(finding.location, False, "no file:line in the location"), {}
     path, start, end = parsed
-    resolved = _resolve_path(path, files)
+    resolved = _resolve_path(path, diff)
     if resolved is None:
         return Placement(finding.location, False, "the file is not in the diff"), {}
-    lines = files[resolved]
+    lines = diff.right[resolved]
     if not all(n in lines for n in range(start, end + 1)):
         return Placement(
             finding.location, False, "the line is not an added or context line of the diff"
@@ -519,13 +630,55 @@ def _placement(finding: Finding, files: dict[str, set[int]]) -> tuple[Placement,
     return Placement(finding.location, True), comment
 
 
+_Anchor = tuple[str, int, str]  # path, line, side (3.9 subscripts `tuple` at run time)
+
+
+def _fallback_anchor(diff: _DiffMap) -> _Anchor | None:
+    """The diff's first added line; with none, its first context line; with neither (a diff that
+    only deletes files), its first removed line, on the LEFT side by its old number, where GitHub
+    takes a comment too. With none of them (a rename or a binary change only), None: there is
+    nothing a line comment can sit on."""
+    if diff.first_added is not None:
+        return diff.first_added[0], diff.first_added[1], "RIGHT"
+    for side, files in (("RIGHT", diff.right), ("LEFT", diff.left)):
+        for path, lines in files.items():
+            if lines:
+                return path, min(lines), side
+    return None
+
+
+def _hold_anchor(finding: Finding, diff: _DiffMap, fallback: _Anchor) -> tuple[_Anchor, str]:
+    """Where a body finding's hold thread goes, and the line it opens with. In its own file when
+    the diff has lines of it: the nearest added or context line to its range (the lower on a tie),
+    else, for a file with no right side (a deletion), the nearest removed line on the LEFT.
+    Otherwise the fallback anchor."""
+    parsed = parse_location(finding.location)
+    if parsed is None:
+        return fallback, _NO_LOCATION_PREFIX
+    prefix = _OUTSIDE_PREFIX.format(location=_location_code(finding.location))
+    path, start, end = parsed
+
+    def distance(n: int) -> tuple[int, int]:
+        return (start - n if n < start else n - end if n > end else 0), n
+
+    resolved = _resolve_path(path, diff)
+    if resolved is not None and diff.right[resolved]:
+        return (resolved, min(diff.right[resolved], key=distance), "RIGHT"), prefix
+    removed = resolved if resolved is not None and resolved in diff.left else None
+    if removed is None:
+        removed = _match(path, diff.left)
+    if removed is not None:
+        return (removed, min(diff.left[removed], key=distance), "LEFT"), prefix
+    return fallback, prefix
+
+
 def _counts(findings: list[Finding]) -> str:
     counted = [f"{sum(f.severity == s for f in findings)} {s}" for s in SEVERITIES]
     return ", ".join(c for c in counted if not c.startswith("0 ")) or "no findings"
 
 
 def build_review(
-    review: Review, diff: str, *, head: str, event: str, event_reason: str
+    review: Review, diff: str, *, head: str, event: str, event_reason: str, hold: bool = False
 ) -> BuiltReview:
     """The ``POST /repos/{owner}/{repo}/pulls/{n}/reviews`` payload for ``review`` on ``head``.
 
@@ -533,33 +686,78 @@ def build_review(
     an inline comment; any other goes into the body, saying why, since GitHub refuses the whole
     review over one comment outside the diff. Every text is neutralised and capped; the body holds
     the verdict, the counts and the commit it was reviewed at, and stops adding findings at its
-    cap, saying how many it left out."""
+    cap, saying how many it left out.
+
+    With ``hold`` (pass :func:`holds_by_thread`) and a ``changes`` verdict, each finding that goes
+    into the body is also posted as a thread, since the merge gates hold a PR on an unresolved
+    thread and not on a COMMENT's body. It is anchored as :func:`_hold_anchor` says (its own file
+    when it can be, else :func:`_fallback_anchor`), and opens with its real location and that the
+    line it sits on is not the finding's. A finding the body cap leaves out still gets its thread.
+    With no line anywhere a comment can sit on, or no finding at all, nothing can hold the merge:
+    the body and :attr:`BuiltReview.warnings` say so."""
     if not COMMIT_ID.fullmatch(head):
         raise ValueError("the head to pin the review to is not a full commit id")
-    files = commentable_lines(diff)
+    mapped = _read_diff(diff)
     comments: list[dict[str, Any]] = []
     placements: list[Placement] = []
     in_body: list[tuple[Finding, Placement]] = []
     for finding in review.findings:
-        placed, comment = _placement(finding, files)
+        placed, comment = _placement(finding, mapped)
         placements.append(placed)
         if placed.inline:
             comments.append(comment)
         else:
             in_body.append((finding, placed))
+    inline = len(comments)
+
+    threads: list[HoldThread] = []
+    warnings: list[str] = []
+    if hold and review.verdict == "changes":
+        fallback = _fallback_anchor(mapped)
+        if not review.findings:
+            warnings.append(
+                "a changes verdict with no findings: there is nothing to post as a thread; this "
+                "review will not hold a merge"
+            )
+        elif in_body and fallback is None:
+            warnings.append(NO_ANCHOR_WARNING)
+        elif fallback is not None:
+            for finding, placed in in_body:
+                (path, line, side), prefix = _hold_anchor(finding, mapped, fallback)
+                text = prefix + "\n\n" + _comment_text(finding) + f"\n\n_({placed.reason}.)_"
+                comments.append({
+                    "path": path, "line": line, "side": side,
+                    "body": _capped(text, MAX_COMMENT_CHARS),
+                })
+                threads.append(HoldThread(finding.location, path, line, side))
 
     head_text = [
         f"**Review verdict: {review.verdict}** at `{head[:12]}` ({_counts(review.findings)}; "
-        f"{len(comments)} inline, {len(in_body)} below)."
+        f"{inline} inline, {len(in_body)} below)."
     ]
     if event == "COMMENT" and event_reason != "--event comment":
         head_text.append(f"_Posted as a comment: {event_reason}._")
+    if threads:
+        head_text.append(
+            f"_Each of the {len(threads)} finding(s) below is also posted as a review thread, "
+            "anchored on the diff and opening with its real location, so this review holds the "
+            "merge until those threads are resolved._"
+        )
+    head_text.extend(f"_**Warning:** {warning}._" for warning in warnings)
     if review.summary:
         head_text.append(_capped(review.summary, MAX_COMMENT_CHARS))
     body = "\n\n".join(head_text)
     omitted = 0
     for index, (finding, placed) in enumerate(in_body):
-        entry = _capped(_comment_text(finding) + f"\n\n_({placed.reason}.)_", MAX_COMMENT_CHARS)
+        where = placed.reason
+        if threads:
+            thread = threads[index]
+            where += "; also posted as a thread on " + _location_code(
+                f"{thread.path}:{thread.line}"
+            )
+            if thread.side == "LEFT":
+                where += " (a removed line)"
+        entry = _capped(_comment_text(finding) + f"\n\n_({where}.)_", MAX_COMMENT_CHARS)
         addition = "\n\n---\n\n" + entry
         if len(body) + len(addition) > MAX_BODY_CHARS - 200:
             omitted = len(in_body) - index
@@ -567,11 +765,15 @@ def build_review(
                 left_out.reason = OMITTED_REASON
             body += (
                 f"\n\n---\n\n_{omitted} more finding(s) are not shown: the review body is capped "
-                f"at {MAX_BODY_CHARS} characters._"
+                f"at {MAX_BODY_CHARS} characters"
+                + ("; each is still posted as a review thread._" if threads else "._")
             )
             break
         body += addition
     payload: dict[str, Any] = {
         "commit_id": head, "event": event, "body": body, "comments": comments,
     }
-    return BuiltReview(payload=payload, placements=placements, omitted=omitted)
+    return BuiltReview(
+        payload=payload, placements=placements, omitted=omitted, threads=threads,
+        warnings=warnings,
+    )
