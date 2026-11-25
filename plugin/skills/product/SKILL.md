@@ -102,9 +102,8 @@ acceptance criteria, user stories — or when a live PRD's requirements change (
 **A full product run produces the finished feature documentation: a complete, validated `prd.md`**
 (see [patterns/handoff.md](../../patterns/handoff.md)) — goals, non-goals, metrics, testable
 acceptance, and user stories — that survived the bounded skeptic loop to `proceed`, ready as the
-input to `architecture`. A run whose loop `escalate`s (unresolved gaps at N = 3) surfaces them and
-stops; it does **not** hand off an incomplete PRD. **An amend run** produces the amended PRD, in its
-own format, and its final review round beside it.
+input to `architecture`. **An amend run** produces the amended PRD, in its own format, and its final
+review round beside it.
 
 ## Definition of done
 

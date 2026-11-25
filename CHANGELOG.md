@@ -7,6 +7,21 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Changed
+
+- **A skill's `## Output` describes the artifact, not its guards again** (field item 10, thread e079ac53). Nine
+  skills stated a guard three times: in a Process step with its specifics, as a Definition-of-done line, and once more
+  in `## Output`. The third copy is gone where the other two hold the whole rule: `develop`'s "a run that cannot reach
+  this stops; it does not hand off partial code" (step 5's `escalate` branch, step 6's QA budget, the DoD's `proceed`
+  line), `release`'s "nothing is tagged or pushed without an explicit ask" (step 5, the DoD's last line),
+  `repo-onboarding`'s "all grounded in the real code" (step 1, the DoD's first line), and the review loop's `escalate`
+  sentence in `plan`, `architecture`, `product`, `research`, `ux-design` and `marketing` (each skill's review step
+  spells out `escalate`: commit nothing, mark the PR a draft, set `review_decision`, surface and stop; its DoD requires
+  `proceed`, not `escalate`). `## Output` now says what is written, where, in what shape, and what the next phase
+  reads. Each removed sentence was checked against its step and DoD in the same `SKILL.md`, and no test, validator or
+  eval pins the removed wording. The bodies are 1,036 characters shorter; no `description` changed, so the listing
+  stays at 6,910 characters.
+
 ## [2026.11.17] - 2026-11-25
 
 Field item 11 (thread 58b37c1c): a `changes` review on one's own PR holds the merge (ADR 0110 amendment).

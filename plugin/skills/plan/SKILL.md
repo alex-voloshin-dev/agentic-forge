@@ -91,8 +91,7 @@ requirements (`product`), or implementation (`develop`).
 **A full plan run produces the finished build order: a validated `plan.md`** (see
 [patterns/handoff.md](../../patterns/handoff.md)) — a dependency-ordered task list with checkpoints
 and deferred items — that survived the bounded skeptic loop to `proceed`, ready as the input to
-`develop`. A run whose loop `escalate`s (unresolved gaps at N = 3) surfaces them and stops; it does
-**not** hand off an incomplete plan.
+`develop`.
 
 ## Definition of done
 

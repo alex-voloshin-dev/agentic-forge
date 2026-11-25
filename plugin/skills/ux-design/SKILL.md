@@ -86,8 +86,7 @@ the product requirements (`product`).
 **A full ux-design run produces the finished spec: a validated `ux-spec`** — flows, screens +
 states, accessibility requirements, and design-system references — that survived the bounded
 adversarial loop to `proceed`, ready as the input `develop` builds from. No pixels or visual
-mockups — specs only. A run whose loop `escalate`s (unresolved gaps at N = 3) surfaces them and
-stops; it does **not** hand off an incomplete spec.
+mockups — specs only.
 
 ## Definition of done
 
