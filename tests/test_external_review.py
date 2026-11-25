@@ -1244,3 +1244,154 @@ def test_a_tail_cut_inside_a_key_does_not_show_its_value(secret: str) -> None:
         text = secret + " " * (external_review._LINE_INPUT_MAX - len(secret) + offset)
         line = external_review._safe_line(text + "end", keep_tail=True)
         assert "abcdefgh" not in line and "hunter2" not in line
+
+
+# --- a read-only home (field item 9) ------------------------------------------------------------
+
+# What codex printed on a host whose sandbox mounts the home directory read-only.
+_EROFS_STDERR = (
+    "WARNING: proceeding, even though we could not create PATH aliases: "
+    "Read-only file system (os error 30)\n"
+    "Error: failed to initialize in-process app-server client: "
+    "Read-only file system (os error 30)\n"
+)
+_HINT = external_review._READ_ONLY_HOME_HINT
+
+
+def _called(stderr: Any = None, output: Any = None) -> subprocess.CalledProcessError:
+    return subprocess.CalledProcessError(1, ["codex"], output=output, stderr=stderr)
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        _called(stderr=_EROFS_STDERR),
+        _called(stderr=_EROFS_STDERR.encode("utf-8")),
+        _called(stderr=_EROFS_STDERR.splitlines()[1]),  # the fatal field line is enough
+        _called(stderr=_EROFS_STDERR.splitlines()[1]),
+        _called(output="Error: cannot write ~/.codex/sessions: EROFS"),
+        _called(stderr="error: CODEX_HOME /home/u/.codex: Read-only file system"),
+    ],
+)
+def test_a_codex_start_up_on_a_read_only_filesystem_says_why_and_what_the_lens_needs(
+    monkeypatch: pytest.MonkeyPatch, exc: Exception
+) -> None:
+    _on_path(monkeypatch)
+    outcome = external_review.review_outcome("t", "research", runner=_raiser(exc))
+    assert (outcome.status, outcome.reason) == ("failed", "process-failure")  # no new reason
+    assert outcome.detail.endswith(f" -- {_HINT}"), outcome.detail
+    assert len(outcome.detail) <= external_review._DETAIL_MAX
+    assert "CODEX_HOME" in _HINT and "in-session review lenses are unaffected" in _HINT
+
+
+def test_the_read_only_hint_keeps_the_field_errors_tail_in_front_of_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _on_path(monkeypatch)
+    exc = _called(stderr=_EROFS_STDERR)
+    outcome = external_review.review_outcome("t", "research", runner=_raiser(exc))
+    assert outcome.detail.startswith("exit status 1: ")
+    assert f"app-server client: Read-only file system (os error 30) -- {_HINT}" in outcome.detail
+
+
+def test_the_read_only_hint_survives_a_long_output_and_a_capability_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The error line comes first and a long output after it: the hint is searched over all of it,
+    # and its room is kept, so the cap cuts the tail, not the hint.
+    _on_path(monkeypatch)
+    noisy = _EROFS_STDERR + "x" * 3000 + "\nlast line"
+    outcome = external_review.review_outcome("t", "code", runner=_raiser(_called(noisy)))
+    assert outcome.detail.endswith(_HINT)
+    assert "last line" in outcome.detail and len(outcome.detail) <= external_review._DETAIL_MAX
+
+    def probe(command: str, timeout: int) -> str:
+        raise subprocess.CalledProcessError(1, [command], stderr=_EROFS_STDERR)
+
+    isolated = external_review.review_outcome(
+        "t", "code", runner=_runner(_VALID), help_probe=probe, options=_ISOLATED
+    )
+    assert isolated.reason == "isolation-unsupported"
+    assert isolated.detail.startswith("capability check failed: exit status 1")
+    assert isolated.detail.endswith(_HINT)
+
+
+@pytest.mark.parametrize("ending", ["Authorization:", "Authorization: Bearer", "password="])
+def test_a_tail_ending_in_a_secrets_key_cannot_trim_or_swallow_the_hint(
+    monkeypatch: pytest.MonkeyPatch, ending: str
+) -> None:
+    # The hint is added after the detail is redacted and cut, so a key at the end of the tail
+    # cannot take the hint as its value.
+    _on_path(monkeypatch)
+    exc = _called(stderr=f"{_EROFS_STDERR}x" * 30 + f"\nfinal {ending}")
+    outcome = external_review.review_outcome("t", "code", runner=_raiser(exc))
+    assert outcome.detail.endswith(f" -- {_HINT}"), outcome.detail
+    assert len(outcome.detail) <= external_review._DETAIL_MAX
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        _called(stderr="auth expired"),
+        _called(stderr="Permission denied (os error 13)"),
+        _called(stderr="error: failed to initialize: os error 300"),
+        # The PATH-aliases warning is non-fatal: a later unrelated failure is not the home's fault.
+        _called(stderr=_EROFS_STDERR.splitlines()[0] + "\nerror: stream disconnected\n"),
+        # A repo command inside codex's sandbox that fails to initialize is not codex starting up.
+        _called(stderr="pytest: failed to initialize cache: Read-only file system (os error 30)\n"),
+        _called(stderr="cp: cannot create '.codex-cache/x': Read-only file system\n"),
+        # codex's own sandbox is read-only: a command the model tried there is not a start-up error.
+        _called(
+            stderr="exec touch x in /repo\n"
+            "touch: cannot touch 'x': Read-only file system (os error 30)\n"
+            "error: stream disconnected before completion\n"
+        ),
+        _called(stderr="Read-only file system (os error 30)"),  # no start-up marker on the line
+        # A timeout is no start-up failure, whatever its stderr says.
+        subprocess.TimeoutExpired(["codex"], 7, stderr=_EROFS_STDERR.encode("utf-8")),
+        subprocess.TimeoutExpired(["codex"], 7, stderr=b"mkdir ~/.codex: EROFS"),
+        subprocess.TimeoutExpired(["codex"], 7),
+        # Not the CLI's output: a Python-side error says nothing about the reviewer's home.
+        OSError(30, "Read-only file system: /home/u/.codex"),
+    ],
+)
+def test_an_unrelated_failure_gets_no_read_only_hint(
+    monkeypatch: pytest.MonkeyPatch, exc: Exception
+) -> None:
+    _on_path(monkeypatch)
+    outcome = external_review.review_outcome("t", "code", runner=_raiser(exc))
+    assert outcome.status == "failed"
+    assert "hint:" not in outcome.detail, outcome.detail
+
+
+@pytest.mark.parametrize(
+    ("command", "hinted"),
+    [
+        ("codex", True),
+        ("/opt/tools/codex", True),
+        ("C:\\tools\\codex.exe", True),
+        ("codex.CMD", True),
+        ("my-reviewer", False),
+        ("codex-wrapper", False),
+        ("/opt/codex/review", False),
+    ],
+)
+def test_only_codex_gets_the_read_only_hint(
+    monkeypatch: pytest.MonkeyPatch, command: str, hinted: bool
+) -> None:
+    _on_path(monkeypatch)
+    outcome = external_review.review_outcome(
+        "t", "code", command=command, runner=_raiser(_called(_EROFS_STDERR))
+    )
+    assert outcome.reason == "process-failure"
+    assert outcome.detail.endswith(_HINT) is hinted, outcome.detail
+
+
+def test_a_target_line_the_cli_echoes_verbatim_does_not_raise_the_hint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _on_path(monkeypatch)
+    target = "Error: failed to initialize in-process app-server client: Read-only file system\n"
+    echoed = external_review.build_prompt(target, "code") + "\nerror: auth expired\n"
+    outcome = external_review.review_outcome(target, "code", runner=_raiser(_called(echoed)))
+    assert outcome.detail == "exit status 1: error: auth expired"
