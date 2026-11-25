@@ -58,7 +58,12 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--plugin", type=Path, default=_REPO_ROOT / "plugin")
     parser.add_argument("--role", action="append", dest="roles", choices=agent_eval.ROLES)
     parser.add_argument("--runner", choices=["dry", "api", "claude"], default="dry")
-    parser.add_argument("--model", default=models.TIERS["default"])
+    parser.add_argument(
+        "--model",
+        default=models.TIERS["default"],
+        help="the model for unpromoted roles; a role promoted in VALIDATED_TIERS runs at its "
+        "shipped tier unless settings.models names another (ADR 0114)",
+    )
     parser.add_argument(
         "--grader-model",
         default=None,

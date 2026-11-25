@@ -31,9 +31,8 @@ TIERS: dict[str, str] = {
 # in LIVE `Task` delegation. `default` means no downgrade (`model: inherit`); a role is promoted
 # to a cheaper tier here only after it passes the eval gate at that tier (validate via
 # settings.models + the eval gate -> edit here -> `dev/sync_models.py --apply` -> Tier-0 green).
-# It ships with the
-# agents, so a clean install is always self-consistent; `frontmatter_model` turns it into the
-# `model:` frontmatter value Claude Code reads when delegating.
+# It ships with the agents, so a clean install is always self-consistent; `frontmatter_model`
+# turns it into the `model:` frontmatter value Claude Code reads when delegating.
 VALIDATED_TIERS: dict[str, str] = {
     "architect": "default",
     "grader": "simple",  # Tier-2 1.000 at claude-sonnet-5-5, n=5 (ADR 0114)
