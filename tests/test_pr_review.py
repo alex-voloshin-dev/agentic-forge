@@ -477,3 +477,246 @@ def test_the_body_stops_at_its_cap_and_says_how_many_it_left_out() -> None:
 def test_build_refuses_a_head_that_is_not_a_commit_id() -> None:
     with pytest.raises(ValueError, match="full commit id"):
         _build([], head="abc123")
+
+
+# --- the hold threads: a changes verdict on one's own PR (ADR 0110, amendment) -------------------
+
+
+@pytest.mark.parametrize(
+    ("verdict", "requested", "own", "hold"),
+    [
+        ("changes", "request-changes", True, True),
+        ("changes", "request-changes", False, False),  # REQUEST_CHANGES itself holds
+        ("changes", "comment", True, False),  # the caller chose a review that does not hold
+        ("changes", "comment", False, False),
+        ("approve", "request-changes", True, False),
+        ("approve", "approve", True, False),
+    ],
+)
+def test_holds_by_thread(verdict: str, requested: str, own: bool, hold: bool) -> None:
+    assert pr_review.holds_by_thread(verdict, requested, own_pr=own) is hold
+
+
+_NOTE = (
+    "This thread sits here only to hold the merge; the line it is attached to is not the finding's."
+)
+
+
+def _held(
+    findings: list[dict[str, Any]], diff: str = _DIFF, **review: Any
+) -> pr_review.BuiltReview:
+    parsed = pr_review.parse_findings({**review, "findings": findings})
+    _, reason = pr_review.review_event(parsed.verdict, "request-changes", own_pr=True)
+    return pr_review.build_review(
+        parsed, diff, head=_HEAD, event="COMMENT", event_reason=reason, hold=True
+    )
+
+
+def test_a_finding_outside_the_diff_gets_a_thread_on_the_first_added_line() -> None:
+    built = _held([_finding(location="src/app.py:3"), _finding(location="b.py:10", issue="Bad.")])
+    comments = built.payload["comments"]
+    assert [(c["path"], c["line"], c["side"]) for c in comments] == [
+        ("src/app.py", 3, "RIGHT"), ("src/app.py", 2, "RIGHT"),  # line 2: the first `+` line
+    ]
+    thread = comments[1]["body"]
+    assert thread.startswith(f"Finding at `b.py:10`. {_NOTE}\n\n**major** · `b.py:10`")
+    assert "Bad." in thread and "_(the file is not in the diff.)_" in thread
+    assert built.threads == [pr_review.HoldThread("b.py:10", "src/app.py", 2, "RIGHT")]
+    assert built.warnings == []
+    # the body still lists it, says where its thread is, and that the threads hold the merge
+    body = built.payload["body"]
+    assert "1 inline, 1 below" in body
+    assert "also posted as a review thread" in body and "holds the merge" in body
+    assert "_(the file is not in the diff; also posted as a thread on `src/app.py:2`.)_" in body
+    assert [p.inline for p in built.placements] == [True, False]
+
+
+@pytest.mark.parametrize(
+    ("location", "line"),
+    [
+        ("src/app.py:10", 5),  # 5 is 5 away, 21 is 11
+        ("src/app.py:15", 21),
+        ("app.py:8-19", 21),  # a range: 21 is 2 past its end, 5 is 3 before its start
+        ("src/app.py:13", 5),  # a tie goes to the lower line
+        ("src/app.py:4-21", 4),  # a range across the gap that holds lines of the diff
+    ],
+)
+def test_a_finding_on_a_line_outside_the_diff_gets_the_nearest_line_of_its_file(
+    location: str, line: int
+) -> None:
+    built = _held([_finding(location=location)])
+    [comment] = built.payload["comments"]
+    assert (comment["path"], comment["line"]) == ("src/app.py", line)
+    assert comment["body"].startswith(f"Finding at `{location}`. {_NOTE}")
+
+
+@pytest.mark.parametrize("location", ["moved_too.py:3", "moved.py:3", "bin.png:1"])
+def test_a_file_with_no_line_in_the_diff_falls_back_to_the_first_added_line(location: str) -> None:
+    [comment] = _held([_finding(location=location)]).payload["comments"]
+    assert (comment["path"], comment["line"], comment["side"]) == ("src/app.py", 2, "RIGHT")
+
+
+@pytest.mark.parametrize(("location", "line"), [("gone.py:1", 1), ("gone.py:9", 2)])
+def test_a_finding_in_a_deleted_file_sits_on_its_nearest_removed_line(
+    location: str, line: int
+) -> None:
+    built = _held([_finding(location=location)])
+    [comment] = built.payload["comments"]
+    assert (comment["path"], comment["line"], comment["side"]) == ("gone.py", line, "LEFT")
+    assert built.threads == [pr_review.HoldThread(location, "gone.py", line, "LEFT")]
+    assert f"also posted as a thread on `gone.py:{line}` (a removed line)" in built.payload["body"]
+
+
+def test_a_finding_without_a_location_gets_a_thread_on_the_first_added_line() -> None:
+    built = _held([_finding(location="the design as a whole")])
+    [comment] = built.payload["comments"]
+    assert (comment["path"], comment["line"]) == ("src/app.py", 2)
+    assert comment["body"].startswith(
+        f"Finding without a file:line. {_NOTE}\n\n**major** · `the design as a whole`"
+    )
+    assert "_(no file:line in the location.)_" in comment["body"]
+
+
+def test_an_approve_verdict_gets_no_hold_threads() -> None:
+    built = _held([_finding(location="b.py:10", severity="minor")])
+    assert built.payload["comments"] == []
+    assert built.threads == [] and built.warnings == []
+    assert "also posted as" not in built.payload["body"]
+
+
+def test_a_review_that_requests_changes_is_unchanged() -> None:
+    findings = [_finding(location="src/app.py:3"), _finding(location="b.py:10"),
+                _finding(location="the design")]
+    plain = _build(findings)
+    assert plain == _build(findings, hold=False)
+    assert [c["line"] for c in plain.payload["comments"]] == [3]
+    assert plain.threads == [] and plain.warnings == []
+    assert "also posted as" not in plain.payload["body"]
+
+
+def test_a_diff_with_nothing_to_anchor_on_keeps_the_body_and_says_so() -> None:
+    """A rename with no hunk or a binary change has no line a comment can sit on. A file-level
+    comment (`subject_type: file`) is not used: the review endpoint's `comments[]` is not known to
+    take it, and one refused comment takes the whole review with it."""
+    diff = (
+        "diff --git a/a.py b/b.py\nsimilarity index 100%\nrename from a.py\nrename to b.py\n"
+        "diff --git a/bin.png b/bin.png\nindex 1..2 100644\n"
+        "Binary files a/bin.png and b/bin.png differ\n"
+    )
+    for case in (diff, ""):
+        built = _held([_finding(location="b.py:10"), _finding(location="the design")], diff=case)
+        assert built.payload["comments"] == []
+        assert built.warnings == [pr_review.NO_ANCHOR_WARNING]
+        body = built.payload["body"]
+        assert f"_**Warning:** {pr_review.NO_ANCHOR_WARNING}._" in body
+        assert "`b.py:10`" in body and "`the design`" in body  # still in the body
+
+
+def test_a_diff_that_only_removes_lines_anchors_on_its_first_context_line() -> None:
+    diff = "--- a/x.py\n+++ b/x.py\n@@ -3,3 +3,2 @@\n keep\n-drop\n tail\n"
+    [comment] = _held([_finding(location="y.py:1")], diff=diff).payload["comments"]
+    assert (comment["path"], comment["line"], comment["side"]) == ("x.py", 3, "RIGHT")
+
+
+def test_a_diff_that_only_deletes_files_anchors_on_the_first_removed_line() -> None:
+    diff = (
+        "diff --git a/a.py b/a.py\ndeleted file mode 100644\n--- a/a.py\n+++ /dev/null\n"
+        "@@ -1,2 +0,0 @@\n-one\n-two\n"
+        "diff --git a/b.py b/b.py\ndeleted file mode 100644\n--- a/b.py\n+++ /dev/null\n"
+        "@@ -4 +0,0 @@\n-four\n"
+    )
+    built = _held([_finding(location="elsewhere.py:3"), _finding(location="the design"),
+                   _finding(location="b.py:1")], diff=diff)
+    assert [(c["path"], c["line"], c["side"]) for c in built.payload["comments"]] == [
+        ("a.py", 1, "LEFT"), ("a.py", 1, "LEFT"), ("b.py", 4, "LEFT"),
+    ]
+    assert built.warnings == []
+
+
+def test_the_removed_lines_are_numbered_on_the_old_side() -> None:
+    mapped = pr_review._read_diff(_DIFF)
+    # `-x = 1` was old line 2; the second hunk starts at old 20 with a context line, so the removed
+    # `--- removed line that looks like a header` is old 21: content, by count
+    assert mapped.left["src/app.py"] == {2, 21}
+    assert mapped.left["gone.py"] == {1, 2}  # a deletion is keyed by its old name
+    assert mapped.left["new/name.py"] == {7}  # a rename by its new one, as GitHub names it
+    assert set(mapped.left) == {"src/app.py", "new/name.py", "gone.py", "café.md"}
+    assert mapped.first_added == ("src/app.py", 2)
+
+
+def test_a_rename_is_recorded_from_its_old_path_to_its_new_one() -> None:
+    mapped = pr_review._read_diff(_DIFF)
+    assert mapped.renamed == {"old/name.py": "new/name.py", "moved.py": "moved_too.py"}
+    quoted = 'diff --git a/x b/y\nrename from "caf\\303\\251.py"\nrename to "t\\303\\251.py"\n'
+    assert pr_review._read_diff(quoted).renamed == {"café.py": "té.py"}
+
+
+@pytest.mark.parametrize("location", ["old/name.py:7", "a/old/name.py:7", "/repo/old/name.py:7"])
+def test_a_finding_citing_a_renamed_files_old_path_is_placed_on_its_new_one(
+    location: str
+) -> None:
+    built = _build([_finding(location=location)])
+    assert [(c["path"], c["line"]) for c in built.payload["comments"]] == [("new/name.py", 7)]
+
+
+def test_a_hold_thread_for_a_renamed_files_old_path_sits_in_the_new_file() -> None:
+    [comment] = _held([_finding(location="old/name.py:30")]).payload["comments"]
+    assert (comment["path"], comment["line"], comment["side"]) == ("new/name.py", 7, "RIGHT")
+
+
+def test_a_changes_verdict_with_no_findings_says_it_cannot_hold() -> None:
+    built = _held([], verdict="changes")
+    assert built.payload["comments"] == []
+    assert "will not hold a merge" in built.warnings[0]
+    assert "will not hold a merge" in built.payload["body"]
+
+
+def test_a_hold_thread_is_mention_safe() -> None:
+    built = _held([_finding(location="a`b @x.py:9", issue="ask @carol &#64;dave")])
+    [comment] = built.payload["comments"]
+    text = comment["body"]
+    # the backtick cannot end the code span early, and the `@` in the location is neutralised too
+    assert text.startswith(f"Finding at `a'b @{_ZW}x.py:9`. {_NOTE}")
+    assert f"@{_ZW}carol" in text and f"@{_ZW}dave" in text
+    assert "@carol" not in text and "&#64;" not in text
+    outside = _held([_finding(location="@eve/x.py:9")]).payload["comments"][0]["body"]
+    assert outside.startswith(f"Finding at `@{_ZW}eve/x.py:9`. {_NOTE}")
+
+
+def test_a_hold_thread_is_capped_and_keeps_its_real_location() -> None:
+    built = _held([_finding(location="b.py:10", issue="@zed " * 5000)])
+    [comment] = built.payload["comments"]
+    assert len(comment["body"]) <= pr_review.MAX_COMMENT_CHARS
+    assert comment["body"].startswith(f"Finding at `b.py:10`. {_NOTE}")
+    assert comment["body"].endswith("_(cut: over the size limit)_")
+    assert "@zed" not in comment["body"]
+
+
+def test_a_finding_the_body_cap_leaves_out_still_gets_its_thread() -> None:
+    findings = [_finding(location=f"elsewhere.py:{n}", issue="i" * 6000) for n in range(1, 31)]
+    built = _held(findings)
+    body = built.payload["body"]
+    assert len(body) <= pr_review.MAX_BODY_CHARS
+    assert built.omitted > 0
+    assert f"_{built.omitted} more finding(s) are not shown" in body
+    assert "each is still posted as a review thread._" in body
+    assert len(built.payload["comments"]) == len(built.threads) == 30
+    assert [t.location for t in built.threads] == [f"elsewhere.py:{n}" for n in range(1, 31)]
+    assert built.placements[-1].reason == pr_review.OMITTED_REASON
+    # the thread keeps the reason it was placed with, not the body's cap
+    assert "_(the file is not in the diff.)_" in built.payload["comments"][-1]["body"]
+
+
+def test_an_exact_rename_source_wins_over_a_suffix_match_on_another_file() -> None:
+    """``a.py`` renamed to ``b.py`` while ``other/a.py`` is modified: a finding at ``a.py`` is the
+    renamed file, not a suffix match on the other one."""
+    diff = (
+        "diff --git a/a.py b/b.py\nsimilarity index 90%\nrename from a.py\nrename to b.py\n"
+        "--- a/a.py\n+++ b/b.py\n@@ -1,2 +1,2 @@\n keep\n-old\n+new\n"
+        "diff --git a/other/a.py b/other/a.py\n--- a/other/a.py\n+++ b/other/a.py\n"
+        "@@ -1 +1,2 @@\n line\n+added\n"
+    )
+    mapped = pr_review._read_diff(diff)
+    assert pr_review._resolve_path("a.py", mapped) == "b.py"
+    assert pr_review._resolve_path("other/a.py", mapped) == "other/a.py"
+    assert pr_review._resolve_path("b.py", mapped) == "b.py"

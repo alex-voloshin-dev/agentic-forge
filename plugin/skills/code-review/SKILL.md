@@ -94,7 +94,10 @@ Follow [multi-aspect-review.md](../../patterns/multi-aspect-review.md):
    why), neutralises every `@mention`, and caps sizes. Run its `post.shell`, decoded from JSON,
    straight away. An `approve` verdict posts as a COMMENT, since an APPROVE counts toward branch
    protection's required reviews: pass `--event approve` only when the user asked for an
-   approval. `--event comment` posts any verdict as a comment.
+   approval. `--event comment` posts any verdict as a comment. On your own PR GitHub refuses
+   REQUEST_CHANGES, so a `changes` verdict posts as a COMMENT and every body finding is also
+   posted as a thread, which holds the merge until resolved; relay any
+   `af.py: pr-review: warning:` line from stderr to the user.
 6. **In the develop loop:** a `changes` verdict loops back to implementation (bounded — see
    [patterns/review-loop.md](../../patterns/review-loop.md)); `approve` proceeds.
 

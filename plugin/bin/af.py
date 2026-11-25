@@ -904,10 +904,15 @@ def _pr_review(args: argparse.Namespace) -> int:
         raise ValueError(problem)
 
     event, reason = pr_review.review_event(review.verdict, args.event, own_pr=after.own)
-    built = pr_review.build_review(review, diff, head=head, event=event, event_reason=reason)
+    hold = pr_review.holds_by_thread(review.verdict, args.event, own_pr=after.own)
+    built = pr_review.build_review(
+        review, diff, head=head, event=event, event_reason=reason, hold=hold
+    )
     # Not through a link anywhere below the root: a linked directory would carry it elsewhere.
     text = json.dumps(built.payload, indent=2) + "\n"
     state_io.write_text(out, text, anchor=root)
+    for warning in built.warnings:  # also in the review body; said here so the session sees it
+        print(f"af.py: pr-review: warning: {warning}", file=sys.stderr)
     _emit({
         "repo": slug, "number": args.pr, "head": head, "verdict": review.verdict,
         "event": event, "event_reason": reason,
@@ -915,6 +920,8 @@ def _pr_review(args: argparse.Namespace) -> int:
         "in_body": sum(not p.inline for p in built.placements),
         "omitted": built.omitted,
         "placements": [dataclasses.asdict(p) for p in built.placements],
+        "threads": [dataclasses.asdict(t) for t in built.threads],
+        "warnings": built.warnings,
         "payload": str(out),
         "post": _command(pr_review.post_argv(slug, args.pr, str(out))),
     })

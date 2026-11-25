@@ -7,6 +7,38 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Fixed
+
+- **A `changes` review on one's own PR now holds the merge (field item 11, thread 58b37c1c; ADR 0110, amendment).**
+  GitHub refuses REQUEST_CHANGES on one's own pull request, so `af.py pr-review` posts a `changes` verdict there as a
+  COMMENT. A finding with no `file:line`, in a file outside the diff, or on a line the diff does not show went to the
+  review body only. The merge gates (`merge_preflight` and the PR watcher) hold a PR on unresolved review threads, not
+  on a body, so such a review held nothing. In a fleet that pushes as one login, every PR is one's own. Now, when the
+  verdict is `changes`, `--event` is `request-changes` and the PR is one's own (`pr_review.holds_by_thread`), each
+  body finding is also posted as an inline comment, which opens an unresolved thread:
+  - **Where it sits.** On the nearest added or context line of its own file (the lower on a tie). For a deleted file,
+    on its nearest removed line, on the LEFT side by its old number. Otherwise on the diff's first added line, else its
+    first context line, else (a diff that only deletes files) its first removed line, LEFT.
+  - **What it says.** It opens with ``Finding at `<location>`. This thread sits here only to hold the merge; the line
+    it is attached to is not the finding's.`` (or `Finding without a file:line.` with the same sentence). The PR
+    watcher's fixer is handed a thread as "Address this review comment on <anchor>:", and without that line it could
+    take the anchor for the place to edit. Then comes the finding as the body renders it. Mention neutralising and the
+    8,000-character cap apply as to every comment.
+  - **The body.** It keeps listing every finding, says each is also a thread that holds the merge, and names each
+    thread's line. A finding the body cap leaves out still gets its thread, and the body says so.
+  - **When the diff has no line a comment can sit on** (renames without hunks, binary changes, nothing at all). The
+    body, the JSON's new `warnings` and a stderr line say "nothing in the diff to anchor a thread on; this review will
+    not hold a merge". A `changes` verdict with no findings warns the same way.
+
+  The JSON output gains `threads` (`location`, `path`, `line`, `side`) and `warnings`. REQUEST_CHANGES on another's
+  PR, an `approve` verdict and `--event comment` are unchanged. A verdict marker in the body for the gate to trust was
+  declined: a body is editable text. Every own-PR finding is now a thread, and both gates read only the first 100
+  threads, resolved ones included. A PR past 100 threads over its life stays held as "truncated" (a known limit,
+  recorded as a follow-up in the ADR).
+- **`af.py pr-review` places a finding that cites a renamed file's old path on the new file.** The diff reader now
+  records each rename (`rename from`/`rename to`, or a `---`/`+++` pair naming two paths). So `old/name.py:7` goes
+  inline on `new/name.py:7` when that line is in the diff, on every review, not only an own-PR one.
+
 ## [2026.11.16] - 2026-11-25
 
 Open item 6, step 3: model tiers measured at 5.5 (ADR 0114); roles and packs name `af.py stack-detect`; field item 9:
@@ -63,6 +95,7 @@ the external lens names a read-only `CODEX_HOME`.
   - **What does not change.** The reason codes and the exit `3`, so no caller or doc keyed on the reason set changes.
     Nothing sets or redirects `CODEX_HOME`, creates a directory, or relaxes a sandbox (`external_review._failure_detail`,
     `_read_only_hint`, `_failed`; `docs/configuration.md`, `docs/architecture/extensions.md`).
+
 
 ## [2026.11.15] - 2026-11-25
 

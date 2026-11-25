@@ -11,6 +11,10 @@ Amends [0088](0088-measure-whether-a-skill-fires-unprompted.md) (the routing not
 (two more af.py commands), [0015](0015-by-stack-detection-and-packs.md) and [0109](0109-four-field-bugs.md) (Terraform
 gets a pack).
 
+> **Amended 2026-11-25 (field item 11, thread 58b37c1c):** on one's own PR a `changes` review from `af.py pr-review`
+> also posts each body-only finding as a review thread, so it holds the merge. See
+> [the amendment](#amendment-2026-11-25-a-changes-review-on-ones-own-pr-holds-the-merge) below.
+
 ## Context
 
 The f4ai fleet's reports from 2026-11-10/11 left nine accepted items after the four bugs of ADR 0109 (board
@@ -152,3 +156,71 @@ four reviewers, a security engineer and the external codex lens.
   - the GitHub rendering of the neutralised mentions.
 
   Tier-1b for the routing note is recorded in the release notes.
+
+## Amendment 2026-11-25: a changes review on one's own PR holds the merge
+
+**The gap (field item 11, thread 58b37c1c).** GitHub refuses REQUEST_CHANGES on one's own PR with a 422, so
+`review_event` posts a `changes` verdict there as a COMMENT. A finding goes to the review body when it has no
+`file:line`, its file is not in the diff, or its lines are not added or context lines. The merge gates (item 8's
+`merge_preflight` and the watcher) hold a PR on a draft, on checks that are not green, and on unresolved review threads.
+They do not hold on a COMMENT's body. So a `changes` review whose findings all landed in the body held nothing. In a
+fleet where every session pushes as one login, every PR is one's own.
+
+**Decision.** When `review_event` downgraded a `changes` verdict to COMMENT because the PR is one's own
+(`pr_review.holds_by_thread`), every finding that goes into the body is also posted as an inline comment. Each one opens
+an unresolved thread, so the review holds the merge until the threads are resolved.
+
+- **Anchor, in order:**
+  1. The nearest added or context line (RIGHT) of the finding's own file, when the diff has any. For a range, the
+     distance is to the range, and a tie goes to the lower line. A finding that cites a renamed file's old path
+     resolves to its new path. This applies to ordinary inline placement too, since `_read_diff` now records each
+     rename (`rename from`/`rename to`, or a `---`/`+++` pair naming two paths).
+  2. For a file with no right side (a deletion), its nearest removed line, on the LEFT side by its old number. GitHub
+     takes a review comment on a removed line.
+  3. Otherwise the diff's first added line in diff order; with none, its first context line; with neither (a diff that
+     only deletes files), its first removed line, LEFT.
+- **Text.** It opens with one fixed line: ``Finding at `b.py:10`. This thread sits here only to hold the merge; the
+  line it is attached to is not the finding's.``, or `Finding without a file:line. ...` with the same sentence when the
+  location does not parse. Then comes the finding as the body renders it, reason included. It goes through the same
+  builders as every other comment: the location as a code span, `neutralise_mentions`, the 8,000-character cap. The
+  opening line comes first, so a cut keeps it.
+- **The body is unchanged in what it lists.** It says that each of the findings below is also posted as a thread and
+  holds the merge. Each entry names the line its thread sits on, and says when that is a removed line.
+- **Nothing is dropped silently.** A finding the body's 60,000-character cap leaves out still gets its thread, and the
+  body says so. The thread count is bounded by `MAX_FINDINGS` (200), and no cap drops a thread.
+- **When nothing can be anchored.** A diff of renames without hunks, binary changes or nothing at all has no line a
+  comment can sit on. Then the findings stay in the body only. The body and the CLI's stderr
+  (`af.py: pr-review: warning: ...`) say "nothing in the diff to anchor a thread on; this review will not hold a
+  merge". A `changes` verdict with no findings at all gets the same kind of warning. `af.py pr-review` also prints
+  `threads` (location, path, line, side) and `warnings` in its JSON.
+- **No file-level comment.** GitHub has file-level review comments (`subject_type: "file"`), but nothing in this
+  repository or in `gh` documents them inside a review's `comments[]`. One refused comment takes the whole review with
+  it (a 422), so the warning stays rather than a guess.
+
+**Not for `--event comment`.** That flag is the caller choosing a review that does not request changes. On another's
+PR, REQUEST_CHANGES was there to choose, so adding a hold would override an explicit choice. The own-PR downgrade is
+different: the caller asked for REQUEST_CHANGES, and GitHub refused it. The threads stand in for what was refused.
+REQUEST_CHANGES on another's PR and an `approve` verdict are unchanged.
+
+**Declined: a verdict marker in the body that `merge_preflight` trusts.** A review body is editable text. A gate that
+reads it can be opened by an edit, and any review can carry a forged one. A thread has to be resolved, which is an
+explicit act GitHub records.
+
+**Consequences.**
+
+- **Threads on unrelated lines.** On one's own PR a `changes` review can carry threads anchored on lines that have
+  nothing to do with the finding. The opening line says where the finding really is. Resolving the threads is what
+  releases the merge.
+- **What the PR watcher's fixer sees.** It is handed such a thread as "Address this review comment on
+  `<anchor path>:<anchor line>`:" followed by the thread's body. The body's first line says the anchor is not the
+  finding's place and names the real one, so the session works there, not on the anchor line. As with any thread, a
+  fix it commits is pushed and the thread resolved, and a thread it rejects or cannot decide stays open and keeps
+  holding the merge. The fixer takes only threads whose author it trusts (an owner, member or collaborator with write
+  access). The login a fleet works as usually is one, so these threads do reach it.
+- **The bot login.** The gates skip threads written by `pr_watcher.bot` (default `github-actions[bot]`). An owner who
+  sets `bot` to the login the fleet reviews as leaves these threads uncounted too.
+- **More threads bring the 100-thread limit closer.** Both gates read `reviewThreads(first:100)`, which counts
+  resolved threads too. A PR whose threads over its whole life pass 100 reads as "review threads truncated (>100) —
+  cannot confirm all are resolved", and both gates stay shut for good. Before this change only inline findings made
+  threads; now every own-PR finding does, so a long review loop on one PR can reach the limit. Follow-up, not done
+  here: paginate `reviewThreads`, or count only unresolved threads.
