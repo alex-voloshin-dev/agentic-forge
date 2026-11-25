@@ -43,7 +43,7 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Run Tier-3 E2E scenarios.")
     parser.add_argument("--plugin", type=Path, default=_REPO_ROOT / "plugin")
     parser.add_argument("--runner", choices=["dry", "claude"], default="dry")
-    parser.add_argument("--model", default="claude-opus-4-8")
+    parser.add_argument("--model", default="claude-opus-5-5")
     parser.add_argument("--workspace", type=Path, default=None)
     parser.add_argument(
         "--scenario",

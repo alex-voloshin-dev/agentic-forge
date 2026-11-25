@@ -40,12 +40,16 @@ def _role_tools(plugin_dir: Path, role: str) -> str:
 
 
 def _build_runners(
-    runner: str, role: str, plugin_dir: Path, model: str
+    runner: str, role: str, plugin_dir: Path, model: str, *, grader_model: str | None = None
 ) -> tuple[agent_eval.Runner, agent_eval.Runner]:
     """Build (role_runner, grader_runner): resolve the role's tools, then delegate to the shared
     transport core in `_eval_cli` (one construction site for both the agent and skill runners)."""
     return _eval_cli.build_runners(
-        runner, allowed_tools=_role_tools(plugin_dir, role), model=model, plugin_dir=plugin_dir
+        runner,
+        allowed_tools=_role_tools(plugin_dir, role),
+        model=model,
+        plugin_dir=plugin_dir,
+        grader_model=grader_model,
     )
 
 
@@ -54,7 +58,13 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--plugin", type=Path, default=_REPO_ROOT / "plugin")
     parser.add_argument("--role", action="append", dest="roles", choices=agent_eval.ROLES)
     parser.add_argument("--runner", choices=["dry", "api", "claude"], default="dry")
-    parser.add_argument("--model", default="claude-opus-4-8")
+    parser.add_argument("--model", default=models.TIERS["default"])
+    parser.add_argument(
+        "--grader-model",
+        default=None,
+        help="the judge's model (default: --model). A role's tier from settings.models never moves "
+        "the grader (ADR 0114)",
+    )
     parser.add_argument("--runs", type=int, default=None)
     parser.add_argument("--workdir", type=Path, default=None)
     parser.add_argument(
@@ -101,11 +111,17 @@ def main(argv: list[str]) -> int:
     all_passed = True
     prov = _eval_cli.provenance(plugin_dir, args.model)
     print(_eval_cli.provenance_line(prov), flush=True)  # which tree this run is about (ADR 0098)
+    grader_model = args.grader_model or args.model  # fixed for the run, whatever a role's tier
     for role in roles:
         model = models.model_for(role, models_cfg, default=args.model)
-        print(f"[{role}] running via {args.runner} (model={model})...", flush=True)
+        print(
+            f"[{role}] running via {args.runner} (model={model}, grader={grader_model})...",
+            flush=True,
+        )
         try:
-            role_fn, grader_fn = _build_runners(args.runner, role, plugin_dir, model)
+            role_fn, grader_fn = _build_runners(
+                args.runner, role, plugin_dir, model, grader_model=grader_model
+            )
             report = agent_eval.run_role(
                 role,
                 plugin_dir,
@@ -121,6 +137,7 @@ def main(argv: list[str]) -> int:
             all_passed = False
             continue
         report.benchmark["provenance"] = prov  # the benchmark says which tree it measured
+        report.benchmark["grader_model"] = grader_model  # and which judge graded it (ADR 0114)
         print(report.summary_line(), flush=True)
         for line in report.evidence_lines():  # which run/case, subtype, num_turns (ADR 0084)
             print(line, flush=True)

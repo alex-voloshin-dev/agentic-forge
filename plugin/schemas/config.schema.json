@@ -83,7 +83,7 @@
     },
     "models": {
       "type": "object",
-      "description": "Tier/role -> model id (increment 4). E.g. {\"default\": \"claude-opus-4-8\", \"simple\": \"claude-sonnet-4-6\"}.",
+      "description": "Tier/role -> model id (increment 4). E.g. {\"default\": \"claude-opus-5-5\", \"simple\": \"claude-sonnet-5-5\"}.",
       "additionalProperties": {
         "type": "string",
         "minLength": 1

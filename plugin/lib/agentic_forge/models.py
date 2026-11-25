@@ -19,11 +19,12 @@ __all__ = [
     "set_frontmatter_model",
 ]
 
-# Tier name -> model id. Model ids per the environment: Opus 4.8 / Sonnet 4.6 / Haiku 4.5.
+# Tier name -> model id: Opus 5.5 / Sonnet 5.5 / Haiku 5.5 (ADR 0114; was Opus 4.8 / Sonnet 4.6 /
+# Haiku 4.5). The eval CLIs take their --model default from TIERS["default"], so a refresh is here.
 TIERS: dict[str, str] = {
-    "default": "claude-opus-4-8",
-    "simple": "claude-sonnet-4-6",
-    "cheap": "claude-haiku-4-5-20251001",
+    "default": "claude-opus-5-5",
+    "simple": "claude-sonnet-5-5",
+    "cheap": "claude-haiku-5-5",
 }
 
 # The committed runtime tier policy (ADR 0046): the gate-validated tier each subagent role runs at
