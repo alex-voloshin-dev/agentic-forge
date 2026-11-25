@@ -76,7 +76,39 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
   script, no gate, so a declared `eslint` stays a fallback for a person — `go vet ./...` even where
   the profile names `golangci-lint`, no `tflint` (a Terraform profile names it when `.tflint.hcl`
   exists; Terraform was never gated, and tflint may need `tflint --init` first), and nothing with
-  shell syntax. Skippable via
+  shell syntax. The gate's tool resolves the way the project resolves it (ADR 0081): a project-local
+  `node_modules/.bin`, `.venv/bin`, `venv/bin`, `.venv/Scripts` or `venv/Scripts` (at `cwd`, then at
+  the main repo root) before `PATH`, and those directories go in front of the gate's `PATH` so a
+  package script's own linter resolves too. **The hook takes argv[0] from, and puts on the gate's
+  `PATH`, only a directory git tracks nothing in** (`guardrails.bin_dirs`, ADR 0115): the gate runs
+  before the user is asked, and an installed venv or `node_modules` is never committed. The
+  directories are read once per hook run, in one 2-second budget, and that one reading feeds the
+  resolution, the `PATH` and the notice. Every component from the work-tree top down must be listed
+  on disk with exactly its spelling (a case-insensitive filesystem), and git is asked from the
+  directory's real path plus
+  each linked component of its name, with the same hardening. Outside a checkout (no `.git` at or
+  above) the directory is used as before; any doubt skips it. **A package-script gate is not run at
+  all** when a `node_modules/.bin` of the package or of any parent is skipped: npm, pnpm and yarn
+  put those back on the script's `PATH` themselves. That commit goes through ungated, with an
+  `anomaly` and a notice. A skipped directory is named on stderr on every run, and in
+  `systemMessage` once per session per set of directories (one notices key per kind, the set's
+  digest in its value). The gate's environment (`gate_env`)
+  carries **no credential-named variables** (`guardrails.looks_like_credential`, rule in ADR 0115:
+  `GH_TOKEN`, `SSH_AUTH_SOCK`, `PGPASSWORD`, `OPENAI_KEY` go; `GIT_AUTHOR_NAME`, `PWD` stay), keeps
+  only absolute `PATH` entries (`/usr/bin:/bin`, or `System32` on Windows, when none is left), and
+  sets `NoDefaultCurrentDirectoryInExePath` on Windows. `guardrails.executable` looks the program up
+  itself in those absolute entries (not `shutil.which`, which searches the current directory first
+  on Windows) and the gate runs that absolute path; the `python` → `python3` fallback is chosen the
+  same way. On Windows only an `.exe`/`.com` runs, since cmd.exe reads `& ^ % ( )` in a batch
+  file's arguments and the narrowed gate passes repository file names; the fixed `npm run lint`
+  alone may run `npm.cmd`. Nothing found fails open without starting a process; a bare name is
+  never spawned. git's work-tree top and the hook's root are compared as paths, not strings (git
+  prints `C:/x` on Windows). A gate that needed a withheld
+  variable can fail open **or block** (a private module fetch, an `.npmrc` reading `${NPM_TOKEN}`),
+  so a block names the withheld variables, by name only: always to the operator, with
+  `test_gate.skip` as the way to commit; to the model only when the output reads like an
+  authentication failure (`guardrails.looks_like_auth_failure`), telling it to ask the user.
+  Skippable via
   `test_gate.skip` or `AGENTIC_FORGE_SKIP_TEST_GATE`;
   fails open on an infrastructure error (missing tool, timeout) **and when the gate can't run** —
   a non-zero exit whose output shows a missing lint script / uninstalled linter
@@ -487,7 +519,14 @@ a determined adversary. Known, accepted limits:
   `dev/validate.py` (or the stack lint) from the session `cwd`; the trust boundary is Claude
   Code's `cwd`, not the hook. Don't point a session at an untrusted repo and then commit. The git
   reads that narrow it (ADR 0101) disable `core.fsmonitor`, refuse a directory merely shaped like a
-  repo, compare no file content, and get an allowlisted environment.
+  repo, compare no file content, and get an allowlisted environment. What the hook adds on its own
+  is narrower (ADR 0115). It does not take the gate's program from, or put on its `PATH`, a
+  project-local bin directory the repository tracks. It does not run a package script beside one.
+  It hands the gate no credential-named environment variables. The declared checks themselves
+  (`dev/validate.py`, a `lint` script) still run before the prompt and can call any tool. The gate
+  runs as the user, so credentials on disk (`~/.aws`, `~/.config/gh`, `~/.npmrc`,
+  `~/.git-credentials`, SSH keys) and in agents or keyrings stay reachable. For a repository you do
+  not trust, `test_gate.skip: true` is the real protection.
 - **Role scope is the one allowlist.** Unlike the deny-lists above it refuses what it does not
   recognise, and it is meant to hold against content written to mislead a lens. Its limits: it holds
   only while the hook runs (a hook that fails to start or times out fails open); Read, Grep and Glob

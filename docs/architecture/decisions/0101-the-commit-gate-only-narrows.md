@@ -9,6 +9,8 @@ Amends [0019](0019-l4-guardrails.md) (what the test-gate runs on). Closes part o
 
 > **Amended 2026-11-13 by [ADR 0111](0111-commit-gate-follows-the-commits-directory.md):** "cwd" here is now the directory the commit acts on: a plain `&&` line of `cd <dir>` and `git -C <dir> add|commit|push` segments is followed, only to a directory that is tracked, not ignored, in the start directory's own work tree. Narrowing is unchanged: such a line is never simple, so it runs whole in that directory.
 
+> **Amended 2026-11-24 by [ADR 0115](0115-the-commit-gate-trusts-no-tracked-tool.md):** the hook no longer takes the gate's program from, or puts on its `PATH`, a project-local tool directory git tracks anything in (or that git could not be asked about); a package-script gate is not run when a `node_modules/.bin` npm would add is such a directory; the gate gets no credential-named environment variables and runs its program by absolute path. The project's declared checks still run. This closes the `.venv/bin/ruff` limit below for what the hook resolves.
+
 ## Context
 
 `commit_gate.py` passed the hook payload's `cwd` to `guardrails.choose_gate` and ran the result there. It never asked
@@ -206,7 +208,10 @@ the old behaviour.
   whatever the file holds, and the whole gate then fails the same way.
 - **A gitlink is seen by its mode only in the diff reads.** A push reads names, so a submodule bump counts through the directory on
   disk, and one not checked out would not.
-- **A tracked `.venv/bin/ruff` runs as it did**, because resolution is unchanged. A follow-up ADR is planned.
+- **A tracked `.venv/bin/ruff` runs as it did**, because resolution is unchanged. *(Closed by ADR 0115 for what the
+  hook resolves: a tool directory git tracks anything in is not used for argv[0] or the gate's `PATH`, a package
+  script beside one is not run, and the gate gets no credential-named variables. A declared check can still call
+  one itself.)*
 - **The gate reads the working tree, not the blob.** Partial staging lints the whole file as it stands; a push lints the
   files as they stand now, and a push of a branch other than HEAD lints this tree's copy of that branch's paths. A file
   removed with `git rm --cached` and still on disk is linted.

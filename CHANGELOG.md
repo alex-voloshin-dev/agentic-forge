@@ -7,6 +7,53 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Security
+
+- **The commit gate no longer runs a tool the repository ships, and hands its gate no credential-named variables
+  (ADR 0115).** The gate is a `PreToolUse` hook, so it runs when a session attempts `git commit`/`git push`, before
+  the user is asked about the command. Since ADR 0081 it took its program from `node_modules/.bin`, `.venv/bin`,
+  `venv/bin`, `.venv/Scripts` or `venv/Scripts` and put them on the gate's `PATH`, and the gate inherited the hook's
+  whole environment. A repository could therefore have a file it ships in one of those directories run with the
+  session's environment before any approval; ADR 0101 had listed this as a known limit. What changes, exactly:
+  - **argv[0] and the hook's `PATH` prefix skip a tool directory git tracks anything in.** `guardrails.bin_dirs`
+    reads the directories once per hook run, in one 2-second budget. Every component from the work-tree top down
+    must be spelled exactly so on disk (a case-insensitive filesystem; git's top is compared as a path, since it
+    prints `C:/x` on Windows), and git is asked from the directory's real
+    path and for each linked component of its name, with `commit_dir`'s hardening (absolute
+    `git`, the minimal read environment, `GIT_NO_LAZY_FETCH=1`, stdin closed). ADR 0081's field case, an installed
+    (untracked or gitignored) venv or `node_modules`, still resolves, also from a linked worktree. Outside a checkout
+    nothing changes. If git cannot answer, the directory is skipped.
+  - **A package-script gate is not run beside such a directory.** npm, pnpm and yarn put the `node_modules/.bin` of
+    the package and of every parent on a script's `PATH` themselves. So when any of those is skipped, `npm run lint`
+    is not run, the commit goes through ungated, and the operator is told why.
+  - **No credential-named environment variables reach the gate.** `gate_env` drops every variable
+    `guardrails.looks_like_credential` matches. Its words are split at `_` (any non-alphanumeric) and at camelCase
+    humps, then upper-cased. It matches TOKEN(S), SECRET(S), PASSWORD(S), PASSWD, CREDENTIAL(S), AUTH, APIKEY, PAT,
+    PASS and DSN; a word ending in TOKEN, SECRET, PASSWORD or PASSWD; PWD, or a last KEY or KEYS, in a name of two or
+    more words; API, PRIVATE, ACCESS or SESSION followed by KEY; an `AWS_SECRET` prefix; and KRB5CCNAME.
+    `GIT_AUTHOR_NAME`, `TOKENIZERS_PARALLELISM`, `PWD`, `PATH`, `HOME` and `VIRTUAL_ENV` stay. A gate that needed
+    one can now fail open or block. A block names the withheld variables, names only: always to the operator, with
+    `test_gate.skip` as the way to commit; to the model, telling it to ask the user, only when the gate's output
+    reads like an authentication failure, by phrases a rule id or a path does not hold (npm's `code E401`,
+    `ENEEDAUTH`, `HTTP 401`, `401 Unauthorized`, "could not read Username", ...; not ruff's `E401`).
+  - **The gate's program runs by absolute path, never from its directory.** The hook looks it up itself in the
+    absolute entries of the gate's `PATH` (not `shutil.which`, which searches the current directory first on
+    Windows), and the `python` → `python3` fallback is chosen the same way. On Windows only an `.exe` or `.com`
+    runs: cmd.exe reads `& ^ % ( )` in a batch file's arguments, and the narrowed gate passes repository file
+    names, so a `.bat`/`.cmd` shim is skipped; the fixed `npm run lint` alone may run `npm.cmd`. Nothing found
+    fails open without starting a process, and a bare name is never spawned. Empty and relative `PATH` entries are dropped, a `PATH` left empty becomes `/usr/bin:/bin` (or
+    `System32` on Windows), and on Windows `NoDefaultCurrentDirectoryInExePath` is set. Messages still name the
+    tool as before.
+  - **The user is told.** Each skipped directory and why ("tracked by git", "could not be checked with git") goes to
+    stderr on every run, and to the operator's `systemMessage` once per session per set of directories (one
+    notices key per kind, so the file does not grow).
+  - **Unchanged:** the project's declared checks (`python dev/validate.py`, `npm run lint`, a project ruff config)
+    still run before the prompt and can call any tool. Credentials on disk (`~/.aws`, `~/.config/gh`, `~/.npmrc`,
+    `~/.git-credentials`, SSH keys) and in agents or keyrings stay reachable. For a repository you do not trust,
+    `test_gate.skip: true` is the protection.
+  - Hook-reachable code, Python 3.9-safe. CI's 3.9 job now runs `dev/hook_smoke.py` with a commit in a repo that
+    tracks `.venv/bin/ruff`: the tracked tool must not run, `PATH`'s must, without a credential-named variable.
+
 ## [2026.11.14] - 2026-11-24
 
 Open item 6, first steps: cheap delegation (ADR 0113).
