@@ -41,6 +41,26 @@ Open item 6, step 3: model tiers measured at 5.5 (ADR 0114).
   <worktree>`, the command the `develop` skill already runs, and read its `primary` profile and `pack_paths`. A test
   in `tests/test_af.py` fails if a role or skill names the library calls again.
 
+- **A failed external lens on a read-only home says why and what it needs** (field item 9, thread 1238c62d). On a host
+  whose sandbox mounts the home directory read-only, codex could not start ("failed to initialize in-process app-server
+  client: Read-only file system (os error 30)"). The CLI exited `3` with `process-failure` and that tail, but nothing
+  said what it meant. Now:
+  - **When.** A failed codex call: a `process-failure`, or an `isolation-unsupported` whose capability check itself
+    failed. Only when a line of codex's own stderr or stdout, searched in full, is a start-up error: it says `Read-only
+    file system`, `os error 30` or `EROFS` and also names a fatal start-up marker (`app-server`, `CODEX_HOME` or a `.codex` path; the non-fatal "PATH aliases" warning alone does not count) (the field's fatal line does). A bare read-only error does not count, because codex runs the model under
+    `--sandbox read-only` and prints one whenever the model tries a write; a later rate limit or disconnect must not be
+    blamed on the host. Nor does a timeout, a Python-side `OSError`, a command whose basename is not `codex`
+    (`codex.exe` and `codex.cmd` count), or a target line the CLI echoes verbatim.
+  - **What.** The detail, and so the CLI's `failed (<reason>)` line on stderr, ends with one fixed hint after the tail:
+    codex writes its runtime state under its home (`CODEX_HOME`, default `~/.codex`) and could not, because the host
+    makes that path read-only; the lens needs a writable `CODEX_HOME`, which this host's sandbox does not provide; the
+    in-session review lenses are unaffected. It is appended after the detail is redacted and cut to fit the
+    500-character cap, so the tail is shortened and the hint is not, and a tail ending in a secret's key (such as
+    `Authorization:`) cannot take the hint as its value.
+  - **What does not change.** The reason codes and the exit `3`, so no caller or doc keyed on the reason set changes.
+    Nothing sets or redirects `CODEX_HOME`, creates a directory, or relaxes a sandbox (`external_review._failure_detail`,
+    `_read_only_hint`, `_failed`; `docs/configuration.md`, `docs/architecture/extensions.md`).
+
 ## [2026.11.15] - 2026-11-25
 
 The commit gate trusts no tracked tool (ADR 0115); a board known limit since ADR 0101.

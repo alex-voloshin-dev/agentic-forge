@@ -240,6 +240,16 @@ reason and a short redacted detail, and the skills' `review()` returns `None`.
 Exit `1` is a `changes` verdict and nothing else. Exit `0` with a `verdict:` line is an approve, and
 without one a skip. Exit `2` is a usage error from the argument parser.
 
+**A read-only home.** codex writes its runtime state under `CODEX_HOME` (default `~/.codex`) as it starts.
+On a host whose sandbox mounts the home directory read-only it cannot start, and the lens fails. A failed codex
+call, that is a `process-failure`, or an `isolation-unsupported` whose capability check itself failed, then ends
+the detail on the stderr reason line with a fixed hint: codex needs a writable `CODEX_HOME`, this host's sandbox
+does not give it one, and the in-session review lenses are unaffected. It is shown only for a start-up error: a
+line of codex's output that says `Read-only file system`, `os error 30` or `EROFS` and also names a fatal start-up marker (`app-server`, `CODEX_HOME` or a `.codex` path; the non-fatal "PATH aliases" warning alone does not count). A bare read-only error is not one, since codex's own
+read-only sandbox prints it whenever the model tries a write, and a timeout never gets the hint. A target line the
+CLI echoes verbatim does not count. The lens runs only where `CODEX_HOME` is writable. The plugin never sets or
+redirects `CODEX_HOME` and creates nothing there.
+
 **Pass `--repo <the repo whose content this is>`.** The repo's own `.agentic-forge/config.json`, and an
 `external_reviewer.enabled: false` in it, is read from `--repo`; the skills always pass it. Without
 `--repo` the git work tree the cwd sits in is taken as the repo: its root (the nearest directory holding

@@ -81,7 +81,13 @@ the review; `skipped` with a reason in `SKIP_REASONS` (`missing-cli`, `command-n
 `disabled`: there was no reviewer to ask); or `failed` with a reason in `FAILURE_REASONS` (`timeout`,
 `process-failure`, `invalid-output`, `isolation-unsupported`: the reviewer was there and enabled and the
 attempt produced no review; plus `refused-input`, which only the CLI uses, for arguments it refused
-before any call). Each carries a short detail, redacted before it is capped. Neither a skip nor a
+before any call). Each carries a short detail, redacted before it is capped. A failed codex call, that is a
+`process-failure`, or an `isolation-unsupported` whose capability check itself failed, gets one fixed hint after
+that detail when a line of codex's output is a start-up error on a read-only filesystem: it says `Read-only file
+system`, `os error 30` or `EROFS` and also names a fatal start-up marker (`app-server`, `CODEX_HOME` or a `.codex` path; the non-fatal "PATH aliases" warning alone does not count). The hint says codex writes its runtime state under `CODEX_HOME` (default `~/.codex`), so the lens runs
+only where that is writable, and the in-session lenses are unaffected. A timeout never gets it, nor does a bare
+read-only error, which codex's own read-only sandbox prints whenever the model tries a write; a target line the CLI
+echoes verbatim does not count. Nothing sets or redirects `CODEX_HOME` (field item 9). Neither a skip nor a
 failure has a verdict, so neither can read as approval. The difference is what the caller does with
 it: a skip is expected and the round goes on, while a failure is a lens that dropped out. So the CLI's
 exit says which, unambiguously: `0` an approve or a skip, `1` a `changes` verdict and nothing else,

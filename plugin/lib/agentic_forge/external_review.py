@@ -148,6 +148,23 @@ _LINE_INPUT_MAX = 4000
 # base64 alphabet, which is what the body of a PEM key looks like without its header.
 _TAIL_CUT_SKIP = 200
 _BASE64_RUN = re.compile(r"[A-Za-z0-9+/=]{40,}")
+# codex writes its runtime state under CODEX_HOME at start-up, so on a host that mounts the home
+# directory read-only it cannot start at all (field item 9). Its own lines then say both things: the
+# filesystem is read-only, and what it was doing ("could not create PATH aliases: Read-only file
+# system (os error 30)", "failed to initialize in-process app-server client: ..."). The model's own
+# sandbox is read-only too, so the first pattern alone also matches a command the model tried there.
+_READ_ONLY_FS = re.compile(r"read-only file system|\bos error 30\b|\bEROFS\b", re.IGNORECASE)
+_CODEX_STARTUP = re.compile(
+    r"app-server|CODEX_HOME|\.codex(?:[/\\\s:'\"]|$)", re.IGNORECASE
+)
+# What the detail adds then: the cause and what would fix it, as a fixed string, never echoed
+# output. It says what the lens needs; it does not change, redirect or create anything (ADR 0100).
+_READ_ONLY_HOME_HINT = (
+    "hint: the external reviewer CLI (codex) writes its runtime state under its home "
+    "(CODEX_HOME, default ~/.codex) and could not, because this host makes that path read-only; "
+    "the lens needs a writable CODEX_HOME, and this host's sandbox does not provide one; "
+    "the in-session review lenses are unaffected"
+)
 # A `changes` in the raw reply. `parse_review` compares the same way: case and padding do not count.
 _CHANGES_TEXT = re.compile(r'"verdict"\s*:\s*"\s*changes\s*"', re.IGNORECASE)
 # Terminal escape sequences, whole, so no parameters are left behind when the control character
@@ -427,14 +444,20 @@ def parse_review(output: str) -> dict[str, Any] | None:
     return {"verdict": verdict, "findings": list(seen.values())}
 
 
-def _detail(summary: str, tail: Any = "") -> str:
-    """``summary`` plus a short, safe tail of CLI output. Redact BEFORE this cap: it could cut a
-    secret's prefix off, and what is left no longer matches a redaction pattern. The input cap in
-    :func:`_safe_line` comes earlier and is far larger, and drops the token it cuts."""
-    head = _safe_line(summary)[:_DETAIL_MAX]
+def _detail(summary: str, tail: Any = "", limit: int = _DETAIL_MAX) -> str:
+    """``summary`` plus a short, safe tail of CLI output, at most ``limit`` characters. Redact
+    BEFORE this cap: it could cut a secret's prefix off, and what is left no longer matches a
+    redaction pattern. The input cap in :func:`_safe_line` comes earlier and is far larger, and
+    drops the token it cuts."""
+    head = _safe_line(summary)[:limit]
     flat = _safe_line(tail, keep_tail=True)
-    room = _DETAIL_MAX - len(head) - 2
+    room = limit - len(head) - 2
     return f"{head}: {flat[-room:]}" if flat and room > 0 else head
+
+
+def _suffix(note: str) -> str:
+    """How a note of ours follows a detail: after a separator, or not at all."""
+    return f" -- {note}" if note else ""
 
 
 def _without_prompt(text: Any, prompt: str) -> str:
@@ -452,41 +475,82 @@ def _without_prompt(text: Any, prompt: str) -> str:
     return "\n".join(line for line in raw.splitlines() if line.strip() not in held)
 
 
-def _failure_detail(exc: Exception, prefix: str = "", prompt: str = "") -> str:
-    """A failed call's detail. Never ``str(exc)`` for the subprocess errors: theirs embeds the whole
-    argv, which held the target under review while the prompt was an argv element. The output tail
-    goes through :func:`_without_prompt`, because the CLI may echo the prompt."""
+def _is_codex(command: str) -> bool:
+    """True if ``command`` names codex: its last path component, either separator, is ``codex``,
+    ``codex.exe`` or ``codex.cmd`` (case aside). The read-only hint is about codex's home."""
+    name = re.split(r"[\\/]", command)[-1].lower()
+    return name in ("codex", "codex.exe", "codex.cmd")
+
+
+def _read_only_hint(exc: subprocess.CalledProcessError, prompt: str, command: str) -> str:
+    """:data:`_READ_ONLY_HOME_HINT` if codex failed to start on a read-only filesystem, else ``""``.
+
+    Only a start-up line counts: one that says the filesystem is read-only AND names
+    :data:`_CODEX_STARTUP`, a fatal start-up marker (the field's app-server line does; its non-fatal
+    PATH-aliases warning alone does not). codex runs the model under
+    ``--sandbox read-only``, so a command the model tried there prints the same error into the
+    transcript, and a later, unrelated failure must not be blamed on the host's home. Lines are
+    searched after :func:`_without_prompt`, so a target line the CLI echoes verbatim does not count,
+    and over the whole output, not the shown tail, since the error line may come before more."""
+    if not _is_codex(command):
+        return ""
+    for stream in (exc.stderr, exc.stdout):
+        if not stream:
+            continue
+        for line in _without_prompt(stream, prompt).splitlines():
+            if _READ_ONLY_FS.search(line) and _CODEX_STARTUP.search(line):
+                return _READ_ONLY_HOME_HINT
+    return ""
+
+
+def _failure_detail(
+    exc: Exception, prefix: str = "", prompt: str = "", command: str = ""
+) -> tuple[str, str]:
+    """A failed call's detail, and a note of ours to follow it (``""`` for none), for
+    :func:`_failed`. Never ``str(exc)`` for the subprocess errors: theirs embeds the whole argv,
+    which held the target under review while the prompt was an argv element. The output tail goes
+    through :func:`_without_prompt`, because the CLI may echo the prompt.
+
+    The note is :func:`_read_only_hint`, for a non-zero exit of codex only: a timeout is no start-up
+    failure. The detail is cut short enough to leave the note its room."""
     if isinstance(exc, subprocess.TimeoutExpired):
         tail = _without_prompt(exc.stderr, prompt)
-        return _detail(f"{prefix}no result within {exc.timeout}s", tail)
+        return _detail(f"{prefix}no result within {exc.timeout}s", tail), ""
     if isinstance(exc, subprocess.CalledProcessError):
         tail = _without_prompt(exc.stderr or exc.stdout, prompt)
-        return _detail(f"{prefix}exit status {exc.returncode}", tail)
-    return _detail(f"{prefix}{type(exc).__name__}", _without_prompt(exc, prompt))
+        note = _read_only_hint(exc, prompt, command)
+        limit = _DETAIL_MAX - len(_suffix(note))
+        return _detail(f"{prefix}exit status {exc.returncode}", tail, limit), note
+    return _detail(f"{prefix}{type(exc).__name__}", _without_prompt(exc, prompt)), ""
 
 
-def _isolation_problem(command: str, probe: HelpProbe) -> str:
-    """Why ``command`` cannot run isolated, or ``""`` if it can. A check that fails is a "cannot":
-    without positive evidence of both flags the run must not happen. Matched as whole flags, so a
-    longer flag that merely contains one of the names does not count."""
+def _isolation_problem(command: str, probe: HelpProbe) -> tuple[str, str]:
+    """Why ``command`` cannot run isolated, or ``""`` if it can, with a note as in
+    :func:`_failure_detail`. A check that fails is a "cannot": without positive evidence of both
+    flags the run must not happen. Matched as whole flags, so a longer flag that merely contains one
+    of the names does not count."""
     try:
         text = probe(command, _PROBE_TIMEOUT)
     except Exception as exc:
-        return _failure_detail(exc, "capability check failed: ")
+        return _failure_detail(exc, "capability check failed: ", command=command)
     missing = [
         flag
         for flag in _ISOLATION_FLAGS
         if not re.search(rf"(?<![\w-]){re.escape(flag)}(?![\w-])", str(text))
     ]
-    return f"`{command} exec --help` does not list {', '.join(missing)}" if missing else ""
+    return (f"`{command} exec --help` does not list {', '.join(missing)}" if missing else ""), ""
 
 
 def _skipped(reason: SkipReason, detail: str) -> ReviewOutcome:
     return ReviewOutcome(status="skipped", reason=reason, detail=_detail(detail))
 
 
-def _failed(reason: FailureReason, detail: str) -> ReviewOutcome:
-    return ReviewOutcome(status="failed", reason=reason, detail=_detail(detail))
+def _failed(reason: FailureReason, detail: str, note: str = "") -> ReviewOutcome:
+    """A failure. ``note`` is a fixed string of ours, never CLI output, appended AFTER the detail
+    is redacted and cut, so neither can trim it nor read it as the value of a secret's key."""
+    suffix = _suffix(note)
+    text = _detail(detail, limit=_DETAIL_MAX - len(suffix)) + suffix
+    return ReviewOutcome(status="failed", reason=reason, detail=text)
 
 
 def _attempt(
@@ -505,9 +569,9 @@ def _attempt(
     if opts is None:
         opts = ReviewerOptions.from_settings(settings.resolve(workdir))
     if opts.isolated:
-        problem = _isolation_problem(command, help_probe or _probe_help)
+        problem, note = _isolation_problem(command, help_probe or _probe_help)
         if problem:
-            return _failed("isolation-unsupported", problem)
+            return _failed("isolation-unsupported", problem, note)
 
     def real_cli(cmd: str, prompt: str, cwd: Path, limit: int) -> str:
         return _run_cli(cmd, prompt, cwd, limit, opts)
@@ -517,11 +581,11 @@ def _attempt(
     try:
         output = run(command, prompt, Path(workdir), timeout)
     except subprocess.TimeoutExpired as exc:
-        return _failed("timeout", _failure_detail(exc, prompt=prompt))
+        return _failed("timeout", *_failure_detail(exc, prompt=prompt))
     except UnicodeDecodeError:  # it ran and answered, and the answer is not text
         return _failed("invalid-output", "the output is not UTF-8 text")
     except Exception as exc:
-        return _failed("process-failure", _failure_detail(exc, prompt=prompt))
+        return _failed("process-failure", *_failure_detail(exc, prompt=prompt, command=command))
     parsed = parse_review(output)
     if parsed is None:
         why = "no review-shaped JSON, or an approve beside a `changes` that could not be read"
@@ -550,7 +614,7 @@ def review_outcome(
     try:
         return _attempt(target, kind, command, workdir, runner, help_probe, options, timeout)
     except Exception as exc:
-        return _failed("process-failure", _failure_detail(exc))
+        return _failed("process-failure", *_failure_detail(exc))
 
 
 def configured_review_outcome(
@@ -598,7 +662,7 @@ def configured_review_outcome(
             timeout=timeout,
         )
     except Exception as exc:
-        return _failed("process-failure", _failure_detail(exc))
+        return _failed("process-failure", *_failure_detail(exc))
 
 
 def review(

@@ -355,6 +355,42 @@ def test_external_review_unparseable_is_a_failure_and_returns_3(
     assert external_review_cli.EXIT_FAILED == _EXIT_FAILED  # the documented contract
 
 
+def test_external_review_on_a_read_only_home_fails_with_the_cause_and_the_remedy(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    # Field item 9: codex could not start because the host mounts the home directory read-only.
+    # A fake codex on PATH prints what the real one did and exits 1, through the real subprocess.
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    stub = bin_dir / "codex"
+    stub.write_text(
+        f"#!{sys.executable}\nimport sys\nsys.stdin.read()\n"
+        "sys.stderr.write('WARNING: proceeding, even though we could not create PATH aliases: "
+        "Read-only file system (os error 30)\\n')\n"
+        "sys.stderr.write('Error: failed to initialize in-process app-server client: "
+        "Read-only file system (os error 30)\\n')\n"
+        "sys.exit(1)\n",
+        encoding="utf-8",
+    )
+    stub.chmod(0o755)
+    monkeypatch.setenv("PATH", str(bin_dir))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    target = repo / "brief.md"
+    target.write_text("# Brief\n", encoding="utf-8")
+    argv = ["x", "--target", str(target), "--repo", str(repo), "--kind", "research", "--force"]
+    assert external_review_cli.main(argv) == _EXIT_FAILED
+    captured = capsys.readouterr()
+    assert "verdict" not in captured.out
+    reason_line = next(
+        line for line in captured.err.splitlines() if "failed (process-failure)" in line
+    )
+    assert "exit status 1" in reason_line and "os error 30" in reason_line
+    assert reason_line.endswith(external_review_cli.external_review._READ_ONLY_HOME_HINT)
+    assert "this is a failure, not a skip" in captured.err
+
+
 def test_external_review_writes_valid_review_md(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
