@@ -211,7 +211,8 @@ way through a changelog that must not be empty or invented. Nothing at all means
 - **A role still names the library.** `software-engineer` and `qa-engineer` say to detect the stack with `stacks.detect`,
   and the stack packs mention it, in prose with no way to run it. The role bodies were out of scope for this change, so
   `develop` still passes them the resolved pack paths, and `stack-detect` is there for them. A later role change should
-  name it.
+  name it. **Closed with ADR 0114's change** (2026-11-24): the roles and packs name `af.py stack-detect`, and a test
+  fails if a role, skill or pattern names the library calls again.
 - **Literal git lines in a skill do not carry the setting.** `git describe` in `release`, `git -C <repo> diff` in
   `develop`. They run where the session runs, and in a repo-shaped subdirectory would read its config. `af.py` covers what
   it starts and prints, not what a skill body writes out.

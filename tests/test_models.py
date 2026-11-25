@@ -31,14 +31,15 @@ def test_tiers_are_the_three_named_tiers() -> None:
 # --- runtime routing (ADR 0046) ---------------------------------------------
 
 
-def test_validated_tiers_ship_all_default() -> None:
-    # no downgrade out of the box; every committed role resolves to inherit
-    assert set(models.VALIDATED_TIERS.values()) == {"default"}
-    assert all(models.frontmatter_model(r) == "inherit" for r in models.VALIDATED_TIERS)
+def test_validated_tiers_promote_only_measured_roles() -> None:
+    # ADR 0114 replaced "all default": the unpromoted roles still resolve to inherit
+    unpromoted = [r for r, tier in models.VALIDATED_TIERS.items() if tier == "default"]
+    assert sorted(unpromoted) == ["architect", "reviewer", "security-engineer", "software-engineer"]
+    assert all(models.frontmatter_model(r) == "inherit" for r in unpromoted)
 
 
 def test_frontmatter_model_default_is_inherit() -> None:
-    assert models.frontmatter_model("grader") == "inherit"  # policy default -> inherit
+    assert models.frontmatter_model("reviewer") == "inherit"  # policy default -> inherit
     assert models.frontmatter_model("unknown-role") == "inherit"  # unknown -> default -> inherit
 
 
@@ -79,3 +80,10 @@ def test_set_frontmatter_model_raises_without_frontmatter() -> None:
 
     with pytest.raises(ValueError, match="no frontmatter block"):
         models.set_frontmatter_model("plain text, no frontmatter\n", "inherit")
+
+
+def test_the_committed_policy_promotes_exactly_grader_and_qa_engineer() -> None:
+    """ADR 0114: the two roles measured and promoted at `simple`; the rest stay `default`."""
+    promoted = {role for role, tier in models.VALIDATED_TIERS.items() if tier != "default"}
+    assert promoted == {"grader", "qa-engineer"}
+    assert models.frontmatter_model("grader") == models.TIERS["simple"] == "claude-sonnet-5-5"

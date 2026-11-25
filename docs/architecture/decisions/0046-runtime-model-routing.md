@@ -3,6 +3,10 @@
 Status: Accepted — **implemented** (closes [ADR 0043](0043-multi-model-tiers.md) §5; see the
 [Unreleased] CHANGELOG entry).
 
+> **Amended 2026-11-24 by [ADR 0114](0114-model-tiers-measured-at-5-5.md):** the policy no longer ships all-`default`:
+> `grader` and `qa-engineer` run at `simple` (`claude-sonnet-5-5`), and a default Tier-2 run measures a promoted role
+> at its shipped tier.
+
 ## Context
 
 [ADR 0043](0043-multi-model-tiers.md) built the tier resolver (`models.model_for`) and wired it into

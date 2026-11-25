@@ -217,7 +217,10 @@ def version_check(
     the baseline. Returns the regression :class:`gate.GateResult`, or ``None`` when there is no
     prior / no ``max_regression`` threshold (the check is opt-in)."""
     history = benchmark.load_history(history_path)
-    prior = benchmark.prior_record(history, component, model)
+    judge = report.benchmark.get("grader_model")  # compare like with like: same judge (ADR 0114)
+    prior = benchmark.prior_record(
+        history, component, model, grader_model=str(judge) if judge else None
+    )
     result = gate.version_regression(report.benchmark, prior, report.thresholds)
     healthy = report.passed and (result is None or result.passed)
     if record and healthy:

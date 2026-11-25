@@ -107,7 +107,11 @@ def main(argv: list[str]) -> int:
 
     _eval_cli.warn_if_api_key_set(args.runner)
 
-    models_cfg = settings.resolve(plugin_dir.parent).models  # per-component tiers (ADR 0043)
+    # Per-component tiers (ADR 0043). A role promoted in the shipped policy runs at that tier
+    # unless settings.models says otherwise: a default run measures what live delegation runs
+    # (ADR 0114).
+    shipped = {role: tier for role, tier in models.VALIDATED_TIERS.items() if tier != "default"}
+    models_cfg = {**shipped, **settings.resolve(plugin_dir.parent).models}
     all_passed = True
     prov = _eval_cli.provenance(plugin_dir, args.model)
     print(_eval_cli.provenance_line(prov), flush=True)  # which tree this run is about (ADR 0098)

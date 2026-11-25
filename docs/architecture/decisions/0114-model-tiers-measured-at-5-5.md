@@ -23,13 +23,19 @@ of live Tier-2 runs on 2026-11-24. Three things were in the way.
 ## Decision
 
 **1. The tiers are the 5.5 family.** `TIERS = {default: claude-opus-5-5, simple: claude-sonnet-5-5, cheap:
-claude-haiku-5-5}`. `run_agent_evals` and `run_skill_evals` take their `--model` default from `TIERS["default"]`; the
-other CLIs (`run_tier1_evals`, `run_activation_evals`, `run_spine_e2e`, `ralph`, `pr_watch`), the `eval.yml` input
-and the config schema's example name `claude-opus-5-5`.
+claude-haiku-5-5}`. Every eval CLI (`run_agent_evals`, `run_skill_evals`, `run_tier1_evals`, `run_activation_evals`,
+`run_spine_e2e`, `ralph`) and `pr_watch` take their `--model` default from `TIERS["default"]`, so the next refresh is one
+edit; the `eval.yml` input and the config schema's example name `claude-opus-5-5`.
 
 **2. The judge is held still.** `build_runners(..., grader_model=None)` grades on `grader_model` when given, else on the
 component's model as before. `run_agent_evals` and `run_skill_evals` take `--grader-model` and pass `--grader-model or
---model`, never the component's tier, and the benchmark records `grader_model`.
+--model`, never the component's tier. The benchmark and its history record carry `grader_model`, and the
+version-over-version check compares a run only with a prior record graded by the same judge (a record from before this
+ADR counts as graded by its own `model`).
+
+**2a. A default run measures what ships.** `run_agent_evals` starts from the non-`default` entries of
+`VALIDATED_TIERS`, with `settings.models` on top, so a promoted role is measured at the tier live delegation runs it at
+unless the operator names another.
 
 **3. Measured: all six roles at both tiers, judged by Opus 5.5.** `--runner claude`, n = 5, three or four cases a role,
 2026-11-24, tree 38ced91:
@@ -52,7 +58,9 @@ all. A saturated set says the cheaper model handles these cases, not that it hol
 So the policy follows the gate and the runbook's guidance together:
 
 - **`grader` → `simple`.** Judging assertions against an output is the runbook's first candidate for a cheaper tier.
-- **`qa-engineer` → `simple`.** Writing and running tests against a stated change; it scored at least as well on Sonnet.
+- **`qa-engineer` → `simple`.** Its output is checked by execution, not by judgement alone: the tests it writes run, and
+  a red or missing test shows in the suite it reports. In `develop` its work also sits behind the review gate and the
+  merge gate. A weaker test is the risk; the review lenses, which stay at `default`, are what catches it.
 - **`reviewer`, `security-engineer`, `architect`, `software-engineer` stay `default`.** Review depth, design and
   implementation are where the field saw value (lenses found majors even on small PRs, thread 1212fbfd). They move only
   after discriminating cases show they hold.

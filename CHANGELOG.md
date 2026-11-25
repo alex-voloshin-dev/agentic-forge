@@ -25,7 +25,12 @@ Open item 6, step 3: model tiers measured at 5.5 (ADR 0114).
     4.5), and every eval CLI, `pr_watch` and the eval workflow default to `claude-opus-5-5`.
 - **The Tier-2 judge no longer moves with the component** (ADR 0114). `run_agent_evals` and `run_skill_evals` took the
   grader's model from the component's tier, so measuring a role at `simple` also graded it with `simple`. Both now
-  grade on `--grader-model`, or on `--model` when it is absent, and the benchmark records `grader_model`.
+  grade on `--grader-model`, or on `--model` when it is absent. The benchmark history records `grader_model`, and the
+  version-over-version check compares a run only with a prior record graded by the same judge.
+- **A default role Tier-2 run measures what ships** (ADR 0114). `run_agent_evals` runs a role promoted in
+  `VALIDATED_TIERS` at that tier unless `settings.models` names another, so `grader` and `qa-engineer` are measured at
+  Sonnet 5.5, as live delegation runs them. Every eval CLI and `pr_watch` take their `--model` default from
+  `TIERS["default"]`.
 
 ### Fixed
 
