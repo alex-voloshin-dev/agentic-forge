@@ -43,7 +43,13 @@ from agentic_forge import agent_eval, models, settings, skill_eval  # noqa: E402
 
 
 def _build_runners(
-    runner: str, skill: str, plugin_dir: Path, model: str, skill_roots: list[Path] | None = None
+    runner: str,
+    skill: str,
+    plugin_dir: Path,
+    model: str,
+    skill_roots: list[Path] | None = None,
+    *,
+    grader_model: str | None = None,
 ) -> tuple[agent_eval.Runner, agent_eval.Runner]:
     """Build (skill_runner, grader_runner): resolve the executing component's tools (the
     software-engineer's for a knowledge skill, the skill's own otherwise), then delegate to the
@@ -55,6 +61,7 @@ def _build_runners(
         model=model,
         plugin_dir=plugin_dir,
         skill_dir=skill_eval.resolve_skill_dir(plugin_dir, skill, roots),
+        grader_model=grader_model,
     )
 
 
@@ -63,7 +70,13 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--plugin", type=Path, default=_REPO_ROOT / "plugin")
     parser.add_argument("--skill", action="append", dest="skills")
     parser.add_argument("--runner", choices=["dry", "api", "claude"], default="dry")
-    parser.add_argument("--model", default="claude-opus-4-8")
+    parser.add_argument("--model", default=models.TIERS["default"])
+    parser.add_argument(
+        "--grader-model",
+        default=None,
+        help="the judge's model (default: --model). A skill's tier from settings.models never "
+        "moves the grader (ADR 0114)",
+    )
     parser.add_argument("--runs", type=int, default=None)
     parser.add_argument("--workdir", type=Path, default=None)
     parser.add_argument(
@@ -135,11 +148,17 @@ def main(argv: list[str]) -> int:
     all_passed = True
     prov = _eval_cli.provenance(plugin_dir, args.model, roots)
     print(_eval_cli.provenance_line(prov), flush=True)  # which tree this run is about (ADR 0098)
+    grader_model = args.grader_model or args.model  # fixed for the run, whatever a skill's tier
     for skill in skills:
         model = models.model_for(skill, models_cfg, default=args.model)
-        print(f"[{skill}] running via {args.runner} (model={model})...", flush=True)
+        print(
+            f"[{skill}] running via {args.runner} (model={model}, grader={grader_model})...",
+            flush=True,
+        )
         try:
-            run_fn, grader_fn = _build_runners(args.runner, skill, plugin_dir, model, roots)
+            run_fn, grader_fn = _build_runners(
+                args.runner, skill, plugin_dir, model, roots, grader_model=grader_model
+            )
             report = skill_eval.run_skill(
                 skill,
                 plugin_dir,
@@ -156,6 +175,7 @@ def main(argv: list[str]) -> int:
             all_passed = False
             continue
         report.benchmark["provenance"] = prov  # the benchmark says which tree it measured
+        report.benchmark["grader_model"] = grader_model  # and which judge graded it (ADR 0114)
         print(report.summary_line(), flush=True)
         for line in report.evidence_lines():  # which run/case, subtype, num_turns (ADR 0084)
             print(line, flush=True)

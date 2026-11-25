@@ -149,6 +149,7 @@ def build_runners(
     model: str,
     plugin_dir: Path | None = None,
     skill_dir: Path | None = None,
+    grader_model: str | None = None,
 ) -> tuple[agent_eval.Runner, agent_eval.Runner]:
     """Build (component_runner, grader_runner) for the chosen transport — the one construction
     site shared by the agent and skill Tier-2 CLIs. `claude` keeps the component run and the
@@ -161,10 +162,14 @@ def build_runners(
     scripts as `${CLAUDE_PLUGIN_ROOT}/skills/<name>/scripts/...`, and until ADR 0097 nothing set it:
     a probe session resolved it to the *installed* plugin instead and graded a build four versions
     behind the tree under test, which makes every such Tier-2 number a statement about someone
-    else's code (ADR 0097)."""
+    else's code (ADR 0097).
+
+    `grader_model` is the judge's model, kept apart from the component's (ADR 0114): when a role is
+    measured at a cheaper tier, the grader must stay where it was, or the run changes the instrument
+    together with the thing it measures. ``None`` grades on `model`, as before."""
+    judge = grader_model or model
     if runner == "api":
-        api = agent_eval.api_runner(model)
-        return api, api
+        return agent_eval.api_runner(model), agent_eval.api_runner(judge)
     if runner == "claude":
         # The turn caps bound a runaway session, not a slow one. A session that hits its cap is
         # `error_max_turns` in the CLI envelope: raised as `TurnCapHit`, never re-run, recorded by
@@ -175,7 +180,7 @@ def build_runners(
             allowed_tools=allowed_tools, model=model, max_turns=40, env=env
         )
         grader_fn = agent_eval.claude_cli_runner(
-            allowed_tools="Read,Grep,Glob", model=model, max_turns=20, env=env
+            allowed_tools="Read,Grep,Glob", model=judge, max_turns=20, env=env
         )
         return component_fn, grader_fn
     raise ValueError(f"unknown runner {runner!r}")

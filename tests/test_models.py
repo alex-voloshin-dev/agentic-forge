@@ -25,7 +25,7 @@ def test_model_for_model_id_passthrough() -> None:
 
 def test_tiers_are_the_three_named_tiers() -> None:
     assert set(models.TIERS) == {"default", "simple", "cheap"}
-    assert models.TIERS["default"] == "claude-opus-4-8"  # the safe default = opus
+    assert models.TIERS["default"] == "claude-opus-5-5"  # the safe default = opus
 
 
 # --- runtime routing (ADR 0046) ---------------------------------------------

@@ -1703,8 +1703,13 @@ def test_agent_eval_uses_model_tier_from_settings(
         lambda *a, **k: types.SimpleNamespace(models={"reviewer": "simple"}),
     )
 
-    def fake_build(runner: str, role: str, plugin_dir: object, model: str) -> tuple[object, object]:
+    judges: dict[str, str | None] = {}
+
+    def fake_build(
+        runner: str, role: str, plugin_dir: object, model: str, *, grader_model: str | None = None
+    ) -> tuple[object, object]:
         seen[role] = model
+        judges[role] = grader_model
         return (object(), object())
 
     monkeypatch.setattr(run_agent_evals, "_build_runners", fake_build)
@@ -1712,6 +1717,83 @@ def test_agent_eval_uses_model_tier_from_settings(
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     run_agent_evals.main(["x", "--runner", "claude", "--role", "reviewer"])
     assert seen["reviewer"] == models_lib.TIERS["simple"]  # the configured tier was applied
+    # ...to the role only: the judge stays on the run's model (ADR 0114).
+    assert judges["reviewer"] == models_lib.TIERS["default"]
+
+
+def test_agent_eval_grader_model_flag_sets_the_judge(monkeypatch: pytest.MonkeyPatch) -> None:
+    judges: dict[str, tuple[str, str | None]] = {}
+
+    def fake_build(
+        runner: str, role: str, plugin_dir: object, model: str, *, grader_model: str | None = None
+    ) -> tuple[object, object]:
+        judges[role] = (model, grader_model)
+        return (object(), object())
+
+    monkeypatch.setattr(
+        run_agent_evals.settings, "resolve", lambda *a, **k: types.SimpleNamespace(models={})
+    )
+    monkeypatch.setattr(run_agent_evals, "_build_runners", fake_build)
+    report = _FakeReport(True)
+    monkeypatch.setattr(run_agent_evals.agent_eval, "run_role", lambda *a, **k: report)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    argv = ["x", "--runner", "claude", "--role", "grader", "--model", "m-role"]
+    run_agent_evals.main([*argv, "--grader-model", "m-judge"])
+    assert judges["grader"] == ("m-role", "m-judge")
+    assert report.benchmark["grader_model"] == "m-judge"  # the benchmark names its judge
+
+
+def test_skill_eval_grader_stays_on_the_run_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    judges: dict[str, tuple[str, str | None]] = {}
+
+    def fake_build(
+        runner: str,
+        skill: str,
+        plugin_dir: object,
+        model: str,
+        roots: object = None,
+        *,
+        grader_model: str | None = None,
+    ) -> tuple[object, object]:
+        judges[skill] = (model, grader_model)
+        return (object(), object())
+
+    monkeypatch.setattr(
+        run_skill_evals.settings,
+        "resolve",
+        lambda *a, **k: types.SimpleNamespace(models={"python-patterns": "cheap"}),
+    )
+    monkeypatch.setattr(run_skill_evals, "_build_runners", fake_build)
+    monkeypatch.setattr(run_skill_evals.skill_eval, "run_skill", lambda *a, **k: _FakeReport(True))
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    run_skill_evals.main(["x", "--runner", "claude", "--skill", "python-patterns"])
+    from agentic_forge import models as models_lib
+
+    assert judges["python-patterns"] == (models_lib.TIERS["cheap"], models_lib.TIERS["default"])
+
+
+def test_build_runners_grades_on_the_grader_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    import _eval_cli
+
+    built: list[tuple[str, str]] = []
+
+    def fake_cli(*, allowed_tools: str, model: str, max_turns: int, env: object) -> str:
+        built.append((allowed_tools, model))
+        return model
+
+    monkeypatch.setattr(_eval_cli.agent_eval, "claude_cli_runner", fake_cli)
+    comp, judge = _eval_cli.build_runners(
+        "claude", allowed_tools="Read", model="m-role", grader_model="m-judge"
+    )
+    assert (comp, judge) == ("m-role", "m-judge")
+    assert built[1] == ("Read,Grep,Glob", "m-judge")
+    # No grader model: the grader runs on the component's model, as before.
+    _comp, judge = _eval_cli.build_runners("claude", allowed_tools="Read", model="m-role")
+    assert judge == "m-role"
+    monkeypatch.setattr(_eval_cli.agent_eval, "api_runner", lambda model: f"api:{model}")
+    assert _eval_cli.build_runners(
+        "api", allowed_tools="Read", model="m-role", grader_model="m-judge"
+    ) == ("api:m-role", "api:m-judge")
 
 
 def test_tier1_eval_uses_router_tier_from_settings(
@@ -1893,6 +1975,9 @@ def test_sync_models_apply_never_corrupts_body(
 # --- version-over-version A/B helper (ADR 0047) ------------------------------
 
 import _eval_cli  # noqa: E402
+from agentic_forge.models import TIERS as _TIERS  # noqa: E402
+
+_DEFAULT_MODEL = _TIERS["default"]
 
 
 class _FakeRep:
@@ -1976,7 +2061,7 @@ def test_run_agent_evals_version_regression_fails_the_run(
     h = tmp_path / "hist.json"
     benchmark.save_history(
         h,
-        [{"component": "reviewer", "model": "claude-opus-4-8",
+        [{"component": "reviewer", "model": _DEFAULT_MODEL,  # the runner's --model default
           "mean": 0.95, "stddev": 0.0, "n": 5}],
     )
     rep = _FakeReport(True, mean=0.5, max_regression=0.05)  # dropped 0.45 -> regression
@@ -1997,7 +2082,7 @@ def test_run_skill_evals_version_clean_records_baseline(
     h = tmp_path / "hist.json"
     benchmark.save_history(
         h,
-        [{"component": "python-patterns", "model": "claude-opus-4-8",
+        [{"component": "python-patterns", "model": _DEFAULT_MODEL,  # the runner's --model default
           "mean": 0.8, "stddev": 0.0, "n": 5}],
     )
     rep = _FakeReport(True, mean=0.95, max_regression=0.05)  # improved -> PASS
