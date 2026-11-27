@@ -7,6 +7,19 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Changed
+
+- **The session-start routing note gains one sentence naming the cheap-delegation pattern** (field item 6, threads
+  1212fbfd and 3c001b52; ADR 0113, amended). After the two routing sentences the note now says: "For large bulk
+  reading (a log, diff or document read only for a few facts) or a mechanical multi-file edit, delegate to a low-cost
+  subagent with a short brief and keep the judgement yourself; when and how: `<plugin>/patterns/cheap-delegation.md`."
+  The hook fills in the pattern's absolute path in this install, so the session can read it as given. A fleet found
+  that a cheaper subagent model made each delegation cheaper but started none until something said when to delegate;
+  the pattern alone reached a session only when it went looking for delegation advice. The sentence is about 240 characters
+  of context at every session start and after every compaction, and the same switch (`routing_note.enabled`,
+  `AGENTIC_FORGE_ROUTING_NOTE=0`) turns it off with the rest of the note. Tier-1b was run before and after, so the
+  sentence is known not to cost skill activation (numbers in ADR 0113's amendment).
+
 ## [2026.11.19] - 2026-11-27
 
 Follow-ups from 2026.11.15 and 2026.11.17: merge gates read past 100 review threads; the commit gate's narrowing runs

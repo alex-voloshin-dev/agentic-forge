@@ -19,7 +19,7 @@ def test_build_context_is_the_routing_note_when_there_is_no_vault(tmp_path: Path
     """The routing note is unconditional (ADR 0088): a session with no vault still needs to be
     told that skills are workflows to invoke, which is the whole intervention."""
     ctx = session_start.build_context(str(tmp_path))
-    assert ctx == session_start.SKILL_ROUTING_NOTE
+    assert ctx == session_start.routing_note()
     assert "invoke that skill" in ctx
 
 
@@ -41,7 +41,7 @@ def test_build_context_with_vault(tmp_path: Path) -> None:
     vault.add_note(tmp_path, "central", "Central idea", "the hub")
     ctx = session_start.build_context(str(tmp_path))
     assert "Project knowledge" in ctx and "[[central]]" in ctx
-    assert ctx.startswith(session_start.SKILL_ROUTING_NOTE)  # note first, then the vault map
+    assert ctx.startswith(session_start.routing_note())  # note first, then the vault map
 
 
 def test_main_emits_injection_json(tmp_path: Path, monkeypatch, capsys) -> None:
@@ -58,7 +58,7 @@ def test_main_injects_the_routing_note_without_a_vault(tmp_path: Path, monkeypat
     assert session_start.main() == 0
     data = json.loads(capsys.readouterr().out)
     injected = data["hookSpecificOutput"]["additionalContext"]
-    assert injected == session_start.SKILL_ROUTING_NOTE  # no vault, but the note still lands
+    assert injected == session_start.routing_note()  # no vault, but the note still lands
 
 
 def test_main_bad_stdin_is_safe(monkeypatch, capsys) -> None:
@@ -129,7 +129,7 @@ def test_a_broken_repo_config_is_told_to_the_operator_without_its_content(
     out = json.loads(captured.out)
     assert expected in out["systemMessage"] and "config.json" in out["systemMessage"]
     assert out["systemMessage"] in out["hookSpecificOutput"]["additionalContext"]
-    assert session_start.SKILL_ROUTING_NOTE in out["hookSpecificOutput"]["additionalContext"]
+    assert session_start.routing_note() in out["hookSpecificOutput"]["additionalContext"]
     assert "IGNORE-PREVIOUS-INSTRUCTIONS" not in captured.out
     assert "IGNORE-PREVIOUS-INSTRUCTIONS" not in captured.err
 
@@ -233,6 +233,7 @@ def test_routing_note_has_an_off_switch(tmp_path: Path, monkeypatch) -> None:
     vault.add_note(tmp_path, "central", "Central idea", "the hub")
     ctx = session_start.build_context(str(tmp_path))
     assert "Project knowledge" in ctx and session_start.SKILL_ROUTING_NOTE not in ctx
+    assert "cheap-delegation" not in ctx
 
 
 @pytest.mark.parametrize("where", ["repo", "home"])
@@ -262,7 +263,7 @@ def test_the_note_is_reinjected_after_compaction(tmp_path: Path, monkeypatch, ca
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
     assert session_start.main() == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["hookSpecificOutput"]["additionalContext"] == session_start.SKILL_ROUTING_NOTE
+    assert out["hookSpecificOutput"]["additionalContext"] == session_start.routing_note()
 
 
 def test_the_off_switch_is_documented_where_a_project_owner_looks() -> None:
@@ -280,4 +281,28 @@ def test_the_configuration_doc_quotes_the_note_verbatim() -> None:
     section = text.split("### The session-start routing note", 1)[1].split("\n### ", 1)[0]
     block = section.split("\n\n> ", 1)[1].split("\n\n", 1)[0]
     quoted = " ".join(line.removeprefix(">").strip() for line in ("> " + block).splitlines())
-    assert quoted == session_start.SKILL_ROUTING_NOTE
+    pattern = "<plugin>/patterns/cheap-delegation.md"  # the doc cannot know the install path
+    sentence = session_start.DELEGATION_SENTENCE.format(pattern=pattern)
+    assert quoted == f"{session_start.SKILL_ROUTING_NOTE} {sentence}"
+
+
+def test_the_delegation_sentence_names_the_shipped_pattern() -> None:
+    """Item 6 (ADR 0113, amended 2026-11-27): one sentence after the routing note says when to hand
+    bulk reading or a mechanical edit to a low-cost subagent and where the pattern is. The path is
+    this install's real file, so the session can read it as given."""
+    note = session_start.routing_note()
+    assert note.startswith(session_start.SKILL_ROUTING_NOTE + " ")
+    path = Path(note.rsplit("when and how: ", 1)[1].removesuffix("."))
+    assert path.is_absolute() and path.name == "cheap-delegation.md" and path.is_file()
+    assert path == _REPO / "plugin" / "patterns" / "cheap-delegation.md"
+    sentence = note.removeprefix(session_start.SKILL_ROUTING_NOTE + " ")
+    assert "low-cost subagent" in sentence and "keep the judgement yourself" in sentence
+    # injected at every start and compaction: the whole note stays three sentences and short
+    assert len(session_start.SKILL_ROUTING_NOTE) + len(session_start.DELEGATION_SENTENCE) <= 750
+    assert session_start.DELEGATION_SENTENCE.count(". ") == 0
+
+
+def test_the_delegation_sentence_is_off_with_the_note(tmp_path: Path, monkeypatch) -> None:
+    """One switch: the A/B that turns the routing note off turns this sentence off too."""
+    monkeypatch.setenv("AGENTIC_FORGE_ROUTING_NOTE", "0")
+    assert "cheap-delegation" not in session_start.build_context(str(tmp_path))

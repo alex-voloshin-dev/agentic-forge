@@ -138,8 +138,8 @@ skills link to it rather than restating it:
   the brief (answer form and a line cap; a clerk keeps everything not named and changes nothing
   where an anchor is not unique), a clerk always in its own worktree pinned to the caller's commit,
   and the caller's check: the worktree's staged file list against the brief's, then one item at the
-  source. A pattern only: the low-cost `reader` and `clerk` roles and a routing-note sentence wait
-  for their own eval runs.
+  source. Since field item 6 one routing-note sentence names the pattern (measured on Tier-1b before
+  and after, ADR 0113 amendment). The low-cost `reader` and `clerk` roles wait for their own eval runs.
 
 Deferred to later stages: research fan-out at scale (the fan-out/fan-in *pattern* itself shipped in
 Stage 2 — see [spine.md](spine.md) and

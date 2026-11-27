@@ -40,6 +40,23 @@ SKILL_ROUTING_NOTE = (
     "than doing the work directly; the skill itself scales its process to the size of the change."
 )
 
+# Item 6 of the field queue (ADR 0113, amended 2026-11-27): a fleet found that setting a cheaper
+# subagent model made each delegation cheaper but started none — eleven sessions over two weeks did
+# not hand off bulk reading until a pattern said when. The pattern alone reaches a session only when
+# it goes looking for delegation advice, so one sentence here names it. `{pattern}` becomes the
+# pattern's absolute path in this install, which the session can `Read` as is.
+DELEGATION_SENTENCE = (
+    "For large bulk reading (a log, diff or document read only for a few facts) or a mechanical "
+    "multi-file edit, delegate to a low-cost subagent with a short brief and keep the judgement "
+    "yourself; when and how: {pattern}."
+)
+_DELEGATION_PATTERN = Path(__file__).resolve().parents[2] / "patterns" / "cheap-delegation.md"
+
+
+def routing_note(pattern: Path = _DELEGATION_PATTERN) -> str:
+    """The whole note: the routing sentences, then the delegation one naming ``pattern``."""
+    return f"{SKILL_ROUTING_NOTE} {DELEGATION_SENTENCE.format(pattern=pattern)}"
+
 
 def build_context(cwd: str) -> str:
     """The ``additionalContext`` to inject for repo ``cwd``.
@@ -48,7 +65,7 @@ def build_context(cwd: str) -> str:
     ``routing_note.enabled`` is off (``AGENTIC_FORGE_ROUTING_NOTE=0`` — the switch its own A/B uses,
     ADR 0091). The vault map follows when there is one."""
     summary = vault.session_summary(cwd)
-    note = SKILL_ROUTING_NOTE if settings.resolve(cwd).routing_note_enabled else ""
+    note = routing_note() if settings.resolve(cwd).routing_note_enabled else ""
     parts = [p for p in (note, summary) if p.strip()]
     return "\n\n".join(parts)
 
