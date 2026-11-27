@@ -305,10 +305,15 @@ a fresh directory holding its files, whatever `--isolate` says, and the prompt *
 ("These files are in your working directory; read them there:") instead of pasting their text, so
 the role reads them with its own tools: that is the `reader`'s job, and a pasted log would test
 something else. The grader runs in the same directory and reads what the role left there. Such a
-case needs `--runner claude`: `run_agent_evals` and `run_skill_evals` refuse a component with one
-under `--runner api` (no tools to open the named files) before any model call, naming the case ids.
-The dry runner rejects any other value, and a fixture path that is absolute or holds a `..` or
-`.git` part.
+case needs `--runner claude`. Under `--runner api` (no tools to open the named files),
+`run_agent_evals` and `run_skill_evals` **skip** each component that has one, before its runner
+exists, printing an error that names the case ids; they run every other component and exit 1 at
+the end. A plain `run_agent_evals --runner api` therefore runs every role but `reader`. A contract
+that does not parse costs only its own component. The dry runner rejects any other value. Every
+fixture path, on the dry run and on a live run alike, is checked before the first file is read,
+written or sent to a model: it may not be absolute or hold a `..` or `.git` part, the file it
+resolves to (symlinks followed) must lie inside the plugin directory, and its destination must
+resolve inside the case's workspace.
 
 **The session runs the plugin under test.** Both Tier-2 runners set `CLAUDE_PLUGIN_ROOT` to the
 `--plugin` directory, so a skill body that invokes its script as

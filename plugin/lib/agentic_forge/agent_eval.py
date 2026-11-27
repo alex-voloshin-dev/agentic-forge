@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from . import benchmark, gate
-from .evals import eval_case_problems, fixture_dest, load_evals
+from .evals import EvalsError, checked_fixture, eval_case_problems, fixture_dest, load_evals
 from .frontmatter import parse as parse_frontmatter
 
 __all__ = [
@@ -327,10 +327,11 @@ def load_fixtures(plugin_dir: Path, files: list[str]) -> str:
     the path below a ``tree/`` segment), never their repo-relative path, so a prompt never hands
     a role a path it could resolve back to the real repository (see materialize_fixtures).
     """
-    blocks = []
-    for rel in files:
-        path = plugin_dir / rel
-        blocks.append(f"--- FILE: {fixture_dest(rel)} ---\n{path.read_text(encoding='utf-8')}")
+    sources = [(rel, checked_fixture(plugin_dir, rel)) for rel in files]  # all, before any read
+    blocks = [
+        f"--- FILE: {fixture_dest(rel)} ---\n{path.read_text(encoding='utf-8')}"
+        for rel, path in sources
+    ]
     return "\n\n".join(blocks)
 
 
@@ -342,11 +343,25 @@ def materialize_fixtures(plugin_dir: Path, files: list[str], workdir: Path) -> N
     An isolated role then works on these copies in its own working directory and can never
     reach — or mutate — the real fixture files in the repo. This is the isolation guarantee for
     write roles (software-engineer, architect, qa-engineer).
+
+    Every path is checked before the first write (ADR 0116): each source by
+    :func:`~agentic_forge.evals.checked_fixture` (no absolute path, no ``..`` or ``.git`` part, and
+    inside the plugin directory with symlinks followed), and each destination, resolved, inside
+    ``workdir``. A refused path raises :class:`~agentic_forge.evals.EvalsError` and writes nothing.
     """
+    root = workdir.resolve()
+    plan: list[tuple[Path, Path]] = []
     for rel in files:
+        source = checked_fixture(plugin_dir, rel)
         target = workdir / fixture_dest(rel)
+        try:
+            target.resolve().relative_to(root)
+        except ValueError:
+            raise EvalsError(f"fixture path {rel} lands outside the workspace") from None
+        plan.append((source, target))
+    for source, target in plan:
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text((plugin_dir / rel).read_text(encoding="utf-8"), encoding="utf-8")
+        target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
 
 
 def build_role_prompt(
@@ -660,7 +675,13 @@ def run_eval_cases(
     under ``run_summary.with_skill.sessions``; :func:`gate.tier2_quality` fails the run when more
     than :data:`gate.MAX_UNDETERMINED` of them went unmeasured, and the summary line prints the
     count either way.
+
+    Every case's fixture paths are checked first (ADR 0116), so a refused path raises
+    :class:`~agentic_forge.evals.EvalsError` before any case writes a file or calls a model.
     """
+    for case in cases:
+        for rel in case.get("files") or []:
+            checked_fixture(plugin_dir, rel)
     gradings, timing, sessions = _run_passes(
         system_body,
         cases,

@@ -142,18 +142,6 @@ def main(argv: list[str]) -> int:
         print("\nDry-run:", "OK" if ok else "problems found")
         return 0 if ok else 1
 
-    refusals = _eval_cli.workspace_refusals(
-        args.runner,
-        {
-            skill: skill_eval.resolve_skill_dir(plugin_dir, skill, roots) / "evals" / "evals.json"
-            for skill in skills
-        },
-    )
-    if refusals:  # before any model call (ADR 0116)
-        for line in refusals:
-            print(f"error: {line}", file=sys.stderr)
-        return 1
-
     _eval_cli.warn_if_api_key_set(args.runner)
 
     models_cfg = settings.resolve(plugin_dir.parent).models  # per-component tiers (ADR 0043)
@@ -168,6 +156,13 @@ def main(argv: list[str]) -> int:
             flush=True,
         )
         try:
+            skill_dir = skill_eval.resolve_skill_dir(plugin_dir, skill, roots)
+            contract = skill_dir / "evals" / "evals.json"
+            refusal = _eval_cli.workspace_refusal(args.runner, skill, contract)
+            if refusal:  # before this skill's runner exists, so before any model call (ADR 0116)
+                print(f"error: {refusal}", file=sys.stderr, flush=True)
+                all_passed = False
+                continue
             run_fn, grader_fn = _build_runners(
                 args.runner, skill, plugin_dir, model, roots, grader_model=grader_model
             )

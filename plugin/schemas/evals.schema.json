@@ -28,7 +28,7 @@
           "assertions": { "type": "array", "items": { "type": "string", "minLength": 1 } },
           "workspace": {
             "enum": ["dir"],
-            "$comment": "Tier-2 only (ADR 0116). 'dir': the case runs in a fresh working directory holding its files, and the prompt names the files instead of pasting them, so the component reads them with its tools. Needs a runner with tools; the eval CLIs refuse it under --runner api."
+            "$comment": "Tier-2 only (ADR 0116). 'dir': the case runs in a fresh working directory holding its files, and the prompt names the files instead of pasting them, so the component reads them with its tools. Needs a runner with tools; the eval CLIs skip its component under --runner api."
           }
         }
       }

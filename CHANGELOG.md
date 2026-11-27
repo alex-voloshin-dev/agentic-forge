@@ -22,9 +22,10 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
   `role_scope` can hold it, and ADR 0116 lists what that takes.
 - **An eval case may ask for its own workspace** (ADR 0116). `"workspace": "dir"` runs the case in a fresh directory
   holding its files, whatever `--isolate` says, and the prompt names the files instead of pasting them, so the role
-  reads them with its tools; the grader runs in the same directory. `run_agent_evals` and `run_skill_evals` refuse a
-  component with such cases under `--runner api` (no tools) before any model call. The schema and the dry runner
-  reject any other value.
+  reads them with its tools; the grader runs in the same directory. Under `--runner api` (no tools), `run_agent_evals`
+  and `run_skill_evals` skip each component with such cases before its runner exists, with an error naming the case
+  ids, run the rest and exit 1; a contract that does not parse costs only its own component. The schema and the dry
+  runner reject any other value.
 
 ### Changed
 
@@ -34,9 +35,12 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ### Fixed
 
-- **A Tier-2 fixture path may not leave the plugin directory** (ADR 0116). `eval_case_problems` (the dry runner's
-  wiring check) rejects a case's `files` entry that is absolute or holds a `..` or `.git` part, since the files are
-  copied into the role's sandbox.
+- **A Tier-2 fixture path may not leave the plugin directory or the workspace** (ADR 0116). One check,
+  `evals.fixture_path_problem`, behind the dry runner's wiring check, `load_fixtures`, `materialize_fixtures` and an
+  up-front pass in `run_eval_cases`: a case's `files` entry may not be absolute or hold a `..` or `.git` part, the file
+  it resolves to (symlinks followed) must lie inside the plugin directory, and its destination must resolve inside the
+  workspace. A refused path raises before any file is written or any model is called; before, only the dry runner
+  checked, and a live run copied `tree/../../outside.txt` out of the workspace.
 
 - **Harder Tier-2 cases for the four roles still at `default`** (ADR 0114 amendment). ADR 0114 measured all six roles
   at Opus 5.5 and Sonnet 5.5 and every set scored about 1.0 at both, so the sets could not tell the tiers apart and

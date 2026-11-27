@@ -110,15 +110,6 @@ def main(argv: list[str]) -> int:
         print("\nDry-run:", "OK" if ok else "problems found")
         return 0 if ok else 1
 
-    refusals = _eval_cli.workspace_refusals(
-        args.runner,
-        {role: plugin_dir / "agents" / "evals" / f"{role}.evals.json" for role in roles},
-    )
-    if refusals:  # before any model call (ADR 0116)
-        for line in refusals:
-            print(f"error: {line}", file=sys.stderr)
-        return 1
-
     _eval_cli.warn_if_api_key_set(args.runner)
 
     # Per-component tiers (ADR 0043). A role promoted in the shipped policy runs at that tier
@@ -137,6 +128,13 @@ def main(argv: list[str]) -> int:
             flush=True,
         )
         try:
+            refusal = _eval_cli.workspace_refusal(
+                args.runner, role, plugin_dir / "agents" / "evals" / f"{role}.evals.json"
+            )
+            if refusal:  # before this role's runner exists, so before any model call (ADR 0116)
+                print(f"error: {refusal}", file=sys.stderr, flush=True)
+                all_passed = False
+                continue
             role_fn, grader_fn = _build_runners(
                 args.runner, role, plugin_dir, model, grader_model=grader_model
             )

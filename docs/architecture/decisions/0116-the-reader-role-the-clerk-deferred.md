@@ -103,12 +103,17 @@ fixture into the prompt and ran in the plugin directory. So an eval case may now
 files (always, whatever `--isolate` says), the prompt **names** the files instead of pasting them, and the grader runs
 in the same directory. Cases without the key run as before.
 
-Such a case needs a runner with tools. `run_agent_evals` and `run_skill_evals` refuse a component with workspace cases
-under `--runner api` before any runner is built, naming the case ids and `--runner claude`
-(`_eval_cli.workspace_refusals`, `evals.workspace_case_ids`).
+Such a case needs a runner with tools. Under `--runner api`, `run_agent_evals` and `run_skill_evals` skip each
+component with workspace cases before its runner is built, with an error naming the case ids and `--runner claude`,
+run the others and exit 1 (`_eval_cli.workspace_refusal`, `evals.workspace_case_ids`). The contract is parsed inside
+the component's own error handler, so one that does not parse costs only that component.
 
-`eval_case_problems` also rejects a fixture path that is absolute or holds a `..` or `.git` part: the files of a case
-are copied into the role's sandbox, so one may not reach outside the plugin directory or into a repository's internals.
+The files of a case are copied into the role's sandbox, so one shared check, `evals.fixture_path_problem`, guards every
+use of a fixture path: the dry runner, `load_fixtures`, `materialize_fixtures` (every path before the first write) and
+a pass over all cases at the start of `run_eval_cases` (before any model call). A path may not be absolute or hold a
+`..` or `.git` part; the file it resolves to, symlinks followed, must lie inside the plugin directory; and its
+destination must resolve inside the workspace. Review found the first version of this check in the dry runner only,
+with a live run still copying `tree/../../outside.txt` out of the workspace.
 
 ### 4. The Tier-2 set
 
@@ -170,7 +175,8 @@ promotion), `role_scope.ROLE_TOOLS` and the hook's `HELD_ROLES`, the pattern, an
 - A session following the pattern has a named, held role for bulk reading, with its answer form, its secret rule and
   its refusals in the role rather than in every brief.
 - `role_scope` holds five roles now; the hook's early exit is unchanged for every other caller.
-- The eval schema has one new optional case key, available to skill Tier-2 sets too, and the api runner refuses it.
+- The eval schema has one new optional case key, available to skill Tier-2 sets too; the api runner skips the
+  components that use it.
 - Tier-0 pins the role: its file and contract exist, it is held read-only and its `tools:` line equals the hook's
   allowlist, it omits CLAUDE.md, it stays at `default` in `VALIDATED_TIERS`, and there is no clerk role file or
   contract.

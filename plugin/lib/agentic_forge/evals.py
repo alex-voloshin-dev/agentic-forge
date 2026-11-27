@@ -17,6 +17,8 @@ __all__ = [
     "EvalsError",
     "FIXTURE_TREE_MARKER",
     "WORKSPACES",
+    "checked_fixture",
+    "fixture_path_problem",
     "eval_case_problems",
     "workspace_case_ids",
     "fixture_dest",
@@ -66,8 +68,8 @@ FIXTURE_TREE_MARKER = "tree"
 
 # A case's optional ``workspace`` (ADR 0116): ``dir`` runs it in a fresh directory holding its files
 # and names them in the prompt instead of pasting them, so the component reads them with its tools
-# (a bulk reader's job). Such a case needs a runner with tools: the eval CLIs refuse it under
-# ``--runner api`` (:func:`workspace_case_ids`). See ``agent_eval._run_passes``.
+# (a bulk reader's job). Such a case needs a runner with tools: the eval CLIs skip its component
+# under ``--runner api`` (:func:`workspace_case_ids`). See ``agent_eval._run_passes``.
 WORKSPACES: tuple[str, ...] = ("dir",)
 # Path parts a case's ``files`` entry may not hold: ``..`` would reach outside the plugin directory,
 # and a ``.git`` part would read from (or seed the sandbox with) a repository's internals.
@@ -84,6 +86,39 @@ def fixture_dest(rel: str) -> str:
         below = parts[parts.index(FIXTURE_TREE_MARKER) + 1 :]
         return Path(*below).as_posix()
     return Path(rel).name
+
+
+def _inside(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
+def fixture_path_problem(plugin_dir: Path, rel: str) -> str | None:
+    """Why a case's ``files`` entry may not be used, or None. The one check behind the dry runner,
+    :func:`checked_fixture` and so every read and copy of a fixture (ADR 0116): a fixture is copied
+    into the role's sandbox, so its path may not be absolute or hold a ``..`` or ``.git`` part, and
+    the file it resolves to, symlinks followed, must lie inside the plugin directory."""
+    path = Path(rel)
+    if path.is_absolute() or path.anchor:
+        return "holds an absolute path"
+    bad = _FORBIDDEN_FILE_PARTS.intersection(path.parts)
+    if bad:
+        return "holds " + ", ".join(sorted(bad))
+    if not _inside((plugin_dir / rel).resolve(), plugin_dir.resolve()):
+        return "resolves outside the plugin directory"
+    return None
+
+
+def checked_fixture(plugin_dir: Path, rel: str) -> Path:
+    """The source path of a case's fixture, or :class:`EvalsError` when
+    :func:`fixture_path_problem` refuses it."""
+    problem = fixture_path_problem(plugin_dir, rel)
+    if problem:
+        raise EvalsError(f"fixture path {rel} {problem}")
+    return plugin_dir / rel
 
 
 def eval_case_problems(label: str, cases: list[dict[str, Any]], plugin_dir: Path) -> list[str]:
@@ -108,10 +143,9 @@ def eval_case_problems(label: str, cases: list[dict[str, Any]], plugin_dir: Path
         if len(set(dests)) != len(dests):
             problems.append(f"{label} case {cid}: duplicate fixture destinations {dests}")
         for rel in files:
-            bad = _FORBIDDEN_FILE_PARTS.intersection(Path(rel).parts)
-            if bad or Path(rel).is_absolute():
-                why = ", ".join(sorted(bad)) if bad else "an absolute path"
-                problems.append(f"{label} case {cid}: fixture path {rel} holds {why}")
+            problem = fixture_path_problem(plugin_dir, rel)
+            if problem:
+                problems.append(f"{label} case {cid}: fixture path {rel} {problem}")
                 continue
             if not (plugin_dir / rel).is_file():
                 problems.append(f"{label} case {cid}: missing fixture {rel}")
