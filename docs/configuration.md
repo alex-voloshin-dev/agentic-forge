@@ -58,13 +58,17 @@ repo, those four reviewer keys, `state.in_repo`, `knowledge.allow_external_vault
 
 Wording since ADR 0110 (amending ADR 0088).
 
-The `SessionStart` hook puts two sentences at the top of the session's context, before the vault map:
+The `SessionStart` hook puts three sentences at the top of the session's context, before the vault map
+(`<plugin>` is the plugin's install directory, filled in by the hook):
 
 > agentic-forge skills are WORKFLOWS, not reference material: each one runs a multi-step process
 > (fan-out, review gates, handoff artifacts) that doing the task by hand skips. When a request matches
 > an agentic-forge skill's description — reviewing a change, implementing a planned step, designing,
 > planning, researching, cutting a release — invoke that skill rather than doing the work directly;
-> the skill itself scales its process to the size of the change.
+> the skill itself scales its process to the size of the change. For large bulk reading (a log, diff
+> or document read only for a few facts) or a mechanical multi-file edit, delegate to a low-cost
+> subagent with a short brief and keep the judgement yourself; when and how:
+> <plugin>/patterns/cheap-delegation.md.
 
 It exists because a session left alone picked the matching skill for about a third of the requests
 squarely in its domain, and least often for the ones that looked easy to do by hand (ADR 0088). It
@@ -75,6 +79,10 @@ as "use subagents only when the work needs them"; that clause is gone.
 
 The hook fires on every `SessionStart`, so the note is injected again after compaction; that is
 deliberate, because a compacted session has lost the first one and would otherwise stop routing.
+
+The third sentence came in with field item 6 (ADR 0113, amended): a fleet found that a cheaper subagent
+model made each delegation cheaper but started none, until something said when to delegate. It points
+at the pattern rather than restating it. The same switch turns it off with the rest of the note.
 
 **To switch it off** for a project, add this to `.agentic-forge/config.json` in the repo (or in
 `~/.agentic-forge/config.json` for every project):
