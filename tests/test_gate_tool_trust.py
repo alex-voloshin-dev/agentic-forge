@@ -169,18 +169,53 @@ def _unchecked(repo: Path) -> None:
     assert _skipped(repo) == [(local, guardrails.BIN_DIR_UNCHECKED)]
 
 
-@pytest.mark.parametrize("found", [None, "git"], ids=["no-git", "relative-git"])
+@pytest.mark.parametrize("relative", [False, True], ids=["no-git", "relative-git"])
 def test_no_git_by_an_absolute_path_distrusts_a_directory_in_a_checkout(
-    repo: Path, monkeypatch: pytest.MonkeyPatch, found: str | None
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative: bool
 ) -> None:
-    monkeypatch.setattr(guardrails.shutil, "which", lambda name, path=None: found)
+    """A `git` a relative PATH entry finds in the session's directory is never run."""
+    ran = tmp_path / "planted-git-ran"
+    _tool(tmp_path / "planted-bin" / "git", f"touch '{ran}'\n")
+    if relative:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("PATH", "planted-bin")
+    else:
+        monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     _unchecked(repo)
+    assert not ran.exists()
+
+
+def test_on_windows_the_tool_directory_check_runs_only_a_git_binary(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """As on Windows: a `git.cmd` on an absolute PATH entry is never chosen, so with nothing else
+    the directory is unchecked, as with no git; a later `git.exe` is the one asked."""
+    _tool(repo / ".venv" / "bin" / "ruff")
+    monkeypatch.setattr(guardrails, "_WINDOWS", True)
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+    shims, binaries = tmp_path / "win-cmd", tmp_path / "win-exe"
+    for directory, name in ((shims, "git.cmd"), (binaries, "git.EXE")):
+        directory.mkdir()
+        (directory / name).write_text("")
+    started: list[str] = []
+
+    def spy(argv: list[str], **kwargs: object) -> object:
+        started.append(argv[0])
+        raise OSError("not a program this host can run")
+
+    monkeypatch.setattr(guardrails.subprocess, "run", spy)
+    monkeypatch.setenv("PATH", str(shims))
+    assert guardrails._bin_dir_doubt(repo, ".venv/bin", 1e18) == guardrails.BIN_DIR_UNCHECKED
+    assert started == []
+    monkeypatch.setenv("PATH", os.pathsep.join([str(shims), str(binaries)]))
+    assert guardrails._bin_dir_doubt(repo, ".venv/bin", 1e18) == guardrails.BIN_DIR_UNCHECKED
+    assert started and set(started) == {str(binaries / "git.EXE")}
 
 
 def test_no_git_outside_a_checkout_still_resolves(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(guardrails.shutil, "which", lambda name, path=None: None)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     local = _tool(tmp_path.resolve() / ".venv" / "bin" / "ruff").parent
     assert guardrails.gate_bin_dirs(tmp_path) == [local]
 
@@ -659,6 +694,36 @@ def test_a_program_in_the_current_directory_is_never_chosen(
     monkeypatch.chdir(planted.parent)
     for path in (str(trusted.parent), os.pathsep.join(["", ".", str(trusted.parent)])):
         assert guardrails.executable(["ruff", "x"], path) == [str(trusted), "x"]
+
+
+@pytest.mark.parametrize("windows", [False, True], ids=["posix", "windows"])
+def test_trusted_program_reads_the_hooks_path_as_the_gate_does(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, windows: bool
+) -> None:
+    """The lookup the hooks' own git/gh runs use (`commit_dir`, the tool-directory check,
+    `role_scope`, `merge_preflight`): the hook's PATH, absolute entries only, on Windows an
+    `.exe`/`.com` only. A `git.cmd` on an absolute entry is never chosen; nothing found is None."""
+    root = tmp_path.resolve()
+    if windows:
+        monkeypatch.setattr(guardrails, "_WINDOWS", True)
+        monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+        (root / "cmd").mkdir()
+        (root / "cmd" / "git.cmd").write_text("")
+        (root / "exe").mkdir()
+        (root / "exe" / "git.EXE").write_text("")
+        trusted = root / "exe" / "git.EXE"
+    else:
+        monkeypatch.setattr(guardrails, "_WINDOWS", False)
+        _tool(root / "cmd" / "unrelated")
+        trusted = _tool(root / "exe" / "git")
+    _tool(root / "rel" / "git")  # found only through a relative entry
+    monkeypatch.chdir(root)
+    monkeypatch.setenv("PATH", os.pathsep.join(["rel", "", str(root / "cmd")]))
+    assert guardrails.trusted_program("git") is None
+    monkeypatch.setenv("PATH", os.pathsep.join(["rel", str(root / "cmd"), str(root / "exe")]))
+    assert guardrails.trusted_program("git") == str(trusted)
+    monkeypatch.delenv("PATH")
+    assert guardrails.trusted_program("git") is None
 
 
 def test_on_windows_a_binary_name_with_its_extension_is_tried_bare_first(

@@ -137,6 +137,19 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
   it resolves to (symlinks followed) must lie inside the plugin directory, and its destination must resolve inside the
   workspace. A refused path raises before any file is written or any model is called; before, only the dry runner
   checked, and a live run copied `tree/../../outside.txt` out of the workspace.
+- **The hooks' own git and gh runs, and the PR CLIs' gh and git, use the gate's lookup** (ADR 0115 amendment).
+  `guardrails.commit_dir`, the tool-directory check (`guardrails._bin_dir_doubt`), `role_scope._git_version` and
+  `merge_preflight`'s git and gh found their program with `shutil.which` and refused a relative answer, so on Windows
+  they could still choose a `git.cmd`/`gh.cmd` from an absolute `PATH` entry, which runs through cmd.exe. They now
+  call `guardrails.trusted_program(name)`: `_find_program` on the hook's `PATH`, absolute entries only, on Windows an
+  `.exe`/`.com` only. Nothing found keeps each site's old answer: the start directory, the directory unchecked, an
+  unknown git version (so `--attr-source` is added), the local merge checks skipped with their notice, and the merge
+  gate unavailable ("gh is not installed or not on PATH by an absolute path"), failing open with its notice. A
+  relative entry is now skipped rather than ending the lookup, so a `gh` or `git` on a later absolute entry is the one
+  run. `af.py` (`_read_process`, `_read_raw`, `_git_answers`) and `plugin/bin/pr_watch.py` (every `gh`/`git` it starts,
+  through one `_run`) ran the bare name from the repository directory, where Windows searches first; they now run the
+  absolute path `guardrails.executable` returns, and nothing found is the `FileNotFoundError` a missing program
+  already gave. `af.py`'s read budget, `_READ_TIMEOUT_SECONDS`, is read at call time.
 
 
 ## [2026.11.20] - 2026-11-27

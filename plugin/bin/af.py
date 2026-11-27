@@ -212,11 +212,24 @@ def _refuse_bare_discovery() -> None:
     os.environ["GIT_CONFIG_COUNT"] = str(count + 1)
 
 
-def _read_process(argv: list[str], timeout: float = _READ_TIMEOUT_SECONDS) -> str:
-    """Run a read-only command (``gh`` or ``git``) and return its stdout, or raise saying why."""
+def _trusted(argv: list[str]) -> list[str]:
+    """``argv`` with its program (``gh`` or ``git``) replaced by the absolute path the hooks would
+    run: looked up by ``guardrails.executable`` in the absolute ``PATH`` entries only, on Windows an
+    `.exe`/`.com` only. These commands run from the repository, and a bare name may be found there
+    (Windows searches the current directory first) or reach a `gh.cmd` that cmd.exe reads
+    (ADR 0115). Nothing found raises ``FileNotFoundError``, as running the bare name did."""
+    from agentic_forge import guardrails
+
+    return guardrails.executable(argv, os.environ.get("PATH", ""))
+
+
+def _read_process(argv: list[str], timeout: float | None = None) -> str:
+    """Run a read-only command (``gh`` or ``git``) and return its stdout, or raise saying why.
+    ``timeout`` defaults to :data:`_READ_TIMEOUT_SECONDS`, read at call time."""
+    timeout = _READ_TIMEOUT_SECONDS if timeout is None else timeout
     try:
         done = subprocess.run(
-            argv, capture_output=True, encoding="utf-8", errors="replace", check=False,
+            _trusted(argv), capture_output=True, encoding="utf-8", errors="replace", check=False,
             timeout=timeout,
         )
     except FileNotFoundError:
@@ -234,7 +247,7 @@ def _read_raw(argv: list[str]) -> str:
     number after it, so a comment lands on the wrong line or is refused."""
     try:
         done = subprocess.run(
-            argv, capture_output=True, check=False, timeout=_READ_TIMEOUT_SECONDS,
+            _trusted(argv), capture_output=True, check=False, timeout=_READ_TIMEOUT_SECONDS,
         )
     except FileNotFoundError:
         raise ValueError(f"{argv[0]} is not on PATH") from None
@@ -653,8 +666,8 @@ def _git_answers(repo: str, *args: str) -> tuple[int, str]:
     """A git question whose exit code is the answer."""
     try:
         done = subprocess.run(
-            ["git", "-C", repo, *args], capture_output=True, encoding="utf-8", errors="replace",
-            check=False, timeout=_READ_TIMEOUT_SECONDS,
+            _trusted(["git", "-C", repo, *args]), capture_output=True, encoding="utf-8",
+            errors="replace", check=False, timeout=_READ_TIMEOUT_SECONDS,
         )
     except (OSError, subprocess.TimeoutExpired):
         return 127, ""

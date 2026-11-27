@@ -212,8 +212,8 @@ merge-preflight hook. It needs no setting and has none: it applies whether or no
 - **Which hosts it asks.** Only `github.com` and the host of the checkout's `origin` remote. A merge naming another host
   (in a URL, `-R HOST/OWNER/REPO` or `GH_HOST`) merges unchecked, with a notice: the hook runs before you are asked to
   allow the command, so it must not call a host the command chose.
-- **When it lets the merge through unchecked**, always with a one-line notice saying why: `gh` is missing, found only
-  through a relative PATH entry, or not logged in; GitHub or the network fails; `gh` does not answer within 12 s; its
+- **When it lets the merge through unchecked**, always with a one-line notice saying why: `gh` is missing, or not on
+  PATH by an absolute path (a relative PATH entry is skipped; on Windows only `gh.exe` runs), or not logged in; GitHub or the network fails; `gh` does not answer within 12 s; its
   answer cannot be read; the PR is not open; or the command cannot be attributed to one PR as it will be when it merges
   (two merges, a flag `gh pr merge` does not have, a shell expansion or substitution, a `cd` that may not take effect,
   a `GH_*` variable other than `GH_REPO`/`GH_HOST`/a token, anything off the list above before it).

@@ -47,14 +47,13 @@ from __future__ import annotations
 import os
 import re
 import shlex
-import shutil
 import subprocess
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
 from . import artifact_home
-from .guardrails import ALLOW, Decision, redact_secrets
+from .guardrails import ALLOW, Decision, redact_secrets, trusted_program
 
 __all__ = [
     "Decision",
@@ -489,10 +488,11 @@ def _quote(word: str) -> str:
 @lru_cache(maxsize=1)
 def _git_version() -> tuple[int, int] | None:
     """The (major, minor) version of the ``git`` on the hook's PATH, asked once per process (one
-    hook call), or None when it cannot be told. Only an absolute path to git is run: a relative
-    PATH entry could find a `git` in the reviewed checkout."""
-    git = shutil.which("git")
-    if not git or not os.path.isabs(git):
+    hook call), or None when it cannot be told. Only a git found by ``guardrails.trusted_program``
+    is run: a relative PATH entry could find a `git` in the reviewed checkout, and on Windows a
+    `git.cmd` would run through cmd.exe (ADR 0115)."""
+    git = trusted_program("git")
+    if git is None:
         return None
     try:
         done = subprocess.run(

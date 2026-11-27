@@ -30,7 +30,14 @@ from typing import Any
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]  # plugin/ — this ships to users
 sys.path.insert(0, str(_PLUGIN_ROOT / "lib"))
 
-from agentic_forge import agent_eval, diagnostics, models, pr_watch, settings  # noqa: E402
+from agentic_forge import (  # noqa: E402
+    agent_eval,
+    diagnostics,
+    guardrails,
+    models,
+    pr_watch,
+    settings,
+)
 
 # How a fixer session runs (ADR 0103; `tests/test_fixer_real_cli.py` measures it on the real CLI).
 # The tree is a pull request's, and the comment is untrusted however it got here.
@@ -90,6 +97,15 @@ _SE_SYSTEM = (
 _FETCH_SECONDS = 120  # the whole read of one PR's state, its review-thread pages included
 
 
+def _run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[Any]:
+    """:func:`subprocess.run` with ``argv``'s program (``gh`` or ``git``) by absolute path, looked
+    up as the hooks do (``guardrails.executable``: the absolute ``PATH`` entries only, on Windows an
+    `.exe`/`.com` only). These run from the PR's tree, where a bare name may be found (Windows
+    searches the current directory first), and a `gh.cmd` would run through cmd.exe (ADR 0115).
+    Nothing found raises ``FileNotFoundError`` before any process starts, as the bare name did."""
+    return subprocess.run(guardrails.executable(argv, os.environ.get("PATH", "")), **kwargs)
+
+
 def _fetch(repo: Path, owner: str, name: str, number: int) -> dict[str, Any]:  # pragma: no cover
     """Fetch the PR's review state via `gh api graphql`, its review threads past the first 100
     included (:func:`pr_watch.read_all_threads`), all within :data:`_FETCH_SECONDS`. A thread page
@@ -101,7 +117,7 @@ def _fetch(repo: Path, owner: str, name: str, number: int) -> dict[str, Any]:  #
         left = deadline - time.monotonic()
         if left <= 0:
             raise subprocess.TimeoutExpired(argv, _FETCH_SECONDS)
-        out = subprocess.run(
+        out = _run(
             argv, cwd=str(repo), capture_output=True, text=True, check=True, timeout=left,
         ).stdout
         return json.loads(out)
@@ -115,7 +131,7 @@ def _fetch(repo: Path, owner: str, name: str, number: int) -> dict[str, Any]:  #
 
 def _gh_exec(repo: Path) -> pr_watch.GhExec:  # pragma: no cover
     def run(argv: list[str]) -> None:
-        subprocess.run(argv, cwd=str(repo), capture_output=True, text=True, check=True, timeout=600)
+        _run(argv, cwd=str(repo), capture_output=True, text=True, check=True, timeout=600)
 
     return run
 
@@ -124,9 +140,7 @@ def _pusher(repo: Path, branch: str) -> pr_watch.Push:  # pragma: no cover
     def push() -> None:
         argv = pr_watch.push_argv(str(repo), branch)
         argv[1:1] = ["-c", "core.hooksPath=/dev/null"]  # disable pre-push hooks (see _git)
-        subprocess.run(
-            argv, cwd=str(repo), capture_output=True, text=True, check=True, timeout=120
-        )
+        _run(argv, cwd=str(repo), capture_output=True, text=True, check=True, timeout=120)
 
     return push
 
@@ -136,7 +150,7 @@ def _read_permission(  # pragma: no cover -- real `gh api`
 ) -> bool:
     """What GitHub says ``login`` may do on ``slug``. Anything but a clear yes is a no."""
     try:
-        done = subprocess.run(
+        done = _run(
             pr_watch.permission_argv(slug, login),
             cwd=str(repo), capture_output=True, text=True, timeout=60,
         )
@@ -161,7 +175,7 @@ def _merger(  # pragma: no cover
     ``head_commit`` is the commit that gate read: GitHub refuses the merge if the head has moved."""
 
     def merge() -> None:
-        subprocess.run(
+        _run(
             pr_watch.merge_argv(slug, number, method, head_commit=head_commit),
             cwd=str(repo), capture_output=True, text=True, check=True, timeout=300,
         )
@@ -170,10 +184,10 @@ def _merger(  # pragma: no cover
 
 
 def _merge_confirmer(
-    repo: Path, slug: str, number: int, *, run: Callable[..., Any] = subprocess.run
+    repo: Path, slug: str, number: int, *, run: Callable[..., Any] = _run
 ) -> pr_watch.ConfirmMerged:
     """Read the PR's own state — the outcome of a non-atomic `gh pr merge` (ADR 0065). ``run`` is
-    the subprocess seam (injected by the tests; production uses :func:`subprocess.run`)."""
+    the subprocess seam (injected by the tests; production uses :func:`_run`)."""
 
     def confirm() -> bool:
         done = run(
@@ -195,7 +209,7 @@ def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:  # pragma:
     # fork's) can ship hostile *tracked* hooks (husky / .githooks) that would otherwise run on
     # commit/merge — escaping the fixer's no-Bash bound. The watcher never needs the repo's own
     # hooks (ADR 0045 / security review).
-    return subprocess.run(
+    return _run(
         ["git", "-C", str(repo), "-c", "core.hooksPath=/dev/null", *args],
         capture_output=True, encoding="utf-8", errors="surrogateescape", timeout=120,
         env={**os.environ, "GIT_LFS_SKIP_SMUDGE": "1"},
@@ -208,7 +222,7 @@ def _pr_comment_bodies(  # pragma: no cover -- real `gh pr view`
     """The bodies of a PR's existing comments (for the conflict-notice idempotency check), or
     ``None`` when they could not be read — unknown is not the same as absent."""
     try:
-        done = subprocess.run(
+        done = _run(
             ["gh", "pr", "view", str(number), "-R", f"{owner}/{name}",
              "--json", "comments", "-q", ".comments[].body"],
             cwd=str(repo), capture_output=True, text=True, timeout=120,
@@ -244,7 +258,7 @@ def _conflict_handler(
     diagnostics log this writes to, when ``repo`` is a pass's tree."""
 
     def post_comment(argv: list[str]) -> None:  # pragma: no cover -- real `gh pr comment`
-        subprocess.run(argv, cwd=str(repo), capture_output=True, text=True, timeout=120)
+        _run(argv, cwd=str(repo), capture_output=True, text=True, timeout=120)
 
     post_notice = post or post_comment
 

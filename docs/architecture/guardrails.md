@@ -86,7 +86,9 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
   resolution, the `PATH` and the notice. Every component from the work-tree top down must be listed
   on disk with exactly its spelling (a case-insensitive filesystem), and git is asked from the
   directory's real path plus
-  each linked component of its name, with the same hardening. Outside a checkout (no `.git` at or
+  each linked component of its name, with the same hardening. That git, and `commit_dir`'s, is
+  `guardrails.trusted_program("git")` (absolute `PATH` entries only, on Windows a `git.exe`/`.com`
+  only); none found is doubt. Outside a checkout (no `.git` at or
   above) the directory is used as before; any doubt skips it. **A package-script gate is not run at
   all** when a `node_modules/.bin` of the package or of any parent is skipped: npm, pnpm and yarn
   put those back on the script's `PATH` themselves. That commit goes through ungated, with an
@@ -234,7 +236,8 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
     watcher would hold; it does not stop one that sets out to merge. Whatever it cannot attribute
     **fails open with a one-line notice** (on stderr and, since a hook's stderr on exit 0 reaches
     nobody, as a `systemMessage`) — never a silent pass, never a block on a guess: `gh` not on
-    PATH or found through a relative PATH entry, a host that is neither github.com nor the
+    PATH by an absolute path (a relative entry is skipped; on Windows only a `gh.exe`/`gh.com` is
+    run, never a `gh.cmd`), a host that is neither github.com nor the
     checkout's origin, not logged in, an API or network error (any
     non-zero exit), no answer within the budget, output that is not JSON or does not describe the
     PR it asked about (a tolerant parse of an empty answer would otherwise read as "no checks"), a
@@ -261,8 +264,9 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
     one per further 100 review threads, within one 12 s deadline; the git reads keep their own
     12 s, and the hook's timeout in `hooks.json` is 30 s (it was 15 s), so a stalled `gh` is a
     notice rather than a killed hook.
-  - **The local warnings** (git run by its absolute path only, like `gh`; without one they are
-    skipped with a notice) read `origin/HEAD`, the worktree list and the base branch's
+  - **The local warnings** (git run by its absolute path only, like `gh`, both found by
+    `guardrails.trusted_program`: absolute `PATH` entries only, on Windows an `.exe`/`.com` only;
+    without one they are skipped with a notice) read `origin/HEAD`, the worktree list and the base branch's
     ahead-count, and **warn** when another worktree holds the base branch or local `base` is
     ahead of upstream — the two conditions that break the *local* half of the merge (`'master' is
     already used by worktree`, `Not possible to fast-forward`). These **never block**: the merge
@@ -466,7 +470,9 @@ which cannot run), the global attributes file, implicitly found bare
 repositories, the git variables cleared below, and on git 2.41 and later every attribute the
 checkout's `.gitattributes` sets, so no clean filter, diff driver or textconv is selected; on git
 2.44 and later, lazy fetching in a partial clone. The hook asks `git --version` once per call, with
-a 3 s timeout, of the `git` on its own `PATH` and only by an absolute path; an unknown version gets
+a 3 s timeout, of the `git` on its own `PATH` and only by an absolute path
+(`guardrails.trusted_program`: absolute entries only, on Windows a `git.exe`/`git.com` only, never a
+`git.cmd`; ADR 0115, amendment 2); an unknown version gets
 `--attr-source`, so a git that rejects it fails to start instead of running without it. The hook's
 `PATH` can differ from the shell's: a newer git in the hook and an older one in the shell fails
 closed; the reverse leaves the option out and that call has the old-git residual. Not turned off: on git older than 2.41, a checkout's

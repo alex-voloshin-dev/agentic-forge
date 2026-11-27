@@ -27,7 +27,7 @@ import run_spine_e2e  # noqa: E402
 import run_tier1_evals  # noqa: E402
 import sync_models as sync_models_cli  # noqa: E402
 import validate as validate_cli  # noqa: E402
-from agentic_forge import diagnostics, schedule, settings  # noqa: E402
+from agentic_forge import diagnostics, models, schedule, settings  # noqa: E402
 
 
 def test_validate_cli_main_ok() -> None:
@@ -1725,6 +1725,10 @@ def test_run_spine_e2e_real_path(monkeypatch: pytest.MonkeyPatch) -> None:
 
 # --- model tiering wired into the runners (ADR 0043) -------------------------
 
+# A role the committed policy leaves unpromoted: it runs at --model and its frontmatter says
+# `inherit`. Derived, so promoting a role does not break these tests; test_models pins the policy.
+_UNPROMOTED = next(role for role, tier in models.VALIDATED_TIERS.items() if tier == "default")
+
 
 def test_agent_eval_uses_model_tier_from_settings(
     monkeypatch: pytest.MonkeyPatch,
@@ -1790,8 +1794,8 @@ def test_agent_eval_runs_a_promoted_role_at_its_shipped_tier(
     monkeypatch.setattr(
         run_agent_evals.settings, "resolve", lambda *a, **k: types.SimpleNamespace(models={})
     )
-    run_agent_evals.main(["x", "--runner", "claude", "--role", "grader", "--role", "reviewer"])
-    assert seen == {"grader": models_lib.TIERS["simple"], "reviewer": models_lib.TIERS["default"]}
+    run_agent_evals.main(["x", "--runner", "claude", "--role", "grader", "--role", _UNPROMOTED])
+    assert seen == {"grader": models_lib.TIERS["simple"], _UNPROMOTED: models_lib.TIERS["default"]}
     monkeypatch.setattr(
         run_agent_evals.settings,
         "resolve",
@@ -1823,9 +1827,9 @@ def test_agent_eval_grader_model_flag_sets_the_judge(monkeypatch: pytest.MonkeyP
     report = _FakeReport(True)
     monkeypatch.setattr(run_agent_evals.agent_eval, "run_role", lambda *a, **k: report)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    argv = ["x", "--runner", "claude", "--role", "reviewer", "--model", "m-role"]
+    argv = ["x", "--runner", "claude", "--role", _UNPROMOTED, "--model", "m-role"]
     run_agent_evals.main([*argv, "--grader-model", "m-judge"])
-    assert judges["reviewer"] == ("m-role", "m-judge")
+    assert judges[_UNPROMOTED] == ("m-role", "m-judge")
     assert report.benchmark["grader_model"] == "m-judge"  # the benchmark names its judge
 
 
@@ -2017,29 +2021,29 @@ def _agent_file(d: Path, role: str, model_line: str | None) -> Path:
 def test_sync_models_check_clean_skips_malformed(
     tmp_path: Path, capsys: pytest.CaptureFixture
 ) -> None:
-    _agent_file(tmp_path, "reviewer", "inherit")  # matches policy (default -> inherit)
+    _agent_file(tmp_path, _UNPROMOTED, "inherit")  # matches policy (default -> inherit)
     (tmp_path / "broken.md").write_text("no frontmatter here", encoding="utf-8")  # skipped
     assert sync_models_cli.main(["sync"], agents_dir=tmp_path) == 0
     assert "all agents match" in capsys.readouterr().out
 
 
 def test_sync_models_check_reports_drift(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
-    _agent_file(tmp_path, "reviewer", "claude-opus-4-8")  # drift: policy expects inherit
+    _agent_file(tmp_path, _UNPROMOTED, "claude-opus-4-8")  # drift: policy expects inherit
     assert sync_models_cli.main(["sync"], agents_dir=tmp_path) == 1  # check fails on drift
-    assert "drift reviewer" in capsys.readouterr().err
+    assert f"drift {_UNPROMOTED}" in capsys.readouterr().err
 
 
 def test_sync_models_apply_rewrites(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
-    p = _agent_file(tmp_path, "reviewer", "claude-opus-4-8")
+    p = _agent_file(tmp_path, _UNPROMOTED, "claude-opus-4-8")
     assert sync_models_cli.main(["sync", "--apply"], agents_dir=tmp_path) == 0
     assert "model: inherit" in p.read_text(encoding="utf-8")  # rewritten to the policy value
-    assert "synced reviewer" in capsys.readouterr().out
+    assert f"synced {_UNPROMOTED}" in capsys.readouterr().out
 
 
 def test_sync_models_apply_without_model_line_errors(
     tmp_path: Path, capsys: pytest.CaptureFixture
 ) -> None:
-    _agent_file(tmp_path, "reviewer", None)  # no model: line -> drift (None != inherit)
+    _agent_file(tmp_path, _UNPROMOTED, None)  # no model: line -> drift (None != inherit)
     assert sync_models_cli.main(["sync", "--apply"], agents_dir=tmp_path) == 1
     assert "no 'model:' line" in capsys.readouterr().err
 
@@ -2157,18 +2161,22 @@ def test_run_agent_evals_version_regression_fails_the_run(
     h = tmp_path / "hist.json"
     benchmark.save_history(
         h,
-        [{"component": "reviewer", "model": _DEFAULT_MODEL,  # the runner's --model default
+        [{"component": _UNPROMOTED, "model": _DEFAULT_MODEL,  # the runner's --model default
           "mean": 0.95, "stddev": 0.0, "n": 5,
-          # the setup a default reviewer run has: the reviewer loads CLAUDE.md, the judge (grader,
-          # omitClaudeMd: true) does not, over the claude runner — only a like setup is compared
-          # (ADR 0113, amended)
-          "omit_claude_md": "off", "grader_omit_claude_md": "on", "runner": "claude"}],
+          # the setup a default run of this role has: its own omitClaudeMd, the judge (grader,
+          # omitClaudeMd: true) without CLAUDE.md, over the claude runner — only a like setup is
+          # compared (ADR 0113, amended)
+          "omit_claude_md": (
+              "on" if run_agent_evals.agent_eval.omits_claude_md(_REPO / "plugin", _UNPROMOTED)
+              else "off"
+          ),
+          "grader_omit_claude_md": "on", "runner": "claude"}],
     )
     rep = _FakeReport(True, mean=0.5, max_regression=0.05)  # dropped 0.45 -> regression
     monkeypatch.setattr(run_agent_evals, "_build_runners", lambda *a, **k: (object(), object()))
     monkeypatch.setattr(run_agent_evals.agent_eval, "run_role", lambda *a, **k: rep)
     rc = run_agent_evals.main(
-        ["run", "--runner", "claude", "--role", "reviewer", "--benchmark-history", str(h)]
+        ["run", "--runner", "claude", "--role", _UNPROMOTED, "--benchmark-history", str(h)]
     )
     assert rc == 1  # the regression flips an otherwise-passing run to fail
 
@@ -2746,6 +2754,83 @@ def test_merge_confirmer_empty_output_is_unconfirmed_not_unmerged(tmp_path: Path
     )
     assert not result.merged
     assert result.merge_blocked_by == ["merge outcome unconfirmed: gh pr view returned no output"]
+
+
+# The watcher runs gh/git from the PR's tree: by absolute path only, as the hooks do (ADR 0115).
+
+_REAL_READ_PERMISSION = pr_watch_cli._read_permission  # before the autouse fixture replaces it
+
+
+def _windows_programs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spy: list[list[str]], stdout: str = "{}"
+) -> tuple[Path, Path]:
+    """As on Windows: ``win-cmd/{gh,git}.cmd`` (shims cmd.exe would run) and
+    ``win-exe/{gh,git}.EXE``, both absolute PATH entries; every process started is logged in
+    ``spy`` and answers ``stdout``."""
+    from agentic_forge import guardrails
+
+    monkeypatch.setattr(guardrails, "_WINDOWS", True)
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+    shims, binaries = tmp_path.resolve() / "win-cmd", tmp_path.resolve() / "win-exe"
+    for directory, ext in ((shims, ".cmd"), (binaries, ".EXE")):
+        directory.mkdir()
+        for name in ("gh", "git"):
+            (directory / f"{name}{ext}").write_text("")
+
+    def run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        spy.append(argv)
+        return subprocess.CompletedProcess(argv, 0, stdout, "")
+
+    monkeypatch.setattr(pr_watch_cli.subprocess, "run", run)
+    return shims, binaries
+
+
+@pytest.mark.parametrize("program", ["gh", "git"])
+def test_pr_watch_runs_gh_and_git_only_as_a_binary_on_an_absolute_path_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, program: str
+) -> None:
+    """A `gh.cmd`/`git.cmd` on an absolute PATH entry is never chosen: nothing found raises
+    `FileNotFoundError` before any process starts, as the missing bare name did; a later `.exe`
+    runs by its absolute path, the rest of the argv as given."""
+    started: list[list[str]] = []
+    shims, binaries = _windows_programs(tmp_path, monkeypatch, started)
+    monkeypatch.setenv("PATH", str(shims))
+    with pytest.raises(FileNotFoundError):
+        pr_watch_cli._run([program, "x"], cwd=str(tmp_path))
+    assert started == []
+    monkeypatch.setenv("PATH", os.pathsep.join([str(shims), str(binaries)]))
+    pr_watch_cli._run([program, "x"], cwd=str(tmp_path))
+    assert started == [[str(binaries / f"{program}.EXE"), "x"]]
+
+
+def test_pr_watch_seams_with_no_gh_binary_answer_as_with_no_gh(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only shims on PATH: each seam answers as it did when `gh` was missing — the permission is a
+    no, the comments unknown, the fetch and the merge check raise — and nothing starts."""
+    started: list[list[str]] = []
+    shims, binaries = _windows_programs(tmp_path, monkeypatch, started)
+    monkeypatch.setenv("PATH", str(shims))
+    assert _REAL_READ_PERMISSION(tmp_path, "o/r", "ann") is False
+    assert pr_watch_cli._pr_comment_bodies(tmp_path, "o", "r", 7) is None
+    with pytest.raises(FileNotFoundError):
+        pr_watch_cli._fetch(tmp_path, "o", "r", 7)
+    with pytest.raises(FileNotFoundError):
+        pr_watch_cli._merge_confirmer(tmp_path, "o/r", 7)()
+    with pytest.raises(FileNotFoundError):
+        pr_watch_cli._git(tmp_path, "status")
+    assert started == []
+
+
+def test_pr_watch_fetch_runs_the_gh_binary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pull_request = {"number": 7, "reviewThreads": {"nodes": []}}
+    answer = {"data": {"repository": {"pullRequest": pull_request}}}
+    started: list[list[str]] = []
+    shims, binaries = _windows_programs(tmp_path, monkeypatch, started, json.dumps(answer))
+    monkeypatch.setenv("PATH", os.pathsep.join([str(shims), str(binaries)]))
+    assert pr_watch_cli._fetch(tmp_path, "o", "r", 7)["data"]["repository"]["pullRequest"]
+    assert [argv[0] for argv in started] == [str(binaries / "gh.EXE")]
+    assert started[0][1:3] == ["api", "graphql"]
 
 
 # F12: an errored `gh pr list` is an error, not "no open PRs".
