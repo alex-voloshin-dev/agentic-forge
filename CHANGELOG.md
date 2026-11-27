@@ -7,6 +7,11 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.11.19] - 2026-11-27
+
+Follow-ups from 2026.11.15 and 2026.11.17: merge gates read past 100 review threads; the commit gate's narrowing runs
+git by absolute path.
+
 ### Fixed
 
 - **The merge gates read review threads past the first 100** (ADR 0110, second amendment). The merge gates (the
@@ -17,7 +22,8 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
   (`reviewThreads(first:100,after:$after)`) through each caller's own `gh api graphql` call and time budget: the
   hook's absolute `gh`, `--hostname` and 12-second deadline, one 120-second deadline in the watcher, one 60-second
   deadline in `af.py pr-state`. At most `THREAD_PAGES = 10` pages, 1,000 threads. It stays fail-closed: past the cap,
-  or when a later page fails, runs out of time, is not about this PR or has no usable cursor, the list is truncated
+  or when a later page fails, runs out of time, is not about this PR, has no usable cursor or does not say whether
+  more pages follow, the list is truncated
   and the PR is held, now with "review threads truncated (over 1000, or a page not read)". A failed first read in the
   hook still fails open with a notice, as before. `latestOpinionatedReviews` is unchanged.
 - **The commit gate's narrowing runs git by absolute path** (ADR 0115, amendment). `gate_scope`'s own git reads ran
