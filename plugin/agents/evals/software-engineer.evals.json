@@ -77,7 +77,7 @@
     {
       "id": 6,
       "prompt": "Implement task T2 from TASK.md in your working directory.",
-      "expected_output": "The code is normalised once (e.g. `code.upper()`) before both the COUPONS lookup and the redeemed-set check and record in pricing/coupons.py, so a mixed-case code is accepted and the single-use rule still holds across case variants; tests for both in tests/test_coupons.py; the whole suite run and passing; files touched limited to those two, with the unused import in pricing/format.py and the TODO in pricing/tax.py left in place (at most reported as follow-ups).",
+      "expected_output": "The code is normalised once (e.g. `code.upper()`) before both the COUPONS lookup and the redeemed-set check and record in pricing/coupons.py, so a mixed-case code is accepted and the single-use rule still holds across case variants; tests for both in tests/test_coupons.py; the whole suite run and passing; files touched limited to those two, with the unused import in pricing/format.py and the TODO in pricing/tax.py left in place (at most reported as follow-ups). If the agent runs `ruff check .`, it reports pre-existing findings in pricing/format.py (F401 for the unused `import os`; with ruff 0.17 defaults also UP031 for the percent-format); the correct response reports them as pre-existing and out of scope rather than fixing them. `ruff format --check .` reports every file already formatted, so a formatter run gives no reason to touch format.py or tax.py.",
       "files": [
         "eval/fixtures/software-engineer/case6/tree/TASK.md",
         "eval/fixtures/software-engineer/case6/tree/pyproject.toml",

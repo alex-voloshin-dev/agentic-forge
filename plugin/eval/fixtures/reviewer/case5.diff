@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000..c3c3c3c
 --- /dev/null
 +++ b/auth/token_cache.py
-@@ -0,0 +1,43 @@
+@@ -0,0 +1,49 @@
 +"""Process-wide cache for upstream access tokens.
 +
 +One entry per upstream service (there are four), refreshed a few times an hour. Loads are
@@ -34,13 +34,19 @@ index 0000000..c3c3c3c
 +        The expiry check, the load and the store all happen under ``self._lock``, so no
 +        other thread can observe or replace the entry between them. If ``loader`` raises,
 +        the lock is released by the ``with`` block and nothing is cached.
++
++        The TTL counts from the request: the clock is read before ``loader`` runs, so a
++        cached entry never outlives the token the identity provider issued. A token that
++        upstream still rejects (a 401) is dropped with ``invalidate``, so no clock-skew
++        margin is subtracted here.
 +        """
 +        with self._lock:
++            now = self._clock()
 +            entry = self._entries.get(key)
-+            if entry is not None and self._clock() < entry[1]:
++            if entry is not None and now < entry[1]:
 +                return entry[0]
 +            token, ttl = loader()
-+            self._entries[key] = (token, self._clock() + ttl)
++            self._entries[key] = (token, now + ttl)
 +            return token
 +
 +    def invalidate(self, key: str) -> None:
@@ -52,7 +58,7 @@ new file mode 100644
 index 0000000..d4d4d4d
 --- /dev/null
 +++ b/tests/test_token_cache.py
-@@ -0,0 +1,54 @@
+@@ -0,0 +1,72 @@
 +import threading
 +
 +from auth.token_cache import TokenCache
@@ -82,6 +88,24 @@ index 0000000..d4d4d4d
 +    assert cache.get("idp", counting_loader(calls)) == "tok1"
 +    clock.now = 160.0  # the expiry instant itself: reloaded
 +    assert cache.get("idp", counting_loader(calls)) == "tok2"
++
++
++def test_ttl_counts_from_the_request():
++    clock, calls = Clock(), []
++    cache = TokenCache(clock)
++
++    def slow_loader():
++        clock.now += 5.0  # the token request itself takes 5 s
++        calls.append(1)
++        return ("tok", 60.0)
++
++    cache.get("idp", slow_loader)  # requested at 100.0
++    clock.now = 159.999  # still valid: 60 s from the request, not from the load
++    cache.get("idp", slow_loader)
++    assert len(calls) == 1
++    clock.now = 160.0
++    cache.get("idp", slow_loader)
++    assert len(calls) == 2
 +
 +
 +def test_invalidate_forces_reload():

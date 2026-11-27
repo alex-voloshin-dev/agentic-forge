@@ -104,16 +104,23 @@ two cases each, built to separate a careful model from a weaker one rather than 
   plus a key leaked into the logs through a `requests` exception message; and a scary-looking but safe module
   (allowlisted `ORDER BY` f-string, resolve-then-contain path check, `tar` argv with `--`, MD5 as an ETag, `random`
   for jitter) that must come back clean.
-- **architect** (cases 4 and 5): a multi-region PRD whose 50 ms p99 cannot coexist with no-overdraft over a 90 ms
-  round trip, so the conflict must be named, resolved, recorded in an ADR and escalated; and a "live updates" PRD whose
+- **architect** (cases 4 and 5): a multi-region PRD whose goals cannot all hold (a 50 ms p99 for writes *and* for
+  reads that include every write acknowledged in either region, over a ~90 ms round trip; no-overdraft and fresh
+  reads against each region serving alone), so a conflict grounded in the PRD must be named, resolved, recorded in an
+  ADR and escalated; and a "live updates" PRD whose
   obvious design (WebSockets/SSE) is a stated non-goal, so the ADR must reject it for that reason and the chosen
   polling design must be sized against the service's headroom.
 - **software-engineer** (cases 5 and 6): a failing test that a lump-sum fix turns green while breaking the docstring's
   within-one-cent invariant; and a multi-file package where a case-insensitive coupon fix must also keep the
   single-use rule across case variants, without touching two files with planted unrelated issues.
 
-Every fixture was checked by execution where it is code: the reviewer diffs apply, the case-4 tests pass while a
-boundary test fails, the naive software-engineer fixes pass the visible tests while breaking the stated invariant.
+The code claims behind these cases are executed on every Tier-0 run by `tests/test_tier2_hard_fixtures.py`, offline
+and in-process on temp copies of the fixtures: the software-engineer case-5 floor-only code fails the visible test,
+the lump-sum fix passes both visible tests but returns `[4, 1, 1, 1, 1, 1, 1]` for `allocate(10, [1] * 7)`, and a
+largest-remainder fix passes and keeps the invariant; the case-6 suite is green as seeded, a lookup-only fix passes
+the case-insensitive check but lets `save10` be redeemed after `SAVE10`, and normalising once keeps single use; the
+reviewer case-4 diff's own tests pass while a session that fails `MAX_ATTEMPTS - 1` times exhausts the buggy loop
+(and succeeds once the loop is fixed), and the case-5 diff's four tests pass.
 
 No live run on the extended sets has been made yet, so the table above still describes the old sets, and the
 promotion of `reviewer`, `security-engineer`, `architect` and `software-engineer` waits for a Tier-2 run of the

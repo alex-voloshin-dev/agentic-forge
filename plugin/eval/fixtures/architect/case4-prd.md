@@ -21,9 +21,10 @@ from a phone in Europe and, an hour later, from a laptop in the US.
    already acknowledged in *either* region, would go below zero. Finance treats any
    overdraft as an incident.
 3. **Reads reflect every acknowledged write.** A balance read in either region shows every
-   debit and credit acknowledged anywhere, immediately after the acknowledgement.
-4. **Latency.** p99 of a debit or credit, as measured at the region's API edge, is at most
-   **50 ms** in both regions, for every customer.
+   debit and credit acknowledged anywhere: a read that starts after a write was acknowledged,
+   in either region, includes that write.
+4. **Latency.** p99 of a debit or credit, **and** p99 of a balance read, as measured at the
+   region's API edge, are each at most **50 ms** in both regions, for every customer.
 5. **Availability.** If one region is down, the other keeps serving its customers.
 
 ## Facts
