@@ -1963,8 +1963,20 @@ _SAFE_POSIX_PATH = "/usr/bin:/bin"
 
 def _absolute_path(path: str) -> str:
     """``path`` (a ``PATH`` value) without its empty and relative entries, which name the current
-    directory: the gate runs in the repository."""
-    return os.pathsep.join(p for p in path.split(os.pathsep) if p and os.path.isabs(p))
+    directory: the gate runs in the repository. On Windows an entry rooted only on the current
+    drive (``\\tools``) counts as relative too: it resolves against the drive the cwd is on."""
+    return os.pathsep.join(p for p in path.split(os.pathsep) if p and _is_anchored(p))
+
+
+def _is_anchored(entry: str, nt: bool = os.name == "nt") -> bool:
+    """An absolute entry that names its own root. On a real Windows host (``nt``) that also takes a
+    drive or UNC prefix: Python 3.9-3.12 call ``\\tools`` absolute, but it resolves against the
+    current directory's drive. Judged with ``ntpath`` there, so the rule is testable anywhere."""
+    if not nt:
+        return os.path.isabs(entry)
+    import ntpath
+
+    return ntpath.isabs(entry) and bool(ntpath.splitdrive(entry)[0])
 
 
 def _safe_default_path() -> str:
@@ -2036,14 +2048,22 @@ def trusted_program(name: str) -> str | None:
     ``PATH``, as the gate's program is found — absolute entries only, and on Windows an
     `.exe`/`.com` only. Not ``shutil.which``, which on Windows searches the current directory first
     and may choose a `git.cmd`, whose arguments cmd.exe reads (ADR 0115)."""
-    return _find_program(name, os.environ.get("PATH", ""))
+    return _find_program(name, _own_path())
 
 
 def trusted_argv(argv: list[str]) -> list[str]:
     """``argv`` as a hook or a shipped CLI runs it: :func:`executable` on this process's ``PATH``,
     so a bare ``git``/``gh`` becomes the absolute path :func:`trusted_program` finds. Nothing found
     raises ``FileNotFoundError`` before any process starts, as running a missing bare name did."""
-    return executable(argv, os.environ.get("PATH", ""))
+    return executable(argv, _own_path())
+
+
+def _own_path() -> str:
+    """This process's ``PATH`` for a trusted lookup; with ``PATH`` unset, the gate's fixed default
+    instead, as ``shutil.which`` fell back to its own. A ``PATH`` with only relative entries finds
+    nothing: that is the case the lookup exists for."""
+    path = os.environ.get("PATH")
+    return _safe_default_path() if path is None else path
 
 
 # Names that carry a credential, as words of an environment variable's name (ADR 0115). A name is

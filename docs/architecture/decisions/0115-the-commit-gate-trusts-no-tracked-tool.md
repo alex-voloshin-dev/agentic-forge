@@ -309,10 +309,23 @@ shell resolves.
 in `lib/`, but only the maintainer runners in `dev/` call them, on the maintainer's machine, in repositories they
 create themselves. No hook or shipped CLI reaches them. The other process starts that remain run no git or gh:
 
-- `agent_eval` runs `claude`;
+- `agent_eval` runs `claude` by name for the maintainer's eval runs. The one shipped caller that starts it in a tree it
+  does not trust, the PR watcher's fixer, runs in a pull request's worktree. There a bare name could resolve to a
+  `claude.exe` the branch committed, so the fixer passes the absolute path `trusted_program("claude")` finds
+  (`claude_cli_runner(program=...)`). If none is found it raises the same `FileNotFoundError` before any runner
+  exists, and the pass records the thread as undetermined. A `claude.cmd` is never chosen. `CreateProcess` would not
+  have run one for a bare name either, and the fixer's prompt carries text from PR comments, which cmd.exe would read.
+  (Security review of this amendment.)
 - `external_review` runs the operator's configured reviewer, resolved under ADR 0100;
 - `diag_bundle` runs `node` and `claude --version`, and only from `dev/`;
 - `run_scheduled._run_watcher` runs the Python interpreter on `pr_watch.py`.
+
+**Two lookup details.**
+
+- With `PATH` unset, `trusted_program` and `trusted_argv` use the gate's fixed default (`/usr/bin:/bin`, or System32),
+  as `shutil.which` fell back to `os.defpath`. A `PATH` with only relative entries still finds nothing.
+- On a real Windows host an entry also needs its own drive or UNC prefix. Python 3.9-3.12 call `\tools` absolute,
+  but it resolves against the current directory's drive.
 
 **One behaviour changes on purpose.** `shutil.which` stopped at the first entry holding the name, so a relative entry
 ahead of an absolute one ended the lookup in a refusal. Now the relative entry is skipped, as the gate's own lookup

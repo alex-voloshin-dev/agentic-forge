@@ -96,6 +96,9 @@ def test_claude_cli_runner_argv_and_parse(monkeypatch: pytest.MonkeyPatch) -> No
     # the operator's user-level settings/CLAUDE.md must NOT reach a graded run (ADR 0077)
     assert cmd[cmd.index("--setting-sources") + 1] == "project"
     assert "--strict-mcp-config" not in cmd  # an eval's project is the thing under test
+    run_abs = claude_cli_runner(program="/abs/claude")  # a caller that resolved the CLI itself
+    run_abs("SYS", "PROMPT", Path("/tmp"))
+    assert captured["cmd"][0] == "/abs/claude"
     assert "--model" in cmd and "claude-x" in cmd
     assert "--max-turns" in cmd and "7" in cmd
     assert captured["kw"]["cwd"] == "/tmp" and captured["kw"]["timeout"] == 900

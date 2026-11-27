@@ -2440,6 +2440,19 @@ def test_fixer_prose_without_a_diff_is_rejected_and_with_a_diff_is_fixed(tmp_pat
     assert fix(_THREAD) == ("fixed", "Addressed in abc1234.") and git.ran("commit")
 
 
+def test_fixer_runner_without_a_trusted_claude_starts_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No `claude` on an absolute PATH entry: the same FileNotFoundError a missing bare name gave,
+    raised before any runner exists, so the pass records the thread as undetermined."""
+    built: list[object] = []
+    monkeypatch.setattr(pr_watch_cli.agent_eval, "claude_cli_runner", lambda **k: built.append(k))
+    monkeypatch.setattr(pr_watch_cli.guardrails, "trusted_program", lambda name: None)
+    with pytest.raises(FileNotFoundError):
+        pr_watch_cli._fixer_runner("m", 10, "/scratch")
+    assert built == []
+
+
 def test_fixer_builds_a_bounded_runner(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     seen: dict[str, object] = {}
 
@@ -2448,7 +2461,10 @@ def test_fixer_builds_a_bounded_runner(monkeypatch: pytest.MonkeyPatch, tmp_path
         return lambda s, p, w: ""
 
     monkeypatch.setattr(pr_watch_cli.agent_eval, "claude_cli_runner", fake_runner)
+    monkeypatch.setattr(pr_watch_cli.guardrails, "trusted_program", lambda name: f"/abs/{name}")
     pr_watch_cli._fixer_runner("the-model", 10, "/a/fresh/scratch")
+    # the CLI by the gate's lookup, never a bare name a PR's tree could answer (ADR 0115, amended)
+    assert seen["program"] == "/abs/claude"
     assert seen["env"] == {"CLAUDE_CODE_TMPDIR": "/a/fresh/scratch"}
     assert seen["retries"] == 0  # one attempt: a retry loop could outlive the whole watch pass
     assert seen["call_timeout"] == pr_watch.fixer_timeout(10) == 144

@@ -164,6 +164,10 @@ trusted lookup.
   - `af.py`'s read budget, `_READ_TIMEOUT_SECONDS`, is now read at call time.
 
 
+  The PR watcher's fixer now starts `claude` by the same lookup: it runs in a pull request's worktree, where on Windows
+  a bare name could resolve to a `claude.exe` the branch committed. With `PATH` unset the lookup uses the gate's fixed
+  default, and on a Windows host a `PATH` entry must carry its own drive or UNC prefix.
+
 ## [2026.11.20] - 2026-11-27
 
 The Tier-3 `product-inception` scenario is a fair measurement and passes again (maintainer item M1); the routing
