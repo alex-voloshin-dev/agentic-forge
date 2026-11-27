@@ -35,6 +35,32 @@
         "The relevance-quality and/or latency-at-scale risk created by the constraint is explicitly called out",
         "The output is written as an artifact under docs/sdlc/<feature>/"
       ]
+    },
+    {
+      "id": 4,
+      "prompt": "From case4-prd.md, produce a technical design for the wallet-balance feature: a tech-design.md plus at least one ADR.",
+      "expected_output": "A design that states the PRD's goals conflict: accepting debits in either region with no overdraft and reads that reflect every acknowledged write needs coordination across the ~90 ms inter-region round trip, which cannot fit a 50 ms p99 for every debit. One resolution is chosen (e.g. a per-customer home region, with debits from the other region forwarded and slower) and the relaxed requirement is named; an ADR records the rejected alternatives (asynchronous multi-primary replication, synchronous cross-region consensus) with reasons tied to the PRD; the conflict is surfaced as a risk or a decision for the product owner. No code is written.",
+      "files": ["eval/fixtures/architect/case4-prd.md"],
+      "assertions": [
+        "The output states explicitly that the PRD's requirements conflict: no overdraft and reads reflecting every acknowledged write across both regions need coordination over the ~90 ms inter-region round trip, which cannot meet a 50 ms p99 for every debit (it does not claim every goal is met as written)",
+        "A resolution is chosen, and the output names which requirement it relaxes or scopes and for which requests (e.g. debits made outside the customer's home region exceed 50 ms, or reads in the other region may lag)",
+        "An ADR records at least one rejected alternative with a reason tied to the PRD's goals or numbers (e.g. asynchronous multi-primary replication rejected because it allows overdraft, or synchronous cross-region consensus on every debit rejected because it breaches the 50 ms p99)",
+        "The conflict is surfaced for a decision beyond the design: listed in the tech-design's risks or as an open question or required sign-off for the product owner, not silently resolved",
+        "Only design documents are written; no application code is created"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "From case5-prd.md, produce a technical design for live order status: a tech-design.md plus at least one ADR.",
+      "expected_output": "A design that meets the 60-second freshness goal without a connection tier or a vendor, e.g. the order page polls `GET /orders/{id}` with If-None-Match every 30 s, adding about 25,000 / 30 = ~830 requests/s (mostly 304s) to a service sized for 6,000 requests/s at a 2,200 peak; and an ADR that records WebSockets/SSE and hosted realtime services as rejected because of the PRD's non-goals. No code is written.",
+      "files": ["eval/fixtures/architect/case5-prd.md"],
+      "assertions": [
+        "The chosen design introduces no WebSocket or Server-Sent-Events gateway, no pub/sub fan-out cluster and no hosted push or realtime vendor (it honours the PRD's non-goals)",
+        "An ADR lists WebSockets or SSE (server push) as an alternative considered and rejected, and the stated reason cites the PRD's non-goal (no new stateful or long-lived connection infrastructure this half), not only generic complexity",
+        "The design states a concrete update mechanism and an interval below 60 seconds, so the 60-second freshness goal is met",
+        "The added load is estimated from the PRD's numbers (e.g. ~25,000 open pages divided by the interval, in requests per second) and compared with orders-api's capacity or headroom",
+        "Only design documents are written; no application code is created"
+      ]
     }
   ],
   "component": {

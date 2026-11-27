@@ -90,3 +90,31 @@ name a deployment or have a `modelOverrides` entry.
 - Cost was not measured in tokens per role at each tier; the saving is the price difference on the two roles' sessions,
   which the field data puts at 5 to 12 % of a fleet's spend for all subagents together.
 - Three or four cases a role, five runs each. The numbers say the cheaper model passes these cases, not more.
+
+## Amendment 2026-11-27: the four held-back sets are extended
+
+The known gap above is now addressed on the eval side. The Tier-2 sets of the four roles that stay at `default` gained
+two cases each, built to separate a careful model from a weaker one rather than to confirm the role's basic job:
+
+- **reviewer** (cases 4 and 5): an off-by-one in a retry loop that only shows against the contract documented in
+  another file of the same diff, whose own tests pass; and a correct lock-guarded cache with a strict expiry boundary
+  that looks like a race and an off-by-one (the verdict must be `approve`, with no false major).
+- **security-engineer** (cases 4 and 5): a second-order command injection where the value was HTML-escaped on input
+  and reaches a `shell=True` sink inside double quotes (only command substitution works; the case checks the payload),
+  plus a key leaked into the logs through a `requests` exception message; and a scary-looking but safe module
+  (allowlisted `ORDER BY` f-string, resolve-then-contain path check, `tar` argv with `--`, MD5 as an ETag, `random`
+  for jitter) that must come back clean.
+- **architect** (cases 4 and 5): a multi-region PRD whose 50 ms p99 cannot coexist with no-overdraft over a 90 ms
+  round trip, so the conflict must be named, resolved, recorded in an ADR and escalated; and a "live updates" PRD whose
+  obvious design (WebSockets/SSE) is a stated non-goal, so the ADR must reject it for that reason and the chosen
+  polling design must be sized against the service's headroom.
+- **software-engineer** (cases 5 and 6): a failing test that a lump-sum fix turns green while breaking the docstring's
+  within-one-cent invariant; and a multi-file package where a case-insensitive coupon fix must also keep the
+  single-use rule across case variants, without touching two files with planted unrelated issues.
+
+Every fixture was checked by execution where it is code: the reviewer diffs apply, the case-4 tests pass while a
+boundary test fails, the naive software-engineer fixes pass the visible tests while breaking the stated invariant.
+
+No live run on the extended sets has been made yet, so the table above still describes the old sets, and the
+promotion of `reviewer`, `security-engineer`, `architect` and `software-engineer` waits for a Tier-2 run of the
+extended sets at both tiers, judged by the same model.

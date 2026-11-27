@@ -470,7 +470,12 @@ runs a promoted role at its shipped tier unless `settings.models` names another,
 Tier-2 run measures what live delegation runs. The Tier-2 sets of
 all six scored about 1.0 at both Opus 5.5 and Sonnet 5.5, so they cannot tell the tiers apart:
 promote a reviewing, designing or implementing role only after harder, discriminating cases show
-it holds at the cheaper tier. A user who wants every subagent on one model sets
+it holds at the cheaper tier. Those cases now exist: the sets of `reviewer`, `security-engineer`
+and `architect` gained cases 4 and 5, and `software-engineer` cases 5 and 6 (a non-local defect, a
+second-order injection, a conflicting or non-goal-violating requirement, a fix that passes the
+visible test but breaks a stated invariant; the two review lenses also get a correct but
+suspicious-looking change that must pass without a false major — ADR 0114 amendment). Run the four at both tiers, judged by the same model, before promoting any of
+them. A user who wants every subagent on one model sets
 `CLAUDE_CODE_SUBAGENT_MODEL=<model>` with `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`, which overrides an
 agent's `model:` field.
 

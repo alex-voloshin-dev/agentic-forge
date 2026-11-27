@@ -1,0 +1,109 @@
+diff --git a/auth/token_cache.py b/auth/token_cache.py
+new file mode 100644
+index 0000000..c3c3c3c
+--- /dev/null
++++ b/auth/token_cache.py
+@@ -0,0 +1,43 @@
++"""Process-wide cache for upstream access tokens.
++
++One entry per upstream service (there are four), refreshed a few times an hour. Loads are
++deliberately serialised behind a single lock: concurrent misses for a key must trigger exactly
++one token request (the identity provider rate-limits us), and at this volume simplicity beats
++throughput. An entry is valid strictly before its expiry instant; at the instant itself it is
++reloaded.
++"""
++
++from __future__ import annotations
++
++import threading
++import time
++from collections.abc import Callable
++
++Loader = Callable[[], tuple[str, float]]  # returns (token, ttl_seconds)
++
++
++class TokenCache:
++    def __init__(self, clock: Callable[[], float] = time.monotonic) -> None:
++        self._lock = threading.Lock()
++        self._entries: dict[str, tuple[str, float]] = {}  # key -> (token, expires_at)
++        self._clock = clock
++
++    def get(self, key: str, loader: Loader) -> str:
++        """Return a valid token for ``key``, calling ``loader`` only on a miss or expiry.
++
++        The expiry check, the load and the store all happen under ``self._lock``, so no
++        other thread can observe or replace the entry between them. If ``loader`` raises,
++        the lock is released by the ``with`` block and nothing is cached.
++        """
++        with self._lock:
++            entry = self._entries.get(key)
++            if entry is not None and self._clock() < entry[1]:
++                return entry[0]
++            token, ttl = loader()
++            self._entries[key] = (token, self._clock() + ttl)
++            return token
++
++    def invalidate(self, key: str) -> None:
++        """Drop ``key`` so the next ``get`` reloads it (used after a 401 from upstream)."""
++        with self._lock:
++            self._entries.pop(key, None)
+diff --git a/tests/test_token_cache.py b/tests/test_token_cache.py
+new file mode 100644
+index 0000000..d4d4d4d
+--- /dev/null
++++ b/tests/test_token_cache.py
+@@ -0,0 +1,54 @@
++import threading
++
++from auth.token_cache import TokenCache
++
++
++class Clock:
++    def __init__(self) -> None:
++        self.now = 100.0
++
++    def __call__(self) -> float:
++        return self.now
++
++
++def counting_loader(calls, ttl=60.0):
++    def load():
++        calls.append(1)
++        return (f"tok{len(calls)}", ttl)
++
++    return load
++
++
++def test_hit_before_expiry_and_reload_at_expiry():
++    clock, calls = Clock(), []
++    cache = TokenCache(clock)
++    assert cache.get("idp", counting_loader(calls)) == "tok1"
++    clock.now = 159.999
++    assert cache.get("idp", counting_loader(calls)) == "tok1"
++    clock.now = 160.0  # the expiry instant itself: reloaded
++    assert cache.get("idp", counting_loader(calls)) == "tok2"
++
++
++def test_invalidate_forces_reload():
++    clock, calls = Clock(), []
++    cache = TokenCache(clock)
++    cache.get("idp", counting_loader(calls))
++    cache.invalidate("idp")
++    assert cache.get("idp", counting_loader(calls)) == "tok2"
++
++
++def test_concurrent_misses_load_once():
++    clock, calls = Clock(), []
++    cache = TokenCache(clock)
++    barrier = threading.Barrier(8)
++
++    def worker():
++        barrier.wait()
++        cache.get("idp", counting_loader(calls))
++
++    threads = [threading.Thread(target=worker) for _ in range(8)]
++    for t in threads:
++        t.start()
++    for t in threads:
++        t.join()
++    assert len(calls) == 1
