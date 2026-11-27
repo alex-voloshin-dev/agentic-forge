@@ -292,13 +292,14 @@ def test_the_delegation_sentence_names_the_shipped_pattern() -> None:
     this install's real file, so the session can read it as given."""
     note = session_start.routing_note()
     assert note.startswith(session_start.SKILL_ROUTING_NOTE + " ")
-    path = Path(note.rsplit("when and how: ", 1)[1].removesuffix("."))
+    path = Path(note.rsplit("when and how: ", 1)[1].removesuffix(".").strip("`"))
     assert path.is_absolute() and path.name == "cheap-delegation.md" and path.is_file()
     assert path == _REPO / "plugin" / "patterns" / "cheap-delegation.md"
     sentence = note.removeprefix(session_start.SKILL_ROUTING_NOTE + " ")
     assert "low-cost subagent" in sentence and "keep the judgement yourself" in sentence
-    # injected at every start and compaction: the whole note stays three sentences and short
-    assert len(session_start.SKILL_ROUTING_NOTE) + len(session_start.DELEGATION_SENTENCE) <= 750
+    # injected at every start and compaction: the whole note stays three sentences and short (the
+    # install path's own length is left out on purpose: it is the user's, not ours)
+    assert len(session_start.routing_note(Path("/p"))) <= 750
     assert session_start.DELEGATION_SENTENCE.count(". ") == 0
 
 

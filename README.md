@@ -82,10 +82,11 @@ one, type `/agentic-forge:<skill>` (e.g. `/agentic-forge:release`).
 At every session start the plugin adds three sentences to the session's context: agentic-forge
 skills are workflows, so a request that matches one should go through that skill, which scales its
 process to the size of the change; and large bulk reading or a mechanical multi-file edit goes to a
-low-cost subagent with a short brief, per the plugin's `patterns/cheap-delegation.md`. Without it, sessions picked the matching skill for about a third of the
-requests it fit (ADR 0088). It comes back after compaction, on purpose. To switch it off for a
-project, put `{"routing_note": {"enabled": false}}` in `.agentic-forge/config.json` (in the repo, or
-in `~/` for every project), or set `AGENTIC_FORGE_ROUTING_NOTE=0`. See
+low-cost subagent with a short brief, per the plugin's `patterns/cheap-delegation.md`. Without it,
+sessions picked the matching skill for about a third of the requests it fit (ADR 0088). It comes
+back after compaction, on purpose. To switch it off for a project, put `{"routing_note": {"enabled":
+false}}` in `.agentic-forge/config.json` (in the repo, or in `~/` for every project), or set
+`AGENTIC_FORGE_ROUTING_NOTE=0`. See
 [configuration](docs/configuration.md#the-session-start-routing-note).
 
 ## Skills by stage
