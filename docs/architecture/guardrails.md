@@ -217,7 +217,9 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
       come in pages of 100, each next page by the same `gh`, `--hostname` and deadline
       (`pr_watch.read_all_threads`), up to 10 pages (1,000 threads, resolved ones included); past
       that, or when a later page fails, times out or does not describe this PR, the list counts as
-      truncated and the PR is **held**, not let through (ADR 0110, second amendment). A PR
+      truncated and the PR is **held**, not let through (ADR 0110, second amendment). In the hook
+      the 12 s deadline, not the 1,000 cap, usually sets the practical limit: a very large, fully
+      resolved PR can be held here as truncated while the PR watcher, with its 120 s, merges it. A PR
       with **no checks at all** merges, with a notice: a repo without CI must be able to merge
       (the watcher still holds it — "no builds" is not "green builds", ADR 0063). `--auto` is held
       like a merge, since auto-merge waits only for *required* checks — **so a session cannot
@@ -256,8 +258,9 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
     the session's own rewrites are the operator's and trusted.
   - **Cost**: nothing for any other command — the check is the existing `is_pr_merge` parse, and
     `pr_watch` is imported only on a merge. On a merge, two `gh` calls (two API round trips), plus
-    one per further 100 review threads, within one 12 s deadline; the git reads keep their own 12 s, and the hook's timeout in
-    `hooks.json` is 30 s (it was 15 s), so a stalled `gh` is a notice rather than a killed hook.
+    one per further 100 review threads, within one 12 s deadline; the git reads keep their own
+    12 s, and the hook's timeout in `hooks.json` is 30 s (it was 15 s), so a stalled `gh` is a
+    notice rather than a killed hook.
   - **The local warnings** (git run by its absolute path only, like `gh`; without one they are
     skipped with a notice) read `origin/HEAD`, the worktree list and the base branch's
     ahead-count, and **warn** when another worktree holds the base branch or local `base` is

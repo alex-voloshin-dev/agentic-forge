@@ -447,8 +447,15 @@ def test_an_unresolved_thread_on_a_later_page_is_held() -> None:
         {"c1": {"data": {"repository": {"pullRequest": {"number": 7, "reviewThreads": {
             "pageInfo": {"hasNextPage": False}, "nodes": [None]}}}}}},
         {"c1": _threads_answer((True,), "c2", first=100)},  # and then c2 fails
+        {"c1": {"data": {"repository": {"pullRequest": {"number": 7, "reviewThreads": {
+            "pageInfo": {}, "nodes": []}}}}}},  # does not say whether more follow
+        {"c1": {"data": {"repository": {"pullRequest": {"number": 7, "reviewThreads": {
+            "pageInfo": {"hasNextPage": None}, "nodes": []}}}}}},
+        {"c1": {"data": {"repository": {"pullRequest": {"number": 7, "reviewThreads": {
+            "pageInfo": {"hasNextPage": "false"}, "nodes": []}}}}}},
     ],
-    ids=["fails", "errors", "another-pr", "null-node", "third-fails"],
+    ids=["fails", "errors", "another-pr", "null-node", "third-fails", "no-hasNextPage",
+         "null-hasNextPage", "string-hasNextPage"],
 )
 def test_a_thread_page_not_read_leaves_the_list_truncated(answers: dict[str, Any]) -> None:
     first = _threads_answer((True,), "c1", top=True)
@@ -502,6 +509,10 @@ def test_the_thread_page_query_and_argv() -> None:
     assert argv[:3] == ["gh", "api", "graphql"]
     assert argv[argv.index("-F") + 1] == "number=7"  # typed: an Int
     assert "-f" in argv and "after=Y3Vyc29y==" in argv and "owner=2048" in argv
+    # the cursor is safe as an untyped `-f` value inside one `after=` argument; `-F` would type it
+    assert argv[argv.index("after=Y3Vyc29y==") - 1] == "-f"
+    dashed = pr_watch.threads_page_argv("2048", "null", 7, "-c1")
+    assert dashed[dashed.index("after=-c1") - 1] == "-f" and "-c1" not in dashed
 
 
 def test_a_closed_or_merged_pr_is_not_mergeable() -> None:
