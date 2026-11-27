@@ -1219,3 +1219,91 @@ def test_workspace_case_ids_lists_only_workspace_cases() -> None:
 
     cases = [{"id": 1}, {"id": 2, "workspace": "dir"}, {"id": 3, "workspace": None}]
     assert workspace_case_ids(cases) == [2]
+
+
+# --- fixture containment on the live path (ADR 0116 review) ----------------------------------
+
+
+def _plugin_with_fixture(tmp_path: Path) -> Path:
+    plugin = tmp_path / "plugin"
+    tree = plugin / "eval" / "fixtures" / "x" / "tree" / "app"
+    tree.mkdir(parents=True)
+    (tree / "config.py").write_text("PORT = 1\n", encoding="utf-8")
+    return plugin
+
+
+def test_materialize_refuses_a_traversal_before_any_write(tmp_path: Path) -> None:
+    """`tree/../../outside.txt` passed only the dry runner's check before; a live run copied it
+    out of the workspace. Every path is now checked before the first write."""
+    from agentic_forge.evals import EvalsError
+
+    plugin = _plugin_with_fixture(tmp_path)
+    (plugin / "eval" / "fixtures" / "outside.txt").write_text("x", encoding="utf-8")
+    work = tmp_path / "work"
+    work.mkdir()
+    files = ["eval/fixtures/x/tree/app/config.py", "eval/fixtures/x/tree/../../outside.txt"]
+    with pytest.raises(EvalsError, match=r"holds \.\."):
+        materialize_fixtures(plugin, files, work)
+    assert list(work.iterdir()) == []  # not even the good file was written
+    with pytest.raises(EvalsError, match=r"holds \.\."):
+        load_fixtures(plugin, files)
+
+
+def test_a_symlinked_fixture_that_resolves_outside_is_refused(tmp_path: Path) -> None:
+    from agentic_forge.evals import EvalsError, fixture_path_problem
+
+    plugin = _plugin_with_fixture(tmp_path)
+    secret = tmp_path / "secret.txt"
+    secret.write_text("TOKEN", encoding="utf-8")
+    link = plugin / "eval" / "fixtures" / "x" / "leak.txt"
+    link.symlink_to(secret)
+    rel = "eval/fixtures/x/leak.txt"
+    assert fixture_path_problem(plugin, rel) == "resolves outside the plugin directory"
+    work = tmp_path / "work"
+    work.mkdir()
+    with pytest.raises(EvalsError, match="resolves outside the plugin directory"):
+        materialize_fixtures(plugin, [rel], work)
+    assert list(work.iterdir()) == []
+    with pytest.raises(EvalsError, match="resolves outside the plugin directory"):
+        load_fixtures(plugin, [rel])
+    # A symlink that stays inside the plugin directory is an ordinary fixture.
+    inside = plugin / "eval" / "fixtures" / "x" / "alias.py"
+    inside.symlink_to(plugin / "eval" / "fixtures" / "x" / "tree" / "app" / "config.py")
+    assert fixture_path_problem(plugin, "eval/fixtures/x/alias.py") is None
+
+
+def test_materialize_refuses_a_destination_that_resolves_outside_the_workspace(
+    tmp_path: Path,
+) -> None:
+    from agentic_forge.evals import EvalsError
+
+    plugin = _plugin_with_fixture(tmp_path)
+    work = tmp_path / "work"
+    work.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (work / "app").symlink_to(outside)  # a directory in the workspace that leads out of it
+    with pytest.raises(EvalsError, match="lands outside the workspace"):
+        materialize_fixtures(plugin, ["eval/fixtures/x/tree/app/config.py"], work)
+    assert list(outside.iterdir()) == []
+
+
+def test_run_eval_cases_refuses_a_bad_fixture_before_any_model_call(tmp_path: Path) -> None:
+    from agentic_forge.evals import EvalsError
+
+    plugin = _plugin_with_fixture(tmp_path)
+    calls: list[str] = []
+
+    def role(system: str, prompt: str, workdir: Path) -> str:
+        calls.append(prompt)
+        return "out"
+
+    good = {"id": 1, "prompt": "p", "assertions": ["a"],
+            "files": ["eval/fixtures/x/tree/app/config.py"]}
+    bad = {"id": 2, "prompt": "p", "assertions": ["a"], "files": ["../../etc/passwd"]}
+    with pytest.raises(EvalsError, match=r"holds \.\."):
+        run_eval_cases(
+            system_body="r", grader_body="g", cases=[good, bad], thresholds={}, plugin_dir=plugin,
+            run_fn=role, grader_fn=make_grader(True), runs=1, isolate=True,
+        )
+    assert calls == []  # the first, good case did not run either

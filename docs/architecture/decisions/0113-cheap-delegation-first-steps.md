@@ -48,10 +48,15 @@ output and the assertions. The project's rules are not its input, and a rule in 
 could only bend a grading. Managed policy files still load. Only the grader: the review lenses read CLAUDE.md as the
 project's rules on purpose, so dropping it from them waits for an A/B.
 
+*Note 2026-11-27: the `reader` role now omits CLAUDE.md too, for the same reason ([ADR 0116](0116-the-reader-role-the-clerk-deferred.md)); the lenses still read it.*
+
 ## Not done here, and why
 
 - **`reader` and `clerk` roles.** A new role is a component: contract and Tier-2 eval set first (ADR 0008), then live
   runs at its tier. They come with the Tier-2 run below.
+
+  *Note 2026-11-27: [ADR 0116](0116-the-reader-role-the-clerk-deferred.md) ships the `reader` with its contract and Tier-2 set (not yet run) and defers the clerk until
+  the `role_scope` hook can hold it.*
 - **The routing-note sentence.** The routing note shapes how every session sizes its process; the last change to it
   measured 0.863 pooled on Tier-1b against a 0.940 baseline. A sentence goes in with its own Tier-1b run.
 - **Sonnet tiers for the existing roles, the lens A/B, fresh model ids.** These need live Tier-2 runs, which the owner
@@ -67,6 +72,8 @@ project's rules on purpose, so dropping it from them waits for an A/B.
   Code older than 2.1.271 the field is ignored and the grader loads CLAUDE.md as before.
 - Tier-0 pins both: the pattern's load-bearing wording and its index entries, and that `grader` is the only role that
   omits CLAUDE.md.
+
+  *Note 2026-11-27: since [ADR 0116](0116-the-reader-role-the-clerk-deferred.md) the pin is that `grader` and `reader` are the only roles that omit it.*
 
 ## Amendment 2026-11-27: the routing-note sentence
 

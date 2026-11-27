@@ -142,25 +142,22 @@ def warn_if_api_key_set(runner: str) -> None:
         print(_API_KEY_WARNING, file=sys.stderr)
 
 
-def workspace_refusals(runner: str, contracts: dict[str, Path]) -> list[str]:
-    """Why this run must not start: under ``--runner api`` (one Messages call, no tools), a case
-    with a ``workspace`` names its files instead of pasting them, so the model would answer without
-    ever seeing them and the grade would measure nothing (ADR 0116). One line per component, keyed
-    by its label in ``contracts`` (label -> evals.json path); a missing contract is the wiring
-    check's to report. Empty for every other runner."""
-    if runner != "api":
-        return []
-    refusals: list[str] = []
-    for label, path in contracts.items():
-        if not path.is_file():
-            continue
-        ids = evals.workspace_case_ids(evals.load_evals(path).get("evals") or [])
-        if ids:
-            refusals.append(
-                f"{label}: cases {ids} run in a workspace whose files the role reads with its "
-                "tools; --runner api has no tools. Use --runner claude."
-            )
-    return refusals
+def workspace_refusal(runner: str, label: str, contract: Path) -> str | None:
+    """Why this component must be skipped: under ``--runner api`` (one Messages call, no tools), a
+    case with a ``workspace`` names its files instead of pasting them, so the model would answer
+    without ever seeing them and the grade would measure nothing (ADR 0116). None for every other
+    runner, for a component with no such case, and for a missing contract (the wiring check's to
+    report). A contract that does not parse raises: the caller calls this inside the component's
+    own error handler, so one bad contract costs that component, not the whole invocation."""
+    if runner != "api" or not contract.is_file():
+        return None
+    ids = evals.workspace_case_ids(evals.load_evals(contract).get("evals") or [])
+    if not ids:
+        return None
+    return (
+        f"{label}: cases {ids} run in a workspace whose files the role reads with its tools; "
+        "--runner api has no tools. Use --runner claude. Skipped."
+    )
 
 
 def build_runners(

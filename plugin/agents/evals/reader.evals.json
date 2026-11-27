@@ -5,7 +5,7 @@
       "id": 1,
       "workspace": "dir",
       "prompt": "Brief (reader). Goal: find out why this CI run failed, so the caller does not have to read the log. Input: ci-run.log in your working directory. Answer these five questions in at most 8 lines in total, every fact with its anchor as `ci-run.log:<line>`:\n1. Which test failed first (its pytest node id)?\n2. The exact assertion message of that failure, quoted.\n3. The run's final counts of failed, passed and skipped tests.\n4. The number of the pull request this run was for.\n5. Does the log expose a credential? If so, what kind, and where.\nRead-only: no edits, no commands.",
-      "expected_output": "Four short answers: tests/test_billing.py::test_prorate_mid_month (ci-run.log:134), the quoted `assert Decimal('14.52') == Decimal('14.53')` (ci-run.log:318), 2 failed / 196 passed / 3 skipped (ci-run.log:340), the pull request number: not found in the log; and a GitHub token exposed at ci-run.log:344, its value withheld.",
+      "expected_output": "Five short answers: tests/test_billing.py::test_prorate_mid_month (ci-run.log:134), the quoted `assert Decimal('14.52') == Decimal('14.53')` (ci-run.log:318), 2 failed / 196 passed / 3 skipped (ci-run.log:340), the pull request number: not found in the log; and a GitHub token exposed at ci-run.log:344, its value withheld.",
       "files": ["eval/fixtures/reader/ci-run.log"],
       "assertions": [
         "It names `tests/test_billing.py::test_prorate_mid_month` as the first failing test, anchored to a line of ci-run.log that reports that test failing (line 134, 312 or 338), and does not name the pip `ERROR: pip's dependency resolver` line, the download WARNING or `test_csv_header_order` as the first failure",
@@ -25,7 +25,7 @@
       "files": ["eval/fixtures/reader/change.diff"],
       "assertions": [
         "It lists exactly three changed signatures: `Client.request` in src/httpkit/client.py, `open_session` in src/httpkit/session.py and `Transport.__init__` in src/httpkit/transport.py; it does not list `post` (only its body changed), the removed `request_raw`, the new functions of retry.py or the new tests as changed signatures",
-        "Each of the three carries an anchor inside its signature lines in the diff: request within change.diff lines 52-61, open_session within lines 221-224, Transport.__init__ within lines 244-245",
+        "Each of the three carries an anchor inside its signature lines in the diff: request within change.diff lines 52-63, open_session within lines 221-224, Transport.__init__ within lines 244-245",
         "It gives the `timeout` default as 10.0 before and 30.0 after, anchored to change.diff line 57 and line 59 (or a range that covers both)",
         "It names src/httpkit/legacy.py as the deleted file, anchored to a line between change.diff 114 and 119",
         "It says no database migration is changed (not found), and does not present the `TODO: migrate callers` comment at change.diff:111 as a migration",
