@@ -259,13 +259,24 @@ relative: `guardrails.commit_dir`, the tool-directory check (`guardrails._bin_di
 `role_scope._git_version` and `merge_preflight._git_path`. On Windows `shutil.which` could still choose a `git.cmd`
 from an absolute entry. That was recorded here as a follow-up; it is closed by the second amendment below.
 
-## Amendment 2026-11-27 (2): every hook-reachable git and gh, and the PR CLIs, use the same lookup
+## Amendment 2026-11-27 (2): every hook and shipped CLI resolves git and gh this way
 
-The four sites above, and `merge_preflight._gh_path`, now call `guardrails.trusted_program(name)`: `_find_program`
-on the hook's own `PATH`, the lookup `executable` uses, so absolute entries only and on Windows an `.exe`/`.com` only.
-Not cached: each site looks up once per call, a few `stat`s, and `_git_version` is already cached per process.
-`role_scope` already imported `guardrails`, so no import cycle or new module was needed. Nothing found keeps each
-site's answer from before:
+**The rule.** Every hook and every shipped CLI finds `git` and `gh` with the lookup the gate uses for its own
+program (`_find_program`): the absolute entries of the process's `PATH` only, and on Windows an `.exe`/`.com` only. A
+`git` or `gh` the repository committed is never chosen, whether a relative entry or the current directory finds it.
+A `git.cmd`/`gh.cmd` shim is never chosen either, because cmd.exe reads `& ^ % ( )` in its arguments. Two entry points
+in `guardrails` carry it:
+
+- `trusted_program(name)` returns the absolute path or None. It is for a site that only needs to know.
+- `trusted_argv(argv)` is `executable(argv, PATH)`: the argv with that path in place of the bare name. When nothing is
+  found it raises `FileNotFoundError` before any process starts, the same error a missing bare name raised.
+
+Neither is cached; a lookup is a few `stat`s, and `_git_version` is already cached per process. `role_scope` already
+imported `guardrails`, and the library modules (`connectors`, `doc_delivery`, `release`) import it inside the function
+that needs it, so no import cycle or new module was needed.
+
+**Hook sites.** The four git sites named above, and `merge_preflight._gh_path`, call `trusted_program`. Nothing found
+keeps each site's answer from before:
 
 | Site | Nothing found |
 | --- | --- |
@@ -275,22 +286,43 @@ site's answer from before:
 | `merge_preflight._git_path` | the local checks skipped, with their notice |
 | `merge_preflight._gh_path` | the gate unavailable, failing open with its notice |
 
-One behaviour changes on purpose. `shutil.which` stopped at the first entry holding the name, so a relative entry
+**Shipped CLIs and the library calls they make.** These ran `gh` and `git` by their bare names from the repository or
+a PR's tree, which Windows searches before `PATH`. Every one now runs `trusted_argv`, resolved when the command runs:
+
+| Site | Nothing found (unchanged) |
+| --- | --- |
+| `af.py` `_read_process`, `_read_raw` | "gh is not on PATH" / "git is not on PATH" |
+| `af.py` `_git_answers` | exit 127, as with no git |
+| `plugin/bin/pr_watch.py` `_run`: `_fetch`, reply/resolve, permission, merge, merge check, comments, push, `_git` | the `FileNotFoundError` each caller already handled (a permission read is a no, unread comments are unknown) |
+| `plugin/bin/run_scheduled.py` `_run`: `_pr_list`, `_git`, `_read_head`, `_pr_finished` | the same `FileNotFoundError` |
+| `plugin/bin/state_migrate.py` `_tracked` | unknown, read as untracked |
+| `connectors._gh_run_list` (`af.py pipeline-status`, the deploy digest) | `SourceUnavailable("gh run list failed: …")` |
+| `connectors._git_remote_url` (`remote_slug`) | no slug |
+| `release.commits_since` (`af.py release-commits`) | the `FileNotFoundError`, which `af.py` reports |
+
+The availability checks `connectors.gh_available` and `doc_delivery.gh_on_path` use `trusted_program`, so they say
+yes only for a `gh` the process starts would actually run. The argv builders (`agentic_forge.pr_watch`, `pr_review`,
+`doc_delivery`) are unchanged. So are the commands `af.py` prints for the session to run, which the session's own
+shell resolves.
+
+**Deliberately left.** The Tier-3 and Tier-1b eval harnesses (`spine_e2e`, `activation`) run `git` by name. They ship
+in `lib/`, but only the maintainer runners in `dev/` call them, on the maintainer's machine, in repositories they
+create themselves. No hook or shipped CLI reaches them. The other process starts that remain run no git or gh:
+
+- `agent_eval` runs `claude`;
+- `external_review` runs the operator's configured reviewer, resolved under ADR 0100;
+- `diag_bundle` runs `node` and `claude --version`, and only from `dev/`;
+- `run_scheduled._run_watcher` runs the Python interpreter on `pr_watch.py`.
+
+**One behaviour changes on purpose.** `shutil.which` stopped at the first entry holding the name, so a relative entry
 ahead of an absolute one ended the lookup in a refusal. Now the relative entry is skipped, as the gate's own lookup
 skips it, and a program on a later absolute entry is run. For the merge gate that means `gh` on a later absolute entry
 is asked instead of the merge failing open. The relative-only case still fails open, now with "gh is not installed or
 not on PATH by an absolute path". The separate "found through a relative PATH entry" message is gone.
 
-The shipped CLIs that read GitHub from the repository directory, `af.py` (`_read_process`, `_read_raw`,
-`_git_answers`) and `plugin/bin/pr_watch.py` (`_fetch`, the reply/resolve, permission, merge, merge-check, comment and
-push calls and `_git`, all through one `_run`), ran `gh` and `git` by their bare names. There Windows searches the
-current directory, which is the repository or the PR's tree, before `PATH`. They now run the absolute path
-`guardrails.executable(argv, PATH)` returns, resolved when each command runs. The argv builders in
-`agentic_forge.pr_watch` are unchanged, and so are the commands `af.py` prints for the session to run. Nothing found
-raises the `FileNotFoundError` the bare name raised when missing, before any process starts, so every caller's handling
-stays the same: `af.py` says "gh is not on PATH", a permission read is a no, unread comments are unknown.
+**Tests.** They run on Linux, in the same Windows simulation as the gate: `_WINDOWS` patched and a `PATHEXT` set, with
+the shared `windows_programs` fixture in `tests/conftest.py`. At each site:
 
-Tested on Linux in the same Windows simulation as the gate (`_WINDOWS` patched, a `PATHEXT`). At each site a `.cmd`
-on an absolute entry is never chosen and gets the nothing-found answer, and a later `.EXE` is the one started. A
-relative entry is never run.
-
+- a `.cmd` on an absolute entry is never chosen, and the site gives its nothing-found answer;
+- a later `.EXE` is the one started;
+- a `git`/`gh` that only a relative entry finds is never run (`plant_program` leaves a marker if it is).

@@ -211,12 +211,15 @@ def commits_since(repo: Path | str, tag: str | None = None) -> list[str]:
     """
     import subprocess
 
+    from . import guardrails
+
     repo = str(repo)
 
     def _git(*args: str) -> subprocess.CompletedProcess[str]:
+        # by the absolute path the hooks use (ADR 0115); none raises FileNotFoundError, as before
         return subprocess.run(
-            ["git", "-C", repo, *args], capture_output=True, text=True, errors="replace",
-            check=False,
+            guardrails.trusted_argv(["git", "-C", repo, *args]), capture_output=True, text=True,
+            errors="replace", check=False,
         )
 
     if tag is None:

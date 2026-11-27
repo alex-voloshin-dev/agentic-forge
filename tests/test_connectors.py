@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import types
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -140,18 +142,86 @@ def test_recent_deploys_non_json_or_non_list_is_unavailable(
     assert parse_gh_runs(body, "prod") == []  # the pure parser stays tolerant
 
 
-def test_gh_run_list_seam_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_gh_run_list_seam_is_bounded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, plant_program: Any
+) -> None:
     # The real seam runs on the daily scheduled path: unbounded, a stalled `gh` blocked the whole
     # run and its state was never saved.
     seen: dict[str, object] = {}
 
     def fake_run(argv: list[str], **kwargs: object) -> types.SimpleNamespace:
-        seen.update(kwargs)
+        seen.update(kwargs, argv0=argv[0])
         return types.SimpleNamespace(stdout="[]")
 
+    gh = plant_program(tmp_path.resolve() / "abs-bin", "gh")  # never run: subprocess is faked
+    monkeypatch.setenv("PATH", str(gh.parent))
     monkeypatch.setattr(connectors.subprocess, "run", fake_run)
     assert connectors._gh_run_list("o/r", 5) == "[]"
     assert seen["timeout"] == connectors.GH_TIMEOUT_SECONDS == 60 and seen["check"] is True
+    assert seen["argv0"] == str(gh)  # by its absolute path (ADR 0115)
+
+
+# --- gh and git by the hooks' lookup (ADR 0115) ------------------------------------------
+
+
+def _no_process(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+    """Every process the module starts, logged; each answers an origin URL on stdout."""
+    started: list[list[str]] = []
+
+    def run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        started.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "git@github.com:o/r.git\n", "")
+
+    monkeypatch.setattr(connectors.subprocess, "run", run)
+    return started
+
+
+def test_gh_available_is_the_hooks_lookup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, plant_program: Any
+) -> None:
+    """Nothing on an absolute entry, or a `gh` only a relative entry finds: not available, as no
+    `gh` was. One on an absolute entry: available. Nothing runs."""
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    assert connectors.gh_available() is False
+    planted = plant_program(tmp_path / "bin", "gh")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PATH", f"bin{os.pathsep}.")
+    assert connectors.gh_available() is False
+    monkeypatch.setenv("PATH", str(planted.parent))
+    assert connectors.gh_available() is True
+    assert not (planted.parent / "gh-ran").exists()
+
+
+def test_on_windows_gh_and_git_run_only_as_binaries(
+    monkeypatch: pytest.MonkeyPatch, windows_programs: Any
+) -> None:
+    """A `gh.cmd`/`git.cmd` on an absolute entry is never chosen: the pipeline is unavailable and
+    the slug unknown, as with no `gh`/`git`, and nothing starts; a later `.exe` is run."""
+    started = _no_process(monkeypatch)
+    windows_programs.use(windows_programs.shims)
+    assert connectors.gh_available() is False
+    with pytest.raises(ops.SourceUnavailable, match="gh run list failed: .*No such file"):
+        GhPipelineSource("o/r").recent_deploys("prod")
+    assert connectors.remote_slug("/some/repo") is None
+    assert started == []
+    windows_programs.use(windows_programs.shims, windows_programs.binaries)
+    assert connectors.gh_available() is True
+    assert connectors.remote_slug("/some/repo") == "o/r"
+    assert started == [[windows_programs.binary("git"), "-C", "/some/repo", "remote", "get-url",
+                        "origin"]]  # fmt: skip
+    connectors._gh_run_list("o/r", 5)
+    assert started[-1][0] == windows_programs.binary("gh")
+
+
+def test_a_git_a_relative_path_entry_finds_is_never_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, plant_program: Any
+) -> None:
+    """The repository's own `git`, found from its directory: the slug is unknown, as with no git."""
+    planted = plant_program(tmp_path / "bin", "git")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PATH", "bin")
+    assert connectors.remote_slug(tmp_path) is None
+    assert not (planted.parent / "git-ran").exists()
 
 
 # --- pipeline_source selection ---------------------------------------------------------

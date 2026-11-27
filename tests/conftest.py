@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
-from agentic_forge import settings
+from agentic_forge import guardrails, settings
 
 VALID_EVALS = {
     "skill_name": "demo",
@@ -71,3 +73,47 @@ def _isolated_state_home(tmp_path_factory, monkeypatch):
     `state_root` defaults to `~/.agentic-forge`; without this every test run would write there and
     leak between tests — the same class of pollution the ADR removes from repositories."""
     monkeypatch.setenv("AGENTIC_FORGE_STATE_HOME", str(tmp_path_factory.mktemp("state-home")))
+
+
+class WindowsPath:
+    """The PATH entries of :func:`windows_programs`: ``shims`` holds `gh.cmd` and `git.cmd`,
+    ``binaries`` holds `gh.EXE` and `git.EXE`; :meth:`use` sets the process PATH."""
+
+    def __init__(self, root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        self.shims, self.binaries = root / "win-cmd", root / "win-exe"
+        self._monkeypatch = monkeypatch
+        for directory, ext in ((self.shims, ".cmd"), (self.binaries, ".EXE")):
+            directory.mkdir()
+            for name in ("gh", "git"):
+                (directory / f"{name}{ext}").write_text("")  # no execute bit: Windows has none
+
+    def use(self, *directories: Path) -> None:
+        self._monkeypatch.setenv("PATH", os.pathsep.join(str(d) for d in directories))
+
+    def binary(self, name: str) -> str:
+        return str(self.binaries / f"{name}.EXE")
+
+
+@pytest.fixture
+def windows_programs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> WindowsPath:
+    """The program lookup as on Windows (ADR 0115): `guardrails._WINDOWS` set and the usual
+    `PATHEXT`, so only an `.exe`/`.com` on an absolute PATH entry may be chosen."""
+    monkeypatch.setattr(guardrails, "_WINDOWS", True)
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+    return WindowsPath(tmp_path.resolve(), monkeypatch)
+
+
+def _plant(directory: Path, name: str) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    program = directory / name
+    program.write_text(f"#!/bin/sh\ntouch '{directory / (name + '-ran')}'\n", encoding="utf-8")
+    program.chmod(0o755)
+    return program
+
+
+@pytest.fixture
+def plant_program() -> Callable[[Path, str], Path]:
+    """``plant(directory, name)``: an executable ``directory/name`` that, if it is ever run, leaves
+    ``directory/<name>-ran`` behind. For a repository's own `git`/`gh` a lookup must not choose."""
+    return _plant
+

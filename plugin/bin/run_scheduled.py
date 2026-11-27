@@ -36,6 +36,7 @@ sys.path.insert(0, str(_PLUGIN_ROOT / "lib"))
 from agentic_forge import (  # noqa: E402
     connectors,
     diagnostics,
+    guardrails,
     models,
     observability,
     ops,
@@ -97,8 +98,18 @@ def _review_scan(repo: Path) -> str:
     return f"review-scan: recorded {recorded} non-converged review loop(s)"
 
 
+def _run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[Any]:
+    """:func:`subprocess.run` with ``argv``'s program (``gh`` or ``git``) by absolute path,
+    looked up as the hooks do (``guardrails.trusted_argv``: absolute ``PATH`` entries only, on
+    Windows an `.exe`/`.com` only). These run from the operator's checkout or a PR's tree, where a
+    bare name may be found (Windows searches the current directory first), and a `gh.cmd` would run
+    through cmd.exe (ADR 0115). Nothing found raises ``FileNotFoundError`` before any process
+    starts, as the missing bare name did."""
+    return subprocess.run(guardrails.trusted_argv(argv), **kwargs)
+
+
 def _pr_list(
-    repo: Path, *, run: Callable[..., Any] = subprocess.run
+    repo: Path, *, run: Callable[..., Any] = _run
 ) -> Callable[[str, str], list[int]]:
     """The open-PR lister. An errored ``gh pr list`` RAISES — it used to read as "no open PRs"
     and the job as ok. ``run`` is the subprocess seam (injected by the tests)."""
@@ -172,7 +183,7 @@ def _git(
     # never needs the repo's own hooks (the same rule as bin/pr_watch.py's _git). LFS: a smudge
     # would download whatever the PR's pointers name, and the fixer has no use for the blobs.
     # surrogateescape: a path in git's output need not be UTF-8, and one must not stop every job.
-    return subprocess.run(
+    return _run(
         ["git", "-C", str(repo), "-c", "core.hooksPath=/dev/null", *args],
         capture_output=True, encoding="utf-8", errors="surrogateescape", timeout=timeout,
         env={**os.environ, "GIT_LFS_SKIP_SMUDGE": "1"},
@@ -397,7 +408,7 @@ def _watcher_off_line(repo: Path) -> str:
 
 def _read_head(repo: Path, owner: str, name: str, number: int) -> pr_watch.PrHead:
     """Ask GitHub, without touching the tree. Raises on any answer that does not say."""
-    done = subprocess.run(
+    done = _run(
         pr_watch.pr_query_argv(owner, name, number),
         cwd=str(repo), capture_output=True, text=True, timeout=120,
     )
@@ -681,7 +692,7 @@ def _pr_watch_queue(
 
 def _pr_finished(repo: Path, entry: pr_watch.WatchEntry) -> bool:  # pragma: no cover -- real gh
     """True if the PR is merged or closed (so the queue can let it go)."""
-    done = subprocess.run(
+    done = _run(
         pr_watch.merged_argv(entry.slug, entry.number),
         cwd=str(repo), capture_output=True, text=True, timeout=120,
     )

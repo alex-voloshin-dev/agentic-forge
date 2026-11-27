@@ -2039,6 +2039,13 @@ def trusted_program(name: str) -> str | None:
     return _find_program(name, os.environ.get("PATH", ""))
 
 
+def trusted_argv(argv: list[str]) -> list[str]:
+    """``argv`` as a hook or a shipped CLI runs it: :func:`executable` on this process's ``PATH``,
+    so a bare ``git``/``gh`` becomes the absolute path :func:`trusted_program` finds. Nothing found
+    raises ``FileNotFoundError`` before any process starts, as running a missing bare name did."""
+    return executable(argv, os.environ.get("PATH", ""))
+
+
 # Names that carry a credential, as words of an environment variable's name (ADR 0115). A name is
 # split on anything not a letter or digit and at camelCase humps, then upper-cased.
 _CREDENTIAL_WORDS = frozenset(

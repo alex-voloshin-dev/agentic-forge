@@ -522,6 +522,20 @@ availability.
   `hookSpecificOutput.additionalContext` for the model (`diagnostics.hook_notice`). Never stderr:
   Claude Code discards a hook's stderr on exit 0, and two of these warnings reached nobody for
   months (ADR 0094).
+- **git and gh by absolute path, everywhere** (ADR 0115, amendment 2). Every hook and every shipped
+  CLI finds `git` and `gh` the way the commit gate finds its program: in the absolute `PATH` entries
+  only, and on Windows as an `.exe`/`.com` only. So neither a program the repository committed (found
+  by a relative entry, or from the current directory, which Windows searches first) nor a
+  `git.cmd`/`gh.cmd` shim (cmd.exe reads `& ^ %` in its arguments) is ever run.
+  - A lookup is `guardrails.trusted_program(name)`, returning a path or None; a process start is
+    `guardrails.trusted_argv(argv)`, raising `FileNotFoundError` before anything starts.
+  - The hooks covered are `commit_dir`, the tool-directory check, the narrowing's reads,
+    `role_scope`'s version probe and `merge_preflight`. The CLIs are `af.py`, `bin/pr_watch.py`,
+    `bin/run_scheduled.py` and `bin/state_migrate.py`, together with the `connectors` and `release`
+    calls they make and the `gh` availability checks.
+  - Nothing found gives each site the answer it gave with no program at all.
+  - The only git runs left by name are the eval harnesses `spine_e2e` and `activation`, which only
+    the maintainer runners in `dev/` call.
 
 ## Scope: an accident-guard, not an adversarial sandbox
 

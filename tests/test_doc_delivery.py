@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+from typing import Any
+
 import pytest
 
 from agentic_forge import doc_delivery as dd
@@ -108,10 +112,25 @@ def test_proceed_plan_never_forces() -> None:
     assert all("--force" not in argv for argv in plan.argv)
 
 
-def test_gh_on_path_is_a_path_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(dd.shutil, "which", lambda name: None)
+def test_gh_on_path_is_a_path_lookup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, plant_program: Any
+) -> None:
+    """A lookup, no process: an absolute PATH entry holding `gh` says yes; nothing, or a `gh` only
+    a relative entry finds (the repository's own), says no, as no `gh` did (ADR 0115)."""
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     assert dd.gh_on_path() is False
-    monkeypatch.setattr(
-        dd.shutil, "which", lambda name: "/usr/local/bin/gh" if name == "gh" else None
-    )
+    planted = plant_program(tmp_path / "bin", "gh")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PATH", f"bin{os.pathsep}.")
+    assert dd.gh_on_path() is False
+    monkeypatch.setenv("PATH", str(planted.parent))
+    assert dd.gh_on_path() is True
+    assert not (planted.parent / "gh-ran").exists()
+
+
+def test_gh_on_path_on_windows_counts_only_a_gh_binary(windows_programs: Any) -> None:
+    """A `gh.cmd` on an absolute entry is not a `gh` the PR steps may run."""
+    windows_programs.use(windows_programs.shims)
+    assert dd.gh_on_path() is False
+    windows_programs.use(windows_programs.shims, windows_programs.binaries)
     assert dd.gh_on_path() is True

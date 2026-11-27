@@ -1208,6 +1208,38 @@ def test_a_git_log_failure_reaches_the_caller(tmp_path: Path) -> None:
         release.commits_since(tmp_path)
 
 
+def test_release_commits_never_run_a_git_a_relative_path_entry_finds(
+    tagged: Path, monkeypatch: pytest.MonkeyPatch, plant_program: Any
+) -> None:
+    """The repository's own `git`, found from its directory, never runs: no git is the
+    `FileNotFoundError` a missing git always raised (ADR 0115)."""
+    planted = plant_program(tagged / "bin", "git")
+    monkeypatch.chdir(tagged)
+    monkeypatch.setenv("PATH", f"bin{os.pathsep}.")
+    with pytest.raises(FileNotFoundError):
+        release.commits_since(tagged)
+    assert not (planted.parent / "git-ran").exists()
+
+
+def test_release_commits_on_windows_run_only_a_git_binary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, windows_programs: Any
+) -> None:
+    started: list[list[str]] = []
+
+    def run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        started.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "", "")  # describe: no tag; log: nothing
+
+    monkeypatch.setattr(subprocess, "run", run)
+    windows_programs.use(windows_programs.shims)
+    with pytest.raises(FileNotFoundError):
+        release.commits_since(tmp_path)
+    assert started == []
+    windows_programs.use(windows_programs.shims, windows_programs.binaries)
+    assert release.commits_since(tmp_path) == []
+    assert started and {argv[0] for argv in started} == {windows_programs.binary("git")}
+
+
 def test_the_two_release_commands_pipe_together(tagged: Path) -> None:
     commits = _run("release-commits", cwd=tagged).stdout
     result = _ok(

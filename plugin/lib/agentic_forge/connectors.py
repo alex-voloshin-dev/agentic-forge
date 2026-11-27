@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -134,12 +133,16 @@ GH_TIMEOUT_SECONDS = 60
 
 
 def _gh_run_list(repo: str, limit: int) -> str:  # pragma: no cover
-    """Fetch recent workflow runs as JSON via the ``gh`` CLI (thin seam)."""
+    """Fetch recent workflow runs as JSON via the ``gh`` CLI (thin seam). ``gh`` runs by the
+    absolute path ``guardrails.trusted_argv`` finds (ADR 0115); none raises ``FileNotFoundError``,
+    as a missing ``gh`` did."""
+    from . import guardrails
+
     result = subprocess.run(
-        [
+        guardrails.trusted_argv([
             "gh", "run", "list", "--repo", repo, "--limit", str(limit),
             "--json", "headSha,status,conclusion,createdAt,workflowName",
-        ],
+        ]),
         capture_output=True,
         text=True,
         check=True,
@@ -177,9 +180,12 @@ class GhPipelineSource:
         return _deploys_from(_json_list(payload, "gh run list"), environment)
 
 
-def gh_available() -> bool:  # pragma: no cover
-    """True if the ``gh`` CLI is on PATH."""
-    return shutil.which("gh") is not None
+def gh_available() -> bool:
+    """True if the ``gh`` CLI is on PATH as :func:`_gh_run_list` would run it: by
+    ``guardrails.trusted_program`` (absolute entries only, on Windows a `gh.exe`/`gh.com` only)."""
+    from . import guardrails
+
+    return guardrails.trusted_program("gh") is not None
 
 
 def slug_from_remote_url(url: str) -> str | None:
@@ -211,9 +217,14 @@ def slug_from_remote_url(url: str) -> str | None:
     return f"{parts[0]}/{parts[1]}"
 
 
-def _git_remote_url(repo: Path | str) -> str:  # pragma: no cover -- thin seam
+def _git_remote_url(repo: Path | str) -> str:
+    """``repo``'s ``origin`` URL, "" when git says there is none. git runs by the absolute path
+    ``guardrails.trusted_argv`` finds (ADR 0115); none raises ``FileNotFoundError``, which
+    :func:`remote_slug` reads as no git, as before."""
+    from . import guardrails
+
     result = subprocess.run(
-        ["git", "-C", str(repo), "remote", "get-url", "origin"],
+        guardrails.trusted_argv(["git", "-C", str(repo), "remote", "get-url", "origin"]),
         capture_output=True, text=True, timeout=GH_TIMEOUT_SECONDS,
     )
     return result.stdout if result.returncode == 0 else ""

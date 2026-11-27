@@ -103,7 +103,7 @@ def _run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[Any]:
     `.exe`/`.com` only). These run from the PR's tree, where a bare name may be found (Windows
     searches the current directory first), and a `gh.cmd` would run through cmd.exe (ADR 0115).
     Nothing found raises ``FileNotFoundError`` before any process starts, as the bare name did."""
-    return subprocess.run(guardrails.executable(argv, os.environ.get("PATH", "")), **kwargs)
+    return subprocess.run(guardrails.trusted_argv(argv), **kwargs)
 
 
 def _fetch(repo: Path, owner: str, name: str, number: int) -> dict[str, Any]:  # pragma: no cover
