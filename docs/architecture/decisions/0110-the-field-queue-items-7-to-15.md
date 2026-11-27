@@ -14,6 +14,9 @@ gets a pack).
 > **Amended 2026-11-25 (field item 11, thread 58b37c1c):** on one's own PR a `changes` review from `af.py pr-review`
 > also posts each body-only finding as a review thread, so it holds the merge. See
 > [the amendment](#amendment-2026-11-25-a-changes-review-on-ones-own-pr-holds-the-merge) below.
+>
+> **Amended 2026-11-27:** the merge gates read review threads past the first 100, up to 1,000. See
+> [the second amendment](#amendment-2026-11-27-the-gates-read-review-threads-past-the-first-100) below.
 
 ## Context
 
@@ -223,4 +226,29 @@ explicit act GitHub records.
   resolved threads too. A PR whose threads over its whole life pass 100 reads as "review threads truncated (>100) —
   cannot confirm all are resolved", and both gates stay shut for good. Before this change only inline findings made
   threads; now every own-PR finding does, so a long review loop on one PR can reach the limit. Follow-up, not done
-  here: paginate `reviewThreads`, or count only unresolved threads.
+  here: paginate `reviewThreads`, or count only unresolved threads. *Done by the 2026-11-27 amendment below: the
+  gates paginate, up to 1,000 threads.*
+
+## Amendment 2026-11-27: the gates read review threads past the first 100
+
+The first amendment made every own-PR finding a thread, and `reviewThreads(first:100)` counts resolved threads too, so a
+PR with a long review history stayed held as "truncated" for good. The thread list is now read in pages.
+
+- **How.** `PR_QUERY` asks for `pageInfo{hasNextPage endCursor}`. While a page says there is more,
+  `pr_watch.read_all_threads` asks for the next one with `THREADS_QUERY` (`reviewThreads(first:100,after:$after)`, the
+  same thread fields) through the caller's own `gh api graphql` call, and appends its threads. Each caller passes its
+  own reader: `merge_preflight` the same absolute `gh`, `--hostname` and 12-second deadline as its first read; the
+  watcher's `_fetch` one 120-second deadline for all the pages; `af.py pr-state` one 60-second deadline for all of
+  them.
+- **The cap.** `pr_watch.THREAD_PAGES = 10` pages, the first answer included: 1,000 threads. Past it the list stays
+  incomplete.
+- **Still fail-closed.** The list keeps `hasNextPage` true, so `parse_pr` sets `threads_truncated` and both gates hold
+  the PR, when the cap is reached, a page's `gh` call fails or runs out of time, the page is not an answer about this
+  PR (GraphQL errors, another number, nodes that are not a list of objects, no `pageInfo`), or the cursor is missing or
+  not cursor-shaped (it reaches argv). In the merge-preflight hook a failed *first* read still fails open with a
+  notice, as before; a failed later page holds, which is what the PR got before pagination. The reason now reads
+  "review threads truncated (over 1000, or a page not read) — cannot confirm all are resolved".
+- **Unchanged.** `latestOpinionatedReviews(first:100)` is not paginated: one entry per reviewer, so 100 is far from
+  reach, and a `hasNextPage` there still holds the watcher's gate (ADR 0103). The scheduler's `parse_head` read needs
+  no threads and asks for no pages.
+

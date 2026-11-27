@@ -138,7 +138,9 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
   gate would have blocked anyway; an explicit path reaches files `ruff check .` does not walk. **Any
   other shape, any character the matcher does not understand, `GIT_CONFIG_COUNT`,
   `GIT_CONFIG_PARAMETERS`, a `GIT_DIR`-style variable, or any git failure behaves exactly as
-  before.** A block tells the model what ran on what, with the
+  before.** The reads run git by the absolute path the gate's own program is found by
+  (`guardrails.executable`: absolute `PATH` entries only, on Windows a `git.exe`/`.com` only),
+  looked up once per hook run; no such git counts as a git failure (ADR 0115, amendment). A block tells the model what ran on what, with the
   output redacted, and to fix the findings or ask the user. The operator's `systemMessage` carries
   the way out: `test_gate.skip: true` in `<cwd>/.agentic-forge/config.json`, in a separate call
   first. A block on a refused shape adds that running `git commit` or `git push` as its own call
@@ -211,7 +213,11 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
       the watcher's `merge_readiness`. It exits 2 with `merge gate: #<n>: merge held: <reasons>`
       (plus GitHub's `mergeStateStatus`) when the PR is a **draft**, its check rollup is
       **pending, failing or erroring** (anything but `SUCCESS`), it has an **unresolved review
-      thread** not by `pr_watcher.bot`, or its thread list is past the 100 the query reads. A PR
+      thread** not by `pr_watcher.bot`, or its thread list could not be read whole. The threads
+      come in pages of 100, each next page by the same `gh`, `--hostname` and deadline
+      (`pr_watch.read_all_threads`), up to 10 pages (1,000 threads, resolved ones included); past
+      that, or when a later page fails, times out or does not describe this PR, the list counts as
+      truncated and the PR is **held**, not let through (ADR 0110, second amendment). A PR
       with **no checks at all** merges, with a notice: a repo without CI must be able to merge
       (the watcher still holds it — "no builds" is not "green builds", ADR 0063). `--auto` is held
       like a merge, since auto-merge waits only for *required* checks — **so a session cannot
@@ -249,8 +255,8 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
     Remotes are read as gh reads them (`git remote -v`: `insteadOf` rewrites and `pushurl` applied);
     the session's own rewrites are the operator's and trusted.
   - **Cost**: nothing for any other command — the check is the existing `is_pr_merge` parse, and
-    `pr_watch` is imported only on a merge. On a merge, two `gh` calls (two API round trips)
-    within one 12 s deadline; the git reads keep their own 12 s, and the hook's timeout in
+    `pr_watch` is imported only on a merge. On a merge, two `gh` calls (two API round trips), plus
+    one per further 100 review threads, within one 12 s deadline; the git reads keep their own 12 s, and the hook's timeout in
     `hooks.json` is 30 s (it was 15 s), so a stalled `gh` is a notice rather than a killed hook.
   - **The local warnings** (git run by its absolute path only, like `gh`; without one they are
     skipped with a notice) read `origin/HEAD`, the worktree list and the base branch's

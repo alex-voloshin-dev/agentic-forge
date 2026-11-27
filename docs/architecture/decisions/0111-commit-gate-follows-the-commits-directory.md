@@ -161,7 +161,7 @@ guarantee comes from the matcher's grammar, not from the tests.
   open and only reads. This is a follow-up.
 - **`gate_scope._git` runs git by bare name.** The narrowing reads resolve `git` through the subprocess `PATH`, where
   a relative entry resolves against the directory. `commit_dir` uses an absolute path; the narrowing reads were not
-  changed here. This is a follow-up.
+  changed here. This is a follow-up. *Closed 2026-11-27: the reads run git by absolute path (ADR 0115, amendment).*
 
 ## Consequences
 

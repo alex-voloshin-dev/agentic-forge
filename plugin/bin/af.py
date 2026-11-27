@@ -212,17 +212,17 @@ def _refuse_bare_discovery() -> None:
     os.environ["GIT_CONFIG_COUNT"] = str(count + 1)
 
 
-def _read_process(argv: list[str]) -> str:
+def _read_process(argv: list[str], timeout: float = _READ_TIMEOUT_SECONDS) -> str:
     """Run a read-only command (``gh`` or ``git``) and return its stdout, or raise saying why."""
     try:
         done = subprocess.run(
             argv, capture_output=True, encoding="utf-8", errors="replace", check=False,
-            timeout=_READ_TIMEOUT_SECONDS,
+            timeout=timeout,
         )
     except FileNotFoundError:
         raise ValueError(f"{argv[0]} is not on PATH") from None
     except subprocess.TimeoutExpired:
-        raise ValueError(f"{argv[0]} timed out after {_READ_TIMEOUT_SECONDS}s") from None
+        raise ValueError(f"{argv[0]} timed out after {timeout:g}s") from None
     if done.returncode != 0:
         raise ValueError(f"{argv[0]} exited {done.returncode}: {done.stderr[-300:]}")
     return done.stdout
@@ -712,7 +712,19 @@ def _pr_state(args: argparse.Namespace) -> int:
         owner = _matching(_NAME_PART, args.owner, "owner")
         name = _matching(_NAME_PART, args.name, "repository name")
         slug = f"{owner}/{name}"
+        deadline = time.monotonic() + _READ_TIMEOUT_SECONDS
         data = json.loads(_read_process(pr_watch.pr_query_argv(owner, name, args.number)))
+
+        def thread_page(after: str) -> Any:
+            """The next 100 review threads; all the pages share one read's time, and a page past
+            it, like any page not read, leaves the thread list truncated."""
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise ValueError("out of time for the review threads")
+            argv = pr_watch.threads_page_argv(owner, name, args.number, after)
+            return json.loads(_read_process(argv, timeout=left))
+
+        data = pr_watch.read_all_threads(data, thread_page)
     else:
         data = _read_json(args.snapshot)
     if not isinstance(data, dict):

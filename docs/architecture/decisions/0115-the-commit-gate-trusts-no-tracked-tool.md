@@ -7,6 +7,9 @@ Amends [0081](0081-field-bundle-2026-09-batch.md) (§5, the gate resolves its to
 [0101](0101-the-commit-gate-only-narrows.md) (its Limits: "A tracked `.venv/bin/ruff` runs as it did … A follow-up ADR
 is planned"; this is that ADR).
 
+> **Amended 2026-11-27:** the narrowing's own git reads (`gate_scope`) now run git by the absolute path the same lookup
+> finds, closing the first limit below. See [the amendment](#amendment-2026-11-27-the-narrowings-git-reads-use-the-same-lookup).
+
 ## Context
 
 ADR 0081 made the commit gate resolve its tool project-first. The hook lists the existing `node_modules/.bin`,
@@ -220,7 +223,7 @@ project's declared check and runs as written.
 - **The narrowing's own git reads run git by its bare name** (`gate_scope`, ADR 0101). On Windows, process creation
   searches the hook's current folder before `PATH`, so a `git.exe` committed there would run before the prompt, with only
   the `_READ_ENV` allowlist. This change does not touch that path; `guardrails`' own reads already use an absolute git.
-  A follow-up resolves git once, absolutely, for `gate_scope` too.
+  A follow-up resolves git once, absolutely, for `gate_scope` too. *Closed by the 2026-11-27 amendment below.*
 - **No Windows run.** The Windows behaviour (path comparison, `.exe`/`.com` only, `npm.cmd` for the fixed argv) is tested
   with `PureWindowsPath` and a patched platform flag on Linux, not on a Windows host.
 - **Credentials outside the environment remain reachable.** The gate runs as the user. Files under `HOME` stay
@@ -240,3 +243,19 @@ project's declared check and runs as written.
 - **Whether a directory is in a checkout is read from the filesystem.** No `.git` at or above it means trusted, with
   no git read. Where the walk sees a `.git` but git answers "not a repository" (a filesystem boundary,
   `GIT_CEILING_DIRECTORIES`), that is doubt and the directory is skipped: the safe side.
+
+## Amendment 2026-11-27: the narrowing's git reads use the same lookup
+
+`gate_scope._git` ran `git` by its bare name, the first limit above. It now runs the absolute path
+`guardrails.executable(["git"], PATH)` returns: the absolute entries of the hook's `PATH` only, and on Windows a
+`git.exe`/`git.com` only, so neither a `git` committed to the repository nor a `git.cmd` shim (cmd.exe would read
+`& ^ %` in the pathspecs a read passes) can run. `gate_scope._git_program` caches the answer per `PATH` value, so a
+hook run looks git up once, not once per read. No git found is a read that did not answer (`_GitFailed`), which
+`narrow` already turns into the gate as it is: the whole gate runs, as on any other git failure. `_GIT` keeps its
+leading `git` as a placeholder; `guardrails._git_bytes` already drops it and passes its own absolute git.
+
+The other hook-reachable git runs already use an absolute path, found with `shutil.which` and refused when it is
+relative: `guardrails.commit_dir`, the tool-directory check (`guardrails._bin_dir_doubt`),
+`role_scope._git_version` and `merge_preflight._git_path`. They are not moved to this lookup here. On Windows
+`shutil.which` may still choose a `git.cmd` from an absolute entry; that is recorded as a follow-up, not changed.
+

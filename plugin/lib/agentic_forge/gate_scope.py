@@ -5,7 +5,9 @@ The gate is always what ``guardrails.choose_gate`` picked for the directory the 
 `ruff check` the changed files. A `cd` or a `git -C` is never a simple command, so it is never
 narrowed against a directory other than that one. A command it does not fully
 understand, or any git failure, leaves the gate as it is: uncertainty is neither an allow nor a new
-block. Hook-reachable, so Python 3.9.
+block. The reads run git by the absolute path the gate's own program is found by
+(``guardrails.executable``, ADR 0115), never by its bare name; no such git is a failed read.
+Hook-reachable, so Python 3.9.
 """
 
 from __future__ import annotations
@@ -15,7 +17,10 @@ import re
 import shlex
 import time
 from dataclasses import dataclass
+from functools import cache
 from subprocess import DEVNULL, PIPE, SubprocessError, run
+
+from . import guardrails
 
 __all__ = ["NARROWABLE", "Simple", "parse_simple", "narrow", "printable"]
 
@@ -113,6 +118,7 @@ def parse_simple(command: str) -> Simple | None:
     return Simple("commit", add=add, tracked=tracked)
 
 
+# The reads' hardening. `git` stands for the absolute path the reads run (:func:`_git_program`).
 _GIT = "git --no-replace-objects -c core.fsmonitor=false -c safe.bareRepository=explicit".split()
 _GIT += "-c diff.relative=false -c diff.autoRefreshIndex=false -c log.showSignature=false".split()
 _GIT += ["-c", "log.showRoot=true"]
@@ -132,14 +138,29 @@ class _GitFailed(Exception):
     """A read did not answer: the gate is left as it is."""
 
 
+@cache
+def _git_program(path: str) -> str | None:
+    """The git the reads run, by absolute path: looked up in the absolute entries of ``path`` as the
+    gate's own program is (``guardrails.executable``; on Windows an `.exe`/`.com` only), since a
+    bare name can resolve from the current directory, which is the repository (ADR 0115). None when
+    there is none. Once per ``PATH``, so once per hook run."""
+    try:
+        return guardrails.executable(["git"], path)[0]
+    except FileNotFoundError:
+        return None
+
+
 def _git(cwd: str, deadline: float, *args: str, ok: tuple[int, ...] = (0,)) -> bytes:
     env = {name: os.environ[name] for name in _READ_ENV if name in os.environ}
     left = deadline - time.monotonic()
     if left <= 0:
         raise _GitFailed
+    git = _git_program(os.environ.get("PATH", ""))
+    if git is None:  # no git by an absolute path: a read that did not answer
+        raise _GitFailed
     try:
         done = run(
-            [*_GIT, *args], cwd=cwd, env={**env, "GIT_NO_LAZY_FETCH": "1"}, stdin=DEVNULL,
+            [git, *_GIT[1:], *args], cwd=cwd, env={**env, "GIT_NO_LAZY_FETCH": "1"}, stdin=DEVNULL,
             stdout=PIPE, stderr=DEVNULL, timeout=left,
         )  # fmt: skip
     except (OSError, ValueError, SubprocessError) as exc:
