@@ -56,8 +56,8 @@ python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" release-commits --repo . | python3 
    Then **read the file back** — `python3 -E "${CLAUDE_PLUGIN_ROOT}/bin/af.py" handoff-load --path <path> --type release` — and fix whatever it reports: this reads the file, so it sees the YAML you typed, and a single
    malformed value (a flow sequence with prose after it, an unquoted `:`) leaves an artifact the
    next phase cannot read (ADR 0096).
-5. **Tag only on request.** Never create or push a tag unless explicitly asked; propose the
-   command and let the user run it. Never rewrite history.
+5. **Tag only on request.** Never create or push a tag, and push nothing else, unless explicitly
+   asked; propose the command and let the user run it. Never rewrite history.
 
 ## Output
 
@@ -77,4 +77,4 @@ changes — ready for the user to review and tag.
   "Not validated" heading with the same weight as a skipped test (the "inspect content, not counts"
   rule from [fan-out-fan-in.md](../../patterns/fan-out-fan-in.md#output-discipline), applied to our
   own gate).
-- No tag is created or pushed without an explicit request.
+- Nothing is tagged or pushed (no tag, commit or branch) without an explicit request.

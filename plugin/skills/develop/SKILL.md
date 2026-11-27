@@ -139,7 +139,7 @@ review engine may emit one into the worktree.)
   added and the whole suite green.
 - The multi-aspect review (internal aspects + the external-reviewer lens when enabled) exits on
   `proceed` — verdict `approve` (no blocker/major) **and** QA green — per
-  `review-decision`; if the N = 3 budget is exhausted still on `changes` (`escalate`), develop
-  stops and surfaces the findings — it does not merge.
+  `review-decision`; if the N = 3 budget is exhausted still on `changes` or with QA red
+  (`escalate`), develop stops and surfaces the findings — it does not merge or hand off.
 - QA ran (existing + new + e2e); any surfaced defect was fixed, not masked.
 - Assumptions surfaced; the main checkout untouched; the worktree removed after merge/abandon.
