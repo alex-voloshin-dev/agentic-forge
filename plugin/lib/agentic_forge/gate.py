@@ -234,8 +234,19 @@ def format_tier2_summary(
     return (
         f"{label}: {status} "
         f"(mean={mean:.3f}, stddev={stddev:.3f}, lower_bound={mean - stddev:.3f}, "
-        f"n={ws.get('n', 0)}{noise}){detail}"
+        f"n={ws.get('n', 0)}{noise}{_usage_note(ws)}){detail}"
     )
+
+
+def _usage_note(ws: dict[str, Any]) -> str:
+    """``; prompt_tokens/run=…, cost/run=$…`` when the runs reported them — the figures an
+    ``omitClaudeMd`` A/B reads its saving from (ADR 0113, amended); empty otherwise."""
+    parts = []
+    if "prompt_tokens" in ws:
+        parts.append(f"prompt_tokens/run={float(ws['prompt_tokens']):.0f}")
+    if "cost_usd" in ws:
+        parts.append(f"cost/run=${float(ws['cost_usd']):.4f}")
+    return "; " + ", ".join(parts) if parts else ""
 
 
 def tier2_evidence_lines(benchmark: dict[str, Any]) -> list[str]:

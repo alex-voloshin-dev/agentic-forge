@@ -19,6 +19,9 @@ __all__ = [
     "summarize",
     "make_record",
     "prior_record",
+    "SETUP_FIELDS",
+    "run_setup",
+    "ab_counterpart",
     "load_history",
     "save_history",
 ]
@@ -77,6 +80,26 @@ def _mean_tokens(timing: list[dict[str, Any]]) -> float:
     return statistics.fmean(values) if values else 0.0
 
 
+def _mean_of(rows: list[dict[str, Any]], key: str) -> float | None:
+    """Mean of ``key`` over the rows that report it, or None when none does (not a fake 0.0)."""
+    values = [float(r[key]) for r in rows if key in r]
+    return statistics.fmean(values) if values else None
+
+
+def _add_usage_means(summary: dict[str, Any], sessions: dict[str, Any]) -> None:
+    """Per run, from the runner's ``sessions["spend"]`` (every run with an answered role session,
+    graded or not): ``answered_sessions``, and ``prompt_tokens`` (cached input included) and
+    ``cost_usd`` when reported. They show what a CLAUDE.md costs, which ``tokens`` cannot: the file
+    sits in the cached prompt prefix and the CLI's ``input_tokens`` leaves that out (ADR 0113,
+    amended)."""
+    spend = sessions.get("spend") or []
+    for key, out in (("answered", "answered_sessions"), ("prompt_tokens", "prompt_tokens"),
+                     ("cost_usd", "cost_usd")):
+        mean = _mean_of(spend, key)
+        if mean is not None:
+            summary[out] = mean
+
+
 def _mean_seconds(timing: list[dict[str, Any]]) -> float:
     values = [float(t.get("duration_ms", 0)) / 1000.0 for t in timing]
     return statistics.fmean(values) if values else 0.0
@@ -131,7 +154,8 @@ def summarize(
     (ADR 0038); a text-only reply omits it (ADR 0036). ``*_sessions`` is the runner's tally of
     sessions that produced no measurement (``{total, undetermined, ungraded, subtypes, events}``,
     see ``agent_eval._run_passes``); it rides along under ``sessions`` so the gate can cap it and
-    the summary line can print it.
+    the summary line can print it, and its ``spend`` gives the per-run ``answered_sessions``,
+    ``prompt_tokens`` and ``cost_usd`` means.
     """
     ws = _stats([pass_rate_of(g) for g in with_skill])
     ws_summary: dict[str, Any] = {
@@ -147,6 +171,7 @@ def summarize(
             ws_summary["tokens"] = _mean_tokens(with_skill_timing)
     if with_skill_sessions is not None:
         ws_summary["sessions"] = with_skill_sessions
+        _add_usage_means(ws_summary, with_skill_sessions)
 
     run_summary: dict[str, Any] = {"with_skill": ws_summary}
 
@@ -163,6 +188,7 @@ def summarize(
                 wo_summary["tokens"] = _mean_tokens(without_skill_timing)
         if without_skill_sessions is not None:
             wo_summary["sessions"] = without_skill_sessions
+            _add_usage_means(wo_summary, without_skill_sessions)
         if with_skill_timing is not None and without_skill_timing is not None:
             delta["time_seconds"] = ws_summary["time_seconds"] - wo_summary["time_seconds"]
             if "tokens" in ws_summary and "tokens" in wo_summary:
@@ -177,12 +203,36 @@ def summarize(
 # An append-only list of {component, model, mean, stddev, n}. Keyed by (component, model) because
 # Tier-2 is model-dependent — a regression check only compares same-model runs.
 
+# What a run was set up with beyond (component, model, judge): whether the role and the judge
+# loaded CLAUDE.md, which workspace file they were given (ADR 0113, amended), and the transport. A
+# record without them predates `run_agent_evals` recording them: both sessions could load CLAUDE.md,
+# no file was placed, the runner went unrecorded — that is what their absence means. The skill
+# runner records none of them, so its records keep comparing as before.
+SETUP_FIELDS: dict[str, str | None] = {
+    "omit_claude_md": "off",
+    "grader_omit_claude_md": "off",
+    "claude_md": None,
+    "runner": None,
+}
+# Recorded beside the setup but not part of it: the `claude --version` that ran the sessions (an
+# A/B's two arms must share it — :func:`ab_counterpart`; a release baseline need not, or every CLI
+# update would reset it), and the per-run prompt tokens and cost an A/B reads its saving from.
+_RECORDED_EXTRAS = ("claude_version",)
+_RECORDED_USAGE = ("prompt_tokens", "cost_usd", "answered_sessions")
+
+
+def run_setup(mapping: dict[str, Any]) -> dict[str, Any]:
+    """The setup of a benchmark or a history record, absent fields read as legacy."""
+    return {key: mapping.get(key, legacy) for key, legacy in SETUP_FIELDS.items()}
+
 
 def make_record(component: str, model: str, benchmark: dict[str, Any]) -> dict[str, Any]:
     """A history record extracted from a benchmark mapping (the `with_skill` pass-rate stats).
 
     It names the judge (``grader_model``) when the benchmark does (ADR 0114): a record graded by
-    another model is another instrument, and :func:`prior_record` keeps the two apart."""
+    another model is another instrument, and :func:`prior_record` keeps the two apart. It keeps the
+    setup (:data:`SETUP_FIELDS`) for the same reason, and the ``claude_version`` and per-run
+    ``prompt_tokens`` / ``cost_usd`` an ``omitClaudeMd`` A/B compares (:func:`ab_counterpart`)."""
     ws = (benchmark.get("run_summary") or {}).get("with_skill") or {}
     pr = ws.get("pass_rate") or {}
     record: dict[str, Any] = {
@@ -194,6 +244,12 @@ def make_record(component: str, model: str, benchmark: dict[str, Any]) -> dict[s
     }
     if benchmark.get("grader_model"):
         record["grader_model"] = str(benchmark["grader_model"])
+    for key in (*SETUP_FIELDS, *_RECORDED_EXTRAS):  # what produced it (ADR 0113, amended)
+        if benchmark.get(key) is not None:
+            record[key] = str(benchmark[key])
+    for key in _RECORDED_USAGE:
+        if key in ws:
+            record[key] = float(ws[key])
     return record
 
 
@@ -209,16 +265,48 @@ def prior_record(
     model: str,
     *,
     grader_model: str | None = None,
+    setup: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """The most recent record for ``(component, model)`` (the prior version's baseline), or None.
 
     With ``grader_model``, only a record graded by that same judge counts (ADR 0114); a legacy
-    record's judge is its own ``model`` (:func:`judge_of`)."""
+    record's judge is its own ``model`` (:func:`judge_of`). With ``setup`` (a :func:`run_setup`),
+    only a record made with that same setup counts."""
     record: dict[str, Any]
     for record in reversed(history):
         if record.get("component") != component or record.get("model") != model:
             continue
-        if grader_model is None or judge_of(record) == grader_model:
+        if grader_model is not None and judge_of(record) != grader_model:
+            continue
+        if setup is None or run_setup(record) == setup:
+            return record
+    return None
+
+
+def ab_counterpart(
+    history: list[dict[str, Any]],
+    component: str,
+    model: str,
+    *,
+    grader_model: str | None,
+    setup: dict[str, Any],
+    claude_version: str | None,
+    fingerprint: str | None,
+) -> dict[str, Any] | None:
+    """The latest record of the OTHER arm of an ``omitClaudeMd`` A/B: same component, model, judge,
+    workspace file, runner, ``claude --version`` and input ``fingerprint`` (role, judge, contract,
+    fixtures and file — ``agent_eval.input_fingerprint``), opposite ``omit_claude_md``; or None.
+    Arms on another CLI or other inputs are never paired: only the switch may differ."""
+    flipped = {**setup, "omit_claude_md": "off" if setup.get("omit_claude_md") == "on" else "on"}
+    record: dict[str, Any]
+    for record in reversed(history):
+        if record.get("component") != component or record.get("model") != model:
+            continue
+        if grader_model is not None and judge_of(record) != grader_model:
+            continue
+        if run_setup(record) != flipped or record.get("claude_version") != claude_version:
+            continue
+        if fingerprint is not None and record.get("fingerprint") == fingerprint:
             return record
     return None
 
