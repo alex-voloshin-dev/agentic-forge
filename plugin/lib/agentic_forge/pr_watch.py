@@ -248,7 +248,8 @@ def _pull_request(answer: Any) -> dict[str, Any] | None:
 def _thread_page(answer: Any, number: Any) -> dict[str, Any] | None:
     """The ``reviewThreads`` object of a :data:`THREADS_QUERY` answer about PR ``number``, or None
     when the answer is not one: GraphQL errors, another PR, nodes that are not a list of objects,
-    or no ``pageInfo``."""
+    or no ``pageInfo`` with a boolean ``hasNextPage`` (a page that does not say whether more follow
+    cannot end the list)."""
     if not isinstance(answer, dict) or answer.get("errors"):
         return None
     pr = _pull_request(answer)
@@ -256,6 +257,8 @@ def _thread_page(answer: Any, number: Any) -> dict[str, Any] | None:
         return None
     threads = pr.get("reviewThreads")
     if not isinstance(threads, dict) or not isinstance(threads.get("pageInfo"), dict):
+        return None
+    if not isinstance(threads["pageInfo"].get("hasNextPage"), bool):
         return None
     nodes = threads.get("nodes")
     if not isinstance(nodes, list) or not all(isinstance(node, dict) for node in nodes):

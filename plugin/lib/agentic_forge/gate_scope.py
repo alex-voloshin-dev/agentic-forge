@@ -143,7 +143,8 @@ def _git_program(path: str) -> str | None:
     """The git the reads run, by absolute path: looked up in the absolute entries of ``path`` as the
     gate's own program is (``guardrails.executable``; on Windows an `.exe`/`.com` only), since a
     bare name can resolve from the current directory, which is the repository (ADR 0115). None when
-    there is none. Once per ``PATH``, so once per hook run."""
+    there is none. Once per ``PATH``, so once per hook run (a hook process has one environment, so
+    ``PATHEXT`` and the platform do not change under the cache)."""
     try:
         return guardrails.executable(["git"], path)[0]
     except FileNotFoundError:
