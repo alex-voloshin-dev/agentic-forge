@@ -7,6 +7,11 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.11.20] - 2026-11-27
+
+The Tier-3 `product-inception` scenario is a fair measurement and passes again (maintainer item M1); the routing
+note names the cheap-delegation pattern (field item 6).
+
 ### Fixed
 
 - **Eval harness: four harness defects behind the Tier-3 `product-inception` failures fixed (ADR 0030,
