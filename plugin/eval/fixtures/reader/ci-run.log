@@ -1,0 +1,346 @@
+2026-11-20T09:14:02.0000Z ##[group]Run actions/checkout@v4
+2026-11-20T09:14:02.3137Z with:
+2026-11-20T09:14:02.6274Z   repository: acme/ledgerly
+2026-11-20T09:14:03.0111Z   fetch-depth: 1
+2026-11-20T09:14:03.3248Z ##[endgroup]
+2026-11-20T09:14:03.6385Z Syncing repository: acme/ledgerly
+2026-11-20T09:14:04.0222Z Getting Git version info
+2026-11-20T09:14:04.3359Z Initializing the repository
+2026-11-20T09:14:04.6496Z Fetching the repository
+2026-11-20T09:14:05.0333Z HEAD is now at 3f9c2e1 Merge branch 'billing-rounding' into main
+2026-11-20T09:14:05.3470Z ##[group]Run actions/setup-python@v5
+2026-11-20T09:14:05.6607Z   python-version: 3.12
+2026-11-20T09:14:06.0444Z Successfully set up CPython (3.12.7)
+2026-11-20T09:14:06.3581Z ##[endgroup]
+2026-11-20T09:14:06.6718Z ##[group]Run pip install -e '.[test]'
+2026-11-20T09:14:07.0555Z Collecting attrs>=1.18
+2026-11-20T09:14:07.3692Z   Downloading attrs-1.18.4-py3-none-any.whl (848 kB)
+2026-11-20T09:14:07.6829Z Collecting certifi>=5.17
+2026-11-20T09:14:08.0666Z   Downloading certifi-5.17.2-py3-none-any.whl (182 kB)
+2026-11-20T09:14:08.3803Z Collecting charset-normalizer>=5.12
+2026-11-20T09:14:08.6940Z   Downloading charset_normalizer-5.12.3-py3-none-any.whl (286 kB)
+2026-11-20T09:14:09.0777Z Collecting click>=2.25
+2026-11-20T09:14:09.3914Z   Downloading click-2.25.2-py3-none-any.whl (487 kB)
+2026-11-20T09:14:09.7051Z Collecting coverage>=1.30
+2026-11-20T09:14:10.0888Z   Downloading coverage-1.30.2-py3-none-any.whl (775 kB)
+2026-11-20T09:14:10.4025Z Collecting cryptography>=4.1
+2026-11-20T09:14:10.7162Z   Downloading cryptography-4.1.9-py3-none-any.whl (771 kB)
+2026-11-20T09:14:11.0999Z WARNING: Retrying (Retry(total=4, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ProtocolError('Connection aborted.')': /simple/cryptography/
+2026-11-20T09:14:11.3136Z Collecting decimal-ext>=8.4
+2026-11-20T09:14:11.6273Z   Downloading decimal_ext-8.4.0-py3-none-any.whl (67 kB)
+2026-11-20T09:14:12.0110Z Collecting freezegun>=8.27
+2026-11-20T09:14:12.3247Z   Downloading freezegun-8.27.8-py3-none-any.whl (602 kB)
+2026-11-20T09:14:12.6384Z Collecting greenlet>=9.23
+2026-11-20T09:14:13.0221Z   Downloading greenlet-9.23.4-py3-none-any.whl (497 kB)
+2026-11-20T09:14:13.3358Z Collecting httpx>=1.16
+2026-11-20T09:14:13.6495Z   Downloading httpx-1.16.0-py3-none-any.whl (499 kB)
+2026-11-20T09:14:14.0332Z Collecting idna>=4.25
+2026-11-20T09:14:14.3469Z   Downloading idna-4.25.8-py3-none-any.whl (185 kB)
+2026-11-20T09:14:14.6606Z Collecting iniconfig>=7.30
+2026-11-20T09:14:15.0443Z   Downloading iniconfig-7.30.4-py3-none-any.whl (857 kB)
+2026-11-20T09:14:15.3580Z Collecting jinja2>=3.8
+2026-11-20T09:14:15.6717Z   Downloading jinja2-3.8.6-py3-none-any.whl (535 kB)
+2026-11-20T09:14:16.0554Z Collecting markupsafe>=3.14
+2026-11-20T09:14:16.3691Z   Downloading markupsafe-3.14.3-py3-none-any.whl (301 kB)
+2026-11-20T09:14:16.6828Z Collecting packaging>=9.16
+2026-11-20T09:14:17.0665Z   Downloading packaging-9.16.1-py3-none-any.whl (695 kB)
+2026-11-20T09:14:17.3802Z Collecting pluggy>=5.3
+2026-11-20T09:14:17.6939Z   Downloading pluggy-5.3.2-py3-none-any.whl (333 kB)
+2026-11-20T09:14:18.0776Z Collecting psycopg>=2.15
+2026-11-20T09:14:18.3913Z   Downloading psycopg-2.15.2-py3-none-any.whl (600 kB)
+2026-11-20T09:14:18.7050Z Collecting pydantic>=2.2
+2026-11-20T09:14:19.0887Z   Downloading pydantic-2.2.0-py3-none-any.whl (897 kB)
+2026-11-20T09:14:19.4024Z Collecting pydantic-core>=1.26
+2026-11-20T09:14:19.7161Z   Downloading pydantic_core-1.26.4-py3-none-any.whl (236 kB)
+2026-11-20T09:14:20.0998Z Collecting pytest>=5.10
+2026-11-20T09:14:20.3135Z   Downloading pytest-5.10.7-py3-none-any.whl (648 kB)
+2026-11-20T09:14:20.6272Z Collecting pytest-cov>=5.7
+2026-11-20T09:14:21.0109Z   Downloading pytest_cov-5.7.0-py3-none-any.whl (107 kB)
+2026-11-20T09:14:21.3246Z Collecting python-dateutil>=6.3
+2026-11-20T09:14:21.6383Z   Downloading python_dateutil-6.3.7-py3-none-any.whl (787 kB)
+2026-11-20T09:14:22.0220Z Collecting pyyaml>=9.16
+2026-11-20T09:14:22.3357Z   Downloading pyyaml-9.16.7-py3-none-any.whl (825 kB)
+2026-11-20T09:14:22.6494Z Collecting requests>=5.5
+2026-11-20T09:14:23.0331Z   Downloading requests-5.5.6-py3-none-any.whl (244 kB)
+2026-11-20T09:14:23.3468Z Collecting six>=5.3
+2026-11-20T09:14:23.6605Z   Downloading six-5.3.1-py3-none-any.whl (344 kB)
+2026-11-20T09:14:24.0442Z Collecting sqlalchemy>=1.29
+2026-11-20T09:14:24.3579Z   Downloading sqlalchemy-1.29.9-py3-none-any.whl (305 kB)
+2026-11-20T09:14:24.6716Z Collecting typing-extensions>=1.18
+2026-11-20T09:14:25.0553Z   Downloading typing_extensions-1.18.1-py3-none-any.whl (196 kB)
+2026-11-20T09:14:25.3690Z Collecting tzdata>=1.23
+2026-11-20T09:14:25.6827Z   Downloading tzdata-1.23.8-py3-none-any.whl (239 kB)
+2026-11-20T09:14:26.0664Z Collecting urllib3>=2.8
+2026-11-20T09:14:26.3801Z   Downloading urllib3-2.8.6-py3-none-any.whl (313 kB)
+2026-11-20T09:14:26.6938Z Collecting wheel>=1.15
+2026-11-20T09:14:27.0775Z   Downloading wheel-1.15.0-py3-none-any.whl (293 kB)
+2026-11-20T09:14:27.3912Z Collecting annotated-types>=5.27
+2026-11-20T09:14:27.7049Z   Downloading annotated_types-5.27.9-py3-none-any.whl (161 kB)
+2026-11-20T09:14:28.0886Z Collecting anyio>=7.12
+2026-11-20T09:14:28.4023Z   Downloading anyio-7.12.4-py3-none-any.whl (78 kB)
+2026-11-20T09:14:28.7160Z Collecting h11>=9.29
+2026-11-20T09:14:29.0997Z   Downloading h11-9.29.4-py3-none-any.whl (490 kB)
+2026-11-20T09:14:29.3134Z Collecting httpcore>=1.13
+2026-11-20T09:14:29.6271Z   Downloading httpcore-1.13.1-py3-none-any.whl (181 kB)
+2026-11-20T09:14:30.0108Z Collecting sniffio>=6.5
+2026-11-20T09:14:30.3245Z   Downloading sniffio-6.5.9-py3-none-any.whl (812 kB)
+2026-11-20T09:14:30.6382Z Collecting structlog>=6.4
+2026-11-20T09:14:31.0219Z   Downloading structlog-6.4.7-py3-none-any.whl (462 kB)
+2026-11-20T09:14:31.3356Z Collecting tenacity>=8.14
+2026-11-20T09:14:31.6493Z   Downloading tenacity-8.14.8-py3-none-any.whl (786 kB)
+2026-11-20T09:14:32.0330Z Building wheels for collected packages: ledgerly
+2026-11-20T09:14:32.3467Z   Building editable for ledgerly (pyproject.toml): started
+2026-11-20T09:14:32.6604Z   Building editable for ledgerly (pyproject.toml): finished with status 'done'
+2026-11-20T09:14:33.0441Z ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+2026-11-20T09:14:33.3578Z types-requests 2.31.0 requires urllib3>=2, but you have urllib3 1.26.20 which is incompatible.
+2026-11-20T09:14:33.6715Z Successfully installed attrs certifi charset-normalizer click coverage cryptography decimal-ext freezegun greenlet httpx idna iniconfig ledgerly-0.9.0
+2026-11-20T09:14:34.0552Z ##[endgroup]
+2026-11-20T09:14:34.3689Z ##[group]Run ruff check .
+2026-11-20T09:14:34.6826Z All checks passed!
+2026-11-20T09:14:35.0663Z ##[endgroup]
+2026-11-20T09:14:35.3800Z ##[group]Run pytest -v -ra
+2026-11-20T09:14:35.6937Z ============================= test session starts ==============================
+2026-11-20T09:14:36.0774Z platform linux -- Python 3.12.7, pytest-8.3.4, pluggy-1.5.0
+2026-11-20T09:14:36.3911Z rootdir: /home/runner/work/ledgerly/ledgerly
+2026-11-20T09:14:36.7048Z configfile: pyproject.toml
+2026-11-20T09:14:37.0885Z plugins: cov-6.0.0
+2026-11-20T09:14:37.4022Z collected 201 items
+2026-11-20T09:14:37.7159Z 
+2026-11-20T09:14:38.0996Z tests/test_accounts.py::test_open_account PASSED [  0%]
+2026-11-20T09:14:38.3133Z tests/test_accounts.py::test_close_account PASSED [  0%]
+2026-11-20T09:14:38.6270Z tests/test_accounts.py::test_rename_account PASSED [  1%]
+2026-11-20T09:14:39.0107Z tests/test_accounts.py::test_merge_accounts PASSED [  1%]
+2026-11-20T09:14:39.3244Z tests/test_accounts.py::test_legacy_import SKIPPED (needs LEGACY_DB) [  2%]
+2026-11-20T09:14:39.6381Z tests/test_accounts.py::test_account_limits PASSED [  2%]
+2026-11-20T09:14:40.0218Z tests/test_accounts.py::test_frozen_account PASSED [  3%]
+2026-11-20T09:14:40.3355Z tests/test_accounts.py::test_owner_change PASSED [  3%]
+2026-11-20T09:14:40.6492Z tests/test_accounts.py::test_duplicate_name PASSED [  4%]
+2026-11-20T09:14:41.0329Z tests/test_accounts.py::test_currency_lock PASSED [  4%]
+2026-11-20T09:14:41.3466Z tests/test_accounts.py::test_archived_listing PASSED [  5%]
+2026-11-20T09:14:41.6603Z tests/test_accounts.py::test_reopen PASSED [  5%]
+2026-11-20T09:14:42.0440Z tests/test_audit.py::test_record_event PASSED [  6%]
+2026-11-20T09:14:42.3577Z tests/test_audit.py::test_event_order PASSED [  6%]
+2026-11-20T09:14:42.6714Z tests/test_audit.py::test_redacts_tokens PASSED [  7%]
+2026-11-20T09:14:43.0551Z tests/test_audit.py::test_export_jsonl PASSED [  7%]
+2026-11-20T09:14:43.3688Z tests/test_audit.py::test_rotation PASSED [  8%]
+2026-11-20T09:14:43.6825Z tests/test_audit.py::test_retention_window PASSED [  8%]
+2026-11-20T09:14:44.0662Z tests/test_audit.py::test_actor_required PASSED [  9%]
+2026-11-20T09:14:44.3799Z tests/test_audit.py::test_batch_flush PASSED [  9%]
+2026-11-20T09:14:44.6936Z tests/test_billing.py::test_invoice_total PASSED [ 10%]
+2026-11-20T09:14:45.0773Z tests/test_billing.py::test_tax_inclusive PASSED [ 10%]
+2026-11-20T09:14:45.3910Z tests/test_billing.py::test_tax_exclusive PASSED [ 11%]
+2026-11-20T09:14:45.7047Z tests/test_billing.py::test_discount_cap PASSED [ 11%]
+2026-11-20T09:14:46.0884Z tests/test_billing.py::test_prorate_full_month PASSED [ 12%]
+2026-11-20T09:14:46.4021Z tests/test_billing.py::test_prorate_mid_month FAILED [ 12%]
+2026-11-20T09:14:46.7158Z tests/test_billing.py::test_prorate_leap_day PASSED [ 13%]
+2026-11-20T09:14:47.0995Z tests/test_billing.py::test_credit_note PASSED [ 13%]
+2026-11-20T09:14:47.3132Z tests/test_billing.py::test_refund_partial PASSED [ 14%]
+2026-11-20T09:14:47.6269Z tests/test_billing.py::test_refund_full PASSED [ 14%]
+2026-11-20T09:14:48.0106Z tests/test_billing.py::test_currency_round PASSED [ 15%]
+2026-11-20T09:14:48.3243Z tests/test_billing.py::test_zero_amount PASSED [ 15%]
+2026-11-20T09:14:48.6380Z tests/test_billing.py::test_negative_rejected PASSED [ 16%]
+2026-11-20T09:14:49.0217Z tests/test_billing.py::test_late_fee PASSED [ 16%]
+2026-11-20T09:14:49.3354Z tests/test_billing.py::test_grace_period PASSED [ 17%]
+2026-11-20T09:14:49.6491Z tests/test_export.py::test_csv_rows PASSED [ 17%]
+2026-11-20T09:14:50.0328Z tests/test_export.py::test_csv_header_order FAILED [ 18%]
+2026-11-20T09:14:50.3465Z tests/test_export.py::test_csv_quotes PASSED [ 18%]
+2026-11-20T09:14:50.6602Z tests/test_export.py::test_json_shape PASSED [ 19%]
+2026-11-20T09:14:51.0439Z tests/test_export.py::test_xlsx_sheet SKIPPED (optional dep) [ 19%]
+2026-11-20T09:14:51.3576Z tests/test_export.py::test_empty_export PASSED [ 20%]
+2026-11-20T09:14:51.6713Z tests/test_export.py::test_large_export_streams PASSED [ 20%]
+2026-11-20T09:14:52.0550Z tests/test_export.py::test_date_format PASSED [ 21%]
+2026-11-20T09:14:52.3687Z tests/test_ledger.py::test_posting_1 PASSED [ 21%]
+2026-11-20T09:14:52.6824Z tests/test_ledger.py::test_posting_2 PASSED [ 22%]
+2026-11-20T09:14:53.0661Z tests/test_ledger.py::test_posting_3 PASSED [ 22%]
+2026-11-20T09:14:53.3798Z tests/test_ledger.py::test_posting_4 PASSED [ 23%]
+2026-11-20T09:14:53.6935Z tests/test_ledger.py::test_posting_5 PASSED [ 23%]
+2026-11-20T09:14:54.0772Z tests/test_ledger.py::test_posting_6 PASSED [ 24%]
+2026-11-20T09:14:54.3909Z tests/test_ledger.py::test_posting_7 PASSED [ 24%]
+2026-11-20T09:14:54.7046Z tests/test_ledger.py::test_posting_8 PASSED [ 25%]
+2026-11-20T09:14:55.0883Z tests/test_ledger.py::test_posting_9 PASSED [ 25%]
+2026-11-20T09:14:55.4020Z tests/test_ledger.py::test_posting_10 PASSED [ 26%]
+2026-11-20T09:14:55.7157Z tests/test_ledger.py::test_posting_11 PASSED [ 26%]
+2026-11-20T09:14:56.0994Z tests/test_ledger.py::test_posting_12 PASSED [ 27%]
+2026-11-20T09:14:56.3131Z tests/test_ledger.py::test_posting_13 PASSED [ 27%]
+2026-11-20T09:14:56.6268Z tests/test_ledger.py::test_posting_14 PASSED [ 28%]
+2026-11-20T09:14:57.0105Z tests/test_ledger.py::test_posting_15 PASSED [ 28%]
+2026-11-20T09:14:57.3242Z tests/test_ledger.py::test_posting_16 PASSED [ 29%]
+2026-11-20T09:14:57.6379Z tests/test_ledger.py::test_posting_17 PASSED [ 29%]
+2026-11-20T09:14:58.0216Z tests/test_ledger.py::test_posting_18 PASSED [ 30%]
+2026-11-20T09:14:58.3353Z tests/test_ledger.py::test_posting_19 PASSED [ 30%]
+2026-11-20T09:14:58.6490Z tests/test_ledger.py::test_posting_20 PASSED [ 31%]
+2026-11-20T09:14:59.0327Z tests/test_ledger.py::test_posting_21 PASSED [ 31%]
+2026-11-20T09:14:59.3464Z tests/test_ledger.py::test_posting_22 PASSED [ 32%]
+2026-11-20T09:14:59.6601Z tests/test_ledger.py::test_posting_23 PASSED [ 32%]
+2026-11-20T09:15:00.0438Z tests/test_ledger.py::test_posting_24 PASSED [ 33%]
+2026-11-20T09:15:00.3575Z tests/test_ledger.py::test_posting_25 PASSED [ 33%]
+2026-11-20T09:15:00.6712Z tests/test_ledger.py::test_posting_26 PASSED [ 34%]
+2026-11-20T09:15:01.0549Z tests/test_ledger.py::test_posting_27 PASSED [ 34%]
+2026-11-20T09:15:01.3686Z tests/test_ledger.py::test_posting_28 PASSED [ 35%]
+2026-11-20T09:15:01.6823Z tests/test_ledger.py::test_posting_29 PASSED [ 35%]
+2026-11-20T09:15:02.0660Z tests/test_ledger.py::test_posting_30 PASSED [ 36%]
+2026-11-20T09:15:02.3797Z tests/test_ledger.py::test_posting_31 PASSED [ 36%]
+2026-11-20T09:15:02.6934Z tests/test_ledger.py::test_posting_32 PASSED [ 37%]
+2026-11-20T09:15:03.0771Z tests/test_ledger.py::test_posting_33 PASSED [ 37%]
+2026-11-20T09:15:03.3908Z tests/test_ledger.py::test_posting_34 PASSED [ 38%]
+2026-11-20T09:15:03.7045Z tests/test_ledger.py::test_posting_35 PASSED [ 38%]
+2026-11-20T09:15:04.0882Z tests/test_ledger.py::test_posting_36 PASSED [ 39%]
+2026-11-20T09:15:04.4019Z tests/test_ledger.py::test_posting_37 PASSED [ 39%]
+2026-11-20T09:15:04.7156Z tests/test_ledger.py::test_posting_38 PASSED [ 40%]
+2026-11-20T09:15:05.0993Z tests/test_ledger.py::test_posting_39 PASSED [ 40%]
+2026-11-20T09:15:05.3130Z tests/test_ledger.py::test_posting_40 PASSED [ 41%]
+2026-11-20T09:15:05.6267Z tests/test_reports.py::test_report_1 PASSED [ 41%]
+2026-11-20T09:15:06.0104Z tests/test_reports.py::test_report_2 PASSED [ 42%]
+2026-11-20T09:15:06.3241Z tests/test_reports.py::test_report_3 PASSED [ 42%]
+2026-11-20T09:15:06.6378Z tests/test_reports.py::test_report_4 PASSED [ 43%]
+2026-11-20T09:15:07.0215Z tests/test_reports.py::test_report_5 PASSED [ 43%]
+2026-11-20T09:15:07.3352Z tests/test_reports.py::test_report_6 PASSED [ 44%]
+2026-11-20T09:15:07.6489Z tests/test_reports.py::test_report_7 PASSED [ 44%]
+2026-11-20T09:15:08.0326Z tests/test_reports.py::test_report_8 PASSED [ 45%]
+2026-11-20T09:15:08.3463Z tests/test_reports.py::test_report_9 PASSED [ 45%]
+2026-11-20T09:15:08.6600Z tests/test_reports.py::test_report_10 PASSED [ 46%]
+2026-11-20T09:15:09.0437Z tests/test_reports.py::test_report_11 PASSED [ 46%]
+2026-11-20T09:15:09.3574Z tests/test_reports.py::test_report_12 PASSED [ 47%]
+2026-11-20T09:15:09.6711Z tests/test_reports.py::test_report_13 PASSED [ 47%]
+2026-11-20T09:15:10.0548Z tests/test_reports.py::test_report_14 PASSED [ 48%]
+2026-11-20T09:15:10.3685Z tests/test_reports.py::test_report_15 PASSED [ 48%]
+2026-11-20T09:15:10.6822Z tests/test_reports.py::test_report_16 PASSED [ 49%]
+2026-11-20T09:15:11.0659Z tests/test_reports.py::test_report_17 PASSED [ 49%]
+2026-11-20T09:15:11.3796Z tests/test_reports.py::test_report_18 PASSED [ 50%]
+2026-11-20T09:15:11.6933Z tests/test_reports.py::test_report_19 PASSED [ 50%]
+2026-11-20T09:15:12.0770Z tests/test_reports.py::test_report_20 PASSED [ 51%]
+2026-11-20T09:15:12.3907Z tests/test_reports.py::test_report_21 PASSED [ 51%]
+2026-11-20T09:15:12.7044Z tests/test_reports.py::test_report_22 PASSED [ 52%]
+2026-11-20T09:15:13.0881Z tests/test_reports.py::test_report_23 PASSED [ 52%]
+2026-11-20T09:15:13.4018Z tests/test_reports.py::test_report_24 PASSED [ 53%]
+2026-11-20T09:15:13.7155Z tests/test_reports.py::test_report_25 PASSED [ 53%]
+2026-11-20T09:15:14.0992Z tests/test_reports.py::test_report_26 PASSED [ 54%]
+2026-11-20T09:15:14.3129Z tests/test_reports.py::test_report_27 PASSED [ 54%]
+2026-11-20T09:15:14.6266Z tests/test_reports.py::test_report_28 PASSED [ 55%]
+2026-11-20T09:15:15.0103Z tests/test_reports.py::test_report_29 PASSED [ 55%]
+2026-11-20T09:15:15.3240Z tests/test_reports.py::test_report_30 PASSED [ 56%]
+2026-11-20T09:15:15.6377Z tests/test_sync.py::test_sync_case_1 PASSED [ 56%]
+2026-11-20T09:15:16.0214Z tests/test_sync.py::test_sync_case_2 PASSED [ 57%]
+2026-11-20T09:15:16.3351Z tests/test_sync.py::test_sync_case_3 PASSED [ 57%]
+2026-11-20T09:15:16.6488Z tests/test_sync.py::test_sync_case_4 PASSED [ 58%]
+2026-11-20T09:15:17.0325Z tests/test_sync.py::test_sync_case_5 PASSED [ 58%]
+2026-11-20T09:15:17.3462Z tests/test_sync.py::test_sync_case_6 PASSED [ 59%]
+2026-11-20T09:15:17.6599Z tests/test_sync.py::test_sync_case_7 PASSED [ 59%]
+2026-11-20T09:15:18.0436Z tests/test_sync.py::test_sync_case_8 PASSED [ 60%]
+2026-11-20T09:15:18.3573Z tests/test_sync.py::test_sync_case_9 PASSED [ 60%]
+2026-11-20T09:15:18.6710Z tests/test_sync.py::test_sync_case_10 PASSED [ 61%]
+2026-11-20T09:15:19.0547Z tests/test_sync.py::test_sync_case_11 PASSED [ 61%]
+2026-11-20T09:15:19.3684Z tests/test_sync.py::test_sync_case_12 PASSED [ 62%]
+2026-11-20T09:15:19.6821Z tests/test_sync.py::test_sync_case_13 PASSED [ 62%]
+2026-11-20T09:15:20.0658Z tests/test_sync.py::test_sync_case_14 PASSED [ 63%]
+2026-11-20T09:15:20.3795Z tests/test_sync.py::test_sync_case_15 PASSED [ 63%]
+2026-11-20T09:15:20.6932Z tests/test_sync.py::test_sync_case_16 PASSED [ 64%]
+2026-11-20T09:15:21.0769Z tests/test_sync.py::test_sync_case_17 SKIPPED (optional dep) [ 64%]
+2026-11-20T09:15:21.3906Z tests/test_sync.py::test_sync_case_18 PASSED [ 65%]
+2026-11-20T09:15:21.7043Z tests/test_sync.py::test_sync_case_19 PASSED [ 65%]
+2026-11-20T09:15:22.0880Z tests/test_sync.py::test_sync_case_20 PASSED [ 66%]
+2026-11-20T09:15:22.4017Z tests/test_sync.py::test_sync_case_21 PASSED [ 66%]
+2026-11-20T09:15:22.7154Z tests/test_sync.py::test_sync_case_22 PASSED [ 67%]
+2026-11-20T09:15:23.0991Z tests/test_sync.py::test_sync_case_23 PASSED [ 67%]
+2026-11-20T09:15:23.3128Z tests/test_sync.py::test_sync_case_24 PASSED [ 68%]
+2026-11-20T09:15:23.6265Z tests/test_sync.py::test_sync_case_25 PASSED [ 68%]
+2026-11-20T09:15:24.0102Z tests/test_sync.py::test_sync_case_26 PASSED [ 69%]
+2026-11-20T09:15:24.3239Z tests/test_sync.py::test_sync_case_27 PASSED [ 69%]
+2026-11-20T09:15:24.6376Z tests/test_sync.py::test_sync_case_28 PASSED [ 70%]
+2026-11-20T09:15:25.0213Z tests/test_sync.py::test_sync_case_29 PASSED [ 70%]
+2026-11-20T09:15:25.3350Z tests/test_sync.py::test_sync_case_30 PASSED [ 71%]
+2026-11-20T09:15:25.6487Z tests/test_sync.py::test_sync_case_31 PASSED [ 71%]
+2026-11-20T09:15:26.0324Z tests/test_sync.py::test_sync_case_32 PASSED [ 72%]
+2026-11-20T09:15:26.3461Z tests/test_sync.py::test_sync_case_33 PASSED [ 72%]
+2026-11-20T09:15:26.6598Z tests/test_sync.py::test_sync_case_34 PASSED [ 73%]
+2026-11-20T09:15:27.0435Z tests/test_sync.py::test_sync_case_35 PASSED [ 73%]
+2026-11-20T09:15:27.3572Z tests/test_sync.py::test_sync_case_36 PASSED [ 74%]
+2026-11-20T09:15:27.6709Z tests/test_sync.py::test_sync_case_37 PASSED [ 74%]
+2026-11-20T09:15:28.0546Z tests/test_sync.py::test_sync_case_38 PASSED [ 75%]
+2026-11-20T09:15:28.3683Z tests/test_sync.py::test_sync_case_39 PASSED [ 75%]
+2026-11-20T09:15:28.6820Z tests/test_sync.py::test_sync_case_40 PASSED [ 76%]
+2026-11-20T09:15:29.0657Z tests/test_users.py::test_user_case_1 PASSED [ 76%]
+2026-11-20T09:15:29.3794Z tests/test_users.py::test_user_case_2 PASSED [ 77%]
+2026-11-20T09:15:29.6931Z tests/test_users.py::test_user_case_3 PASSED [ 77%]
+2026-11-20T09:15:30.0768Z tests/test_users.py::test_user_case_4 PASSED [ 78%]
+2026-11-20T09:15:30.3905Z tests/test_users.py::test_user_case_5 PASSED [ 78%]
+2026-11-20T09:15:30.7042Z tests/test_users.py::test_user_case_6 PASSED [ 79%]
+2026-11-20T09:15:31.0879Z tests/test_users.py::test_user_case_7 PASSED [ 79%]
+2026-11-20T09:15:31.4016Z tests/test_users.py::test_user_case_8 PASSED [ 80%]
+2026-11-20T09:15:31.7153Z tests/test_users.py::test_user_case_9 PASSED [ 80%]
+2026-11-20T09:15:32.0990Z tests/test_users.py::test_user_case_10 PASSED [ 81%]
+2026-11-20T09:15:32.3127Z tests/test_users.py::test_user_case_11 PASSED [ 81%]
+2026-11-20T09:15:32.6264Z tests/test_users.py::test_user_case_12 PASSED [ 82%]
+2026-11-20T09:15:33.0101Z tests/test_users.py::test_user_case_13 PASSED [ 82%]
+2026-11-20T09:15:33.3238Z tests/test_users.py::test_user_case_14 PASSED [ 83%]
+2026-11-20T09:15:33.6375Z tests/test_users.py::test_user_case_15 PASSED [ 83%]
+2026-11-20T09:15:34.0212Z tests/test_users.py::test_user_case_16 PASSED [ 84%]
+2026-11-20T09:15:34.3349Z tests/test_users.py::test_user_case_17 PASSED [ 84%]
+2026-11-20T09:15:34.6486Z tests/test_users.py::test_user_case_18 PASSED [ 85%]
+2026-11-20T09:15:35.0323Z tests/test_users.py::test_user_case_19 PASSED [ 85%]
+2026-11-20T09:15:35.3460Z tests/test_users.py::test_user_case_20 PASSED [ 86%]
+2026-11-20T09:15:35.6597Z tests/test_users.py::test_user_case_21 PASSED [ 86%]
+2026-11-20T09:15:36.0434Z tests/test_users.py::test_user_case_22 PASSED [ 87%]
+2026-11-20T09:15:36.3571Z tests/test_users.py::test_user_case_23 PASSED [ 87%]
+2026-11-20T09:15:36.6708Z tests/test_users.py::test_user_case_24 PASSED [ 88%]
+2026-11-20T09:15:37.0545Z tests/test_users.py::test_user_case_25 PASSED [ 88%]
+2026-11-20T09:15:37.3682Z tests/test_users.py::test_user_case_26 PASSED [ 89%]
+2026-11-20T09:15:37.6819Z tests/test_users.py::test_user_case_27 PASSED [ 89%]
+2026-11-20T09:15:38.0656Z tests/test_users.py::test_user_case_28 PASSED [ 90%]
+2026-11-20T09:15:38.3793Z tests/test_users.py::test_user_case_29 PASSED [ 90%]
+2026-11-20T09:15:38.6930Z tests/test_users.py::test_user_case_30 PASSED [ 91%]
+2026-11-20T09:15:39.0767Z tests/test_users.py::test_user_case_31 PASSED [ 91%]
+2026-11-20T09:15:39.3904Z tests/test_users.py::test_user_case_32 PASSED [ 92%]
+2026-11-20T09:15:39.7041Z tests/test_users.py::test_user_case_33 PASSED [ 92%]
+2026-11-20T09:15:40.0878Z tests/test_users.py::test_user_case_34 PASSED [ 93%]
+2026-11-20T09:15:40.4015Z tests/test_users.py::test_user_case_35 PASSED [ 93%]
+2026-11-20T09:15:40.7152Z tests/test_users.py::test_user_case_36 PASSED [ 94%]
+2026-11-20T09:15:41.0989Z tests/test_users.py::test_user_case_37 PASSED [ 94%]
+2026-11-20T09:15:41.3126Z tests/test_users.py::test_user_case_38 PASSED [ 95%]
+2026-11-20T09:15:41.6263Z tests/test_users.py::test_user_case_39 PASSED [ 95%]
+2026-11-20T09:15:42.0100Z tests/test_users.py::test_user_case_40 PASSED [ 96%]
+2026-11-20T09:15:42.3237Z tests/test_users.py::test_user_case_41 PASSED [ 96%]
+2026-11-20T09:15:42.6374Z tests/test_users.py::test_user_case_42 PASSED [ 97%]
+2026-11-20T09:15:43.0211Z tests/test_users.py::test_user_case_43 PASSED [ 97%]
+2026-11-20T09:15:43.3348Z tests/test_users.py::test_user_case_44 PASSED [ 98%]
+2026-11-20T09:15:43.6485Z tests/test_users.py::test_user_case_45 PASSED [ 98%]
+2026-11-20T09:15:44.0322Z tests/test_users.py::test_user_case_46 PASSED [ 99%]
+2026-11-20T09:15:44.3459Z tests/test_users.py::test_user_case_47 PASSED [ 99%]
+2026-11-20T09:15:44.6596Z tests/test_users.py::test_user_case_48 PASSED [100%]
+2026-11-20T09:15:45.0433Z 
+2026-11-20T09:15:45.3570Z =================================== FAILURES ===================================
+2026-11-20T09:15:45.6707Z ___________________________ test_prorate_mid_month ____________________________
+2026-11-20T09:15:46.0544Z 
+2026-11-20T09:15:46.3681Z     def test_prorate_mid_month():
+2026-11-20T09:15:46.6818Z         plan = Plan(price=Decimal('29.00'), period=Period.MONTH)
+2026-11-20T09:15:47.0655Z         start = date(2026, 11, 16)
+2026-11-20T09:15:47.3792Z >       assert prorate(plan, start) == Decimal('14.53')
+2026-11-20T09:15:47.6929Z E       AssertionError: assert Decimal('14.52') == Decimal('14.53')
+2026-11-20T09:15:48.0766Z E        +  where Decimal('14.52') = prorate(Plan(price=Decimal('29.00')), date(2026, 11, 16))
+2026-11-20T09:15:48.3903Z 
+2026-11-20T09:15:48.7040Z tests/test_billing.py:88: AssertionError
+2026-11-20T09:15:49.0877Z ___________________________ test_csv_header_order ____________________________
+2026-11-20T09:15:49.4014Z 
+2026-11-20T09:15:49.7151Z     def test_csv_header_order():
+2026-11-20T09:15:50.0988Z         rows = export_csv([{'id': 1, 'name': 'a', 'email': 'a@x.test'}])
+2026-11-20T09:15:50.3125Z >       assert rows[0] == ['id', 'email', 'name']
+2026-11-20T09:15:50.6262Z E       AssertionError: assert ['id', 'name', 'email'] == ['id', 'email', 'name']
+2026-11-20T09:15:51.0099Z 
+2026-11-20T09:15:51.3236Z tests/test_export.py:41: AssertionError
+2026-11-20T09:15:51.6373Z =============================== warnings summary ===============================
+2026-11-20T09:15:52.0210Z tests/test_sync.py::test_sync_case_3
+2026-11-20T09:15:52.3347Z   /home/runner/work/ledgerly/ledgerly/src/ledgerly/sync.py:112: DeprecationWarning: datetime.datetime.utcnow() is deprecated
+2026-11-20T09:15:52.6484Z 
+2026-11-20T09:15:53.0321Z -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+2026-11-20T09:15:53.3458Z =========================== short test summary info ============================
+2026-11-20T09:15:53.6595Z SKIPPED [1] tests/test_accounts.py:77: needs LEGACY_DB
+2026-11-20T09:15:54.0432Z SKIPPED [2] tests/test_export.py:63: optional dep
+2026-11-20T09:15:54.3569Z FAILED tests/test_billing.py::test_prorate_mid_month - AssertionError: assert Decimal('14.52') == Decimal('14.53')
+2026-11-20T09:15:54.6706Z FAILED tests/test_export.py::test_csv_header_order - AssertionError: assert ['id', 'name', 'email'] == ['id', 'email', 'name']
+2026-11-20T09:15:55.0543Z ============ 2 failed, 196 passed, 3 skipped, 1 warning in 41.27s =============
+2026-11-20T09:15:55.3680Z ##[error]Process completed with exit code 1.
+2026-11-20T09:15:55.6817Z ##[endgroup]
+2026-11-20T09:15:56.0654Z ##[group]Post job cleanup.
+2026-11-20T09:15:56.2100Z [command]/usr/bin/git config --local --unset-all url.https://x-access-token:ghp_FAKE0000example0000token0000abcd1234@github.com/.insteadOf
+2026-11-20T09:15:56.3791Z Cleaning up orphan processes
+2026-11-20T09:15:56.6928Z ##[endgroup]

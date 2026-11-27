@@ -29,6 +29,7 @@ REVIEWER = "agentic-forge:reviewer"
 SECURITY = "agentic-forge:security-engineer"
 GRADER = "agentic-forge:grader"
 ARCHITECT = "agentic-forge:architect"
+READER = "agentic-forge:reader"
 GIT_ROLES = (REVIEWER, SECURITY)
 _REAL_GIT_VERSION = role_scope._git_version  # before the autouse fixture pins it
 
@@ -551,7 +552,7 @@ def test_review_lenses_are_refused_every_tool_but_reading(role: str, tool: str) 
     assert decision.block and decision.rule == "role-tool"
 
 
-@pytest.mark.parametrize("role", [REVIEWER, SECURITY, GRADER, ARCHITECT])
+@pytest.mark.parametrize("role", [REVIEWER, SECURITY, GRADER, ARCHITECT, READER])
 @pytest.mark.parametrize("tool", ["Read", "Grep", "Glob"])
 def test_every_role_may_read(role: str, tool: str) -> None:
     assert role_scope.decide(_tool(tool, role)) == role_scope.ALLOW
@@ -562,6 +563,27 @@ def test_the_grader_may_only_read(tool: str) -> None:
     payload = _bash("git diff", GRADER) if tool == "Bash" else _tool(tool, GRADER)
     decision = role_scope.decide(payload)
     assert decision.block and decision.rule == "role-tool"
+
+
+@pytest.mark.parametrize(
+    "tool",
+    ["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "Agent", "Task", "Skill", "WebFetch",
+     "WebSearch", "mcp__x__y"],
+)
+def test_the_reader_may_only_read(tool: str) -> None:
+    """ADR 0116: the reader is read-only like the grader; a log or a review thread that talks it
+    into running or writing something is refused in every permission mode."""
+    payload = _bash("git diff", READER) if tool == "Bash" else _tool(tool, READER)
+    decision = role_scope.decide(payload)
+    assert decision.block and decision.rule == "role-tool"
+
+
+def test_the_reader_refusal_names_its_scope_and_is_not_a_lens() -> None:
+    message = role_scope.decide(_tool("Write", READER)).message
+    assert "reader role may use Glob, Grep, Read." in message
+    assert "run by the caller, not by the reader role" in message
+    assert "orchestrating skill" not in message and "review lens" not in message
+    assert "read-only git" not in message
 
 
 def _write(file_path: Any, cwd: str | None = None) -> dict[str, Any]:
@@ -974,7 +996,7 @@ def test_the_main_session_is_always_allowed(tool: str) -> None:
 @pytest.mark.parametrize(
     "agent",
     ["reviewer", "security-engineer", "grader", "architect", "other-plugin:reviewer",
-     "agentic-forge:software-engineer", "agentic-forge:qa-engineer", "Explore",
+     "agentic-forge:software-engineer", "agentic-forge:qa-engineer", "reader", "Explore",
      "general-purpose", "AGENTIC-FORGE:REVIEWER", "agentic-forge:reviewer ", "", 123, None,
      ["agentic-forge:reviewer"]],
 )
@@ -1018,7 +1040,8 @@ def test_the_refusal_names_the_role_its_scope_and_who_runs_tools() -> None:
 def test_the_refusal_for_a_non_lens_role_does_not_call_it_a_lens() -> None:
     message = role_scope.decide(_tool("Edit", ARCHITECT)).message
     assert "architect role may use Glob, Grep, Read, Write" in message
-    assert "orchestrating skill" in message and "review lens" not in message
+    assert "run by the caller, not by the architect role" in message
+    assert "orchestrating skill" not in message and "review lens" not in message
     assert "read-only git" not in message and "git show" not in message
     assert "Write only Markdown design documents (.md)" in message
 
@@ -1090,6 +1113,19 @@ def test_hook_denies_with_the_pre_tool_use_decision(
     assert "reviewer role" in spec["permissionDecisionReason"]
 
 
+@pytest.mark.parametrize("tool", ["Bash", "Write", "Edit"])
+def test_hook_denies_the_reader_anything_but_reading(
+    tool: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """The script's own copy of the held roles includes the reader, so it reaches the library."""
+    payload = _bash("git diff", READER) if tool == "Bash" else _tool(tool, READER)
+    _stdin(monkeypatch, json.dumps({**payload, "cwd": str(tmp_path)}))
+    assert role_scope_hook.main() == 0
+    spec = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    assert spec["permissionDecision"] == "deny"
+    assert "reader role" in spec["permissionDecisionReason"]
+
+
 @pytest.mark.parametrize(
     "payload",
     [_bash("rm -rf build", None), _tool("mcp__x__y", None), _tool("Read", REVIEWER),
@@ -1117,8 +1153,11 @@ def _boom(payload: dict[str, Any]) -> Any:
     raise RuntimeError("kaboom")
 
 
-@pytest.mark.parametrize("payload", [_bash("git diff"), _tool("Read", GRADER),
-                                     _tool("Write", ARCHITECT)])
+_CRASH_LENS = _bash("git diff")
+
+
+@pytest.mark.parametrize("payload", [_CRASH_LENS, _tool("Read", GRADER),
+                                     _tool("Write", ARCHITECT), _tool("Read", READER)])
 def test_hook_crash_fails_closed_for_a_held_role_and_is_recorded(
     payload: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str], tmp_path: Path,
@@ -1133,6 +1172,9 @@ def test_hook_crash_fails_closed_for_a_held_role_and_is_recorded(
     assert spec["permissionDecision"] == "deny"
     assert "could not be checked (RuntimeError)" in spec["permissionDecisionReason"]
     assert "kaboom" not in spec["permissionDecisionReason"]
+    # A lens is delegated to by a skill; the other held roles by whoever called them (ADR 0116).
+    runner = "orchestrating skill" if payload is _CRASH_LENS else "caller"
+    assert spec["permissionDecisionReason"].endswith(f"are run by the {runner}.")
     notice = out["systemMessage"]
     assert "role-scope hook crashed: RuntimeError" in notice and "failing closed" in notice
     assert "kaboom" not in notice  # the type only: an exception can repeat the command

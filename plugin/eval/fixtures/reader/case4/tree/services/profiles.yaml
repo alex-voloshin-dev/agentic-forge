@@ -1,0 +1,12 @@
+# profiles service: client settings for calls to its upstream
+name: profiles
+owner: team-profiles
+upstream:
+  url: http://profiles.internal:8080
+client:
+  retries: 2
+  timeout_ms: 900
+  pool_size: 10
+health:
+  path: /healthz
+  interval_s: 15

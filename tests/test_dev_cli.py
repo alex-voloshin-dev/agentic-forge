@@ -3572,3 +3572,78 @@ def test_claude_cli_runner_passes_the_env_to_the_session(
     assert isinstance(env, dict) and env["CLAUDE_PLUGIN_ROOT"] == "/plug"
     assert "PATH" in env  # the real environment is inherited, not replaced
 
+
+
+# --- workspace cases need a runner with tools (ADR 0116) -------------------------------------
+
+
+def _no_runner(*a: object, **k: object) -> object:
+    raise AssertionError("a model runner was built for a run that must be refused")
+
+
+def test_run_agent_evals_refuses_workspace_cases_under_the_api_runner(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The reader's cases name their files; `--runner api` has no tools to open them, so the run
+    is refused before any runner (and so any model call) exists."""
+    monkeypatch.setattr(run_agent_evals, "_build_runners", _no_runner)
+    assert run_agent_evals.main(["run", "--runner", "api", "--role", "reader"]) == 1
+    err = capsys.readouterr().err
+    assert "error: reader: cases [1, 2, 3, 4] run in a workspace" in err
+    assert "Use --runner claude." in err
+
+
+def test_run_agent_evals_api_runner_still_runs_roles_without_workspace_cases(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    built: list[str] = []
+
+    def fake(runner: str, role: str, *a: object, **k: object) -> object:
+        built.append(role)
+        raise RuntimeError("stop here")
+
+    monkeypatch.setattr(run_agent_evals, "_build_runners", fake)
+    monkeypatch.setattr(run_agent_evals._eval_cli, "record_failure", lambda *a, **k: None)
+    assert run_agent_evals.main(["run", "--runner", "api", "--role", "grader"]) == 1
+    assert built == ["grader"]  # past the refusal, to the runner
+    assert "run in a workspace" not in capsys.readouterr().err
+
+
+def test_run_skill_evals_refuses_workspace_cases_under_the_api_runner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    plugin = tmp_path / "plugin"
+    skill = plugin / "skills" / "s"
+    (skill / "evals").mkdir(parents=True)
+    (skill / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\nBody\n", encoding="utf-8")
+    contract = {
+        "skill_name": "s",
+        "evals": [
+            {"id": 1, "prompt": "p", "assertions": ["a"]},
+            {"id": 2, "prompt": "p", "assertions": ["a"], "workspace": "dir"},
+        ],
+        "component": {"id": "s", "type": "skill", "purpose": "p"},
+        "thresholds": {"tier2_quality": {"min_pass_rate": 0.8, "runs": 5}},
+    }
+    (skill / "evals" / "evals.json").write_text(json.dumps(contract), encoding="utf-8")
+    monkeypatch.setattr(run_skill_evals, "_build_runners", _no_runner)
+    argv = ["run", "--plugin", str(plugin), "--runner", "api", "--skill", "s"]
+    assert run_skill_evals.main(argv) == 1
+    err = capsys.readouterr().err
+    assert "error: s: cases [2] run in a workspace" in err and "Use --runner claude." in err
+
+
+def test_workspace_refusals_only_under_the_api_runner(tmp_path: Path) -> None:
+    import _eval_cli
+
+    path = tmp_path / "x.evals.json"
+    path.write_text(
+        json.dumps({"evals": [{"id": 7, "prompt": "p", "workspace": "dir"}]}), encoding="utf-8"
+    )
+    contracts = {"x": path, "missing": tmp_path / "nope.json"}
+    assert _eval_cli.workspace_refusals("claude", contracts) == []
+    assert _eval_cli.workspace_refusals("dry", contracts) == []
+    assert _eval_cli.workspace_refusals("api", contracts) == [
+        "x: cases [7] run in a workspace whose files the role reads with its tools; "
+        "--runner api has no tools. Use --runner claude."
+    ]

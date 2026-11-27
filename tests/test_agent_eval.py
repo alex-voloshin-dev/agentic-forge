@@ -1104,3 +1104,118 @@ def test_claude_cli_runner_treats_a_denial_as_undetermined_only_when_asked(
         claude_cli_runner(denials_undetermined=True)("S", "P", Path("."))
     assert raised.value.subtype == "permission_denied"
     assert "Read" not in str(raised.value)  # how many, never what it asked for
+
+
+# --- a case's own workspace (ADR 0116) -----------------------------------------------------
+
+
+def test_is_write_role_for_the_reader() -> None:
+    assert not is_write_role(PLUGIN, "reader")
+
+
+def test_build_role_prompt_names_files_instead_of_pasting() -> None:
+    prompt = build_role_prompt({"prompt": "Read it."}, "--- FILE: a ---\nSECRET BODY", file_names=[
+        "ci-run.log", "services/a.yaml"
+    ])
+    assert prompt.startswith("Read it.")
+    assert "These files are in your working directory; read them there:" in prompt
+    assert "- ci-run.log\n- services/a.yaml" in prompt
+    assert "SECRET BODY" not in prompt and "Context files:" not in prompt
+
+
+def test_a_dir_workspace_case_runs_a_read_role_in_its_own_directory(tmp_path: Path) -> None:
+    """Without `--isolate` a read role ran in the plugin directory with its files pasted; a
+    `dir` case gets a fresh directory holding them, the file names instead of their text, and the
+    grader in the same directory."""
+    plugin = tmp_path / "plugin"
+    tree = plugin / "eval" / "fixtures" / "x" / "tree" / "app"
+    tree.mkdir(parents=True)
+    (tree / "config.py").write_text("PORT = 8000  # FIXTURE TEXT\n", encoding="utf-8")
+    case = {
+        "id": 1,
+        "workspace": "dir",
+        "prompt": "Brief (reader).",
+        "files": ["eval/fixtures/x/tree/app/config.py"],
+        "assertions": ["a"],
+    }
+    seen: list[tuple[str, Path]] = []
+    graded_in: list[Path] = []
+
+    def role(system: str, prompt: str, workdir: Path) -> str:
+        assert (workdir / "app" / "config.py").is_file()
+        seen.append((prompt, workdir))
+        return "facts"
+
+    def grader(system: str, prompt: str, workdir: Path) -> str:
+        graded_in.append(workdir)
+        assert (workdir / "app" / "config.py").is_file()  # the grader reads what the role left
+        return make_grader(True)(system, prompt, workdir)
+
+    _, _, gradings = run_eval_cases(
+        system_body="role", grader_body="g", cases=[case], thresholds={}, plugin_dir=plugin,
+        run_fn=role, grader_fn=grader, runs=1, isolate=False,
+    )
+    assert gradings[0]["summary"]["pass_rate"] == 1.0
+    prompt, workdir = seen[0]
+    assert workdir != plugin and graded_in == [workdir]
+    assert not workdir.exists()  # removed after the case
+    assert "- app/config.py" in prompt and "FIXTURE TEXT" not in prompt
+
+
+@pytest.mark.parametrize("value", ["git", "svn", ""])
+def test_an_unknown_workspace_is_a_wiring_problem_and_a_schema_error(
+    value: str, tmp_path: Path
+) -> None:
+    """Only `dir` exists; `git` went with the clerk (ADR 0116)."""
+    from agentic_forge.evals import eval_case_problems, validate_evals
+
+    case = {"id": 1, "prompt": "p", "assertions": ["a"], "workspace": value}
+    problems = eval_case_problems("x", [case], tmp_path)
+    assert problems == [f"x case 1: unknown workspace {value!r} (one of ['dir'])"]
+    contract = {
+        "skill_name": "x",
+        "evals": [case],
+        "component": {"id": "x", "type": "agent", "purpose": "p"},
+    }
+    assert any("workspace" in err for err in validate_evals(contract))
+    fixed = {**contract, "evals": [{**case, "workspace": "dir"}]}
+    assert not any("workspace" in err for err in validate_evals(fixed))
+
+
+@pytest.mark.parametrize(
+    ("rel", "why"),
+    [
+        ("eval/fixtures/../../secrets.txt", ".."),
+        ("../outside.txt", ".."),
+        ("eval/fixtures/x/.git/config", ".git"),
+        (".git/HEAD", ".git"),
+        ("/etc/passwd", "an absolute path"),
+    ],
+)
+def test_a_fixture_path_may_not_leave_the_plugin_or_enter_git(
+    rel: str, why: str, tmp_path: Path
+) -> None:
+    """Security nit from the ADR 0116 review: a `files` entry is copied into the role's sandbox,
+    so it may not reach outside the plugin directory or into a repository's internals."""
+    from agentic_forge.evals import eval_case_problems
+
+    (tmp_path / "outside.txt").write_text("x", encoding="utf-8")
+    case = {"id": 1, "prompt": "p", "assertions": ["a"], "files": [rel]}
+    assert eval_case_problems("x", [case], tmp_path / "plugin") == [
+        f"x case 1: fixture path {rel} holds {why}"
+    ]
+
+
+def test_a_fixture_path_with_a_dotted_name_is_fine(tmp_path: Path) -> None:
+    from agentic_forge.evals import eval_case_problems
+
+    (tmp_path / "a..b.gitignore").write_text("x", encoding="utf-8")
+    case = {"id": 1, "prompt": "p", "assertions": ["a"], "files": ["a..b.gitignore"]}
+    assert eval_case_problems("x", [case], tmp_path) == []
+
+
+def test_workspace_case_ids_lists_only_workspace_cases() -> None:
+    from agentic_forge.evals import workspace_case_ids
+
+    cases = [{"id": 1}, {"id": 2, "workspace": "dir"}, {"id": 3, "workspace": None}]
+    assert workspace_case_ids(cases) == [2]

@@ -1,0 +1,378 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 4c1a2b0..9e7d311 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,6 +1,14 @@
+ # Changelog
+ 
+ ## [Unreleased]
++
++### Changed
++
++- `Client.request` retries idempotent requests twice by default, with backoff.
++- `open_session` takes `token` by keyword only, and a new `verify` flag.
++
++### Removed
++
++- The `httpkit.legacy` module.
+ 
+ ## [2.3.0] - 2026-10-02
+ 
+diff --git a/src/httpkit/client.py b/src/httpkit/client.py
+index 1f0e9aa..7b2c4de 100644
+--- a/src/httpkit/client.py
++++ b/src/httpkit/client.py
+@@ -1,24 +1,25 @@
+ """The HTTP client."""
+ 
+ from __future__ import annotations
+ 
+ import json
+ import logging
+ from typing import Any
+ 
+ from .errors import HttpError, TransportError
+ from .transport import Transport
++from .retry import Backoff, should_retry
+ 
+ log = logging.getLogger(__name__)
+ 
+ 
+ class Client:
+     """A small HTTP client over a pluggable transport."""
+ 
+     def __init__(self, base_url: str, transport: Transport | None = None) -> None:
+         self.base_url = base_url.rstrip('/')
+         self.transport = transport or Transport()
+ 
+     def _url(self, path: str) -> str:
+         return f"{self.base_url}/{path.lstrip('/')}"
+ 
+@@ -25,40 +26,58 @@ class Client:
+     def request(
+         self,
+         method: str,
+         url: str,
+         *,
+-        timeout: float = 10.0,
+-        retries: int = 0,
++        timeout: float = 30.0,
++        retries: int = 2,
++        backoff: float = 0.5,
+         headers: dict[str, str] | None = None,
+     ) -> dict[str, Any]:
+         """Send one request and return the decoded JSON body.
+ 
+-        ``retries`` is the number of extra attempts on a transport error (default none).
++        ``retries`` is the number of extra attempts on a transport error or a 5xx answer for an
++        idempotent method; ``backoff`` is the first delay in seconds, doubled each attempt.
+         """
+-        attempt = 0
+-        while True:
+-            try:
+-                answer = self.transport.send(method, self._url(url), timeout=timeout,
+-                                             headers=headers or {})
+-                break
+-            except TransportError:
+-                attempt += 1
+-                if attempt > retries:
+-                    raise
++        delays = Backoff(first=backoff, attempts=retries)
++        for delay in delays:
++            try:
++                answer = self.transport.send(
++                    method, self._url(url), timeout=timeout, headers=headers or {}
++                )
++            except TransportError as exc:
++                if not delays.more():
++                    raise
++                log.info("retrying %s %s after %s", method, url, exc)
++                delay.wait()
++                continue
++            if should_retry(method, answer.status) and delays.more():
++                delay.wait()
++                continue
++            break
+         if answer.status >= 400:
+             raise HttpError(answer.status, answer.text)
+         return json.loads(answer.text) if answer.text else {}
+ 
+     def get(self, url: str, **kw: Any) -> dict[str, Any]:
+         return self.request("GET", url, **kw)
+ 
+     def post(self, url: str, body: dict[str, Any], **kw: Any) -> dict[str, Any]:
+-        return self.request("POST", url, **kw, headers={"content-type": "application/json"})
++        headers = {"content-type": "application/json", **kw.pop("headers", {})}
++        return self.request("POST", url, headers=headers, **kw)
+ 
+     def delete(self, url: str, **kw: Any) -> dict[str, Any]:
+         return self.request("DELETE", url, **kw)
+-
+-    # TODO: migrate callers of request_raw to request and drop it
+-    def request_raw(self, method: str, url: str) -> bytes:
+-        return self.transport.send(method, self._url(url), timeout=10.0, headers={}).body
+diff --git a/src/httpkit/legacy.py b/src/httpkit/legacy.py
+deleted file mode 100644
+index 8a51c07..0000000
+--- a/src/httpkit/legacy.py
++++ /dev/null
+@@ -1,28 +0,0 @@
+-"""Deprecated helpers kept for 1.x callers."""
+-
+-from __future__ import annotations
+-
+-import warnings
+-
+-from .client import Client
+-
+-
+-def fetch_json(url: str) -> dict:
+-    warnings.warn("use Client.get", DeprecationWarning, stacklevel=2)
+-    base, _, path = url.partition('/api/')
+-    return Client(base).get('/api/' + path)
+-
+-
+-def post_json(url: str, body: dict) -> dict:
+-    warnings.warn("use Client.post", DeprecationWarning, stacklevel=2)
+-    base, _, path = url.partition('/api/')
+-    return Client(base).post('/api/' + path, body)
+-
+-
+-def ping(url: str) -> bool:
+-    warnings.warn("use Client.get", DeprecationWarning, stacklevel=2)
+-    try:
+-        fetch_json(url)
+-    except Exception:
+-        return False
+-    return True
+diff --git a/src/httpkit/retry.py b/src/httpkit/retry.py
+new file mode 100644
+index 0000000..5d3e2f1
+--- /dev/null
++++ b/src/httpkit/retry.py
+@@ -0,0 +1,40 @@
++"""Backoff schedule and the retry rule for idempotent methods."""
++
++from __future__ import annotations
++
++import time
++from collections.abc import Iterator
++from dataclasses import dataclass, field
++
++IDEMPOTENT = frozenset({"GET", "HEAD", "OPTIONS", "PUT", "DELETE"})
++
++
++def should_retry(method: str, status: int) -> bool:
++    """A 5xx answer to an idempotent method is worth one more try."""
++    return method.upper() in IDEMPOTENT and 500 <= status < 600
++
++
++@dataclass
++class Delay:
++    seconds: float
++
++    def wait(self) -> None:
++        time.sleep(self.seconds)
++
++
++@dataclass
++class Backoff:
++    first: float = 0.5
++    attempts: int = 2
++    _left: int = field(init=False, default=0)
++
++    def __iter__(self) -> Iterator[Delay]:
++        self._left = self.attempts + 1
++        seconds = self.first
++        while self._left > 0:
++            self._left -= 1
++            yield Delay(seconds)
++            seconds *= 2
++
++    def more(self) -> bool:
++        return self._left > 0
+diff --git a/src/httpkit/session.py b/src/httpkit/session.py
+index 33ab9f2..c0de771 100644
+--- a/src/httpkit/session.py
++++ b/src/httpkit/session.py
+@@ -12,30 +12,36 @@ from .client import Client
+ 
+ 
+ class Session:
+     """A client with a bearer token and a cookie jar."""
+ 
+     def __init__(self, client: Client, token: str | None) -> None:
+         self.client = client
+         self.token = token
+         self.cookies: dict[str, str] = {}
+ 
+     def headers(self) -> dict[str, str]:
+         out = {}
+         if self.token:
+             out["authorization"] = f"Bearer {self.token}"
+         if self.cookies:
+             out["cookie"] = "; ".join(f"{k}={v}" for k, v in self.cookies.items())
+         return out
+ 
+     def get(self, url: str) -> dict:
+         return self.client.get(url, headers=self.headers())
+ 
+ 
+-def open_session(base_url: str, token: str | None = None) -> Session:
+-    """Open a session against ``base_url``."""
+-    return Session(Client(base_url), token)
++def open_session(base_url: str, *, token: str | None = None, verify: bool = True) -> Session:
++    """Open a session against ``base_url``.
++
++    ``verify`` turns TLS certificate checks off only for a test server; never in production.
++    """
++    transport = Transport(verify=verify)
++    return Session(Client(base_url, transport), token)
+ 
+ 
+ def close_session(session: Session) -> None:
+     session.cookies.clear()
+diff --git a/src/httpkit/transport.py b/src/httpkit/transport.py
+index 90aa1b4..f17c2e9 100644
+--- a/src/httpkit/transport.py
++++ b/src/httpkit/transport.py
+@@ -20,14 +20,15 @@ class Answer:
+ 
+ class Transport:
+     """Sends requests with the standard library; swap it out in tests."""
+ 
+-    def __init__(self) -> None:
++    def __init__(self, verify: bool = True) -> None:
+         self.opener = urllib.request.build_opener()
++        self.verify = verify
+ 
+     def send(
+         self, method: str, url: str, *, timeout: float, headers: dict[str, str]
+     ) -> Answer:
+         request = urllib.request.Request(url, method=method, headers=headers)
+         with self.opener.open(request, timeout=timeout) as raw:
+             return Answer(raw.status, raw.read().decode())
+diff --git a/tests/test_client.py b/tests/test_client.py
+index 6e1d0c2..a4b9f80 100644
+--- a/tests/test_client.py
++++ b/tests/test_client.py
+@@ -40,6 +40,90 @@ def test_post_sends_json(fake_transport) -> None:
+     client = Client('https://api.test', fake_transport)
+     client.post('/items', {'a': 1})
+     assert fake_transport.last_headers['content-type'] == 'application/json'
+ 
+ 
++def test_retry_case_1(fake_transport) -> None:
++    fake_transport.fail_times(1)
++    client = Client('https://api.test', fake_transport)
++    assert client.get('/items/1', timeout=5) == {'id': 1}
++    assert fake_transport.calls == 2
++
++
++def test_retry_case_2(fake_transport) -> None:
++    fake_transport.fail_times(2)
++    client = Client('https://api.test', fake_transport)
++    assert client.get('/items/2', timeout=5) == {'id': 2}
++    assert fake_transport.calls == 3
++
++
++def test_retry_case_3(fake_transport) -> None:
++    fake_transport.fail_times(0)
++    client = Client('https://api.test', fake_transport)
++    assert client.get('/items/3', timeout=5) == {'id': 3}
++    assert fake_transport.calls == 1
++
++
++def test_retry_case_4(fake_transport) -> None:
++    fake_transport.fail_times(1)
++    client = Client('https://api.test', fake_transport)
++    assert client.get('/items/4', timeout=5) == {'id': 4}
++    assert fake_transport.calls == 2
++
++
++def test_retry_case_5(fake_transport) -> None:
++    fake_transport.fail_times(2)
++    client = Client('https://api.test', fake_transport)
++    assert client.get('/items/5', timeout=5) == {'id': 5}
++    assert fake_transport.calls == 3
++
++
++def test_retry_case_6(fake_transport) -> None:
++    fake_transport.fail_times(0)
++    client = Client('https://api.test', fake_transport)
++    assert client.get('/items/6', timeout=5) == {'id': 6}
++    assert fake_transport.calls == 1
++
++
++def test_retry_case_7(fake_transport) -> None:
++    fake_transport.fail_times(1)
++    client = Client('https://api.test', fake_transport)
++    assert client.get('/items/7', timeout=5) == {'id': 7}
++    assert fake_transport.calls == 2
++
++
++def test_retry_case_8(fake_transport) -> None:
++    fake_transport.fail_times(2)
++    client = Client('https://api.test', fake_transport)
++    assert client.get('/items/8', timeout=5) == {'id': 8}
++    assert fake_transport.calls == 3
++
++
++def test_retry_case_9(fake_transport) -> None:
++    fake_transport.fail_times(0)
++    client = Client('https://api.test', fake_transport)
++    assert client.get('/items/9', timeout=5) == {'id': 9}
++    assert fake_transport.calls == 1
++
++
++def test_retry_case_10(fake_transport) -> None:
++    fake_transport.fail_times(1)
++    client = Client('https://api.test', fake_transport)
++    assert client.get('/items/10', timeout=5) == {'id': 10}
++    assert fake_transport.calls == 2
++
++
++def test_retry_case_11(fake_transport) -> None:
++    fake_transport.fail_times(2)
++    client = Client('https://api.test', fake_transport)
++    assert client.get('/items/11', timeout=5) == {'id': 11}
++    assert fake_transport.calls == 3
++
++
++def test_retry_case_12(fake_transport) -> None:
++    fake_transport.fail_times(0)
++    client = Client('https://api.test', fake_transport)
++    assert client.get('/items/12', timeout=5) == {'id': 12}
++    assert fake_transport.calls == 1
++
++
+ def test_delete(fake_transport) -> None:
+diff --git a/docs/usage.md b/docs/usage.md
+index 2b7f1d0..e81c4a9 100644
+--- a/docs/usage.md
++++ b/docs/usage.md
+@@ -8,16 +8,22 @@ Install with `pip install httpkit`.
+ ## Requests
+ 
+ ```python
+ client = Client("https://api.example.test")
+-items = client.get("/items", timeout=60)
++items = client.get("/items", timeout=60)  # a long listing: raise the timeout for this call
+ ```
+ 
+-Every request times out after 10 seconds unless you pass `timeout`.
++Every request times out after 30 seconds unless you pass `timeout`. Idempotent requests
++(GET, HEAD, OPTIONS, PUT, DELETE) are retried twice on a transport error or a 5xx answer,
++waiting 0.5 s and then 1 s; pass `retries=0` to turn that off.
+ 
+ ## Sessions
+ 
+ ```python
+-session = open_session("https://api.example.test", "t0k3n")
++session = open_session("https://api.example.test", token="t0k3n")
+ ```
+ 
+-The `httpkit.legacy` helpers still work but warn.
++The `httpkit.legacy` helpers are gone; use `Client.get` and `Client.post`.
+ 
+ ## Errors

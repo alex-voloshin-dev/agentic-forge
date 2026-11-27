@@ -1,0 +1,12 @@
+# accounts service: client settings for calls to its upstream
+name: accounts
+owner: team-accounts
+upstream:
+  url: http://accounts.internal:8080
+client:
+  retries: 2
+  timeout_ms: 1500
+  pool_size: 10
+health:
+  path: /healthz
+  interval_s: 15

@@ -2,8 +2,8 @@
 """Role-scope hook (PreToolUse): hold the read-only roles to their tool scope (ADR 0106).
 
 A tool call made inside one of the plugin's read-only subagents (``reviewer``,
-``security-engineer``, ``grader``, ``architect``) carries its ``agent_type``; what to answer is
-``role_scope.respond``'s, pure and tested:
+``security-engineer``, ``grader``, ``architect``, ``reader``) carries its ``agent_type``; what to
+answer is ``role_scope.respond``'s, pure and tested:
 
 - a refusal is the PreToolUse ``deny`` decision in ``hookSpecificOutput``, with exit 0; a hook's
   ``deny`` applies in every permission mode, ``bypassPermissions`` included, and its reason
@@ -37,7 +37,7 @@ _COMPONENT = "role-scope-hook"
 # still refuses; a test keeps this equal to role_scope.ROLE_TOOLS.
 HELD_ROLES = frozenset({
     "agentic-forge:reviewer", "agentic-forge:security-engineer", "agentic-forge:grader",
-    "agentic-forge:architect",
+    "agentic-forge:architect", "agentic-forge:reader",
 })
 
 
@@ -55,10 +55,11 @@ def _fail_closed(payload: dict[str, object], exc: BaseException) -> None:
     """Refuse the call (printed first, so a failing record cannot cost the refusal), then record
     the crash and add its once-per-session notice."""
     role = str(payload.get("agent_type")).split(":", 1)[-1]
+    # The review lenses are delegated to by a skill; the other held roles by whoever called them.
+    runner = "orchestrating skill" if role in ("reviewer", "security-engineer") else "caller"
     reason = (
         f"agentic-forge role scope: this call could not be checked ({type(exc).__name__}), so it "
-        f"is refused for the {role} role. Tests, linters and other tools are run by the "
-        "orchestrating skill."
+        f"is refused for the {role} role. Tests, linters and other tools are run by the {runner}."
     )
     out: dict[str, object] = {
         "hookSpecificOutput": {

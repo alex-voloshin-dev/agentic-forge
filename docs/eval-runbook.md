@@ -34,8 +34,8 @@
 > neighbours, and expect to re-balance the old anchors, not just append the new words.
 
 This explains how to run the project's evals and read the results. It starts with the Tier-2
-(LLM-judged quality) evals for the six engine roles (`reviewer`, `grader`, `software-engineer`,
-`architect`, `security-engineer`, `qa-engineer`); the other tiers each have their own runner
+(LLM-judged quality) evals for the seven engine roles (`reviewer`, `grader`, `software-engineer`,
+`architect`, `security-engineer`, `qa-engineer`, and the low-cost `reader` of ADR 0116); the other tiers each have their own runner
 (see *Scope: a runner per tier* below). The orchestration for the roles is
 `plugin/lib/agentic_forge/agent_eval.py`; the CLI is `dev/run_agent_evals.py`; the wiring in
 CI is `.github/workflows/eval.yml`. Rationale: [ADR 0011](architecture/decisions/0011-agent-eval-runner.md).
@@ -62,7 +62,7 @@ identical to skills'.
 
 ### Scope: a runner per tier
 
-`run_agent_evals.py` gates the six **roles** (agent Tier-2). The other tiers have their own
+`run_agent_evals.py` gates the seven **roles** (agent Tier-2). The other tiers have their own
 runners: **Tier-0** `dev/validate.py`; **skill Tier-1** `dev/run_tier1_evals.py` (trigger
 recall/specificity on the live listing — see below); **skill Tier-2** `dev/run_skill_evals.py`
 (see below); **Tier-3** `dev/run_spine_e2e.py`. The spine phase-workflow skills carry no
@@ -300,6 +300,16 @@ a source file and an existing test so "no existing test is weakened" has a test 
 A write role can never reach or mutate the real repo.
 `--isolate` opts read roles into the same sandboxing.
 
+**A case's own workspace (ADR 0116).** A case may set `"workspace": "dir"`. It then always runs in
+a fresh directory holding its files, whatever `--isolate` says, and the prompt **names** the files
+("These files are in your working directory; read them there:") instead of pasting their text, so
+the role reads them with its own tools: that is the `reader`'s job, and a pasted log would test
+something else. The grader runs in the same directory and reads what the role left there. Such a
+case needs `--runner claude`: `run_agent_evals` and `run_skill_evals` refuse a component with one
+under `--runner api` (no tools to open the named files) before any model call, naming the case ids.
+The dry runner rejects any other value, and a fixture path that is absolute or holds a `..` or
+`.git` part.
+
 **The session runs the plugin under test.** Both Tier-2 runners set `CLAUDE_PLUGIN_ROOT` to the
 `--plugin` directory, so a skill body that invokes its script as
 `${CLAUDE_PLUGIN_ROOT}/skills/<name>/scripts/...` (ten of them do) runs *this* tree's script. Until
@@ -465,10 +475,10 @@ into the committed policy and sync the agent frontmatter:
    un-synced promotion fails the build. `dev/sync_models.py` (no `--apply`) is the CI-friendly check.
 
 Since ADR 0114 the committed policy promotes two roles, `grader` and `qa-engineer`, to `simple`
-(`model: claude-sonnet-5-5`); the other four stay `default` (`model: inherit`). `run_agent_evals`
+(`model: claude-sonnet-5-5`); the other five stay `default` (`model: inherit`). `run_agent_evals`
 runs a promoted role at its shipped tier unless `settings.models` names another, so a default
-Tier-2 run measures what live delegation runs. The Tier-2 sets of all six scored about 1.0 at both
-Opus 5.5 and Sonnet 5.5, so they cannot tell the tiers apart: promote a reviewing, designing or
+Tier-2 run measures what live delegation runs. The Tier-2 sets of the six roles measured then all scored about 1.0 at both
+Opus 5.5 and Sonnet 5.5, so they could not tell the tiers apart: promote a reviewing, designing or
 implementing role only after harder, discriminating cases show it holds at the cheaper tier. Those
 cases now exist: the sets of `reviewer`, `security-engineer` and `architect` gained cases 4 and 5,
 and `software-engineer` cases 5 and 6 (a non-local defect, a second-order injection, a conflicting
@@ -487,6 +497,16 @@ python dev/run_agent_evals.py --runner claude --role <role> --model claude-opus-
 
 A user who wants every subagent on one model sets `CLAUDE_CODE_SUBAGENT_MODEL=<model>` with
 `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`, which overrides an agent's `model:` field.
+
+`reader` (ADR 0116) is built for a cheaper tier but has not been measured at any: it sits at
+`default` until its set runs at both tiers, judged by the same Opus 5.5 judge:
+
+    python dev/run_agent_evals.py --runner claude --role reader --model claude-opus-5-5
+    python dev/run_agent_evals.py --runner claude --role reader \
+      --model claude-sonnet-5-5 --grader-model claude-opus-5-5
+
+Its cases use `workspace` (above), so `--runner claude` is required. Then follow steps 2-4 if its
+numbers hold at the cheaper tier.
 
 ## Recording results
 

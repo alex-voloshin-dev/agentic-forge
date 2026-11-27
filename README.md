@@ -130,7 +130,7 @@ this repo — ADR 0105)
 
 All five layers are built and gated — Tier-0 blocks every commit, Tier-1 runs weekly and Tier-2/3
 on demand (ADR 0083): the
-**meta-core** (the maintainer skill `skill-factory` + eval harness + shared `lib/`), the **engine** (six subagent roles +
+**meta-core** (the maintainer skill `skill-factory` + eval harness + shared `lib/`), the **engine** (seven subagent roles +
 handoff schemas + the review / fan-out / worktree patterns), the **workflow skills** (the six-phase
 SDLC spine + quality/ops, marketing, and design/onboarding), the **knowledge base** (Obsidian vault +
 `knowledge` recall/capture + session-start hook), and the **guardrail & ops hooks** (security /

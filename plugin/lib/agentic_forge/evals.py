@@ -16,7 +16,9 @@ import jsonschema
 __all__ = [
     "EvalsError",
     "FIXTURE_TREE_MARKER",
+    "WORKSPACES",
     "eval_case_problems",
+    "workspace_case_ids",
     "fixture_dest",
     "load_evals",
     "validate_evals",
@@ -62,6 +64,15 @@ def validate_evals(data: dict[str, Any], *, schema: dict[str, Any] | None = None
 # pile of basenames. Without one a fixture lands by basename, as it always has.
 FIXTURE_TREE_MARKER = "tree"
 
+# A case's optional ``workspace`` (ADR 0116): ``dir`` runs it in a fresh directory holding its files
+# and names them in the prompt instead of pasting them, so the component reads them with its tools
+# (a bulk reader's job). Such a case needs a runner with tools: the eval CLIs refuse it under
+# ``--runner api`` (:func:`workspace_case_ids`). See ``agent_eval._run_passes``.
+WORKSPACES: tuple[str, ...] = ("dir",)
+# Path parts a case's ``files`` entry may not hold: ``..`` would reach outside the plugin directory,
+# and a ``.git`` part would read from (or seed the sandbox with) a repository's internals.
+_FORBIDDEN_FILE_PARTS = frozenset({"..", ".git"})
+
 
 def fixture_dest(rel: str) -> str:
     """Where a case's fixture file lands in the sandbox — and how the prompt labels it: its path
@@ -77,8 +88,9 @@ def fixture_dest(rel: str) -> str:
 
 def eval_case_problems(label: str, cases: list[dict[str, Any]], plugin_dir: Path) -> list[str]:
     """Per-case wiring problems shared by the skill + agent Tier-2 readiness checks: no eval cases,
-    a case with no assertions, two fixtures landing on the same sandbox path (see
-    :func:`fixture_dest` — a collision silently overwrites), and a missing fixture file."""
+    a case with no assertions, an unknown ``workspace``, two fixtures landing on the same sandbox
+    path (see :func:`fixture_dest` — a collision silently overwrites), a fixture path that is
+    absolute or holds a ``..`` or ``.git`` part, and a missing fixture file."""
     problems: list[str] = []
     if not cases:
         problems.append(f"{label}: contract has no eval cases")
@@ -86,11 +98,27 @@ def eval_case_problems(label: str, cases: list[dict[str, Any]], plugin_dir: Path
         cid = case.get("id")
         if not (case.get("assertions") or []):
             problems.append(f"{label} case {cid}: no assertions")
+        workspace = case.get("workspace")
+        if workspace is not None and workspace not in WORKSPACES:
+            problems.append(
+                f"{label} case {cid}: unknown workspace {workspace!r} (one of {list(WORKSPACES)})"
+            )
         files = case.get("files") or []
         dests = [fixture_dest(rel) for rel in files]
         if len(set(dests)) != len(dests):
             problems.append(f"{label} case {cid}: duplicate fixture destinations {dests}")
         for rel in files:
+            bad = _FORBIDDEN_FILE_PARTS.intersection(Path(rel).parts)
+            if bad or Path(rel).is_absolute():
+                why = ", ".join(sorted(bad)) if bad else "an absolute path"
+                problems.append(f"{label} case {cid}: fixture path {rel} holds {why}")
+                continue
             if not (plugin_dir / rel).is_file():
                 problems.append(f"{label} case {cid}: missing fixture {rel}")
     return problems
+
+
+def workspace_case_ids(cases: list[dict[str, Any]]) -> list[Any]:
+    """The ids of the cases that ask for a ``workspace``: they name their files instead of pasting
+    them, so a runner without tools (``--runner api``) would grade a model that never saw them."""
+    return [case.get("id") for case in cases if case.get("workspace") is not None]

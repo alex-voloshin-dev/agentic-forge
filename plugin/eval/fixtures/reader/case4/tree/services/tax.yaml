@@ -1,0 +1,12 @@
+# tax service: client settings for calls to its upstream
+name: tax
+owner: team-tax
+upstream:
+  url: http://tax.internal:8080
+client:
+  retries: 2
+  timeout_ms: 1000
+  pool_size: 10
+health:
+  path: /healthz
+  interval_s: 15

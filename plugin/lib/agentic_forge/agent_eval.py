@@ -63,6 +63,7 @@ ROLES: tuple[str, ...] = (
     "architect",
     "security-engineer",
     "qa-engineer",
+    "reader",
 )
 DEFAULT_RUNS = 5
 
@@ -349,9 +350,20 @@ def materialize_fixtures(plugin_dir: Path, files: list[str], workdir: Path) -> N
 
 
 def build_role_prompt(
-    case: dict[str, Any], fixture_text: str, *, in_workdir: bool = False
+    case: dict[str, Any],
+    fixture_text: str,
+    *,
+    in_workdir: bool = False,
+    file_names: list[str] | None = None,
 ) -> str:
+    """The role's prompt: the case's prompt, then its files. ``file_names`` (a ``workspace`` case,
+    ADR 0116) names the files in the working directory instead of pasting them, so the role reads
+    them with its own tools, as it does for a real brief; otherwise their text is appended."""
     parts = [str(case["prompt"])]
+    if file_names:
+        listed = "\n".join(f"- {name}" for name in file_names)
+        parts.append(f"\nThese files are in your working directory; read them there:\n{listed}")
+        return "\n".join(parts)
     if fixture_text:
         header = (
             "\nThese files are in your working directory — do the task there:\n"
@@ -539,16 +551,23 @@ def _run_passes(
         started = time.monotonic()
         for case_no, case in enumerate(cases, start=1):
             sessions["total"] += 1
-            work = Path(tempfile.mkdtemp(prefix="af-eval-")) if isolate else default_work
+            # A case that asks for a workspace (ADR 0116) always gets a fresh directory of its own.
+            workspace = case.get("workspace")
+            case_isolate = isolate or workspace is not None
+            work = Path(tempfile.mkdtemp(prefix="af-eval-")) if case_isolate else default_work
             try:
                 case_files = case.get("files") or []
-                fixture_text = load_fixtures(plugin_dir, case_files)
-                if isolate:
+                if case_isolate:
                     materialize_fixtures(plugin_dir, case_files, work)
-                try:
-                    output = run_fn(
-                        system_body, build_role_prompt(case, fixture_text, in_workdir=isolate), work
+                if workspace is None:
+                    prompt = build_role_prompt(
+                        case, load_fixtures(plugin_dir, case_files), in_workdir=case_isolate
                     )
+                else:
+                    names = [fixture_dest(rel) for rel in case_files]
+                    prompt = build_role_prompt(case, "", file_names=names)
+                try:
+                    output = run_fn(system_body, prompt, work)
                 except SessionUndetermined as exc:
                     _record_unmeasured(sessions, "undetermined", run_no, case_no, exc)
                     continue
@@ -566,7 +585,7 @@ def _run_passes(
                     _record_unmeasured(sessions, "ungraded", run_no, case_no, exc)
                     continue
             finally:
-                if isolate:
+                if case_isolate:
                     shutil.rmtree(work, ignore_errors=True)
             tokens = _usage_tokens(output)
             if tokens is not None:
@@ -695,8 +714,9 @@ def run_role(
 
     ``isolate`` gives each case execution a fresh temp workdir (removed afterwards), so a run
     cannot see another run's files. It is **forced on for write roles** (software-engineer,
-    architect, qa-engineer — anything with Write/Edit) so they can never mutate the real repo,
-    regardless of the caller's flag. Read roles don't need it.
+    architect, qa-engineer — anything with Write/Edit) so they can never mutate the real
+    repo, regardless of the caller's flag. Read roles don't need it, except per case: a case with
+    a ``workspace`` (ADR 0116) always runs in a fresh directory of its own.
     """
     contract = load_evals(plugin_dir / "agents" / "evals" / f"{role}.evals.json")
     role_body = _read_body(plugin_dir / "agents" / f"{role}.md")

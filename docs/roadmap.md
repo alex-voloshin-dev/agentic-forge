@@ -410,7 +410,8 @@ the largest, which composes connectors + the fix loop + outward actions).
 > the agent `model:` frontmatter via a committed `VALIDATED_TIERS` policy (Tier-0-enforced,
 > `dev/sync_models.py`-synced), so live `Task` delegation runs each role at its gate-validated tier.
 > Shipped all-`default` until ADR 0114, which promoted `grader` and `qa-engineer` to `simple` after Tier-2 at
-> Sonnet 5.5; promote a tier via the gated flow in the eval-runbook.
+> Sonnet 5.5; promote a tier via the gated flow in the eval-runbook. ADR 0116 adds the low-cost `reader` role of
+> the cheap-delegation pattern at `default`; its Tier-2 runs at both tiers are next, and a clerk role waits for `role_scope`.
 
 - **Goal:** use cheaper models (sonnet / haiku) for simpler work and the strongest (opus) for hard
   work — e.g. routing / grading / recall / simple synthesis on a cheap tier; implementation /

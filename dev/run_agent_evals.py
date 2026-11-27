@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tier-2 quality eval runner for the engine roles (reviewer, grader, software-engineer,
-architect, security-engineer, qa-engineer).
+architect, security-engineer, qa-engineer, reader).
 
 Usage:
     python dev/run_agent_evals.py --runner dry            # verify wiring, no model calls
@@ -109,6 +109,15 @@ def main(argv: list[str]) -> int:
                 print(f"{role}: ready")
         print("\nDry-run:", "OK" if ok else "problems found")
         return 0 if ok else 1
+
+    refusals = _eval_cli.workspace_refusals(
+        args.runner,
+        {role: plugin_dir / "agents" / "evals" / f"{role}.evals.json" for role in roles},
+    )
+    if refusals:  # before any model call (ADR 0116)
+        for line in refusals:
+            print(f"error: {line}", file=sys.stderr)
+        return 1
 
     _eval_cli.warn_if_api_key_set(args.runner)
 

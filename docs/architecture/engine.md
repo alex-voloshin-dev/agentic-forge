@@ -33,6 +33,7 @@ them via the `Task` tool (named in `allowed-tools`); users never call them.
 | `grader` | Grade eval assertions impartially against outputs | `Read, Grep, Glob` | `grading.json` (`text`/`passed`/`evidence` + summary); never edits the work |
 | `software-engineer` | Write code in an isolated worktree | `Read, Write, Edit, Bash, Grep, Glob` | Summary of changes, files touched, tests added |
 | `architect` | Produce technical design from requirements | `Read, Grep, Glob, Write` (docs only) | ADR(s) + component design artifact |
+| `reader` | Read bulk material for the facts a brief asks (cheap delegation) | `Read, Grep, Glob` | The brief's form within its line cap, facts anchored `path:line`, `not found` where the material is silent |
 
 Why these and not more: `reviewer` and `grader` are needed almost everywhere (review loop,
 self-review, Tier-2 grading) and benefit from a clean context. `software-engineer` needs a full
@@ -46,14 +47,22 @@ because everything it judges comes in the delegation prompt; managed policy file
 harness passes the role body as the system prompt and does not read this field. Stage 2 adds two
 more specialists the phase-workflows fan out to — `security-engineer` (security lens; `Read, Grep,
 Glob, Bash(git diff:*)`) and `qa-engineer` (tests; `Read, Write, Edit, Bash, Grep, Glob`); see
-[spine.md](spine.md) — for a six-role roster.
+[spine.md](spine.md) — for a six-role roster. [ADR 0116](decisions/0116-the-reader-role-the-clerk-deferred.md) adds the
+low-cost `reader`, the role the [cheap-delegation pattern](../../plugin/patterns/cheap-delegation.md) delegates bulk
+reading to, for seven: it reads a long log, a large diff, many review threads or files, and returns only what the
+brief asks, in its form and line cap, every fact anchored, a secret reported by kind and anchor with its value
+withheld. It gives no verdict and acts outward in no way. It sets `omitClaudeMd: true`, like the grader, because the
+brief is its whole input, and ships `model: inherit` until its Tier-2 set has run at both tiers (ADR 0114); its eval
+cases run in a workspace of their own (`"workspace": "dir"`, see the [eval runbook](../eval-runbook.md)). The
+pattern's clerk has no role yet: it ships only when `role_scope` holds it (ADR 0116 lists what that takes), and until
+then a clerk is a general-purpose agent.
 
 **What holds the narrowed roles** ([ADR 0106](decisions/0106-the-read-only-roles-are-held-by-a-hook.md)).
 A `Bash(git diff:*)` specifier in a plugin agent's `tools:` restricts nothing: the agent gets Bash.
-The `role_scope` hook ([guardrails.md](guardrails.md#role-scope)) enforces the four read-only roles
+The `role_scope` hook ([guardrails.md](guardrails.md#role-scope)) enforces the five read-only roles
 in every permission mode: `reviewer` and `security-engineer` get Read, Grep, Glob and one read-only
 git command per Bash call, which the hook rewrites into a hardened form before it runs; `grader`
-gets Read, Grep, Glob; `architect` gets those plus Write for Markdown design documents under
+and `reader` get Read, Grep, Glob; `architect` gets those plus Write for Markdown design documents under
 `docs/` of the session's own working tree. Every other tool, MCP tools included, is refused for them, and an error inside the
 hook refuses too. The `tools:` lines stay as documentation and
 match the hook's allowlists (a test pins them together). Tests and linters are the orchestrating
@@ -139,7 +148,9 @@ skills link to it rather than restating it:
   where an anchor is not unique), a clerk always in its own worktree pinned to the caller's commit,
   and the caller's check: the worktree's staged file list against the brief's, then one item at the
   source. Since field item 6 one routing-note sentence names the pattern (measured on Tier-1b before
-  and after, ADR 0113 amendment). The low-cost `reader` and `clerk` roles wait for their own eval runs.
+  and after, ADR 0113 amendment). Its default subagent type for bulk reading is the low-cost `reader`
+  role (ADR 0116), at `model: inherit` until its Tier-2 set has run at both tiers; a clerk stays a
+  general-purpose agent until a clerk role is held by `role_scope`.
 
 Deferred to later stages: research fan-out at scale (the fan-out/fan-in *pattern* itself shipped in
 Stage 2 — see [spine.md](spine.md) and
