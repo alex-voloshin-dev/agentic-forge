@@ -52,7 +52,7 @@ def _plugin_with_role(tmp_path: Path, frontmatter: str) -> Path:
 def test_omits_claude_md_reads_the_shipped_roles() -> None:
     assert agent_eval.omits_claude_md(_PLUGIN, "grader") is True  # ADR 0113 set it
     assert agent_eval.omits_claude_md(_PLUGIN, "reviewer") is False
-    assert agent_eval.omits_claude_md(_PLUGIN, "security-engineer") is False
+    assert agent_eval.omits_claude_md(_PLUGIN, "security-engineer") is True  # A/B, 2026-11-27
 
 
 @pytest.mark.parametrize(

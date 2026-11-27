@@ -162,13 +162,16 @@ def test_the_grader_starts_without_claude_md() -> None:
     assert _role_frontmatter()["grader"].get("omitClaudeMd") is True
 
 
-def test_only_the_grader_and_the_reader_omit_claude_md() -> None:
-    """The review lenses read CLAUDE.md as the project's rules; dropping it waits for an A/B. The
-    reader (ADR 0116), like the grader, takes its whole input from the delegation prompt."""
+def test_the_roles_that_omit_claude_md() -> None:
+    """The grader and the reader (ADR 0116) take their whole input from the delegation prompt.
+    security-engineer dropped CLAUDE.md after a valid A/B with no loss (ADR 0113, amended
+    2026-11-27); reviewer keeps it: its on arm read the file as a plain file, so its A/B measured
+    nothing."""
     omitting = sorted(
         name for name, fm in _role_frontmatter().items() if fm.get("omitClaudeMd") is not None
     )
-    assert omitting == ["grader", "reader"]
+    assert omitting == ["grader", "reader", "security-engineer"]
+    assert _role_frontmatter()["security-engineer"]["omitClaudeMd"] is True
     assert _role_frontmatter()["reader"]["omitClaudeMd"] is True
 
 
