@@ -67,3 +67,27 @@ project's rules on purpose, so dropping it from them waits for an A/B.
   Code older than 2.1.271 the field is ignored and the grader loads CLAUDE.md as before.
 - Tier-0 pins both: the pattern's load-bearing wording and its index entries, and that `grader` is the only role that
   omits CLAUDE.md.
+
+## Amendment 2026-11-27: the routing-note sentence
+
+The step held back under "Not done here" is taken. After the two routing sentences, the SessionStart note now says:
+
+> For large bulk reading (a log, diff or document read only for a few facts) or a mechanical multi-file edit, delegate
+> to a low-cost subagent with a short brief and keep the judgement yourself; when and how:
+> `<plugin>/patterns/cheap-delegation.md`.
+
+- **Where the path comes from.** `session_start.routing_note()` fills in the pattern's absolute path in this install,
+  so the session can `Read` it as given. The configuration doc quotes the sentence with a `<plugin>` placeholder, and a
+  test checks that the doc quotes it verbatim.
+- **Cost and switch.** About 240 characters at every session start and after every compaction. The same switch
+  (`routing_note.enabled`, `AGENTIC_FORGE_ROUTING_NOTE=0`) turns it off with the rest of the note.
+- **Tier-1b, before and after.** Both runs used Opus 5.5 (`claude-opus-5-5`), the default fixture repo per prompt and
+  measure only, with the same 80 prompts over 16 shipped skills:
+  - before (master 798ba5c, v2026.11.18): 0.975 pooled (78/80);
+  - after (this change): 0.975 pooled (78/80).
+
+  The per-skill rates are identical: ux-design 3/4, marketing 8/9, every other skill 100 %. So the sentence does not
+  cost activation.
+- **What this does not measure.** Whether sessions now delegate bulk reading. No harness counts delegations. The field
+  fleet that reported "no session started delegating until a pattern said when" is the instrument; the thread is
+  asked to report back.
