@@ -12,6 +12,12 @@ unit-tested with stubs; the real run drives each phase with the `claude` CLI. Ch
 call an LLM judge: each is a code comparison, a substring/location match on the model's artifact,
 or a schema-only validation of a handoff gated elsewhere.
 
+A checkpoint reads a document **where the phase delivered it** (:func:`locate_document`): the
+document phases write into the feature's shared docs worktree on ``docs/<slug>`` (doc-delivery),
+in the folder ``artifact-home`` resolves, so the checkout alone can hold a stale, escalated first
+attempt. A loop-gated document must also be **ready** (ADR 0067), and the next phase's prompt is
+pointed at the copy that was read (:func:`resolve_prompt`).
+
 Fidelity note: in this environment the plugin's subagents are not registered, so each phase is
 approximated as a single CLI call seeded with the phase skill's body (rather than the skill
 forking its roles). The checkpoints validate the *artifacts and code*. The spine repo's test
@@ -29,7 +35,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import handoff, ops, release, vault
+from . import artifact_home, doc_delivery, handoff, ops, release, vault
 from .agent_eval import Runner, SessionUndetermined
 from .frontmatter import parse as parse_frontmatter
 from .gate import all_passed
@@ -40,9 +46,14 @@ __all__ = [
     "PRD",
     "PLAN",
     "PHASES",
+    "PRODUCT_INCEPTION_REQUEST",
+    "LOOP_GATED_TYPES",
     "Checkpoint",
+    "Located",
     "PhaseResult",
     "TEST_TIMEOUT",
+    "locate_document",
+    "resolve_prompt",
     "check_architecture",
     "repo_tests_pass",
     "check_develop",
@@ -77,6 +88,8 @@ FIXTURE_REPO = "eval/fixtures/spine/target-repo"
 PRD = "eval/fixtures/spine/prd.md"
 PLAN = "eval/fixtures/spine/plan.md"
 PHASES = ("research", "product", "architecture", "plan", "develop", "code-review")
+# The bounded feature `product-inception` carries over the repo-onboarding Flask stub.
+PRODUCT_INCEPTION_REQUEST = "eval/fixtures/product-inception/FEATURE_REQUEST.md"
 
 # Seconds the fixture repo's own test suite gets. The suite under test was just written by the
 # model, so a test that spins forever must read as a failed checkpoint, not a hung Tier-3 run —
@@ -131,31 +144,236 @@ def _copy_fixture(plugin_dir: Path, repo: Path, fixture: str | None) -> None:
         repo.mkdir(parents=True)
 
 
-def _valid(path: Path, artifact_type: str) -> bool:
-    try:
-        handoff.load_artifact(path, expected_type=artifact_type)
-        return True
-    except handoff.HandoffError:
-        return False
-
-
-def _load(path: Path, artifact_type: str) -> handoff.Artifact | None:
-    """Load + validate an artifact, or return None if missing/invalid (for richer checkpoints)."""
-    try:
-        return handoff.load_artifact(path, expected_type=artifact_type)
-    except handoff.HandoffError:
-        return None
-
-
 def _sdlc(repo: Path, slug: str) -> Path:
     return repo / "docs" / "sdlc" / slug
+
+
+# --- where a phase actually wrote its document ---------------------------------------------------
+
+# The artifact types whose producing phase runs a bounded review loop and records its exit in
+# `review_decision` (ADR 0067/0109): an escalated run leaves a schema-valid file on disk, so for
+# these a checkpoint requires readiness (`handoff.is_handoff_ready`). The other types come from
+# phases with no review loop (`qa-test-strategy`, `release`, `repo-onboarding`, the ops phases,
+# the reviews): their `status` (`draft`, `mitigating`) is the repository's lifecycle, not a
+# refusal, so only a `review_decision` written on them that is not `proceed` fails.
+LOOP_GATED_TYPES = frozenset(
+    {"research-brief", "prd", "tech-design", "plan", "ux-spec", "market-brief"}
+)
+
+# The documents a phase prompt may name under `docs/sdlc/<slug>/`, with the type each validates as
+# — what :func:`resolve_prompt` may point at the copy the phase really delivered.
+_DOCUMENT_TYPES = {
+    "research-brief.md": "research-brief",
+    "prd.md": "prd",
+    "tech-design.md": "tech-design",
+    "plan.md": "plan",
+    "ux-spec.md": "ux-spec",
+    "market-brief.md": "market-brief",
+    "test-strategy.md": "test-strategy",
+    "release.md": "release",
+    "onboarding.md": "onboarding",
+    "deploy-status.md": "deploy-status",
+    "incident.md": "incident",
+    "review.md": "review",
+    "security-review.md": "review",
+}
+_KIND_OF_TYPE = {kind_type: kind for kind, kind_type in artifact_home.KIND_TYPES.items()}
+_SDLC_MENTION = re.compile(r"docs/sdlc/(?P<slug>[a-z0-9][a-z0-9-]*)/(?P<file>[A-Za-z0-9._-]+\.md)")
+_GIT_TIMEOUT = 30.0
+
+
+@dataclass(frozen=True)
+class Located:
+    """One feature document as a checkpoint reads it: the copy chosen among the working trees the
+    phase could have written to (:func:`locate_document`), and what loading it found."""
+
+    path: Path
+    tree: Path
+    where: str
+    artifact: handoff.Artifact | None
+    ready: bool
+    problem: str
+    searched: tuple[str, ...]
+
+    @property
+    def exists(self) -> bool:
+        return self.path.is_file()
+
+    @property
+    def rel(self) -> str:
+        return self.path.relative_to(self.tree).as_posix()
+
+    def detail(self) -> str:
+        """The checkpoint line's detail: which copy was read, and why it fails when it does."""
+        if not self.exists:
+            return f"{self.rel} not found in {', '.join(self.searched)}"
+        if self.problem:
+            return f"{self.rel} in {self.where}: {self.problem}"
+        return f"read {self.rel} in {self.where}"
+
+
+def _git_out(tree: Path, *args: str) -> str | None:
+    """A git command's stdout in ``tree``, or None when git fails or is absent."""
+    try:
+        done = subprocess.run(
+            ["git", "-C", str(tree), *args], capture_output=True, text=True, timeout=_GIT_TIMEOUT
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return done.stdout if done.returncode == 0 else None
+
+
+def _working_trees(repo: Path, slug: str) -> list[tuple[Path, str]]:
+    """Where a phase may have delivered ``slug``'s documents: the checkout, then every worktree of
+    it on the feature's documentation branch ``docs/<slug>`` (doc-delivery: the document phases
+    write into that shared worktree, ``../wt-docs-<slug>``, not the checkout), sorted by path."""
+    trees = [(repo, "checkout")]
+    if not (repo / ".git").exists() or not doc_delivery.SLUG_RE.fullmatch(slug):
+        return trees
+    listing = _git_out(repo, "worktree", "list", "--porcelain")
+    if listing is None:
+        return trees
+    branch = doc_delivery.branch_name(slug)
+    here = repo.resolve()
+    found: list[Path] = []
+    for block in listing.split("\n\n"):
+        path = head = ""
+        for line in block.splitlines():
+            key, _, value = line.partition(" ")
+            if key == "worktree":
+                path = value
+            elif key == "branch":
+                head = value
+        if path and head == f"refs/heads/{branch}" and Path(path).resolve() != here:
+            found.append(Path(path))
+    trees += [(tree, f"worktree {tree} ({branch})") for tree in sorted(found)]
+    return trees
+
+
+def _document_path(tree: Path, slug: str, filename: str, artifact_type: str) -> Path:
+    """Where ``filename`` sits in ``tree`` by the plugin's own resolver (``artifact-home``, handoff
+    pattern "where a feature's documents go"): the repository's feature folder for ``slug``, else
+    ``docs/sdlc/<slug>/``, with the document's on-disk spelling for a known kind."""
+    try:
+        resolved = artifact_home.resolve(artifact_home.scan(str(tree), keep=slug), slug)
+    except ValueError:  # a slug the resolver refuses: the plugin's fallback home
+        return _sdlc(tree, slug) / filename
+    kind = _KIND_OF_TYPE.get(artifact_type)
+    if kind is not None and filename == artifact_home.KIND_FILES[kind]:
+        rel = str(resolved["documents"][kind]["path"])
+    else:
+        rel = f"{resolved['feature_dir']}/{filename}"
+    return tree.joinpath(*rel.split("/"))
+
+
+def _inspect(path: Path, artifact_type: str) -> tuple[handoff.Artifact | None, bool, str]:
+    """Load ``path``: the artifact (None when missing or invalid), whether it may be handed off,
+    and the problem in words ("" when it loaded and may be)."""
+    if not path.is_file():
+        return None, False, "not found"
+    try:
+        art = handoff.load_artifact(path, expected_type=artifact_type)
+    except handoff.HandoffError as exc:
+        reason = (str(exc).strip().splitlines() or ["invalid"])[0]
+        return None, False, f"does not validate: {reason[:200]}"
+    ready, decided_by = handoff.handoff_readiness(art.header)
+    if artifact_type not in LOOP_GATED_TYPES and decided_by == "status":
+        return art, True, ""  # no review loop: `status` is the repository's lifecycle
+    if ready:
+        return art, True, ""
+    value = art.header.get(decided_by)
+    if decided_by == handoff.REVIEW_DECISION_FIELD:
+        return art, False, f"not handed off: review_decision is {value!r}, not 'proceed'"
+    allowed = " or ".join(handoff.READY_STATUSES)
+    return art, False, (
+        f"not handed off: no review_decision, and status {value!r} is not {allowed}"
+    )
+
+
+def _committed_at(tree: Path, path: Path) -> int:
+    """The committer time of the last commit touching ``path`` in ``tree``; 0 when uncommitted."""
+    out = _git_out(tree, "log", "-1", "--format=%ct", "--", path.relative_to(tree).as_posix())
+    try:
+        return int((out or "").strip() or 0)
+    except ValueError:
+        return 0
+
+
+def locate_document(repo: Path, slug: str, filename: str, artifact_type: str) -> Located:
+    """The copy of a feature document a checkpoint reads, among the checkout and the feature's
+    documentation worktrees (:func:`_working_trees`), each resolved by ``artifact-home``.
+
+    One copy on disk is read as it is. With several, the order is: a copy that may be handed off
+    (ready) before one that may not, then one that validates, then the newest commit touching it (an
+    uncommitted copy counts as no commit), and on a full tie the earlier tree — the checkout first.
+    So a phase that escalated in the checkout and then converged in its worktree is read where it
+    converged, deterministically. With none, the checkout's path, reported missing."""
+    trees = _working_trees(repo, slug)
+    searched = tuple(where for _, where in trees)
+    candidates: list[Located] = []
+    for tree, where in trees:
+        path = _document_path(tree, slug, filename, artifact_type)
+        art, ready, problem = _inspect(path, artifact_type)
+        candidates.append(Located(path, tree, where, art, ready, problem, searched))
+    existing = [c for c in candidates if c.exists]
+    if not existing:
+        return candidates[0]
+    if len(existing) == 1:
+        return existing[0]
+    best = existing[0]
+    best_rank = (best.ready, best.artifact is not None, _committed_at(best.tree, best.path))
+    for cand in existing[1:]:
+        rank = (cand.ready, cand.artifact is not None, _committed_at(cand.tree, cand.path))
+        if rank > best_rank:
+            best, best_rank = cand, rank
+    return best
+
+
+def resolve_prompt(prompt: str, repo: Path, slug: str) -> str:
+    """``prompt`` with each ``docs/sdlc/<slug>/<document>`` it names pointed at the copy
+    :func:`locate_document` would read, as an absolute path, when that copy exists somewhere else
+    than the checkout's relative path — so a phase reads the upstream document its predecessor
+    really delivered (in the feature's docs worktree), not a stale copy left in the checkout.
+    Mentions of other slugs, unknown files, or documents not yet written stay as they are."""
+
+    def point(match: re.Match[str]) -> str:
+        filename = match.group("file")
+        artifact_type = _DOCUMENT_TYPES.get(filename)
+        if match.group("slug") != slug or artifact_type is None:
+            return match.group(0)
+        doc = locate_document(repo, slug, filename, artifact_type)
+        if not doc.exists or doc.path == repo.joinpath(*match.group(0).split("/")):
+            return match.group(0)
+        return str(doc.path)
+
+    return _SDLC_MENTION.sub(point, prompt)
+
+
+def _document_checkpoint(
+    repo: Path, slug: str, filename: str, artifact_type: str, name: str | None = None
+) -> tuple[Checkpoint, handoff.Artifact | None]:
+    """The shared checkpoint over one handoff document: it exists, validates, **and may be handed
+    off** (ADR 0067) — for a loop-gated type its review loop reached ``proceed``; for any other, no
+    ``review_decision`` on it says otherwise. Read where the phase delivered it
+    (:func:`locate_document`); the detail names the copy read. Returns the artifact too (None when
+    missing or invalid), so a domain checkpoint can assert its content."""
+    doc = locate_document(repo, slug, filename, artifact_type)
+    if name is None:
+        name = (
+            f"{filename} exists, validates and is handed off (ready)"
+            if artifact_type in LOOP_GATED_TYPES
+            else f"{filename} valid"
+        )
+    passed = doc.artifact is not None and doc.ready
+    return Checkpoint(name, passed, doc.detail()), doc.artifact
 
 
 # --- spine checkpoints (slug defaults to the spine feature, so the spine guard is unchanged) ---
 
 
 def check_architecture(repo: Path, slug: str = FEATURE_SLUG) -> list[Checkpoint]:
-    adrs = sorted(_sdlc(repo, slug).glob("adr-*.md"))
+    design = locate_document(repo, slug, "tech-design.md", "tech-design")
+    adrs = sorted(design.path.parent.glob("adr-*.md"))  # beside the design copy that was read
     return [
         _artifact_checkpoint(repo, "tech-design.md", "tech-design", slug),
         Checkpoint("at least one ADR", len(adrs) >= 1, f"{len(adrs)} ADR(s)"),
@@ -197,11 +415,12 @@ def check_develop(repo: Path, *, run_tests: bool = True) -> list[Checkpoint]:
 
 
 def check_code_review(repo: Path, slug: str = FEATURE_SLUG) -> list[Checkpoint]:
-    rv = _sdlc(repo, slug) / "review.md"
-    valid = rv.is_file() and _valid(rv, "review")
-    cps = [Checkpoint("review.md exists and validates", valid)]
-    if valid:
-        verdict = handoff.load_artifact(rv, expected_type="review").header.get("verdict")
+    cp, art = _document_checkpoint(
+        repo, slug, "review.md", "review", name="review.md exists and validates"
+    )
+    cps = [cp]
+    if art is not None:
+        verdict = art.header.get("verdict")
         cps.append(Checkpoint("verdict present", verdict in handoff.VERDICTS, str(verdict)))
     return cps
 
@@ -213,11 +432,9 @@ def _artifact_checkpoint(
 
     Readiness is part of the checkpoint because an escalated run leaves a schema-valid artifact on
     disk — asserting only "exists and validates" scored such a run **green**, which is exactly how a
-    rejected design could reach the next phase unnoticed."""
-    path = _sdlc(repo, slug) / filename
-    art = _load(path, artifact_type)
-    ok = art is not None and handoff.is_handoff_ready(art.header)
-    return Checkpoint(f"{filename} exists, validates and is handed off (ready)", ok)
+    rejected design could reach the next phase unnoticed. The rule and the location are
+    :func:`_document_checkpoint`'s, shared with the domain checkpoints."""
+    return _document_checkpoint(repo, slug, filename, artifact_type)[0]
 
 
 def check_research(repo: Path, slug: str = FEATURE_SLUG) -> list[Checkpoint]:
@@ -238,8 +455,8 @@ def check_plan(repo: Path, slug: str = FEATURE_SLUG) -> list[Checkpoint]:
 def check_test_strategy(
     repo: Path, slug: str, *, risk_keywords: tuple[str, ...] = ()
 ) -> list[Checkpoint]:
-    art = _load(_sdlc(repo, slug) / "test-strategy.md", "test-strategy")
-    cps = [Checkpoint("test-strategy.md valid", art is not None)]
+    cp, art = _document_checkpoint(repo, slug, "test-strategy.md", "test-strategy")
+    cps = [cp]
     if art is not None:
         levels = art.header.get("test_levels") or []
         cps.append(Checkpoint("test_levels non-empty", bool(levels), f"{len(levels)} level(s)"))
@@ -258,8 +475,8 @@ def check_security_review(
     filename: str = "security-review.md",
     sink_markers: tuple[str, ...] = (),
 ) -> list[Checkpoint]:
-    art = _load(_sdlc(repo, slug) / filename, "review")
-    cps = [Checkpoint(f"{filename} valid review", art is not None)]
+    cp, art = _document_checkpoint(repo, slug, filename, "review", name=f"{filename} valid review")
+    cps = [cp]
     if art is not None and sink_markers:
         findings = art.header.get("findings") or []
         locs = " ".join(
@@ -287,8 +504,8 @@ def expected_release_version(repo: Path, baseline: str, tag: str) -> str | None:
 def check_release(
     repo: Path, slug: str, *, expected_version: str | None = None
 ) -> list[Checkpoint]:
-    art = _load(_sdlc(repo, slug) / "release.md", "release")
-    cps = [Checkpoint("release.md valid", art is not None)]
+    cp, art = _document_checkpoint(repo, slug, "release.md", "release")
+    cps = [cp]
     if art is not None:
         version = str(art.header.get("version", ""))
         if expected_version is not None:
@@ -306,8 +523,8 @@ def check_release(
 
 
 def check_deploy_status(repo: Path, slug: str, *, expected_health: str) -> list[Checkpoint]:
-    art = _load(_sdlc(repo, slug) / "deploy-status.md", "deploy-status")
-    cps = [Checkpoint("deploy-status.md valid", art is not None)]
+    cp, art = _document_checkpoint(repo, slug, "deploy-status.md", "deploy-status")
+    cps = [cp]
     if art is not None:  # health lives in the `pipeline` field, not a `health` key (ADR 0030)
         pipeline = art.header.get("pipeline")
         cps.append(
@@ -321,8 +538,8 @@ def check_deploy_status(repo: Path, slug: str, *, expected_health: str) -> list[
 def check_incident(
     repo: Path, slug: str, *, expected_sev: str, env_marker: str | None = None
 ) -> list[Checkpoint]:
-    art = _load(_sdlc(repo, slug) / "incident.md", "incident")
-    cps = [Checkpoint("incident.md valid", art is not None)]
+    cp, art = _document_checkpoint(repo, slug, "incident.md", "incident")
+    cps = [cp]
     if art is not None:
         sev = art.header.get("severity")
         cps.append(Checkpoint(f"severity == {expected_sev}", sev == expected_sev, str(sev)))
@@ -333,17 +550,18 @@ def check_incident(
 
 
 def check_onboarding(repo: Path, slug: str) -> list[Checkpoint]:
-    art = _load(_sdlc(repo, slug) / "onboarding.md", "onboarding")
+    cp, _ = _document_checkpoint(repo, slug, "onboarding.md", "onboarding")
     problems = vault.validate_vault(repo)  # vault seeded from the codebase must be link-clean
     return [
-        Checkpoint("onboarding.md valid", art is not None),
+        cp,
         Checkpoint("vault validates clean", not problems, "; ".join(problems[:2])),
     ]
 
 
 def check_ux_spec(repo: Path, slug: str) -> list[Checkpoint]:
-    art = _load(_sdlc(repo, slug) / "ux-spec.md", "ux-spec")
-    cps = [Checkpoint("ux-spec.md valid", art is not None)]
+    # ux-design runs a review loop: an escalated spec is on disk and valid, so readiness counts.
+    cp, art = _document_checkpoint(repo, slug, "ux-spec.md", "ux-spec")
+    cps = [cp]
     if art is not None:
         cps.append(Checkpoint("flows non-empty", bool(art.header.get("flows"))))
         # the schema does not enforce `accessibility`, so assert it here
@@ -354,8 +572,8 @@ def check_ux_spec(repo: Path, slug: str) -> list[Checkpoint]:
 def check_market_brief(
     repo: Path, slug: str, *, competitors: tuple[str, ...] = ()
 ) -> list[Checkpoint]:
-    art = _load(_sdlc(repo, slug) / "market-brief.md", "market-brief")
-    cps = [Checkpoint("market-brief.md valid", art is not None)]
+    cp, art = _document_checkpoint(repo, slug, "market-brief.md", "market-brief")
+    cps = [cp]
     if art is not None and competitors:
         blob = (str(art.header.get("competitors", "")) + " " + art.body).lower()
         missing = [c for c in competitors if c.lower() not in blob]
@@ -482,7 +700,12 @@ def prepare_scenario(plugin_dir: Path, dest: Path, scenario: Scenario) -> Path:
 
 
 def _run_phase_with_retry(
-    plugin_dir: Path, phase: Phase, repo: Path, run_phase: Runner, retries: int
+    plugin_dir: Path,
+    phase: Phase,
+    repo: Path,
+    run_phase: Runner,
+    retries: int,
+    slug: str = FEATURE_SLUG,
 ) -> PhaseResult:
     """Run a phase, re-running it up to ``retries`` more times if its checkpoints fail — this
     retries the **model** (a fresh attempt at the same prompt), never relaxing a checkpoint, so a
@@ -494,12 +717,15 @@ def _run_phase_with_retry(
     partial files, and a refusal does not clear between attempts. The phase fails on one named
     checkpoint — ``session undetermined (<subtype>)`` with ``num_turns`` — and the scenario goes
     on, so the later phases are still run and reported instead of the run dying at that phase with
-    nothing said about the ones already done (eval audit, C8/C14)."""
+    nothing said about the ones already done (eval audit, C8/C14).
+
+    The prompt is resolved before each attempt (:func:`resolve_prompt`): an upstream document the
+    previous phase delivered in the feature's docs worktree is named there, not in the checkout."""
     body = skill_body(plugin_dir, phase.skill)
     attempt = 0
     while True:
         try:
-            run_phase(body, phase.prompt, repo)
+            run_phase(body, resolve_prompt(phase.prompt, repo, slug), repo)
         except SessionUndetermined as exc:
             turns = f"num_turns={exc.num_turns}" if exc.num_turns is not None else ""
             detail = "; ".join(p for p in (turns, exc.text) if p)
@@ -525,7 +751,7 @@ def run_scenario(
     phase is retried up to ``retries`` times if its checkpoints fail (``retries=0`` disables it)."""
     repo = prepare_scenario(plugin_dir, workspace, scenario)
     return [
-        _run_phase_with_retry(plugin_dir, phase, repo, run_phase, retries)
+        _run_phase_with_retry(plugin_dir, phase, repo, run_phase, retries, scenario.slug)
         for phase in scenario.phases
     ]
 
@@ -652,6 +878,10 @@ def _product_inception() -> Scenario:
             SeedItem("eval/fixtures/repo-onboarding/app.py", "app.py"),
             SeedItem("eval/fixtures/repo-onboarding/worker.py", "worker.py"),
             SeedItem("eval/fixtures/repo-onboarding/README.md", "README.md"),
+            # A bounded request (goal, acceptance criteria, non-goals), as the spine seeds one:
+            # with only "research the app's domain", every phase designed from its own
+            # assumptions and each review round attacked newly invented surface.
+            SeedItem(PRODUCT_INCEPTION_REQUEST, "FEATURE_REQUEST.md"),
         ),
         phases=(
             Phase(
@@ -668,14 +898,19 @@ def _product_inception() -> Scenario:
             # Tier-3) — included to exercise the onboarding -> … -> ux -> architecture handoffs.
             Phase(
                 "research",
-                f"Research the app's domain and write {sdlc}research-brief.md (frontmatter type: "
+                "Read FEATURE_REQUEST.md (the feature, its acceptance criteria and its non-goals), "
+                f"the code and {sdlc}onboarding.md. Research that feature within its stated scope "
+                "(prior art / options / feasibility) and write "
+                f"{sdlc}research-brief.md (frontmatter type: "
                 "research-brief, feature, status, review_decision (your review loop's exit "
-                "decision), date, sources[]).",
+                "decision), date, sources[]) with synthesized findings and a recommendation. "
+                "No code changes.",
                 lambda repo: check_research(repo, slug),
             ),
             Phase(
                 "product",
-                f"Read {sdlc}research-brief.md and write {sdlc}prd.md with YAML frontmatter "
+                f"Read {sdlc}research-brief.md and FEATURE_REQUEST.md (its scope and non-goals "
+                f"bound the PRD) and write {sdlc}prd.md with YAML frontmatter "
                 "containing ALL of: type: prd, feature, status, review_decision (your review "
                 "loop's exit decision), a non-empty goals list, non_goals, metrics, and a "
                 "non-empty acceptance list. Add user stories in the body.",

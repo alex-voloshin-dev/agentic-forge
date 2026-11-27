@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
 
-from agentic_forge import spine_e2e, stacks
+from agentic_forge import doc_delivery, spine_e2e, stacks
 from agentic_forge.spine_e2e import (
     PHASES,
     SPINE,
@@ -499,3 +501,185 @@ def test_no_scenario_prompt_dictates_a_status_or_a_proceed() -> None:
             if phase.skill in ("research", "product", "architecture", "plan", "ux-design",
                                "marketing"):
                 assert "review_decision (your" in phase.prompt, (scenario.name, phase.skill)
+
+
+# --- a checkpoint reads the document where the phase delivered it ------------------------------
+
+SLUG = "task-priorities"
+ESCALATED_BRIEF = RESEARCH_BRIEF.replace(
+    "status: final\n", "status: draft\nreview_decision: escalate\n"
+)
+READY_BRIEF = RESEARCH_BRIEF.replace("status: final\n", "status: draft\nreview_decision: proceed\n")
+
+
+def _git_run(tree: Path, *args: str, date: str | None = None) -> str:
+    env = {**os.environ}
+    if date is not None:
+        env.update(GIT_AUTHOR_DATE=date, GIT_COMMITTER_DATE=date)
+    done = subprocess.run(
+        ["git", "-C", str(tree), "-c", "user.email=t@t", "-c", "user.name=t", *args],
+        check=True, capture_output=True, text=True, env=env,
+    )
+    return done.stdout
+
+
+def _docs_worktree(repo: Path, slug: str = SLUG) -> Path:
+    """The feature's shared docs worktree, made the way doc-delivery makes it."""
+    subprocess.run(doc_delivery.add_worktree_argv(str(repo), slug), check=True, capture_output=True)
+    return (repo / doc_delivery.worktree_dir(slug)).resolve()
+
+
+def _put(tree: Path, name: str, text: str, *, commit_date: str | None = None) -> Path:
+    path = tree / "docs" / "sdlc" / SLUG / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    if commit_date is not None:
+        _git_run(tree, "add", "-A")
+        _git_run(tree, "commit", "-q", "-m", f"docs: {name}", date=commit_date)
+    return path
+
+
+def test_the_checkpoint_reads_the_ready_copy_in_the_docs_worktree(tmp_path: Path) -> None:
+    # The 2026.11.17/18 product-inception failure: the first attempt escalated in the checkout, the
+    # retry converged in `wt-docs-<slug>` on `docs/<slug>` — and the checkpoint read the checkout.
+    repo = prepare_scenario(PLUGIN, tmp_path, SPINE)
+    _put(repo, "research-brief.md", ESCALATED_BRIEF)
+    wt = _docs_worktree(repo)
+    _put(wt, "research-brief.md", READY_BRIEF, commit_date="2026-11-18T08:19:00")
+    cp = check_research(repo)[0]
+    assert cp.passed, cp
+    assert cp.detail == (
+        f"read docs/sdlc/{SLUG}/research-brief.md in worktree {wt} (docs/{SLUG})"
+    )
+
+
+def test_an_escalated_copy_everywhere_fails_and_names_the_copy_read(tmp_path: Path) -> None:
+    repo = prepare_scenario(PLUGIN, tmp_path, SPINE)
+    _put(repo, "research-brief.md", ESCALATED_BRIEF, commit_date="2026-11-18T08:00:00")
+    wt = _docs_worktree(repo)
+    second = ESCALATED_BRIEF + "A second attempt, escalated too.\n"
+    _put(wt, "research-brief.md", second, commit_date="2026-11-18T09:00:00")
+    cp = check_research(repo)[0]
+    assert not cp.passed
+    assert cp.detail.startswith(f"docs/sdlc/{SLUG}/research-brief.md in worktree {wt}")
+    assert "review_decision is 'escalate'" in cp.detail
+
+
+@pytest.mark.parametrize(
+    ("checkout_date", "worktree_date", "read_from"),
+    [
+        ("2026-11-18T08:00:00", "2026-11-18T09:00:00", "worktree"),
+        ("2026-11-18T10:00:00", "2026-11-18T09:00:00", "checkout"),
+        (None, "2026-11-18T09:00:00", "worktree"),  # an uncommitted copy counts as no commit
+        (None, None, "checkout"),  # a full tie keeps the checkout
+    ],
+)
+def test_two_ready_copies_prefer_the_newest_commit(
+    tmp_path: Path, checkout_date: str | None, worktree_date: str | None, read_from: str
+) -> None:
+    repo = prepare_scenario(PLUGIN, tmp_path, SPINE)
+    wt = _docs_worktree(repo)
+    _put(repo, "research-brief.md", READY_BRIEF, commit_date=checkout_date)
+    _put(wt, "research-brief.md", READY_BRIEF, commit_date=worktree_date)
+    doc = spine_e2e.locate_document(repo, SLUG, "research-brief.md", "research-brief")
+    assert doc.ready and doc.where.split()[0] == read_from
+    assert check_research(repo)[0].detail.endswith(doc.where)
+
+
+def test_a_valid_copy_beats_an_invalid_newer_one(tmp_path: Path) -> None:
+    repo = prepare_scenario(PLUGIN, tmp_path, SPINE)
+    wt = _docs_worktree(repo)
+    _put(repo, "research-brief.md", ESCALATED_BRIEF, commit_date="2026-11-18T08:00:00")
+    _put(wt, "research-brief.md", "---\ntype: prd\n---\n", commit_date="2026-11-18T09:00:00")
+    doc = spine_e2e.locate_document(repo, SLUG, "research-brief.md", "research-brief")
+    assert doc.where == "checkout" and doc.artifact is not None and not doc.ready
+    alone = spine_e2e.locate_document(wt, SLUG, "research-brief.md", "research-brief")
+    assert alone.problem.startswith("does not validate:")
+
+
+def test_a_missing_document_names_every_place_looked(tmp_path: Path) -> None:
+    repo = prepare_scenario(PLUGIN, tmp_path, SPINE)
+    wt = _docs_worktree(repo)
+    cp = check_research(repo)[0]
+    assert not cp.passed
+    assert cp.detail == (
+        f"docs/sdlc/{SLUG}/research-brief.md not found in checkout, worktree {wt} (docs/{SLUG})"
+    )
+
+
+def test_only_the_features_docs_branch_counts_as_a_delivery_worktree(tmp_path: Path) -> None:
+    repo = prepare_scenario(PLUGIN, tmp_path, SPINE)
+    other = tmp_path / "wt-other"
+    _git_run(repo, "worktree", "add", "-q", "-b", "docs/another-feature", str(other))
+    _put(other, "research-brief.md", READY_BRIEF, commit_date="2026-11-18T09:00:00")
+    assert [where for _, where in spine_e2e._working_trees(repo, SLUG)] == ["checkout"]
+    assert not check_research(repo)[0].passed
+
+
+def test_the_feature_folder_the_repository_keeps_is_read(tmp_path: Path) -> None:
+    # artifact-home: a repository with its own folder for the feature gets no second home.
+    repo = prepare_scenario(PLUGIN, tmp_path, SPINE)
+    own = repo / "features" / SLUG
+    own.mkdir(parents=True)
+    (own / "prd.md").write_text(PRD_MD, encoding="utf-8")
+    cp = check_product(repo)[0]
+    assert cp.passed and cp.detail == f"read features/{SLUG}/prd.md in checkout"
+
+
+def test_the_adrs_are_counted_beside_the_design_that_was_read(tmp_path: Path) -> None:
+    repo = prepare_scenario(PLUGIN, tmp_path, SPINE)
+    wt = _docs_worktree(repo)
+    _put(wt, "tech-design.md", TECH_DESIGN, commit_date="2026-11-18T09:00:00")
+    assert check_architecture(repo)[1].passed is False  # no ADR beside it yet
+    _put(wt, "adr-001-priority.md", ADR, commit_date="2026-11-18T09:01:00")
+    assert all(c.passed for c in check_architecture(repo))
+
+
+def test_the_next_prompt_names_the_upstream_copy_that_was_delivered(tmp_path: Path) -> None:
+    repo = prepare_scenario(PLUGIN, tmp_path, SPINE)
+    prompt = spine_e2e._phase_prompt("product")
+    assert spine_e2e.resolve_prompt(prompt, repo, SLUG) == prompt  # nothing written yet
+    _put(repo, "research-brief.md", READY_BRIEF)
+    assert spine_e2e.resolve_prompt(prompt, repo, SLUG) == prompt  # the checkout copy is it
+    _put(repo, "research-brief.md", ESCALATED_BRIEF)
+    wt = _docs_worktree(repo)
+    _put(wt, "research-brief.md", READY_BRIEF, commit_date="2026-11-18T09:00:00")
+    resolved = spine_e2e.resolve_prompt(prompt, repo, SLUG)
+    brief = wt / "docs" / "sdlc" / SLUG / "research-brief.md"
+    assert f"Read {brief} and the code" in resolved
+    assert f"docs/sdlc/{SLUG}/prd.md" in resolved  # a document not yet written stays as it is
+    other = "Read docs/sdlc/other-slug/research-brief.md and docs/sdlc/task-priorities/notes.md"
+    assert spine_e2e.resolve_prompt(other, repo, SLUG) == other
+
+
+def test_a_phase_that_delivers_in_its_worktree_hands_the_next_phase_that_copy(
+    tmp_path: Path,
+) -> None:
+    seen: list[str] = []
+
+    def phase(system: str, user: str, repo: Path) -> str:
+        seen.append(user)
+        if "research-brief.md (frontmatter" in user:  # escalate in the checkout, converge in wt
+            _put(repo, "research-brief.md", ESCALATED_BRIEF)
+            wt = _docs_worktree(repo)
+            _put(wt, "research-brief.md", READY_BRIEF, commit_date="2026-11-18T09:00:00")
+            return "done"
+        return _good_phase(system, user, repo)
+
+    results = run_scenario(PLUGIN, SPINE, run_phase=phase, workspace=tmp_path, retries=0)
+    assert results[0].passed, [str(c) for c in results[0].checkpoints]
+    wt_brief = (tmp_path / "wt-docs-task-priorities").resolve() / "docs/sdlc/task-priorities"
+    assert f"Read {wt_brief / 'research-brief.md'}" in seen[1]
+
+
+def test_an_unreadable_commit_time_counts_as_no_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(spine_e2e, "_git_out", lambda *a: "not-a-number\n")
+    assert spine_e2e._committed_at(tmp_path, tmp_path / "x.md") == 0
+
+
+def test_a_slug_the_resolver_refuses_falls_back_to_docs_sdlc(tmp_path: Path) -> None:
+    path = spine_e2e._document_path(tmp_path, "Not_A_Slug", "prd.md", "prd")
+    assert path == tmp_path / "docs" / "sdlc" / "Not_A_Slug" / "prd.md"
+    assert spine_e2e._working_trees(tmp_path, "Not_A_Slug") == [(tmp_path, "checkout")]

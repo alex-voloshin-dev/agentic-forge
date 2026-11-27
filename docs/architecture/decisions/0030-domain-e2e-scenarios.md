@@ -3,6 +3,18 @@
 Status: Accepted — **Implemented** (all five scenarios: spine + quality-gate, ops-incident,
 product-inception, market-brief). Revised after a deep multi-reviewer review.
 
+> **Amended 2026-11-27 (`product-inception` failed on 2026.11.17 and 2026.11.18):** four harness defects, fixed
+> without touching a skill or a threshold. (1) A checkpoint reads a document where the phase delivered it: the checkout
+> and every worktree on `docs/<slug>`, each resolved by `artifact-home`. A ready copy wins, then a valid one, then the
+> newest commit, then the checkout, and the checkpoint line names the copy read. The next phase's prompt points at that
+> copy (`spine_e2e.locate_document` / `resolve_prompt`). Before this, a retry that converged in the docs worktree was
+> read from the checkout's stale escalated copy. (2) The domain checkpoints share the readiness rule of ADR 0067:
+> required for the loop-gated types (`ux-spec`, `market-brief`, like the spine's four), and for the rest only a written
+> `review_decision` other than `proceed` fails. (3) The scenario seeds a bounded `FEATURE_REQUEST.md` (goal, five
+> acceptance criteria, explicit non-goals) instead of "research the app's domain". (4) Tier-3 sessions get
+> `WebSearch`/`WebFetch`, which the `research` contract needs to cite sources, so a live run needs web access. Details:
+> [domain-e2e.md](../domain-e2e.md), [eval-runbook.md](../../eval-runbook.md).
+
 ## Context
 
 Tier-3 (end-to-end) covers only the SDLC spine ([spine.md](../spine.md), `spine_e2e.py`): one

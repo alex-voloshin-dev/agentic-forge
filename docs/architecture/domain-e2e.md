@@ -125,14 +125,26 @@ case (`classify_incident(degraded=True, workaround=True)` == `sev3`).
 | # | Phase | Checkpoint | Type |
 | --- | --- | --- | --- |
 | 1 | `repo-onboarding` | `onboarding.md` valid; vault passes `validate_vault` (notes built via `vault.add_note` so the no-orphans rule holds) | D |
-| 2 | `research` | `research-brief.md` valid | carrier (spine-gated) |
-| 3 | `product` | `prd.md` valid | carrier |
-| 4 | `ux-design` | `ux-spec.md` valid; `flows` non-empty (schema) + `accessibility` non-empty (checkpoint; schema doesn't enforce it) | D |
-| 5 | `architecture` | `tech-design.md` valid + ≥ 1 ADR; references a `ux-spec` flow/screen (content-linkage) | D / D-sub |
+| 2 | `research` | `research-brief.md` valid **and ready** (`review_decision: proceed`) | carrier (spine-gated) |
+| 3 | `product` | `prd.md` valid and ready | carrier |
+| 4 | `ux-design` | `ux-spec.md` valid and ready; `flows` non-empty (schema) + `accessibility` non-empty (checkpoint; schema doesn't enforce it) | D |
+| 5 | `architecture` | `tech-design.md` valid and ready + ≥ 1 ADR beside it; references a `ux-spec` flow/screen (content-linkage) | D / D-sub |
 
 `research`/`product`/`architecture` are **carriers** — included only to exercise the
 onboarding → … → ux → architecture handoffs; their own quality is gated by the spine Tier-3, not
 re-gated here.
+
+**The feature it carries** (since 2026-11-27): the workspace seeds
+`eval/fixtures/product-inception/FEATURE_REQUEST.md` at the repo root, as the spine seeds its own.
+It is a bounded request over the onboarded stub: a todo list that shows each todo's indexing
+status. It has a goal, five acceptance criteria (`POST /todos` validation, `GET /todos`, one
+server-rendered page with its empty and error states, bounded retry that ends in `failed`, and
+`python app.py` still starting the service) and explicit non-goals (no auth, no search, no edit or
+delete, no persistence or external queue, no visual design). `research` and `product` read it.
+Before this the research prompt was "research the app's domain", with nothing to bound it. Every
+phase designed from its own assumptions, and every review round attacked newly invented surface,
+so the chain escalated on 2026.11.17 and 2026.11.18 for reasons that had nothing to do with the
+skills.
 
 ### `market-brief` — `marketing` as a deterministic complement to its Tier-2
 
@@ -159,6 +171,35 @@ deterministically, which the LLM-judged Tier-2 cannot guarantee.
 module**, with the **per-line → per-commit replay** of the release fixture; a minimal
 `ops-incident` workspace (just the two seeded files — **no git repo** for phases 1–2).
 
+## Where a checkpoint reads, and what it requires
+
+**Location.** The document phases (`research`, `product`, `architecture`, `plan`, `ux-design`,
+`marketing`) deliver into the feature's shared docs worktree, `../wt-docs-<slug>` on branch
+`docs/<slug>` ([doc-delivery](../../plugin/patterns/doc-delivery.md)), inside the folder
+`artifact-home` resolves ([handoff.md](../../plugin/patterns/handoff.md#where-a-features-documents-go)).
+So a checkpoint cannot read only `<checkout>/docs/sdlc/<slug>/`. `spine_e2e.locate_document` looks
+in the checkout and in every git worktree of it on `docs/<slug>` (from `git worktree list
+--porcelain`; other branches are ignored), and resolves the document's path in each through
+`artifact_home`. When more than one copy exists, the order is fixed: a ready copy first, then a
+valid one, then the one whose last commit is newest (an uncommitted copy counts as no commit), and
+on a full tie the checkout. The checkpoint line names the copy read: `read
+docs/sdlc/<slug>/prd.md in worktree /…/wt-docs-<slug> (docs/<slug>)`. On a failure it says why
+(`not found in checkout, worktree …`, `does not validate: …`, `not handed off: review_decision is
+'escalate', not 'proceed'`). Before each attempt, `resolve_prompt` rewrites every
+`docs/sdlc/<slug>/<document>` the phase prompt names to that copy's absolute path, when the copy
+is somewhere else. So the next phase reads what its predecessor delivered, not a stale first
+attempt left in the checkout. ADRs are counted beside the design copy that was read.
+
+**Readiness (ADR 0067).** All checkpoints go through one helper (`_document_checkpoint`). For the
+artifact types whose skill runs a review loop (`LOOP_GATED_TYPES`: `research-brief`, `prd`,
+`tech-design`, `plan`, `ux-spec`, `market-brief`), the artifact must be handed off
+(`handoff.is_handoff_ready`: `review_decision: proceed`, or a legacy `status` of `approved`/`final`).
+An escalated run leaves a schema-valid file, and before 2026-11-27 `check_ux_spec` and
+`check_market_brief` scored one green. The other types come from phases with no review loop
+(`qa-test-strategy`, `release`, `repo-onboarding`, the ops phases, the reviews). Their `status` is
+the repository's lifecycle (`draft` for a release proposal), so it does not decide. Only a
+`review_decision` written on such an artifact that is not `proceed` fails it.
+
 ## Runner & CLI
 
 `dev/run_spine_e2e.py` gains `--scenario {spine,quality-gate,ops-incident,product-inception,market-brief}`
@@ -167,6 +208,14 @@ times — **default 1**, `0` disables); `--runner dry|claude`, `--model`, `--wor
 `--runner dry` checks each selected scenario's wiring (skills + fixtures present) **and** that the
 `gh`/`GRAFANA_URL` neutralization is present in the `ops-incident` phase prompts — no model calls,
 always-on in CI.
+
+**Session tools.** Every `claude` phase session gets `PHASE_TOOLS` (`Read,Write,Edit,Bash,Grep,Glob,
+WebSearch,WebFetch`). The web tools were added on 2026-11-27. The `research` skill's contract
+requires external sources cited by URL, and `marketing` declares the same tools. Without them, the
+research phase could not meet its Definition of done, and its reviewers held every round on the
+missing citations. A test keeps every web tool a scenario phase's skill declares in that list. So
+**a live Tier-3 run needs web access**, not only the model API. (`market-brief`'s prompt still pins
+the seeded notes, and its checkpoint asserts the competitors named there.)
 
 **Per-phase retry.** `run_scenario(..., retries=1)` re-runs a phase whose checkpoints fail, up to
 `retries` times — a fresh **model** attempt at the same prompt, never relaxing a checkpoint. This
