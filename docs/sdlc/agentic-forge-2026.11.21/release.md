@@ -60,6 +60,8 @@ into one release to save test runs.
   - **The lookup.** Absolute PATH entries only; on Windows only `.exe`/`.com`. Each site keeps its old answer when
     nothing is found.
   - **The merge gate changed in one case.** A relative PATH entry before an absolute one is now skipped, not refused.
+  - **The PR watcher's fixer starts `claude` by the same lookup.** It runs in a pull request's worktree, where on
+    Windows a bare name could resolve to a `claude.exe` the branch committed.
 - **Eval-harness safety.**
   - A fixture path may not leave the plugin directory or the workspace. This is checked on the live path, before any
     write or model call.
@@ -75,7 +77,8 @@ into one release to save test runs.
   - `reader`: reviewer, security engineer and codex, three rounds. Their findings were applied, and the `clerk` was
     split out.
   - `omitClaudeMd` harness: four rounds; the fourth was approved by the owner. Codex approves.
-  - Windows lookups: security engineer and codex. Details in `review-code-1.md`.
+  - Windows lookups: codex approves. The security engineer's major was fixed (the fixer's bare `claude`, which
+    predates this change), and codex approved that delta. Details in `review-code-1.md`.
 - **Live evals:**
   - Tier-2 of the four roles at both tiers on the extended sets.
   - Tier-2 of `reader` at Opus.
