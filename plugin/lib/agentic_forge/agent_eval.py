@@ -14,6 +14,7 @@ are excluded from coverage. See docs/eval-runbook.md and ADR 0011.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -42,6 +43,20 @@ __all__ = [
     "GradingUnparseable",
     "session_outcome",
     "is_write_role",
+    "role_body",
+    "CLAUDE_MD_ENV_VAR",
+    "OMIT_CLAUDE_MD_MODES",
+    "omits_claude_md",
+    "resolve_omit_claude_md",
+    "claude_md_env",
+    "claude_md_unloadable",
+    "place_claude_md",
+    "PROBE_PROMPT",
+    "first_heading",
+    "quotes_heading",
+    "heading_problem",
+    "claude_md_probe",
+    "input_fingerprint",
     "load_fixtures",
     "materialize_fixtures",
     "build_role_prompt",
@@ -80,22 +95,62 @@ class RunOutput(str):
     reads ``.usage`` (``{input_tokens, output_tokens, total_tokens}``) when present to compute the
     token-overhead delta (ADR 0036/0038). A plain ``str`` (stubs, a text-only transport) carries
     no usage, so token-overhead stays unmeasured for it.
+
+    When the transport reports cached input, ``usage`` also has ``cache_read_input_tokens``,
+    ``cache_creation_input_tokens`` and ``prompt_tokens`` (their sum with ``input_tokens``: every
+    prompt token the model read). ``cost_usd`` is the transport's own cost figure when it gives one
+    (the CLI's ``total_cost_usd``). Both exist for the ``omitClaudeMd`` A/B: a CLAUDE.md sits in the
+    cached prompt prefix, which ``input_tokens`` leaves out (ADR 0113, amended).
     """
 
     usage: dict[str, int] | None
+    cost_usd: float | None
 
-    def __new__(cls, text: str, usage: dict[str, int] | None = None) -> RunOutput:
+    def __new__(
+        cls, text: str, usage: dict[str, int] | None = None, cost_usd: float | None = None
+    ) -> RunOutput:
         obj = super().__new__(cls, text)
         obj.usage = usage
+        obj.cost_usd = cost_usd
         return obj
 
 
-def _usage_from_counts(input_tokens: int, output_tokens: int) -> dict[str, int]:
-    return {
+def _usage_from_counts(
+    input_tokens: int,
+    output_tokens: int,
+    *,
+    cache_creation: int | None = None,
+    cache_read: int | None = None,
+) -> dict[str, int]:
+    """The usage mapping. The cache fields are added only when the transport reported one, so a
+    reply without them keeps the three-key shape; ``prompt_tokens`` then counts every input token,
+    cached or not."""
+    usage = {
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "total_tokens": input_tokens + output_tokens,
     }
+    if cache_creation is not None or cache_read is not None:
+        created = int(cache_creation or 0)
+        read = int(cache_read or 0)
+        usage["cache_creation_input_tokens"] = created
+        usage["cache_read_input_tokens"] = read
+        usage["prompt_tokens"] = input_tokens + created + read
+    return usage
+
+
+def _prompt_tokens(output: str) -> int | None:
+    """Every prompt token one reply's session read (cached included), or None without usage."""
+    usage = getattr(output, "usage", None)
+    if isinstance(usage, dict):
+        return int(usage.get("prompt_tokens", usage.get("input_tokens", 0)) or 0)
+    return None
+
+
+def _cost(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
 
 
 def _usage_tokens(output: str) -> int | None:
@@ -214,22 +269,29 @@ def permission_denials(stdout: str) -> int:
 def _parse_cli_json(stdout: str) -> RunOutput:
     """Parse `claude -p --output-format json` stdout into the reply text + token usage.
 
-    The expected shape is ``{"result": "<text>", "usage": {"input_tokens", "output_tokens", …}}``.
-    Degrades to the raw stdout with no usage if it is not that result-bearing JSON, so an odd or
-    older CLI output can never crash a Tier-2 sweep (ADR 0038)."""
+    The expected shape is ``{"result": "<text>", "usage": {"input_tokens", "output_tokens", …},
+    "total_cost_usd": …}``. Measured on Claude Code 2.1.331: ``usage`` is summed over the session's
+    turns, and ``input_tokens`` excludes ``cache_read_input_tokens`` and
+    ``cache_creation_input_tokens``, which are kept too (see :class:`RunOutput`). Degrades to the
+    raw stdout with no usage if it is not that result-bearing JSON, so an odd or older CLI output
+    can never crash a Tier-2 sweep (ADR 0038)."""
     try:
         data = json.loads(stdout)
     except (json.JSONDecodeError, TypeError):
         return RunOutput(stdout)
     if not isinstance(data, dict) or "result" not in data:
         return RunOutput(stdout)
+    cost = _cost(data.get("total_cost_usd"))
     usage = data.get("usage")
     if isinstance(usage, dict):
         counts = _usage_from_counts(
-            int(usage.get("input_tokens", 0) or 0), int(usage.get("output_tokens", 0) or 0)
+            int(usage.get("input_tokens", 0) or 0),
+            int(usage.get("output_tokens", 0) or 0),
+            cache_creation=usage.get("cache_creation_input_tokens"),
+            cache_read=usage.get("cache_read_input_tokens"),
         )
-        return RunOutput(str(data["result"]), counts)
-    return RunOutput(str(data["result"]))
+        return RunOutput(str(data["result"]), counts, cost)
+    return RunOutput(str(data["result"]), None, cost)
 
 GRADING_INSTRUCTIONS = (
     "Grade the WORK OUTPUT against each assertion independently; no partial credit. If the "
@@ -309,6 +371,11 @@ def _read_body(md_path: Path) -> str:
     return body.strip()
 
 
+def role_body(plugin_dir: Path, role: str) -> str:
+    """A role's system-prompt body, as :func:`run_role` passes it."""
+    return _read_body(plugin_dir / "agents" / f"{role}.md")
+
+
 def is_write_role(plugin_dir: Path, role: str) -> bool:
     """True if the role's frontmatter grants Write/Edit.
 
@@ -318,6 +385,167 @@ def is_write_role(plugin_dir: Path, role: str) -> bool:
     fm, _ = parse_frontmatter((plugin_dir / "agents" / f"{role}.md").read_text(encoding="utf-8"))
     tools = str(fm.get("tools", ""))
     return "Write" in tools or "Edit" in tools
+
+
+# --- omitClaudeMd in an eval session (ADR 0113, amended) ---------------------
+# Claude Code reads a role's `omitClaudeMd` only when a session delegates to it; a `claude -p` eval
+# session is not a delegation, so the harness applies the field through the CLI's own switch. With
+# this variable at "1" the memory loader reports "project memory is off" and looks for no CLAUDE.md
+# / AGENTS.md; at "0" (or unset) it walks every ancestor of the working directory for them
+# (measured on Claude Code 2.1.331 against a local capture server, no model call). Both values are
+# always set, so an operator's exported value cannot decide an arm. Unlike the field, it also drops
+# managed policy files.
+CLAUDE_MD_ENV_VAR = "CLAUDE_CODE_DISABLE_CLAUDE_MDS"
+OMIT_CLAUDE_MD_MODES: tuple[str, ...] = ("role", "on", "off")
+
+
+# The one spelling that means "omit" to every reader. PyYAML (YAML 1.1, our parser) also reads
+# `yes`/`on`/`True` as true, which Claude Code's agent schema need not; Tier-0 holds the field to
+# the literal `true`/`false` (validation.validate_agent), and the harness reads only `true`.
+_OMIT_TRUE = re.compile(r"^omitClaudeMd:[ \t]*true[ \t]*$", re.MULTILINE)
+
+
+def omits_claude_md(plugin_dir: Path, role: str) -> bool:
+    """True if the role's frontmatter sets ``omitClaudeMd: true`` — written as the literal ``true``,
+    as Claude Code's agent schema takes a boolean. ``yes``/``on`` parse as true in YAML 1.1 but are
+    not read as omission here (and Tier-0 refuses them)."""
+    text = (plugin_dir / "agents" / f"{role}.md").read_text(encoding="utf-8")
+    fm, _ = parse_frontmatter(text)
+    end = text.find("\n---", 3)
+    head = text[:end] if end > 0 else ""
+    return fm.get("omitClaudeMd") is True and _OMIT_TRUE.search(head) is not None
+
+
+def resolve_omit_claude_md(mode: str, plugin_dir: Path, role: str) -> bool:
+    """Whether the role under test runs without CLAUDE.md: ``role`` follows its frontmatter,
+    ``on`` / ``off`` force it (the A/B override)."""
+    if mode == "role":
+        return omits_claude_md(plugin_dir, role)
+    if mode in ("on", "off"):
+        return mode == "on"
+    raise ValueError(f"omit-claude-md mode must be one of {OMIT_CLAUDE_MD_MODES}, got {mode!r}")
+
+
+def claude_md_env(omit: bool) -> dict[str, str]:
+    """The session environment that applies ``omit`` (see :data:`CLAUDE_MD_ENV_VAR`)."""
+    return {CLAUDE_MD_ENV_VAR: "1" if omit else "0"}
+
+
+def claude_md_unloadable(path: Path) -> str | None:
+    """Why Claude Code would refuse to load a CLAUDE.md under ``path``, or None.
+
+    Claude Code 2.1.331 does not load one in a session's scratchpad, "a folder laid out like one
+    (claude/<project>/<session id>/scratchpad)", or in a folder named ``.artifact-work`` — its
+    debug log says so per file; the measured case was ``claude-1000/<project>/<session>/
+    scratchpad``. A ``--claude-md`` workspace there would load nothing, and the A/B's "off" arm
+    would silently be a second "on" arm. Checked on the path as given and as resolved, since the
+    CLI follows links."""
+    for candidate in (path, path.resolve()):
+        parts = candidate.parts
+        if ".artifact-work" in parts:
+            return f"{candidate} is inside a .artifact-work folder"
+        for i, part in enumerate(parts):
+            if part == "scratchpad" and i >= 3 and parts[i - 3].startswith("claude"):
+                return f"{candidate} is inside a Claude Code session scratchpad"
+    return None
+
+
+def place_claude_md(workdir: Path, text: str) -> None:
+    """Write ``text`` as the workspace's ``CLAUDE.md``. A case whose fixtures already put one there
+    is an error, not an overwrite: the A/B would then measure the fixture's file, not this one."""
+    target = workdir / "CLAUDE.md"
+    if target.exists():
+        raise ValueError(
+            f"the case's fixtures already provide {target.name}; --claude-md would replace it"
+        )
+    target.write_text(text, encoding="utf-8")
+
+
+# The A/B's manipulation check (ADR 0113, amended). A token total over a role's sessions cannot
+# tell two arms apart — it sums up to 40 turns that each re-read the whole cached context, so turn
+# count alone moves it by more than a CLAUDE.md — so each arm also asks one question whose answer
+# depends only on whether the file was loaded.
+PROBE_PROMPT = (
+    "Quote the first Markdown heading of the project CLAUDE.md you were given, or reply NONE. "
+    "Reply with the heading text only."
+)
+_PROBE_ANSWER_CAP = 4000  # kept for validation; the console shows less
+_HEADING = re.compile(r"^#{1,6}[ \t]+(.+?)[ \t#]*$", re.MULTILINE)
+_DASHES = re.compile("[\u2010-\u2015\u2212]")
+
+
+def first_heading(text: str) -> str | None:
+    """The text of the first Markdown ATX heading (``# Title`` → ``Title``), or None."""
+    match = _HEADING.search(text)
+    return match.group(1).strip() if match else None
+
+
+def _normalized(text: str) -> str:
+    return " ".join(_DASHES.sub("-", text).casefold().split())
+
+
+_MIN_HEADING_CHARS = 12
+
+
+def heading_problem(heading: str | None) -> str | None:
+    """Why ``heading`` cannot tell the probe's two answers apart, or None. A heading that is short,
+    a single word, part of :data:`PROBE_PROMPT` or of ``none`` could be "quoted" by a session that
+    never saw the file — echoing the question, or answering NONE — so the off arm's probe would
+    prove nothing."""
+    if heading is None:
+        return "it has no Markdown heading for the A/B probe to ask for"
+    norm = _normalized(heading)
+    if len(norm) < _MIN_HEADING_CHARS or len(norm.split()) < 2:
+        return (
+            f"its first heading {heading!r} is too generic for the A/B probe "
+            f"(at least {_MIN_HEADING_CHARS} characters and two words)"
+        )
+    if norm in _normalized(PROBE_PROMPT) or norm in "none":
+        return f"its first heading {heading!r} occurs in the probe's own question or answer"
+    return None
+
+
+def quotes_heading(answer: str, heading: str) -> bool:
+    """Whether ``answer`` quotes ``heading`` — case, whitespace and dash style aside (a model may
+    write an em dash as a hyphen)."""
+    return _normalized(heading) in _normalized(answer)
+
+
+def claude_md_probe(run_fn: Runner, system: str, claude_md: str) -> dict[str, Any]:
+    """Run the probe once: a fresh workspace made as a case's is (``mkdtemp`` +
+    :func:`place_claude_md`), :data:`PROBE_PROMPT`, ``system`` as the role's prompt. ``run_fn`` is
+    meant to be built like the role's runner, with the same CLAUDE.md switch, one turn and no
+    tools (so the answer reflects what was loaded, not what a tool read). Returns
+    ``{answer, prompt_tokens}`` or ``{error}``."""
+    work = Path(tempfile.mkdtemp(prefix="af-eval-"))
+    try:
+        place_claude_md(work, claude_md)
+        try:
+            output = run_fn(system, PROBE_PROMPT, work)
+        except (SessionUndetermined, RuntimeError) as exc:
+            return {"error": _flat(str(exc))}
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    # Whitespace-normalised and capped generously, never at the 200-character display cap: a heading
+    # quoted after a preamble must still be found (round-4 review).
+    answer = " ".join(str(output).split())[:_PROBE_ANSWER_CAP]
+    return {"answer": answer, "prompt_tokens": _prompt_tokens(output)}
+
+
+def input_fingerprint(plugin_dir: Path, role: str, claude_md: str) -> str:
+    """SHA-256 over everything an A/B arm's sessions read from the tree: the role file, the judge
+    (``grader.md``), the role's eval contract, every case fixture it references, and the workspace
+    CLAUDE.md. Two arms pair only when it is equal — same inputs, only the switch differs."""
+    contract = plugin_dir / "agents" / "evals" / f"{role}.evals.json"
+    rels = [f"agents/{role}.md", "agents/grader.md", f"agents/evals/{role}.evals.json"]
+    cases = load_evals(contract).get("evals") or []
+    files = sorted({f for case in cases for f in case.get("files") or []})
+    digest = hashlib.sha256()
+    for rel in [*rels, *files]:
+        digest.update(rel.encode("utf-8") + b"\0")
+        digest.update((plugin_dir / rel).read_bytes() + b"\0")
+    digest.update(b"CLAUDE.md\0" + claude_md.encode("utf-8"))
+    return digest.hexdigest()
 
 
 def load_fixtures(plugin_dir: Path, files: list[str]) -> str:
@@ -493,6 +721,10 @@ def _new_sessions() -> dict[str, Any]:
         # tail): a FAIL that names the assertion still leaves WHY to a paid re-run, and one
         # transcript is what cracked ADR 0097 (ADR 0098).
         "failed_sample": None,
+        # What each run's role sessions spent, graded or not (ADR 0113, amended): one entry per run
+        # in which at least one role session answered — {answered, prompt_tokens?, cost_usd?}.
+        # Kept apart from `timing`, which only a run with a graded case gets.
+        "spend": [],
     }
 
 
@@ -535,15 +767,24 @@ def _run_passes(
     runs: int,
     isolate: bool,
     workdir: Path | None,
+    claude_md: str | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     """Execute ``cases`` ``runs`` times under ``system_body``; return ``(gradings, timing,
     sessions)``.
 
-    ``timing`` carries one entry per run: ``{"duration_ms": …}`` (wall-clock for that run's cases),
-    plus ``"total_tokens"`` when the transport reports usage (a :class:`RunOutput` — see ADR 0038).
-    Only the component (``run_fn``) tokens are summed, not the grader's, so the Tier-2 A-B delta
-    reflects the skill's own token cost. A text-only transport reports no usage, so ``total_tokens``
-    is simply absent and token-overhead stays unmeasured.
+    ``claude_md`` (isolated runs only) is written into each case's fresh workspace as
+    ``CLAUDE.md`` after its fixtures (:func:`place_claude_md`), for the ``omitClaudeMd`` A/B.
+
+    ``timing`` carries one entry per run with a graded case: ``{"duration_ms": …}`` (wall-clock for
+    that run's cases), plus ``"total_tokens"`` when the transport reports usage (a
+    :class:`RunOutput` — see ADR 0038), graded cases only, as ``max_overhead_tokens`` has always
+    gated it. Only the component (``run_fn``) sessions are summed, not the grader's, so the Tier-2
+    A-B delta reflects the skill's own token cost. A text-only transport reports no usage, so
+    ``total_tokens`` is simply absent and token-overhead stays unmeasured.
+
+    ``sessions["spend"]`` is what the role's sessions spent, independent of grading: per run with
+    an answered session, how many answered, their ``prompt_tokens`` (cached input included) and
+    ``cost_usd`` when reported — a run whose every case went ungraded still spent them.
 
     ``sessions`` is the tally of sessions that produced no measurement: a case whose session
     raised :class:`SessionUndetermined` (never answered) or whose grading was
@@ -561,7 +802,12 @@ def _run_passes(
         run_total = 0
         run_passed = 0
         run_tokens = 0
+        run_prompt = 0
+        run_cost = 0.0
         saw_usage = False
+        saw_prompt = False
+        saw_cost = False
+        answered = 0
         graded_cases = 0
         started = time.monotonic()
         for case_no, case in enumerate(cases, start=1):
@@ -574,6 +820,8 @@ def _run_passes(
                 case_files = case.get("files") or []
                 if case_isolate:
                     materialize_fixtures(plugin_dir, case_files, work)
+                    if claude_md is not None:
+                        place_claude_md(work, claude_md)
                 if workspace is None:
                     prompt = build_role_prompt(
                         case, load_fixtures(plugin_dir, case_files), in_workdir=case_isolate
@@ -586,6 +834,17 @@ def _run_passes(
                 except SessionUndetermined as exc:
                     _record_unmeasured(sessions, "undetermined", run_no, case_no, exc)
                     continue
+                # The role's prompt tokens and cost are spent once it answered, whatever the judge
+                # does next: a case the grader fails to grade still cost its session.
+                answered += 1
+                prompt = _prompt_tokens(output)
+                if prompt is not None:
+                    saw_prompt = True
+                    run_prompt += prompt
+                cost = getattr(output, "cost_usd", None)
+                if cost is not None:
+                    saw_cost = True
+                    run_cost += float(cost)
                 try:
                     graded = grade_output(
                         case.get("assertions") or [], output, grader_body, grader_fn, work
@@ -622,6 +881,13 @@ def _run_passes(
             # — so a grader that omits or duplicates results can't skew the run's pass-rate.
             run_total += graded["summary"]["total"]
             run_passed += graded["summary"]["passed"]
+        if answered:  # before the skip below: an all-ungraded run still spent its sessions
+            spend: dict[str, Any] = {"answered": answered}
+            if saw_prompt:
+                spend["prompt_tokens"] = run_prompt
+            if saw_cost:
+                spend["cost_usd"] = run_cost
+            sessions["spend"].append(spend)
         if cases and not graded_cases:
             # Every session of this run went unmeasured: there is no run to summarize. It leaves
             # `n` (so the runs floor sees it) and the cap says why — a 0.0 here would be the
@@ -657,6 +923,7 @@ def run_eval_cases(
     isolate: bool,
     workdir: Path | None = None,
     baseline_system_body: str | None = None,
+    claude_md: str | None = None,
 ) -> tuple[dict[str, Any], gate.GateResult, list[dict[str, Any]]]:
     """Shared Tier-2 core: run ``cases`` ``runs`` times under ``system_body``, grade each output
     against its assertions, aggregate, and gate. Returns ``(benchmark, gate_result, gradings)``.
@@ -678,7 +945,12 @@ def run_eval_cases(
 
     Every case's fixture paths are checked first (ADR 0116), so a refused path raises
     :class:`~agentic_forge.evals.EvalsError` before any case writes a file or calls a model.
+
+    ``claude_md`` is a project CLAUDE.md placed in every case's workspace (both passes). It needs
+    ``isolate``: the file must land in a fresh temp workspace, never in ``workdir`` or the repo.
     """
+    if claude_md is not None and not isolate:
+        raise ValueError("claude_md needs isolate=True: it is written into each case's workspace")
     for case in cases:
         for rel in case.get("files") or []:
             checked_fixture(plugin_dir, rel)
@@ -692,6 +964,7 @@ def run_eval_cases(
         runs=runs,
         isolate=isolate,
         workdir=workdir,
+        claude_md=claude_md,
     )
     if baseline_system_body is not None:
         base_gradings, base_timing, base_sessions = _run_passes(
@@ -704,6 +977,7 @@ def run_eval_cases(
             runs=runs,
             isolate=isolate,
             workdir=workdir,
+            claude_md=claude_md,
         )
         bench = benchmark.summarize(
             gradings,
@@ -730,6 +1004,7 @@ def run_role(
     runs: int | None = None,
     workdir: Path | None = None,
     isolate: bool = False,
+    claude_md: str | None = None,
 ) -> RoleReport:
     """Run a role's Tier-2 eval: N runs over its cases, graded, aggregated, and gated.
 
@@ -738,12 +1013,18 @@ def run_role(
     architect, qa-engineer — anything with Write/Edit) so they can never mutate the real
     repo, regardless of the caller's flag. Read roles don't need it, except per case: a case with
     a ``workspace`` (ADR 0116) always runs in a fresh directory of its own.
+
+    ``claude_md`` (the text of a project CLAUDE.md) is written into every case's workspace, and
+    forces ``isolate`` for the same reason: the file must never land in the repo. Whether a session
+    then loads it is the runner's business (:func:`claude_md_env`, ADR 0113 amended).
     """
     contract = load_evals(plugin_dir / "agents" / "evals" / f"{role}.evals.json")
     role_body = _read_body(plugin_dir / "agents" / f"{role}.md")
     grader_body = _read_body(plugin_dir / "agents" / "grader.md")
     if not isolate and is_write_role(plugin_dir, role):
         isolate = True  # safety: a write role must never run against the real repo
+    if claude_md is not None:
+        isolate = True  # the workspace CLAUDE.md goes into a fresh temp dir, never the repo
     thresholds = contract.get("thresholds") or {}
     if runs is not None and runs <= 0:
         raise ValueError("runs must be a positive integer")
@@ -761,6 +1042,7 @@ def run_role(
         runs=n,
         isolate=isolate,
         workdir=workdir,
+        claude_md=claude_md,
     )
     return RoleReport(
         role=role, runs=n, benchmark=bench, gate=result, gradings=gradings, thresholds=thresholds
@@ -800,6 +1082,8 @@ def api_runner(model: str, *, max_tokens: int = 4096) -> Runner:
             _usage_from_counts(
                 int(getattr(usage, "input_tokens", 0) or 0),
                 int(getattr(usage, "output_tokens", 0) or 0),
+                cache_creation=getattr(usage, "cache_creation_input_tokens", None),
+                cache_read=getattr(usage, "cache_read_input_tokens", None),
             ),
         )
 
@@ -873,7 +1157,8 @@ def claude_cli_runner(
     Note the limit: this controls the *system prompt*, not the CLI's user-level ``CLAUDE.md``
     auto-discovery, which still applies. Only ``--bare`` disables that, and it forces
     ``ANTHROPIC_API_KEY`` auth — which would break the subscription-billed path the runbook
-    recommends — so it is deliberately not used here.
+    recommends — so it is deliberately not used here. A role's ``omitClaudeMd`` is applied through
+    ``env`` instead (:func:`claude_md_env`, ADR 0113 amended).
     """
     import subprocess
     import sys

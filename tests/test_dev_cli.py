@@ -1742,7 +1742,13 @@ def test_agent_eval_uses_model_tier_from_settings(
     judges: dict[str, str | None] = {}
 
     def fake_build(
-        runner: str, role: str, plugin_dir: object, model: str, *, grader_model: str | None = None
+        runner: str,
+        role: str,
+        plugin_dir: object,
+        model: str,
+        *,
+        grader_model: str | None = None,
+        **_: object,  # the CLAUDE.md switches (ADR 0113, amended) — not under test here
     ) -> tuple[object, object]:
         seen[role] = model
         judges[role] = grader_model
@@ -1767,7 +1773,13 @@ def test_agent_eval_runs_a_promoted_role_at_its_shipped_tier(
     seen: dict[str, str] = {}
 
     def fake_build(
-        runner: str, role: str, plugin_dir: object, model: str, *, grader_model: str | None = None
+        runner: str,
+        role: str,
+        plugin_dir: object,
+        model: str,
+        *,
+        grader_model: str | None = None,
+        **_: object,  # the CLAUDE.md switches (ADR 0113, amended) — not under test here
     ) -> tuple[object, object]:
         seen[role] = model
         return (object(), object())
@@ -1793,7 +1805,13 @@ def test_agent_eval_grader_model_flag_sets_the_judge(monkeypatch: pytest.MonkeyP
     judges: dict[str, tuple[str, str | None]] = {}
 
     def fake_build(
-        runner: str, role: str, plugin_dir: object, model: str, *, grader_model: str | None = None
+        runner: str,
+        role: str,
+        plugin_dir: object,
+        model: str,
+        *,
+        grader_model: str | None = None,
+        **_: object,  # the CLAUDE.md switches (ADR 0113, amended) — not under test here
     ) -> tuple[object, object]:
         judges[role] = (model, grader_model)
         return (object(), object())
@@ -2140,7 +2158,11 @@ def test_run_agent_evals_version_regression_fails_the_run(
     benchmark.save_history(
         h,
         [{"component": "reviewer", "model": _DEFAULT_MODEL,  # the runner's --model default
-          "mean": 0.95, "stddev": 0.0, "n": 5}],
+          "mean": 0.95, "stddev": 0.0, "n": 5,
+          # the setup a default reviewer run has: the reviewer loads CLAUDE.md, the judge (grader,
+          # omitClaudeMd: true) does not, over the claude runner — only a like setup is compared
+          # (ADR 0113, amended)
+          "omit_claude_md": "off", "grader_omit_claude_md": "on", "runner": "claude"}],
     )
     rep = _FakeReport(True, mean=0.5, max_regression=0.05)  # dropped 0.45 -> regression
     monkeypatch.setattr(run_agent_evals, "_build_runners", lambda *a, **k: (object(), object()))

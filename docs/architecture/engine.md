@@ -44,7 +44,9 @@ Researcher/planner are well covered by `Explore`/`Plan`, so we do not duplicate 
 (ADR 0113): a session that does delegate to it (the review loop's optional quality-threshold
 convergence, or a user's own grading) starts it without the user, project and local CLAUDE.md files,
 because everything it judges comes in the delegation prompt; managed policy files still load. The
-harness passes the role body as the system prompt and does not read this field. Stage 2 adds two
+harness passes the role body as the system prompt and, on the `claude` runner, honours the field for the
+role under test and for the judge by setting `CLAUDE_CODE_DISABLE_CLAUDE_MDS` per session (ADR 0113,
+amended; [eval-runbook.md](../eval-runbook.md)). Stage 2 adds two
 more specialists the phase-workflows fan out to — `security-engineer` (security lens; `Read, Grep,
 Glob, Bash(git diff:*)`) and `qa-engineer` (tests; `Read, Write, Edit, Bash, Grep, Glob`); see
 [spine.md](spine.md) — for a six-role roster. [ADR 0116](decisions/0116-the-reader-role-the-clerk-deferred.md) adds the

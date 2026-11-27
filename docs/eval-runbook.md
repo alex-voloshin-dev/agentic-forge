@@ -343,6 +343,124 @@ again. Seven of the instrument's defects in four days were found that way and no
 ADR 0097's session had named its own cause in the first run's final message. Grading is robust to prose/fenced
 grader replies and retries once on an unparseable response.
 
+### CLAUDE.md in an eval session — `omitClaudeMd` (ADR 0113, amended)
+
+A role's `omitClaudeMd: true` frontmatter is what Claude Code reads when a session delegates to it: the subagent
+starts without the user, project and local CLAUDE.md files. `run_agent_evals` honours it on the `claude` runner, for
+the role under test **and** for the judge (the `grader` role sets it), by setting `CLAUDE_CODE_DISABLE_CLAUDE_MDS` on
+every session it starts: `1` when the role omits CLAUDE.md, `0` when it does not. Both values are set explicitly, so
+a value exported in the operator's shell cannot decide an arm. `run_skill_evals` pins `0` for its sessions, as they
+always loaded CLAUDE.md, so an exported `1` cannot silently strip it there either. The field must be written as the
+literal `true` or `false`. PyYAML also reads `yes`/`on` as true; Tier-0 refuses those spellings and the harness
+ignores them.
+
+What was checked on Claude Code 2.1.331, with no model call (the API was a local capture server):
+
+- **The switch.** With the variable unset or `0`, the session's memory loader walks every ancestor of the working
+  directory for `CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md` and `.claude/AGENTS.md`. With `1`,
+  its debug log says `project memory is off` and it looks nowhere.
+- **Both arms in a `/tmp` workspace holding the fixture as `CLAUDE.md`.** With `0`, the request carried the file's
+  heading and its rules (8,792 bytes more). With `1`, it carried neither.
+- **Why a variable.** The CLI has no flag for this: `--bare` also skips CLAUDE.md but forces `ANTHROPIC_API_KEY` auth,
+  and `--safe-mode` disables skills, plugins and hooks too.
+- **One difference from the field.** `omitClaudeMd` keeps managed policy files and the variable drops them as well.
+  This only matters on a machine that has a managed `CLAUDE.md`.
+- **The user-level CLAUDE.md** is out in both arms anyway (`--setting-sources project`).
+
+- `--omit-claude-md {role,on,off}` (default `role`) decides it for the role under test: `role` follows the
+  frontmatter, `on` and `off` force it. The judge always follows `grader.md`, so both arms of an A/B are graded the
+  same way.
+- `--claude-md <path>` copies that file into each case's workspace as `CLAUDE.md`. It forces a fresh per-case
+  workspace for every role, as `--isolate` does, so the file never lands in the repository; with `--workdir` it is an
+  error, and a case whose own fixtures already provide a `CLAUDE.md` is an error. Both arms get the same file and
+  differ only in the variable. Without `--claude-md`, a read role runs in `--workdir` or the plugin directory as
+  before, where the CLI finds the repository's own `CLAUDE.md` by walking up, and an isolated role runs in a temp
+  directory with none.
+- **In the `on` arm the file is still there.** It is not loaded, but it sits in the workspace as a plain file a lens
+  can `Glob` or `Read`, as it would in a real repository when a subagent with `omitClaudeMd` reviews it. Before you
+  conclude from an `on` arm, check its transcripts for a read of it. The sessions are kept under
+  `~/.claude/projects/-tmp-af-eval-*/`, so run
+  `grep -l '"file_path":"[^"]*/CLAUDE.md"' ~/.claude/projects/-tmp-af-eval-*/*.jsonl` on the files that arm wrote.
+  An `on` arm that read the file has not measured its absence.
+- Claude Code does not load a CLAUDE.md that sits in a session's scratchpad (a path laid out like
+  `claude*/<project>/<session>/scratchpad`) or in `.artifact-work`; its debug log says so, and a `--claude-md` run
+  there would load nothing. So `--claude-md` on the `claude` runner refuses to start when the temp directory is such
+  a path: point `TMPDIR` somewhere else.
+- The `api` runner has no CLAUDE.md to load or omit, so it refuses `--claude-md` and a forced `--omit-claude-md`.
+
+The run says which arm it is. The role's progress line names `CLAUDE.md=omitted|loaded` and the workspace file. The
+benchmark stores:
+
+- `omit_claude_md` (`on`/`off`, what the role got) and `omit_claude_md_mode` (what was asked);
+- `grader_omit_claude_md`;
+- `claude_md` (`<file name>@sha256:<12 hex>`);
+- `runner`;
+- `claude_version` (`claude --version`).
+
+`--record` keeps the setup (the CLAUDE.md fields and `runner`) in the history record, and `run_agent_evals`' version
+check compares a run only against records of the same setup. A record from before this change counts as `off` for
+both role and judge with no workspace file and no runner, which is what those runs had. `run_skill_evals` records
+none of these fields, so its records keep comparing as before. Because the judge now omits CLAUDE.md and the runner is
+recorded, the first recorded `run_agent_evals` run after this change starts a fresh baseline for every role.
+`claude_version` is recorded but not compared there, or every CLI update would reset the baselines.
+
+**The cost of CLAUDE.md shows in the prompt tokens.** The `--output-format json` envelope's `usage` adds up over the
+session's turns, and its `input_tokens` leaves out the cached prompt: `cache_read_input_tokens` and
+`cache_creation_input_tokens` are separate fields, and a CLAUDE.md sits in that cached prefix. The runner keeps both.
+The summary line prints `prompt_tokens/run=` (uncached plus cached input of the role's sessions in one run, judge
+excluded) and `cost/run=$` (the envelope's `total_cost_usd`, which applies the cache discount). Both count every role
+session that answered, graded or not, even in a run whose every case went ungraded. The benchmark keeps both means,
+and `answered_sessions` (role sessions that answered, per run; an undetermined one did not), beside `tokens`.
+`tokens` (input plus output, graded cases only, which feeds `max_overhead_tokens`) is unchanged. These figures are
+the A/B's measured saving. They cannot tell whether the switch worked: each session sums up to 40 turns that each
+re-read the whole cached context, so turn count alone moves them by more than a CLAUDE.md.
+
+**An A/B is valid only if its probes say the switch worked.** A CLI that ignored the switch, or a workspace it would
+not load from, gives two identical arms, and two identical arms would read as "no quality loss". So every
+`--claude-md` run also runs a **probe**: one extra session for the role.
+
+- **How the probe is built.** The runner is built from the role's own component environment (the same switch and
+  pinned variables), on the role's model, with the role's system prompt, one turn and no tools. Its workspace is made
+  as a case's is (`mkdtemp` plus the same `CLAUDE.md`).
+- **What it asks.** `Quote the first Markdown heading of the project CLAUDE.md you were given, or reply NONE. Reply
+  with the heading text only.` The answer is kept whitespace-normalised up to 4,000 characters, so a heading quoted
+  after a preamble is still found. The console shows only its start.
+- **What it must answer.** The off arm (file loaded) must quote the file's first heading, ignoring case, spacing and
+  dash style. The on arm must not.
+- **Why no tools.** Without tools the answer reflects what was loaded, not a file read.
+- **The heading must be distinctive.** `--claude-md` refuses a file whose first heading is missing or generic: under
+  12 characters or one word once normalised, or part of the probe's own question or of `none`. Such a heading could
+  be "quoted" by a session that never saw the file.
+
+Then:
+
+1. The run writes its arm to `claude-md-ab.json` beside the benchmark history, with or without `--record`, passed or
+   not. The record holds the benchmark fields, the probe's answer, prompt tokens and verdict, the input
+   `fingerprint`, the git commit, a dirty flag and a UTC timestamp. The fingerprint is a SHA-256 over the role file,
+   `grader.md`, the role's eval contract, every case fixture it references, and the `--claude-md` content. The file
+   is written atomically (a temp file, then `os.replace`). A file that is not a JSON list is refused with an error,
+   never read as empty and overwritten. Move it aside to start over.
+2. An arm whose probe is not as expected prints `A/B check: INVALID — the <arm> arm's probe shows the switch did not
+   act as asked` and the run exits 1, whatever the other arm says. A probe session that failed counts as not as
+   expected. The arm stays in `claude-md-ab.json`, so a pair with it is refused too. It is never recorded as a
+   benchmark baseline, even with `--record`. An A/B step that raised also skips that role's version check and
+   `--record`.
+3. A sound arm looks for the other arm with the same role, model, judge, file, runner, `claude --version` and
+   fingerprint. If it finds one, it prints that arm's commit and timestamp, the differences off minus on (probe
+   prompt tokens, `prompt_tokens/run`, `cost/run`, as information), and `A/B check: VALID — both probes as expected`.
+   If the other arm's probe was not as expected, it prints INVALID instead. It prints a WARNING when the arms ran at
+   different commits or measured a different number of runs.
+4. With no matching arm yet, it says so. When `claude --version` did not answer (`unknown`), the arm is never
+   paired: nothing shows that the two arms ran on the same CLI. An edit to the role, the judge, the contract, a fixture or the file between
+   the arms changes the fingerprint, so such arms are never paired.
+
+Run the two arms **one after the other**, never at once: each run reads `claude-md-ab.json` and rewrites it. The probe
+costs one short model call per role per arm. Read the quality numbers only when the second arm says VALID. Then check
+the on arm's transcripts for a read of `CLAUDE.md` (above).
+
+The fixture `plugin/eval/fixtures/claude-md/typical-project.md` is a plausible project CLAUDE.md for this A/B; its
+README names the rules a reviewer should honour, which are the ones whose loss could show up as a quality cost.
+
 ## Run it
 
 Prerequisites: the `claude` CLI on `PATH` (`npm install -g @anthropic-ai/claude-code`) and
@@ -363,6 +481,15 @@ python dev/run_agent_evals.py --runner claude --role reviewer --model claude-son
 
 # Write roles in isolation (fresh temp workdir per case; best for software-engineer/architect):
 python dev/run_agent_evals.py --role software-engineer --role architect --runner claude --isolate
+
+# omitClaudeMd A/B for a review lens: the same project CLAUDE.md in every workspace, loaded vs omitted
+# (one role per run; repeat for security-engineer). Run the arms one after the other. Each arm runs its
+# probe; the second prints the pair's A/B check. Read the quality numbers only if it says VALID, and
+# check the on arm's transcripts for a read of CLAUDE.md:
+python dev/run_agent_evals.py --runner claude --role reviewer --runs 5 \
+  --claude-md plugin/eval/fixtures/claude-md/typical-project.md --omit-claude-md off
+python dev/run_agent_evals.py --runner claude --role reviewer --runs 5 \
+  --claude-md plugin/eval/fixtures/claude-md/typical-project.md --omit-claude-md on
 ```
 
 Exit code is 0 only if every selected role's gate passes. Each role prints a line like

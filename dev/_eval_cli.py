@@ -168,6 +168,8 @@ def build_runners(
     plugin_dir: Path | None = None,
     skill_dir: Path | None = None,
     grader_model: str | None = None,
+    omit_claude_md: bool | None = None,
+    grader_omit_claude_md: bool | None = None,
 ) -> tuple[agent_eval.Runner, agent_eval.Runner]:
     """Build (component_runner, grader_runner) for the chosen transport — the one construction
     site shared by the agent and skill Tier-2 CLIs. `claude` keeps the component run and the
@@ -184,7 +186,15 @@ def build_runners(
 
     `grader_model` is the judge's model, kept apart from the component's (ADR 0114): when a role is
     measured at a cheaper tier, the grader must stay where it was, or the run changes the instrument
-    together with the thing it measures. ``None`` grades on `model`, as before."""
+    together with the thing it measures. ``None`` grades on `model`, as before.
+
+    `omit_claude_md` / `grader_omit_claude_md` apply a role's `omitClaudeMd` to the component's and
+    the judge's `claude` sessions (`agent_eval.claude_md_env`, ADR 0113 amended): True omits
+    CLAUDE.md, False loads it, both set explicitly. ``None`` (the skill runner) pins the old
+    behaviour, loading, whenever a session env is built (`plugin_dir` given), so a
+    `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` exported in the operator's shell cannot silently strip
+    CLAUDE.md from a skill eval either. The `api` transport has no CLAUDE.md, so they do not apply
+    there."""
     judge = grader_model or model
     if runner == "api":
         return agent_eval.api_runner(model), agent_eval.api_runner(judge)
@@ -195,13 +205,65 @@ def build_runners(
         # cap hit is no longer indistinguishable from a failed case (eval audit, C13).
         env = session_env(plugin_dir, skill_dir=skill_dir) if plugin_dir else None
         component_fn = agent_eval.claude_cli_runner(
-            allowed_tools=allowed_tools, model=model, max_turns=40, env=env
+            allowed_tools=allowed_tools,
+            model=model,
+            max_turns=40,
+            env=component_env(plugin_dir, skill_dir, omit_claude_md),
         )
         grader_fn = agent_eval.claude_cli_runner(
-            allowed_tools="Read,Grep,Glob", model=judge, max_turns=20, env=env
+            allowed_tools="Read,Grep,Glob",
+            model=judge,
+            max_turns=20,
+            env=_with_claude_md(env, grader_omit_claude_md),
         )
         return component_fn, grader_fn
     raise ValueError(f"unknown runner {runner!r}")
+
+
+def component_env(
+    plugin_dir: Path | None, skill_dir: Path | None, omit_claude_md: bool | None
+) -> dict[str, str] | None:
+    """The environment a component session runs under: the pinned variables (:func:`session_env`)
+    plus the CLAUDE.md switch. The one construction site for the component runner and the A/B
+    probe, so the probe tests exactly the environment the role ran in."""
+    env = session_env(plugin_dir, skill_dir=skill_dir) if plugin_dir else None
+    return _with_claude_md(env, omit_claude_md)
+
+
+def build_claude_md_probe(
+    *, model: str, plugin_dir: Path, omit_claude_md: bool
+) -> agent_eval.Runner:
+    """The ``omitClaudeMd`` A/B's probe runner (ADR 0113, amended): the role's model and the role's
+    component environment (:func:`component_env`, the same switch), one turn and no tools — so its
+    answer to ``agent_eval.PROBE_PROMPT`` says what was loaded, not what a tool read."""
+    return agent_eval.claude_cli_runner(
+        allowed_tools="",
+        tools="",
+        model=model,
+        max_turns=1,
+        env=component_env(plugin_dir, None, omit_claude_md),
+    )
+
+
+def _with_claude_md(env: dict[str, str] | None, omit: bool | None) -> dict[str, str] | None:
+    """``env`` plus the CLAUDE.md switch for ``omit``. With ``omit`` None the switch is pinned to
+    "load" when there is a session env to pin it in, and nothing changes when there is none (a bare
+    unit-test construction)."""
+    if omit is None:
+        return {**env, **agent_eval.claude_md_env(False)} if env is not None else None
+    return {**(env or {}), **agent_eval.claude_md_env(omit)}
+
+
+def claude_version() -> str:
+    """``claude --version`` as printed (``2.1.331 (Claude Code)``), or ``unknown`` when the CLI does
+    not answer. Recorded so the two arms of an ``omitClaudeMd`` A/B are only paired when the same
+    CLI applied the switch (ADR 0113, amended)."""
+    try:
+        done = subprocess.run(["claude", "--version"], capture_output=True, text=True, timeout=30)
+    except (subprocess.SubprocessError, OSError):
+        return "unknown"
+    out = done.stdout.strip()
+    return out if done.returncode == 0 and out else "unknown"
 
 
 def record_failure(
@@ -237,7 +299,12 @@ def version_check(
     history = benchmark.load_history(history_path)
     judge = report.benchmark.get("grader_model")  # compare like with like: same judge (ADR 0114)
     prior = benchmark.prior_record(
-        history, component, model, grader_model=str(judge) if judge else None
+        history,
+        component,
+        model,
+        grader_model=str(judge) if judge else None,
+        # ...and the same setup: CLAUDE.md for role and judge, the runner (ADR 0113, amended)
+        setup=benchmark.run_setup(report.benchmark),
     )
     result = gate.version_regression(report.benchmark, prior, report.thresholds)
     healthy = report.passed and (result is None or result.passed)

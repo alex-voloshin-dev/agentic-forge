@@ -325,6 +325,9 @@ def _check_evals(
                 report.error(loc, f"eval case {case.get('id')}: missing fixture file {rel_file}")
 
 
+_OMIT_LITERAL = re.compile(r"^omitClaudeMd:[ \t]*(?:true|false)[ \t]*$", re.MULTILINE)
+
+
 def validate_agent(agent_md: Path) -> Report:
     """Tier-0 checks for a subagent definition file and its eval contract."""
     report = Report()
@@ -361,6 +364,14 @@ def validate_agent(agent_md: Path) -> Report:
             f"model '{actual_model}' != the validated tier policy (expected '{expected_model}'); "
             "run `python dev/sync_models.py --apply`",
         )
+
+    # omitClaudeMd (ADR 0113): Claude Code's agent schema takes a boolean, and our parser (PyYAML,
+    # YAML 1.1) also reads `yes`/`on`/`True` as true. Only the literal `true`/`false` means the same
+    # to Claude Code, to this parser and to the eval harness that applies the field.
+    if "omitClaudeMd" in fm:
+        end = text.find("\n---", 3)
+        if _OMIT_LITERAL.search(text[:end] if end > 0 else "") is None:
+            report.error(rel, "omitClaudeMd must be written as the literal `true` or `false`")
 
     # Agents are gated like skills: a sibling eval contract is mandatory.
     evals_path = agent_md.parent / "evals" / f"{name}.evals.json"

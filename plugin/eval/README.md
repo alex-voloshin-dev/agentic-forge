@@ -58,5 +58,19 @@ with/without delta — A-B pass-rate lift + time overhead + **token overhead**, 
 `RunOutput` reply (the `api` runner from the Messages response, `claude` via `--output-format
 json`), so `delta.tokens` is live (ADR 0036 + 0038); a text-only reply just leaves it absent.
 
+The role runner also honours a role's `omitClaudeMd` frontmatter on the `claude` transport (ADR 0113,
+amended): each session gets `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` when its role omits CLAUDE.md and `=0` when it
+does not. This applies to the role under test (`--omit-claude-md {role,on,off}` overrides it for an A/B) and to the
+judge (always `grader.md`'s value). `--claude-md <path>` copies a project CLAUDE.md into each case's fresh workspace;
+[fixtures/claude-md/](fixtures/claude-md/README.md) ships one. Because a CLAUDE.md sits in the cached prompt
+prefix, `RunOutput.usage` also keeps `cache_read_input_tokens` / `cache_creation_input_tokens` and their sum with
+`input_tokens` as `prompt_tokens`, and `RunOutput.cost_usd` keeps the envelope's `total_cost_usd`; the benchmark
+reports both per run. Every `--claude-md` run also writes its arm to `claude-md-ab.json` beside the
+benchmark history (atomically; a malformed file is refused). Each arm runs a one-turn, no-tool probe built
+like the role's session, which must quote the file's first heading when the file is loaded and must not
+when it is omitted. Otherwise the arm is INVALID. Two arms pair only with equal inputs (a fingerprint over
+the role, judge, contract, fixtures and file) on the same CLI. Prompt tokens and cost are reported as the
+saving, not as the test. See docs/eval-runbook.md, "CLAUDE.md in an eval session".
+
 Run artifacts (`grading.json`, `timing.json`, `benchmark.json`, iteration dirs) are
 generated and git-ignored. The only hand-authored eval file is `evals/evals.json`.
