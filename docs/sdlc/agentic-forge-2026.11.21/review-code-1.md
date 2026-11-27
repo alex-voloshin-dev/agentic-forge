@@ -49,4 +49,10 @@ approve, gate green).
 
 ## Windows lookups (fix/win-lookups)
 
-- Security engineer and codex: see the notes appended below after their verdicts.
+- **Codex.** Approve, no findings.
+- **Security engineer: changes, with one major that predates this change.** The PR watcher's fixer started `claude` by
+  a bare name from a PR's worktree; on Windows that name could resolve to a `claude.exe` committed on the branch.
+  Fixed: the fixer passes the absolute path `trusted_program("claude")` finds.
+- **Its two nits were also fixed.** With `PATH` unset, the lookup falls back to the gate's fixed default. On a Windows
+  host, a `PATH` entry needs a drive or UNC prefix.
+- **Codex on that delta.** Approve, no findings.
