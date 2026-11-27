@@ -176,15 +176,13 @@ def test_run_role_puts_claude_md_in_a_fresh_workspace_for_a_read_role(tmp_path: 
         claude_md="# project rules\n",
     )
     assert report.runs == 1
-    assert seen["claude_md"] == ["# project rules\n"] * 3  # every case's session would load it
+    cases = json.loads((_PLUGIN / "agents" / "evals" / "reviewer.evals.json").read_text())["evals"]
+    names = [Path(case["files"][0]).name for case in cases]
+    assert seen["claude_md"] == ["# project rules\n"] * len(cases)  # every case's session loads it
     # each case's fixture materialized beside it: isolation was forced for a read role
-    assert seen["listing"] == [
-        ["CLAUDE.md", "case1.diff"],
-        ["CLAUDE.md", "case2.diff"],
-        ["CLAUDE.md", "case3-tech-design.md"],
-    ]
+    assert seen["listing"] == [sorted(["CLAUDE.md", name]) for name in names]
     assert "in your working directory" in seen["prompt"]
-    assert len(set(seen["workdirs"])) == 3  # a fresh workspace per case
+    assert len(set(seen["workdirs"])) == len(cases)  # a fresh workspace per case
     for work in seen["workdirs"]:
         assert not work.is_relative_to(_PLUGIN)  # never the repo
         assert not work.exists()  # removed after the case

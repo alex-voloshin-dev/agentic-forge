@@ -837,10 +837,10 @@ def _run_passes(
                 # The role's prompt tokens and cost are spent once it answered, whatever the judge
                 # does next: a case the grader fails to grade still cost its session.
                 answered += 1
-                prompt = _prompt_tokens(output)
-                if prompt is not None:
+                prompt_tok = _prompt_tokens(output)
+                if prompt_tok is not None:
                     saw_prompt = True
-                    run_prompt += prompt
+                    run_prompt += prompt_tok
                 cost = getattr(output, "cost_usd", None)
                 if cost is not None:
                     saw_cost = True
