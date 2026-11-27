@@ -186,3 +186,29 @@ one run with `--omit-claude-md off` and then one with `on`; each runs its probe.
 
 Not yet done: `run_skill_evals`'s judge still loads CLAUDE.md, and that is a separate change with its own record
 field.
+
+### The A/B, run 2026-11-27, and the decision
+
+The A/B was run on tree `cf429ce` with Claude Code 2.1.331, n = 5, role and judge on `claude-opus-5-5`, and the shipped
+fixture as each workspace's CLAUDE.md. The sets were the original ones: 3 cases per lens.
+
+| Lens | `off` (loaded) | `on` (omitted) | Probe | Cost/run off → on |
+|---|---|---|---|---|
+| reviewer | 1.000 ± 0.000 | 0.986 ± 0.032 | VALID | $0.457 → $0.399 (−13 %) |
+| security-engineer | 1.000 ± 0.000 | 1.000 ± 0.000 | VALID | $0.501 → $0.420 (−16 %) |
+
+- **The probes.** Both pairs were VALID: each off arm quoted "Ledgerline — project rules" and each on arm answered
+  `NONE`. The probe's own prompt differed by about 3,000 tokens, which is the file. Over whole runs, the
+  `prompt_tokens/run` difference moved with turn count, as the round-2 review predicted. For the reviewer it went the
+  wrong way (−4,673), so the cost line is the better measure of the saving.
+- **The transcript check decided the reviewer.** Four session transcripts in the reviewer's `on` window show a `Read`
+  of the workspace `CLAUDE.md`. Two came from the reviewer itself on the design-review case; the other two came from
+  the judge. So that arm did not measure the file's absence. By this amendment's own rule, the reviewer is not
+  decided and keeps loading CLAUDE.md. A reviewer that goes looking for the project's rules would only move the cost
+  to a `Read` anyway.
+- **security-engineer drops CLAUDE.md.** Its `on` window has no read of the file. Its `on` arm scored 1.000, the same
+  as `off`, which clears both conditions of the decision rule, and the run cost 16 % less. Its definition now sets
+  `omitClaudeMd: true`. This covers the delegated security lens only. A project rule the lens needs reaches it in the
+  delegation prompt, or it can `Read` the file.
+- **Not measured.** Whether the security lens misses a project-specific rule in a real repository. The fixture's one
+  security rule, no secret in a log line, already matches the role's own contract.

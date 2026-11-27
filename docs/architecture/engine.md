@@ -48,7 +48,7 @@ harness passes the role body as the system prompt and, on the `claude` runner, h
 role under test and for the judge by setting `CLAUDE_CODE_DISABLE_CLAUDE_MDS` per session (ADR 0113,
 amended; [eval-runbook.md](../eval-runbook.md)). Stage 2 adds two
 more specialists the phase-workflows fan out to — `security-engineer` (security lens; `Read, Grep,
-Glob, Bash(git diff:*)`) and `qa-engineer` (tests; `Read, Write, Edit, Bash, Grep, Glob`); see
+Glob, Bash(git diff:*)`; `omitClaudeMd: true` since a valid A/B showed no loss, ADR 0113 amended) and `qa-engineer` (tests; `Read, Write, Edit, Bash, Grep, Glob`); see
 [spine.md](spine.md) — for a six-role roster. [ADR 0116](decisions/0116-the-reader-role-the-clerk-deferred.md) adds the
 low-cost `reader`, the role the [cheap-delegation pattern](../../plugin/patterns/cheap-delegation.md) delegates bulk
 reading to, for seven: it reads a long log, a large diff, many review threads or files, and returns only what the

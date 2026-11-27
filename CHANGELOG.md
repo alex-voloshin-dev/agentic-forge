@@ -7,6 +7,18 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Changed
+
+- **The `security-engineer` lens no longer loads the project's CLAUDE.md** (`omitClaudeMd: true`; field item 6,
+  ADR 0113 amended).
+  - **The A/B.** The new harness support ran an A/B on Opus 5.5, n = 5, with a project CLAUDE.md in every workspace.
+    Both pairs were VALID by the probe: the loaded arm quoted the file's heading, the omitted arm answered NONE.
+  - **security-engineer.** It scored 1.000 with the file and 1.000 without it, at 16 % lower cost per run.
+  - **reviewer.** It keeps loading CLAUDE.md. In its omitted arm the role read the file anyway as a plain file, so
+    that arm measured nothing; it scored 0.986 against 1.000, at 13 % lower cost.
+  - **Your project's rules.** A project rule the security lens needs now reaches it through the delegation prompt,
+    or the lens reads the file.
+
 ### Added
 
 - **The agent-eval harness applies `omitClaudeMd`, for the review-lens A/B** (field item 6, ADR 0113 amended).

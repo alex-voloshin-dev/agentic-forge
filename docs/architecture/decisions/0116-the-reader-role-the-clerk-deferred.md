@@ -157,8 +157,9 @@ promotion), `role_scope.ROLE_TOOLS` and the hook's `HELD_ROLES`, the pattern, an
   agent's frontmatter, so the role sets none; a caller names the effort in the call where the host offers it.
 - **Whether sessions delegate to it.** Since 2026.11.20 the routing note names the cheap-delegation pattern (ADR 0113
   amendment), and the pattern names this role; no harness counts delegations.
-- **`omitClaudeMd`'s effect** is not measured: the harness passes the role body as the system prompt and never reads
-  the field.
+- **`omitClaudeMd`'s effect on the reader** is not measured by its own A/B. Since 2026.11.21 the harness applies the
+  field (ADR 0113, amended), so the reader's Tier-2 run (1.000 at Opus 5.5, n = 5) ran without CLAUDE.md, as it
+  ships.
 
 ## Alternatives
 
