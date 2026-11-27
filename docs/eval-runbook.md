@@ -467,17 +467,24 @@ into the committed policy and sync the agent frontmatter:
 Since ADR 0114 the committed policy promotes two roles, `grader` and `qa-engineer`, to `simple`
 (`model: claude-sonnet-5-5`); the other four stay `default` (`model: inherit`). `run_agent_evals`
 runs a promoted role at its shipped tier unless `settings.models` names another, so a default
-Tier-2 run measures what live delegation runs. The Tier-2 sets of
-all six scored about 1.0 at both Opus 5.5 and Sonnet 5.5, so they cannot tell the tiers apart:
-promote a reviewing, designing or implementing role only after harder, discriminating cases show
-it holds at the cheaper tier. Those cases now exist: the sets of `reviewer`, `security-engineer`
-and `architect` gained cases 4 and 5, and `software-engineer` cases 5 and 6 (a non-local defect, a
-second-order injection, a conflicting or non-goal-violating requirement, a fix that passes the
-visible test but breaks a stated invariant; the two review lenses also get a correct but
-suspicious-looking change that must pass without a false major — ADR 0114 amendment). Run the four at both tiers, judged by the same model, before promoting any of
-them. A user who wants every subagent on one model sets
-`CLAUDE_CODE_SUBAGENT_MODEL=<model>` with `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`, which overrides an
-agent's `model:` field.
+Tier-2 run measures what live delegation runs. The Tier-2 sets of all six scored about 1.0 at both
+Opus 5.5 and Sonnet 5.5, so they cannot tell the tiers apart: promote a reviewing, designing or
+implementing role only after harder, discriminating cases show it holds at the cheaper tier. Those
+cases now exist: the sets of `reviewer`, `security-engineer` and `architect` gained cases 4 and 5,
+and `software-engineer` cases 5 and 6 (a non-local defect, a second-order injection, a conflicting
+or non-goal-violating requirement, a fix that passes the visible test but breaks a stated
+invariant; the two review lenses also get a correct but suspicious-looking change that must pass
+without a false major — ADR 0114 amendment). Run each of the four at both tiers, judged by the same
+model, before promoting any of them (with no `settings.models` entry for the role, which would
+override `--model`):
+
+```bash
+python dev/run_agent_evals.py --runner claude --role <role> --model claude-sonnet-5-5 --grader-model claude-opus-5-5
+python dev/run_agent_evals.py --runner claude --role <role> --model claude-opus-5-5 --grader-model claude-opus-5-5
+```
+
+A user who wants every subagent on one model sets `CLAUDE_CODE_SUBAGENT_MODEL=<model>` with
+`CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`, which overrides an agent's `model:` field.
 
 ## Recording results
 

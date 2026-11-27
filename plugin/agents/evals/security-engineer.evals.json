@@ -39,7 +39,7 @@
     {
       "id": 4,
       "prompt": "Security-review this code change. Report security findings only.",
-      "expected_output": "Two findings. (1) Second-order command injection: `save_display_name` HTML-escapes the name before storing it, but html.escape leaves shell metacharacters intact, and `render_badge` interpolates the stored value into a `shell=True` command inside double quotes, so command substitution (`$(...)` or backticks) in a display name runs on the nightly job's host. Fix: run convert with an argument list and no shell, and validate the name at input. (2) STORAGE_KEY sits in the upload URL's query string, and the requests exception logged on failure includes that URL, so the key is written to the logs. Fix: send the key in a header and log without the URL. Each with severity, location and evidence.",
+      "expected_output": "At least two findings. (1) Second-order command injection: `save_display_name` HTML-escapes the name before storing it, but html.escape leaves shell metacharacters intact, and `render_badge` interpolates the stored value into a `shell=True` command inside double quotes, so command substitution (`$(...)` or backticks) in a display name runs on the nightly job's host. Fix: run convert with an argument list and no shell, and validate the name at input; because ImageMagick reads `-annotate` text that starts with '@' from a file, rejecting a leading '@' (or an allowlist validation of the name) completes the fix. (2) STORAGE_KEY sits in the upload URL's query string, and the requests exception logged on failure includes that URL, so the key is written to the logs. Fix: send the key in a header and log without the URL. Each with severity, location and evidence.",
       "files": ["eval/fixtures/security-engineer/case4-badges.py"],
       "assertions": [
         "A blocker- or major-severity finding flags command injection in `render_badge`: the stored display name reaches `subprocess.run(..., shell=True)` through string interpolation",
@@ -59,7 +59,7 @@
       "assertions": [
         "The review reaches an explicit clean/approve verdict (it does not pass by staying silent or returning nothing)",
         "No blocker- or major-severity security finding is raised",
-        "The f-string SQL in `list_reports` is not reported as SQL injection at any severity above informational (the column comes from the `_SORT_COLUMNS` allowlist and the direction is one of two literals)",
+        "The f-string SQL in `list_reports` is not reported as SQL injection at blocker, major or minor severity (a nit, or a note that it is safe, is fine): the column comes from the `_SORT_COLUMNS` allowlist and the direction is one of two literals",
         "`report_path` and `report_path_for` are not reported as path traversal at blocker or major severity (the path is resolved before the `is_relative_to` containment check)",
         "MD5 in `etag` and `random` in `retry_delay` are not reported at blocker or major severity as weak cryptography or insecure randomness (neither is a security control)",
         "The `subprocess.run` call in `archive` is not reported as command or argument injection at blocker or major severity (an argument list without a shell, with `--` before the file names)"

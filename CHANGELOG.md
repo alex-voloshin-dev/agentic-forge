@@ -9,24 +9,28 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ### Added
 
-- **Harder Tier-2 cases for the four roles still at `default`** (ADR 0114 amendment). ADR 0114 measured all six
-  roles at Opus 5.5 and Sonnet 5.5 and every set scored about 1.0 at both, so the sets could not tell the tiers apart
-  and `reviewer`, `security-engineer`, `architect` and `software-engineer` were held back. Each now has two more cases
+- **Harder Tier-2 cases for the four roles still at `default`** (ADR 0114 amendment). ADR 0114 measured all six roles
+  at Opus 5.5 and Sonnet 5.5 and every set scored about 1.0 at both, so the sets could not tell the tiers apart and
+  `reviewer`, `security-engineer`, `architect` and `software-engineer` were held back. Each now has two more cases
   aimed at what a weaker model plausibly misses, with assertions a grader checks from the output and the files alone:
   `reviewer` 4 (a retry loop's `range(1, MAX_ATTEMPTS)` makes one call too few against the contract documented in
-  another file of the same diff, and the diff's own tests pass) and 5 (a lock-guarded token cache with a strict
-  expiry boundary that looks racy and off by one; the verdict must be `approve` with no false major);
-  `security-engineer` 4 (a display name HTML-escaped on input reaches a `shell=True` sink inside double quotes, where
-  only command substitution works, and a storage key leaks into the logs through a `requests` exception message) and
-  5 (an allowlisted `ORDER BY` f-string, a resolve-then-contain path check, `tar` argv with `--`, MD5 as an ETag:
-  scary-looking and clean); `architect` 4 (a 50 ms p99 against no-overdraft over a 90 ms inter-region round trip:
-  the conflict must be named, resolved, recorded with its rejected alternatives and escalated) and 5 (the obvious
-  WebSocket/SSE design is a stated non-goal; the ADR must reject it for that reason and the polling design must be
-  sized against the API's headroom); `software-engineer` 5 (a lump-sum fix turns the failing test green but breaks
-  the docstring's within-one-cent invariant) and 6 (a case-insensitive coupon fix in a multi-file package must keep
-  the single-use rule across case variants and leave two files with planted unrelated issues untouched). Fixtures are
-  under `plugin/eval/fixtures/<role>/`; the case-6 package uses the `tree/` layout. No existing case, assertion or
-  threshold changed. The tier promotion of the four roles waits for a live run on the extended sets.
+  another file of the same diff, and the diff's own tests pass) and 5 (a lock-guarded token cache with a strict expiry
+  boundary that looks racy and off by one; the verdict must be `approve` with no false major); `security-engineer` 4
+  (a display name HTML-escaped on input reaches a `shell=True` sink inside double quotes, where only command
+  substitution works, and a storage key leaks into the logs through a `requests` exception message) and 5 (an
+  allowlisted `ORDER BY` f-string, a resolve-then-contain path check, `tar` argv with `--`, MD5 as an ETag:
+  scary-looking and clean); `architect` 4 (a 50 ms p99 for writes and for reads that include every write acknowledged
+  in either region, over a 90 ms inter-region round trip: the goals cannot all hold, so a conflict grounded in the PRD
+  must be named, resolved, recorded with its rejected alternatives and escalated) and 5 (the obvious WebSocket/SSE
+  design is a stated non-goal; the ADR must reject it for that reason and the polling design must be sized against the
+  API's headroom); `software-engineer` 5 (a lump-sum fix turns the failing test green but breaks the docstring's
+  within-one-cent invariant) and 6 (a case-insensitive coupon fix in a multi-file package must keep the single-use
+  rule across case variants and leave two files with planted unrelated issues untouched). Fixtures are under
+  `plugin/eval/fixtures/<role>/`; the case-6 package uses the `tree/` layout. A new
+  `tests/test_tier2_hard_fixtures.py` executes the code claims the cases rest on (the naive fixes pass the visible
+  tests and break the stated invariant, the careful fixes keep it, the reviewer diffs' own tests pass while the case-4
+  boundary fails), offline and in-process. No existing case, assertion or threshold changed. The tier promotion of the
+  four roles waits for a live run on the extended sets.
 
 ## [2026.11.20] - 2026-11-27
 

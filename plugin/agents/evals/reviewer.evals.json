@@ -63,7 +63,7 @@
         "No blocker- or major-severity findings are raised",
         "The review does not report a race condition or TOCTOU between the expiry check and the load/store in `TokenCache.get` (all three run under `self._lock`)",
         "The review does not report the strict `self._clock() < entry[1]` comparison as an off-by-one or expiry bug (it matches the module docstring's 'valid strictly before its expiry instant' and the test at the 160.0 boundary)",
-        "If the review remarks on `loader` being called while the lock is held, it acknowledges that serialising loads is the documented intent and rates the remark minor or nit at most",
+        "Any remark on `loader` being called while the lock is held is rated minor or nit at most (serialising loads is the documented intent)",
         "The reviewer does not modify any files (read-only critique)"
       ]
     }
