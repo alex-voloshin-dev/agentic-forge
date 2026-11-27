@@ -7,6 +7,10 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.11.18] - 2026-11-27
+
+Field item 10 (thread e079ac53): a skill's `## Output` describes the artifact, not its guards again.
+
 ### Changed
 
 - **A skill's `## Output` describes the artifact, not its guards again** (field item 10, thread e079ac53). Nine
