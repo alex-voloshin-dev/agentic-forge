@@ -474,9 +474,11 @@ cases now exist: the sets of `reviewer`, `security-engineer` and `architect` gai
 and `software-engineer` cases 5 and 6 (a non-local defect, a second-order injection, a conflicting
 or non-goal-violating requirement, a fix that passes the visible test but breaks a stated
 invariant; the two review lenses also get a correct but suspicious-looking change that must pass
-without a false major — ADR 0114 amendment). Run each of the four at both tiers, judged by the same
-model, before promoting any of them (with no `settings.models` entry for the role, which would
-override `--model`):
+without a false major — ADR 0114 amendment). Their 2026-11-27 run at both tiers moved no role: the
+three non-security sets still did not separate the tiers, and security case 5 drew false majors at
+Sonnet (numbers in the ADR 0114 amendment). To re-measure, run each of the four at both tiers,
+judged by the same model (with no `settings.models` entry for the role, which would override
+`--model`):
 
 ```bash
 python dev/run_agent_evals.py --runner claude --role <role> --model claude-sonnet-5-5 --grader-model claude-opus-5-5
