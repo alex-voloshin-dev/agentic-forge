@@ -10,8 +10,9 @@ Usage:
     python dev/run_spine_e2e.py --runner claude --scenario quality-gate --scenario ops-incident
     python dev/run_spine_e2e.py --runner dry --scenario all        # wiring for every scenario
 
-`dry` needs no credentials. `claude` drives each phase headlessly with full tools in a copied
-repo; keep ANTHROPIC_API_KEY unset to bill the subscription (see docs/eval-runbook.md). Without
+`dry` needs no credentials. `claude` drives each phase headlessly with full tools (web search and
+fetch included, so it needs network access) in a copied repo; keep ANTHROPIC_API_KEY unset to bill
+the subscription (see docs/eval-runbook.md). Without
 `--scenario` only the spine runs. Exit code 0 if every selected scenario's checkpoints pass (or
 dry-run is clean), 1 otherwise.
 """
@@ -28,6 +29,12 @@ sys.path.insert(0, str(_REPO_ROOT / "plugin" / "lib"))
 
 import _eval_cli  # noqa: E402
 from agentic_forge import agent_eval, models, spine_e2e  # noqa: E402
+
+# The tools every Tier-3 phase session gets. WebSearch/WebFetch because the `research` skill's
+# contract (and `marketing`'s) requires external sources cited by URL: without them the phase
+# cannot meet its own Definition of done, and its reviewers hold every round on the missing
+# citations. So a Tier-3 run needs web access, not only the model API.
+PHASE_TOOLS = "Read,Write,Edit,Bash,Grep,Glob,WebSearch,WebFetch"
 
 
 def _selected(names: list[str] | None) -> list[str]:
@@ -80,7 +87,7 @@ def main(argv: list[str]) -> int:
     # its phases invoke skills whose bodies call `${CLAUDE_PLUGIN_ROOT}/skills/.../scripts/...`,
     # and without the pin those resolved to the installed plugin too (ADR 0098).
     run_phase = agent_eval.claude_cli_runner(
-        allowed_tools="Read,Write,Edit,Bash,Grep,Glob",
+        allowed_tools=PHASE_TOOLS,
         model=args.model,
         max_turns=60,
         env=_eval_cli.session_env(plugin_dir),

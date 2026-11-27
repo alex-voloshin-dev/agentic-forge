@@ -3402,6 +3402,22 @@ def test_run_spine_e2e_gives_the_phases_sixty_turns(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(run_spine_e2e.spine_e2e, "run_scenario", lambda *a, **k: [_FakePhase(True)])
     assert run_spine_e2e.main(["run", "--runner", "claude", "--scenario", "spine"]) == 0
     assert seen["max_turns"] == 60
+    assert seen["allowed_tools"] == run_spine_e2e.PHASE_TOOLS
+
+
+def test_run_spine_e2e_gives_the_phases_every_web_tool_their_skills_declare() -> None:
+    # `research` must cite external sources by URL (its Definition of done); a session without
+    # WebSearch/WebFetch could not, and its reviewers held every round on the missing citations.
+    from agentic_forge import frontmatter, spine_e2e
+
+    tools = set(run_spine_e2e.PHASE_TOOLS.split(","))
+    assert {"WebSearch", "WebFetch"} <= tools
+    skills = {p.skill for s in spine_e2e.SCENARIOS.values() for p in s.phases}
+    for skill in sorted(skills):
+        text = (_REPO / "plugin" / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
+        declared = str(frontmatter.parse(text)[0].get("allowed-tools", ""))
+        web = {t.strip() for t in declared.split(",")} & {"WebSearch", "WebFetch"}
+        assert web <= tools, skill
 
 
 def test_run_activation_evals_scores_a_bare_builtin_name_as_a_collision(

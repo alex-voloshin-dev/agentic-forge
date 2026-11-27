@@ -2,11 +2,17 @@ from __future__ import annotations
 
 import re
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
+
+import pytest
 
 from agentic_forge import release, vault
 from agentic_forge.spine_e2e import (
+    LOOP_GATED_TYPES,
+    PRODUCT_INCEPTION_REQUEST,
     SCENARIOS,
+    Checkpoint,
     Phase,
     Scenario,
     SeedItem,
@@ -144,6 +150,7 @@ UX_SPEC = """---
 type: ux-spec
 feature: newapp
 status: draft
+review_decision: proceed
 flows:
   - submit a job
 screens:
@@ -188,6 +195,7 @@ MARKET_BRIEF = """---
 type: market-brief
 feature: search
 status: draft
+review_decision: proceed
 segments:
   - SMB
 competitors:
@@ -551,3 +559,111 @@ def test_run_scenario_no_retry_when_disabled(tmp_path: Path) -> None:
         PLUGIN, SCENARIOS["market-brief"], run_phase=flaky, workspace=tmp_path, retries=0
     )
     assert not all_passed(results) and calls[0] == 1  # no retry, stays failed
+
+
+# --- readiness in the domain checkpoints (ADR 0067; the shared `_document_checkpoint`) -----------
+
+RELEASE_MD = (
+    "---\ntype: release\nfeature: x\nstatus: draft\nversion: 1.2.0\n"
+    "changelog:\n  - Added: y\n---\n# Release\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("check", "filename", "text"),
+    [
+        (lambda repo: check_ux_spec(repo, "f"), "ux-spec.md", UX_SPEC),
+        (lambda repo: check_market_brief(repo, "f"), "market-brief.md", MARKET_BRIEF),
+    ],
+    ids=["ux-spec", "market-brief"],
+)
+def test_a_loop_gated_domain_checkpoint_requires_readiness(
+    tmp_path: Path, check: Callable[[Path], list[Checkpoint]], filename: str, text: str
+) -> None:
+    _write(tmp_path, "f", filename, text)
+    ready = check(tmp_path)[0]
+    assert ready.passed and ready.name == f"{filename} exists, validates and is handed off (ready)"
+    assert ready.detail == f"read docs/sdlc/f/{filename} in checkout"
+
+    escalate = text.replace("review_decision: proceed", "review_decision: escalate")
+    _write(tmp_path, "f", filename, escalate)
+    escalated = check(tmp_path)[0]
+    assert not escalated.passed
+    assert "not handed off: review_decision is 'escalate', not 'proceed'" in escalated.detail
+
+    _write(tmp_path, "f", filename, text.replace("review_decision: proceed\n", ""))
+    draft = check(tmp_path)[0]  # no loop exit recorded, and `draft` is not a legacy ready status
+    assert not draft.passed
+    assert "no review_decision, and status 'draft' is not approved or final" in draft.detail
+
+
+@pytest.mark.parametrize(
+    ("check", "filename", "text"),
+    [
+        (lambda repo: check_test_strategy(repo, "f"), "test-strategy.md", TEST_STRATEGY),
+        (lambda repo: check_release(repo, "f"), "release.md", RELEASE_MD),
+    ],
+    ids=["test-strategy", "release"],
+)
+def test_a_domain_checkpoint_without_a_review_loop_fails_a_written_escalate(
+    tmp_path: Path, check: Callable[[Path], list[Checkpoint]], filename: str, text: str
+) -> None:
+    # qa-test-strategy and release run no review loop: `status: draft` is the repository's
+    # lifecycle there (release: "ready for the user to review and tag"), so it passes; a
+    # `review_decision` written on the artifact still decides, and `escalate` fails.
+    _write(tmp_path, "f", filename, text)
+    assert check(tmp_path)[0].passed
+    held = text.replace("status: draft\n", "status: draft\nreview_decision: escalate\n")
+    assert held != text
+    _write(tmp_path, "f", filename, held)
+    cp = check(tmp_path)[0]
+    assert not cp.passed and cp.name == f"{filename} valid"
+    assert "review_decision is 'escalate'" in cp.detail
+
+
+def test_the_loop_gated_types_are_the_types_the_review_loop_skills_write() -> None:
+    # A skill that records its loop exit in `review_decision` writes a loop-gated type, and the
+    # Tier-3 phases outside that set write none — so readiness is required exactly where the
+    # producing skill's contract promises it.
+    writes = {
+        "research": "research-brief", "product": "prd", "architecture": "tech-design",
+        "plan": "plan", "ux-design": "ux-spec", "marketing": "market-brief",
+    }
+    for skill_md in sorted((PLUGIN / "skills").glob("*/SKILL.md")):
+        if "review_decision" in skill_md.read_text(encoding="utf-8"):
+            assert writes.get(skill_md.parent.name) in LOOP_GATED_TYPES, skill_md.parent.name
+    assert set(writes.values()) == LOOP_GATED_TYPES
+    for skill in ("qa-test-strategy", "release", "repo-onboarding", "incident-response"):
+        assert "review_decision" not in (PLUGIN / "skills" / skill / "SKILL.md").read_text(
+            encoding="utf-8"
+        ), skill
+
+
+# --- product-inception carries a bounded feature request ---------------------------------------
+
+
+def test_product_inception_seeds_a_bounded_feature_request(tmp_path: Path) -> None:
+    scn = SCENARIOS["product-inception"]
+    assert SeedItem(PRODUCT_INCEPTION_REQUEST, "FEATURE_REQUEST.md") in scn.seed
+    text = (PLUGIN / PRODUCT_INCEPTION_REQUEST).read_text(encoding="utf-8")
+    assert f"`{scn.slug}`" in text
+    sections = re.split(r"^## ", text, flags=re.MULTILINE)
+    named = {s.splitlines()[0]: s for s in sections[1:]}
+    assert set(named) == {"Goal", "Acceptance criteria", "Non-goals"}
+    criteria = re.findall(r"^\d+\. ", named["Acceptance criteria"], flags=re.MULTILINE)
+    assert 3 <= len(criteria) <= 5
+    non_goals = named["Non-goals"].lower()
+    for excluded in ("authentication", "search", "visual or brand design"):
+        assert excluded in non_goals, excluded
+    # It fits the seeded stub: the endpoint it extends and the worker it hardens exist there.
+    app = (PLUGIN / "eval/fixtures/repo-onboarding/app.py").read_text(encoding="utf-8")
+    assert '@app.post("/todos")' in app and "POST /todos" in text
+    repo = prepare_scenario(PLUGIN, tmp_path, scn)
+    assert (repo / "FEATURE_REQUEST.md").read_text(encoding="utf-8") == text
+
+
+def test_product_inception_research_and_product_read_the_request() -> None:
+    by_skill = {p.skill: p.prompt for p in SCENARIOS["product-inception"].phases}
+    assert "Read FEATURE_REQUEST.md" in by_skill["research"]
+    assert "non-goals" in by_skill["research"]
+    assert "FEATURE_REQUEST.md" in by_skill["product"]

@@ -186,6 +186,40 @@ per-repo `.agentic-forge/benchmark-history.json` (gitignored); point `--benchmar
 committed path to gate version-over-version in CI. A failing or regressed run is **never** recorded,
 so the baseline can't be poisoned.
 
+### Tier-3 — `dev/run_spine_e2e.py` (E2E scenarios)
+
+Each of the five scenarios (`spine`, `quality-gate`, `ops-incident`, `product-inception`,
+`market-brief`) carries one feature through a chain of phases. Each phase is one headless `claude`
+session in a fresh copy of a fixture repo, and each is followed by deterministic checkpoints, with
+no LLM judge ([domain-e2e.md](architecture/domain-e2e.md), ADR 0030).
+
+```bash
+python dev/run_spine_e2e.py --runner dry --scenario all            # wiring only, no model calls
+python dev/run_spine_e2e.py --runner claude --scenario product-inception     # live, one scenario
+```
+
+- **Network.** The sessions get `WebSearch` and `WebFetch` (`PHASE_TOOLS`, since 2026-11-27),
+  because the `research` skill must cite external sources by URL. A live run therefore needs web
+  access as well as the model API. Without it, the research phase cannot cite and its review loop
+  escalates.
+- **Where a checkpoint reads.** The document phases deliver into the feature's docs worktree
+  (`<workspace>/wt-docs-<slug>` on `docs/<slug>`), not the checkout. A checkpoint reads the copy
+  there or in the checkout: the ready one first, then a valid one, then the newest commit, then the
+  checkout. Its line names the copy (`read docs/sdlc/<slug>/prd.md in worktree … (docs/<slug>)`).
+  The next phase's prompt is pointed at that copy. When a phase fails, read that line first: it
+  says whether the document was missing, invalid, or not handed off (`review_decision is
+  'escalate'`).
+- **Readiness.** A loop-gated document (research brief, PRD, tech design, plan, ux-spec,
+  market-brief) must be `review_decision: proceed`. An escalated one fails its checkpoint even
+  though it validates.
+- **`product-inception`** seeds a bounded `FEATURE_REQUEST.md` (goal, five acceptance criteria,
+  non-goals) over the onboarded Flask stub. It failed on 2026.11.17 and 2026.11.18 for harness
+  reasons: the checkpoint read a stale escalated copy in the checkout, the request had no scope,
+  and the sessions had no web tools. All three are fixed (ADR 0030 amendment).
+- `--retries N` (default 1) re-runs a phase whose checkpoints fail, with a fresh model attempt.
+  It never relaxes a checkpoint. A session that never ran is a named `session undetermined`
+  checkpoint and is not retried.
+
 ### Authoring assertions: the grader is read-only (ADR 0020)
 
 Grading always runs with **read-only** tools (`Read, Grep, Glob`) — the grader has no `Bash`, so

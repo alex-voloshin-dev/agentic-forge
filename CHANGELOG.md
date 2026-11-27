@@ -7,6 +7,40 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Fixed
+
+- **Eval harness: the Tier-3 `product-inception` scenario is a fair measurement again (ADR 0030, amendment).** It
+  failed on 2026.11.17 and 2026.11.18, and the failures measured the harness more than the skills. Four causes:
+  1. **The checkpoint read the wrong copy.** `research` delivers into the feature's docs worktree
+     (`../wt-docs-<slug>` on `docs/<slug>`, doc-delivery). Its retry converged there (`review_decision: proceed`,
+     committed), but the checkpoint read only `<checkout>/docs/sdlc/<slug>/`, where the escalated first attempt was
+     still on disk. The `product` prompt pointed at that stale copy too, so `product` correctly refused it. Now every
+     checkpoint reads a document through `spine_e2e.locate_document`. It looks in the checkout and in every worktree
+     on `docs/<slug>`, each resolved by `artifact-home` (a repository's own feature folder, else
+     `docs/sdlc/<slug>/`). When several copies exist, a ready copy wins, then one that validates, then the newest
+     commit touching it (an uncommitted copy counts as no commit), then the checkout. The checkpoint line names the
+     copy it read (`read docs/sdlc/<slug>/prd.md in worktree <path> (docs/<slug>)`) or says why it failed. Before each
+     attempt, a phase's prompt is pointed at that same copy (`spine_e2e.resolve_prompt`). `check_architecture` counts
+     ADRs beside the design it read.
+  2. **Escalated documents passed some checkpoints.** `check_ux_spec` and `check_market_brief` asserted only that the
+     artifact validates, so an escalated ux-spec passed (it did in the investigated run). They now share
+     `_artifact_checkpoint`'s readiness rule (ADR 0067), through one helper, `_document_checkpoint`. Readiness is
+     required for the six artifact types whose skill runs a review loop (`LOOP_GATED_TYPES`). The other checkpoints
+     (`test-strategy`, `release`, `onboarding`, the ops artifacts and the reviews) come from phases with no review
+     loop. Their `status: draft` is the repository's lifecycle, so it still passes, but a `review_decision` written on
+     the artifact that is not `proceed` now fails.
+  3. **The scenario had no feature.** The research prompt was "Research the app's domain" over a small Flask stub,
+     with no goals and no non-goals. Each phase designed from its own assumptions, and each review round attacked newly
+     invented surface. The scenario now seeds `FEATURE_REQUEST.md`
+     (`plugin/eval/fixtures/product-inception/FEATURE_REQUEST.md`), as the spine does. It sets out a goal (a todo list
+     with each todo's indexing status), five acceptance criteria that fit `app.py`/`worker.py`, and explicit
+     non-goals: no auth, no search, no edit or delete, no persistence or external queue, and no visual design. The
+     `research` and `product` prompts read it. No checkpoint or threshold changed.
+  4. **Research could not cite sources.** Tier-3 sessions ran without `WebSearch`/`WebFetch`, but the `research`
+     skill must cite external sources by URL, and reviewers flagged the missing citations every round.
+     `dev/run_spine_e2e.py` now grants both (`PHASE_TOOLS`), so **a live Tier-3 run needs web access**, not only the
+     model API.
+
 ### Changed
 
 - **The session-start routing note gains one sentence naming the cheap-delegation pattern** (field item 6, threads
