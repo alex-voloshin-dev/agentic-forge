@@ -122,6 +122,40 @@ the case-insensitive check but lets `save10` be redeemed after `SAVE10`, and nor
 reviewer case-4 diff's own tests pass while a session that fails `MAX_ATTEMPTS - 1` times exhausts the buggy loop
 (and succeeds once the loop is fixed), and the case-5 diff's four tests pass.
 
-No live run on the extended sets has been made yet, so the table above still describes the old sets, and the
-promotion of `reviewer`, `security-engineer`, `architect` and `software-engineer` waits for a Tier-2 run of the
-extended sets at both tiers, judged by the same model.
+### The run on the extended sets: no role moves
+
+The run was on 2026-11-27, on tree `e7568bb` (branch `feat/tier2-hard-cases`), with `--runner claude`, n = 5 and
+the judge fixed at `claude-opus-5-5`. Each role ran its extended set: reviewer, security-engineer and architect have
+5 cases each, software-engineer has 6. No `--record` was used. The table gives the mean pass rate (mean ± σ); the gate
+is mean − σ ≥ 0.8.
+
+| Role | `claude-sonnet-5-5` | `claude-opus-5-5` |
+|---|---|---|
+| reviewer | 0.992 ± 0.017 | 0.977 ± 0.021 |
+| security-engineer | 0.925 ± 0.075 | 0.992 ± 0.019 |
+| architect | 1.000 ± 0.000 | 1.000 ± 0.000 |
+| software-engineer | 0.993 ± 0.016 | 0.986 ± 0.020 |
+
+Where runs failed:
+- **reviewer.** Case 1's "a concrete fix that adds validation": 1/5 at Sonnet, 3/5 at Opus.
+- **security-engineer at Sonnet.** On case 5, the safe module:
+  - 3/5 runs raised a security blocker or major;
+  - 3/10 lacked an explicit clean verdict;
+  - 2/5 reported the argv-list `tar` call as injection;
+  - 1/5 reported the resolved-then-contained path as traversal.
+- **security-engineer at Opus.** One evidence-quote miss.
+- **software-engineer.** At Sonnet, a 1/5 miss naming the invariant. At Opus, 2/5 missing the two-cent test on case 5.
+
+**Decision: all four stay at `default` (`model: inherit`).**
+
+- **reviewer, architect, software-engineer.** The new cases did not separate the tiers either. Sonnet passes them,
+  but no case exists where Opus succeeds and Sonnet fails. So decision 4's condition is not met: it asks for
+  discriminating cases that *show* the cheaper tier holds.
+- **Promoting the reviewer would also remove the premise of the `qa-engineer` promotion.** That promotion rests on
+  "the review lenses stay at `default` and catch a weak test". `develop`'s small-change path is one `reviewer` plus
+  lint. So the common path would become Sonnet writer, Sonnet reviewer and Sonnet QA.
+- **security-engineer.** Case 5 is the one case that discriminated, and it discriminated against the cheaper tier.
+  Any lens's false major holds a review loop, and here only the security lens raised false majors at Sonnet.
+- **Next step for a promotion.** Cases on which Opus is seen to succeed where a weaker model fails: larger, multi-file
+  fixtures with non-local defects. Until then the sets show that Sonnet handles hard-looking cases, not that it holds
+  where these roles matter.

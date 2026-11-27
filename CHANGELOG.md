@@ -29,8 +29,20 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
   `plugin/eval/fixtures/<role>/`; the case-6 package uses the `tree/` layout. A new
   `tests/test_tier2_hard_fixtures.py` executes the code claims the cases rest on (the naive fixes pass the visible
   tests and break the stated invariant, the careful fixes keep it, the reviewer diffs' own tests pass while the case-4
-  boundary fails), offline and in-process. No existing case, assertion or threshold changed. The tier promotion of the
-  four roles waits for a live run on the extended sets.
+  boundary fails), offline and in-process. No existing case, assertion or threshold changed.
+
+  **The live run did not move any role** (2026-11-27). Each role ran at Sonnet 5.5 and Opus 5.5, n = 5, judged by
+  Opus 5.5 (Sonnet / Opus):
+  - reviewer 0.992 / 0.977;
+  - architect 1.000 / 1.000;
+  - software-engineer 0.993 / 0.986;
+  - security-engineer 0.925 ± 0.075 / 0.992.
+
+  For the first three the new cases did not separate the tiers either. ADR 0114 moves a role only once discriminating
+  cases show the cheaper tier holds, so they stay at the session model. Only security case 5 discriminated: on the
+  safe module, Sonnet reported a false blocker or major in 3 of 5 runs, and Opus in none. A lens that raises false
+  majors would hold review loops, so `security-engineer` stays at the session model too. All four keep `model:
+  inherit`.
 
 ## [2026.11.20] - 2026-11-27
 
