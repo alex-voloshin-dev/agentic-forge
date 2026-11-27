@@ -140,7 +140,7 @@ Where runs failed:
 - **reviewer.** Case 1's "a concrete fix that adds validation": 1/5 at Sonnet, 3/5 at Opus.
 - **security-engineer at Sonnet.** On case 5, the safe module:
   - 3/5 runs raised a security blocker or major;
-  - 3/10 lacked an explicit clean verdict;
+  - 3 of 10 graded runs of the explicit-clean-verdict assertion, which appears in two cases, missed it;
   - 2/5 reported the argv-list `tar` call as injection;
   - 1/5 reported the resolved-then-contained path as traversal.
 - **security-engineer at Opus.** One evidence-quote miss.
@@ -149,12 +149,13 @@ Where runs failed:
 **Decision: all four stay at `default` (`model: inherit`).**
 
 - **reviewer, architect, software-engineer.** The new cases did not separate the tiers either. Sonnet passes them,
-  but no case exists where Opus succeeds and Sonnet fails. So decision 4's condition is not met: it asks for
+  but no case exists where Opus consistently succeeds and Sonnet fails. So decision 4's condition is not met: it asks for
   discriminating cases that *show* the cheaper tier holds.
 - **Promoting the reviewer would also remove the premise of the `qa-engineer` promotion.** That promotion rests on
   "the review lenses stay at `default` and catch a weak test". `develop`'s small-change path is one `reviewer` plus
   lint. So the common path would become Sonnet writer, Sonnet reviewer and Sonnet QA.
-- **security-engineer.** Case 5 is the one case that discriminated, and it discriminated against the cheaper tier.
+- **security-engineer.** At Sonnet it clears the numeric gate (mean − σ = 0.85). It is held back under decision 4
+  anyway: case 5 is the one case that discriminated, and it discriminated against the cheaper tier.
   Any lens's false major holds a review loop, and here only the security lens raised false majors at Sonnet.
 - **Next step for a promotion.** Cases on which Opus is seen to succeed where a weaker model fails: larger, multi-file
   fixtures with non-local defects. Until then the sets show that Sonnet handles hard-looking cases, not that it holds

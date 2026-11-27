@@ -41,7 +41,8 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
   For the first three the new cases did not separate the tiers either. ADR 0114 moves a role only once discriminating
   cases show the cheaper tier holds, so they stay at the session model. Only security case 5 discriminated: on the
   safe module, Sonnet reported a false blocker or major in 3 of 5 runs, and Opus in none. A lens that raises false
-  majors would hold review loops, so `security-engineer` stays at the session model too. All four keep `model:
+  majors would hold review loops, so `security-engineer` stays at the session model too, although it clears the
+  numeric gate (mean − σ = 0.85). All four keep `model:
   inherit`.
 
 ## [2026.11.20] - 2026-11-27
