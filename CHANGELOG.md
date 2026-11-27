@@ -27,21 +27,6 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
   ids, run the rest and exit 1; a contract that does not parse costs only its own component. The schema and the dry
   runner reject any other value.
 
-### Changed
-
-- **A `role_scope` refusal for a held role that is not a review lens names the caller** (ADR 0116): "Tests, linters
-  and other tools are run by the caller", where it said the orchestrating skill, in the refusal and in the fail-closed
-  notice. The lenses' refusals are unchanged.
-
-### Fixed
-
-- **A Tier-2 fixture path may not leave the plugin directory or the workspace** (ADR 0116). One check,
-  `evals.fixture_path_problem`, behind the dry runner's wiring check, `load_fixtures`, `materialize_fixtures` and an
-  up-front pass in `run_eval_cases`: a case's `files` entry may not be absolute or hold a `..` or `.git` part, the file
-  it resolves to (symlinks followed) must lie inside the plugin directory, and its destination must resolve inside the
-  workspace. A refused path raises before any file is written or any model is called; before, only the dry runner
-  checked, and a live run copied `tree/../../outside.txt` out of the workspace.
-
 - **Harder Tier-2 cases for the four roles still at `default`** (ADR 0114 amendment). ADR 0114 measured all six roles
   at Opus 5.5 and Sonnet 5.5 and every set scored about 1.0 at both, so the sets could not tell the tiers apart and
   `reviewer`, `security-engineer`, `architect` and `software-engineer` were held back. Each now has two more cases
@@ -77,6 +62,22 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
   majors would hold review loops, so `security-engineer` stays at the session model too, although it clears the
   numeric gate (mean − σ = 0.85). All four keep `model:
   inherit`.
+
+### Changed
+
+- **A `role_scope` refusal for a held role that is not a review lens names the caller** (ADR 0116): "Tests, linters
+  and other tools are run by the caller", where it said the orchestrating skill, in the refusal and in the fail-closed
+  notice. The lenses' refusals are unchanged.
+
+### Fixed
+
+- **A Tier-2 fixture path may not leave the plugin directory or the workspace** (ADR 0116). One check,
+  `evals.fixture_path_problem`, behind the dry runner's wiring check, `load_fixtures`, `materialize_fixtures` and an
+  up-front pass in `run_eval_cases`: a case's `files` entry may not be absolute or hold a `..` or `.git` part, the file
+  it resolves to (symlinks followed) must lie inside the plugin directory, and its destination must resolve inside the
+  workspace. A refused path raises before any file is written or any model is called; before, only the dry runner
+  checked, and a live run copied `tree/../../outside.txt` out of the workspace.
+
 
 ## [2026.11.20] - 2026-11-27
 
