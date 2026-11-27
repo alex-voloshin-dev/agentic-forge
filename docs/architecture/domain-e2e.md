@@ -186,9 +186,11 @@ and in every git worktree of it on `docs/<slug>`, and resolves the document's pa
 `artifact_home`. The worktrees come from `git worktree list --porcelain`; other branches, detached
 and prunable worktrees are ignored.
 
-When more than one copy exists, the **most recent** is read: the later of the last commit touching
-it and its modification time. A tracked copy edited since its commit keeps the old commit time, so
-the mtime counts too. On a tie, the checkout is read. The checkpoint then requires *that* copy to
+When more than one copy exists, the copy with the **most recent content** is read. For a clean
+tracked file, that is its last commit time only: a `git checkout` or `restore` gives old content a
+fresh mtime, and that must not make it look newest. For a file modified against `HEAD` or
+untracked, it is the later of its last commit time and its modification time, since an edit after
+the commit keeps the old commit time. On a tie, the checkout is read. The checkpoint then requires *that* copy to
 be ready, so an older ready copy never outvotes a newer escalated one.
 
 **Every other type** (`review`, `test-strategy`, `release`, `onboarding`, `deploy-status`,

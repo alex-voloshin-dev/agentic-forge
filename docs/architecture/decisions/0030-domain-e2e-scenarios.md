@@ -6,9 +6,9 @@ product-inception, market-brief). Revised after a deep multi-reviewer review.
 > **Amended 2026-11-27 (`product-inception` failed on 2026.11.17 and 2026.11.18):** four harness defects, fixed
 > without touching a skill or a threshold. The scenario is not yet re-validated by a live run. (1) A loop-gated
 > document is read where its doc phase delivered it: the checkout and every worktree on `docs/<slug>`, each resolved
-> by `artifact-home`. The most recent copy (the later of its last commit and its mtime) is read, and that copy must
-> be ready; the checkpoint line names it, and the next phase's prompt points at it (`spine_e2e.locate_document` /
-> `resolve_prompt`). Every other type is still read from `<checkout>/docs/sdlc/<slug>/` only, so a doc phase's
+> by `artifact-home`. The copy with the most recent content is read (a clean tracked file by its last commit, a
+> modified or untracked one by the later of that and its mtime), and that copy must be ready; the checkpoint line
+> names it, and the next phase's prompt points at it (`spine_e2e.locate_document` / `resolve_prompt`). Every other type is still read from `<checkout>/docs/sdlc/<slug>/` only, so a doc phase's
 > review round in its worktree cannot pass for a code review. Before this, a retry that converged in the docs
 > worktree was read from the checkout's stale escalated copy. (2) The domain checkpoints share the readiness rule of
 > ADR 0067: required for the loop-gated types (`ux-spec`, `market-brief`, like the spine's four), and for the rest
