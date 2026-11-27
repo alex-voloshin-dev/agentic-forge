@@ -9,7 +9,7 @@ name: eval (Tier 1-3)
 #   wiring   — every event, no credentials. Contracts, prompts and fixtures resolve.
 #   trigger  — Tier-1 routing, WEEKLY. ~17 skills x 5 runs; this is the routing guard CLAUDE.md
 #              promises, and the listing budget makes it the regression that actually bites.
-#   quality  — Tier-2 + Tier-3, ON DEMAND only. ~360 full agent sessions plus five E2E chains:
+#   quality  — Tier-2 + Tier-3, ON DEMAND only. ~420 full agent sessions plus five E2E chains:
 #              hours of model time, past a 6h GitHub job on its own, and not weekly work.
 
 on:
@@ -133,13 +133,13 @@ jobs:
             echo "Measured: **Tier-1 routing** on \`$EVAL_MODEL\` — recall/specificity gated at 0.9." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-  # The expensive half: ~95 role sessions + ~265 skill sessions + five Tier-3 chains. On demand
+  # The expensive half: ~155 role sessions + ~265 skill sessions + five Tier-3 chains. On demand
   # only — a weekly run of this would not fit a 6h job, and these tiers move with a release, not
   # with the calendar.
   quality:
     name: Tier-2 + Tier-3 (quality + E2E)
     # A POSITIVE list. The first cut excluded `trigger-only` and so let `builtins-condition` launch
-    # the whole ~360-session suite (ADR 0086's first run had to be cancelled mid-flight).
+    # the whole ~420-session suite (ADR 0086's first run had to be cancelled mid-flight).
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.tiers == 'all' || github.event.label.name == 'eval'
     runs-on: ubuntu-latest
     timeout-minutes: 350

@@ -408,7 +408,7 @@ different sizes (ADR 0083):
 |---|---|---|---|
 | `wiring` | every trigger, no credentials | contracts, prompts and fixtures resolve | ~1 min, free |
 | `trigger` | **weekly cron** + dispatch + `eval` label | Tier-1 routing, gated at 0.9 | 16 shipped + 1 maintainer skill x 5 runs |
-| `quality` | dispatch + `eval` label **only** | Tier-2 (agents + skills) and Tier-3 E2E | ~360 agent sessions + 5 chains |
+| `quality` | dispatch + `eval` label **only** | Tier-2 (agents + skills) and Tier-3 E2E | ~420 agent sessions + 5 chains |
 
 Tier-1 is the scheduled one because the router listing is at its context ceiling: one description
 edit can break a neighbour's routing, and nothing else catches that. Tier-2/3 move with a release,
