@@ -722,8 +722,20 @@ def test_trusted_program_reads_the_hooks_path_as_the_gate_does(
     assert guardrails.trusted_program("git") is None
     monkeypatch.setenv("PATH", os.pathsep.join(["rel", str(root / "cmd"), str(root / "exe")]))
     assert guardrails.trusted_program("git") == str(trusted)
-    monkeypatch.delenv("PATH")
-    assert guardrails.trusted_program("git") is None
+    monkeypatch.delenv("PATH")  # no PATH: the gate's fixed default, never the current directory
+    fallback = guardrails._find_program("git", guardrails._safe_default_path())
+    assert guardrails.trusted_program("git") == fallback
+    assert fallback is None or os.path.isabs(fallback)
+
+
+@pytest.mark.parametrize(
+    ("entry", "anchored"),
+    [("C:\\tools", True), ("\\\\server\\share\\bin", True), ("\\tools", False), ("tools", False),
+     ("C:tools", False)],
+)
+def test_a_windows_path_entry_needs_its_own_root(entry: str, anchored: bool) -> None:
+    """On Windows `\\tools` is 'absolute' to Python 3.9-3.12 but rooted on the cwd's drive."""
+    assert guardrails._is_anchored(entry, nt=True) is anchored
 
 
 def test_on_windows_a_binary_name_with_its_extension_is_tried_bare_first(

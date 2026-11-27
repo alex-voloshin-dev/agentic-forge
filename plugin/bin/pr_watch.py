@@ -297,9 +297,18 @@ def _git_failed(what: str, done: Any) -> str:
 def _fixer_runner(model: str, max_threads: int, scratch: str) -> agent_eval.Runner:
     """The session itself. ``scratch`` is its `CLAUDE_CODE_TMPDIR`: the CLI lets a session read
     `<tmp>/claude-<uid>/<cwd-slug>/`, which holds the output of the operator's other sessions in the
-    same directory, so on a manual `--apply` a token in one of those reached the PR's branch."""
+    same directory, so on a manual `--apply` a token in one of those reached the PR's branch.
+
+    The CLI is started by the absolute path the gate's lookup finds (ADR 0115, amendment 2): the
+    session runs in the PR's worktree, where on Windows a bare `claude` could resolve to a
+    `claude.exe` the branch committed. None found raises ``FileNotFoundError``, as a missing bare
+    name did."""
+    program = guardrails.trusted_program("claude")
+    if program is None:
+        raise FileNotFoundError("claude is not on PATH by an absolute path")
     return agent_eval.claude_cli_runner(
         model=model,
+        program=program,
         retries=0, call_timeout=pr_watch.fixer_timeout(max_threads),
         settings=_fixer_settings(),
         env={"CLAUDE_CODE_TMPDIR": scratch},

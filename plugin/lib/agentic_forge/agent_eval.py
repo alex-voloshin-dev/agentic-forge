@@ -1107,8 +1107,14 @@ def claude_cli_runner(
     session_persistence: bool = True,
     denials_undetermined: bool = False,
     settings: str | None = None,
+    program: str = "claude",
 ) -> Runner:
     """Level-2 seam: run the role headlessly via `claude -p` (Claude Code auth).
+
+    ``program`` is the CLI to start: ``claude`` by name for the maintainer's eval runs, or an
+    absolute path from a caller that starts it in a tree it does not trust (the PR watcher's fixer
+    runs in a pull request's worktree, where a bare name can resolve from that tree on Windows —
+    ADR 0115, amendment 2).
 
     Uses whatever auth the `claude` CLI is configured with — a Claude subscription via
     CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`), or ANTHROPIC_API_KEY (which takes
@@ -1171,7 +1177,7 @@ def claude_cli_runner(
         # (ADR 0077). Without it an eval inherits whoever is running it: a personal "always answer
         # in <language>" rule reached the graded artifacts here, so the same case scored differently
         # on different machines. Project settings stay — they are part of the repo under test.
-        cmd = ["claude", "-p", prompt, system_flag, system, "--output-format", "json"]
+        cmd = [program, "-p", prompt, system_flag, system, "--output-format", "json"]
         cmd += ["--setting-sources", setting_sources]
         if strict_mcp_config:
             cmd.append("--strict-mcp-config")
