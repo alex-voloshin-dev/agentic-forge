@@ -1,0 +1,9 @@
+[project]
+name = "pricing"
+version = "0.1.0"
+description = "Checkout pricing helpers (software-engineer Tier-2 eval fixture target)."
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

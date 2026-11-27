@@ -1,0 +1,82 @@
+diff --git a/docs/config.md b/docs/config.md
+index 5a5a5a5..6b6b6b6 100644
+--- a/docs/config.md
++++ b/docs/config.md
+@@ -12,1 +12,6 @@ All settings are read once at start-up.
+ | `FETCH_TIMEOUT_S` | `5` | Per-request timeout, in seconds. |
++| `MAX_ATTEMPTS` | `3` | Total attempts per request, **including the first call**. With `3`, a request that keeps failing with a transient error is sent three times before `RetryExhausted` is raised. `1` disables retries. |
++| `BACKOFF_S` | `0.5` | Base back-off between attempts; the wait before attempt *n + 1* is `BACKOFF_S * n`. |
++
++Upstream guarantees that a transient failure clears within three attempts, so the SLO for
++`fetch_with_retry` assumes all three are made.
+diff --git a/client/config.py b/client/config.py
+index 7c7c7c7..8d8d8d8 100644
+--- a/client/config.py
++++ b/client/config.py
+@@ -1,1 +1,3 @@
+ FETCH_TIMEOUT_S = 5
++MAX_ATTEMPTS = 3  # see docs/config.md
++BACKOFF_S = 0.5
+diff --git a/client/fetch.py b/client/fetch.py
+index 9e9e9e9..afafafa 100644
+--- a/client/fetch.py
++++ b/client/fetch.py
+@@ -1,8 +1,24 @@
+ import time
+
+-from client.config import FETCH_TIMEOUT_S
++from client.config import BACKOFF_S, FETCH_TIMEOUT_S, MAX_ATTEMPTS
+ from client.errors import TransientError
+
+
++class RetryExhausted(Exception):
++    """Raised when every attempt allowed by MAX_ATTEMPTS failed transiently."""
++
++
+ def fetch(session, url):
+     return session.get(url, timeout=FETCH_TIMEOUT_S)
++
++
++def fetch_with_retry(session, url):
++    """Fetch ``url``, retrying transient failures up to MAX_ATTEMPTS attempts in total."""
++    last_exc = None
++    for attempt in range(1, MAX_ATTEMPTS):
++        try:
++            return fetch(session, url)
++        except TransientError as exc:
++            last_exc = exc
++            time.sleep(BACKOFF_S * attempt)
++    raise RetryExhausted(url) from last_exc
+diff --git a/tests/test_fetch.py b/tests/test_fetch.py
+new file mode 100644
+index 0000000..b1b1b1b
+--- /dev/null
++++ b/tests/test_fetch.py
+@@ -0,0 +1,27 @@
++import pytest
++
++from client import fetch as mod
++from client.errors import TransientError
++
++
++class FlakySession:
++    def __init__(self, failures):
++        self.failures = failures
++        self.calls = 0
++
++    def get(self, url, timeout):
++        self.calls += 1
++        if self.calls <= self.failures:
++            raise TransientError("503")
++        return "ok"
++
++
++def test_retries_once_then_succeeds(monkeypatch):
++    monkeypatch.setattr(mod.time, "sleep", lambda s: None)
++    assert mod.fetch_with_retry(FlakySession(failures=1), "u") == "ok"
++
++
++def test_gives_up_when_upstream_keeps_failing(monkeypatch):
++    monkeypatch.setattr(mod.time, "sleep", lambda s: None)
++    with pytest.raises(mod.RetryExhausted):
++        mod.fetch_with_retry(FlakySession(failures=10), "u")

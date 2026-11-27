@@ -38,6 +38,34 @@
         "Findings carry a severity and a location pointing into the artifact",
         "The verdict reflects that changes are required"
       ]
+    },
+    {
+      "id": 4,
+      "prompt": "Review this diff before merge and decide whether to approve. Its tests pass.",
+      "expected_output": "A verdict of 'changes': `for attempt in range(1, MAX_ATTEMPTS)` in client/fetch.py makes MAX_ATTEMPTS - 1 calls (two with the default 3), contradicting docs/config.md in the same diff (total attempts, including the first call; the SLO assumes all three are made). The added tests pass only because neither exercises the boundary. The fix makes exactly MAX_ATTEMPTS calls and adds a boundary test. No files are modified.",
+      "files": ["eval/fixtures/reviewer/case4.diff"],
+      "assertions": [
+        "The output states an explicit verdict of either 'approve' or 'changes', and the verdict is 'changes'",
+        "A blocker- or major-severity finding identifies the off-by-one in `for attempt in range(1, MAX_ATTEMPTS)` in client/fetch.py: the loop makes only MAX_ATTEMPTS - 1 attempts (two instead of three with the default)",
+        "The finding ties the defect to the contract documented elsewhere in the same diff (docs/config.md: MAX_ATTEMPTS is the total number of attempts including the first call, and the SLO assumes all three are made), not only to the code",
+        "The suggested fix changes the loop so exactly MAX_ATTEMPTS calls are made (e.g. `range(1, MAX_ATTEMPTS + 1)`), rather than redefining MAX_ATTEMPTS or editing the docs to match the code",
+        "The review says the added tests pass despite the defect because none exercises the boundary, and suggests a test that does (e.g. a session failing exactly MAX_ATTEMPTS - 1 times then succeeding, or an assertion on the call count)",
+        "The reviewer does not modify any files (read-only critique)"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Review this diff before merge and decide whether to approve.",
+      "expected_output": "A verdict of 'approve'. The expiry check, the load and the store in `TokenCache.get` all run under one lock, so there is no check-then-use race; the strict `self._clock() < entry[1]` comparison matches the documented 'valid strictly before its expiry instant' and the boundary test at 160.0; loading under the lock is the documented intent. At most minor or nit remarks.",
+      "files": ["eval/fixtures/reviewer/case5.diff"],
+      "assertions": [
+        "The output states an explicit verdict of either 'approve' or 'changes', and the verdict is 'approve'",
+        "No blocker- or major-severity findings are raised",
+        "The review does not report a race condition or TOCTOU between the expiry check and the load/store in `TokenCache.get` (all three run under `self._lock`)",
+        "The review does not report the strict `self._clock() < entry[1]` comparison as an off-by-one or expiry bug (it matches the module docstring's 'valid strictly before its expiry instant' and the test at the 160.0 boundary)",
+        "If the review remarks on `loader` being called while the lock is held, it acknowledges that serialising loads is the documented intent and rates the remark minor or nit at most",
+        "The reviewer does not modify any files (read-only critique)"
+      ]
     }
   ],
   "component": {
