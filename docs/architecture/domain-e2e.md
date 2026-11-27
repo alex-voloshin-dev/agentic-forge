@@ -137,14 +137,17 @@ re-gated here.
 **The feature it carries** (since 2026-11-27): the workspace seeds
 `eval/fixtures/product-inception/FEATURE_REQUEST.md` at the repo root, as the spine seeds its own.
 It is a bounded request over the onboarded stub: a todo list that shows each todo's indexing
-status. It has a goal, five acceptance criteria (`POST /todos` validation, `GET /todos`, one
-server-rendered page with its empty and error states, bounded retry that ends in `failed`, and
-`python app.py` still starting the service) and explicit non-goals (no auth, no search, no edit or
-delete, no persistence or external queue, no visual design). `research` and `product` read it.
-Before this the research prompt was "research the app's domain", with nothing to bound it. Every
-phase designed from its own assumptions, and every review round attacked newly invented surface,
-so the chain escalated on 2026.11.17 and 2026.11.18 for reasons that had nothing to do with the
-skills.
+status. It has a goal and five acceptance criteria: a JSON API (`POST /todos` with title
+validation, `GET /todos`); one server-rendered page whose form posts form-encoded data to `POST /`
+and re-renders with the error on a rejected title, with an empty state; a bounded retry that ends in
+`failed`; and `python app.py` still starting the service. It also has explicit non-goals: no auth,
+no search, no edit or delete, no persistence or external queue, no visual design. `research` and
+`product` read it. Before this, the research prompt was "research the app's domain", with nothing
+to bound it. Every phase designed from its own assumptions, and every review round attacked newly
+invented surface. That was one of the harness causes of the escalations on 2026.11.17 and
+2026.11.18. The fixes are not yet re-validated by a live run. One cause stays open as a separate
+follow-up: in several rounds the external codex lens alone held `changes`, and its prompt has no
+severity rubric and no prior-round context.
 
 ### `market-brief` — `marketing` as a deterministic complement to its Tier-2
 
@@ -154,7 +157,7 @@ fixture — single phase, no live web:
 
 | # | Phase | Checkpoint | Type |
 | --- | --- | --- | --- |
-| 1 | `marketing` | `market-brief.md` valid; `competitors` include `{Algolia, Elastic, Typesense}` from the seeded notes; no fabricated TAM (the notes state none) | D-sub |
+| 1 | `marketing` | `market-brief.md` valid and ready (`review_decision: proceed`); `competitors` include `{Algolia, Elastic, Typesense}` from the seeded notes; no fabricated TAM (the notes state none) | D-sub |
 
 This complements (does not replace) marketing's Tier-2: it pins the citation-grounded outcome
 deterministically, which the LLM-judged Tier-2 cannot guarantee.
@@ -177,18 +180,39 @@ module**, with the **per-line → per-commit replay** of the release fixture; a 
 `marketing`) deliver into the feature's shared docs worktree, `../wt-docs-<slug>` on branch
 `docs/<slug>` ([doc-delivery](../../plugin/patterns/doc-delivery.md)), inside the folder
 `artifact-home` resolves ([handoff.md](../../plugin/patterns/handoff.md#where-a-features-documents-go)).
-So a checkpoint cannot read only `<checkout>/docs/sdlc/<slug>/`. `spine_e2e.locate_document` looks
-in the checkout and in every git worktree of it on `docs/<slug>` (from `git worktree list
---porcelain`; other branches are ignored), and resolves the document's path in each through
-`artifact_home`. When more than one copy exists, the order is fixed: a ready copy first, then a
-valid one, then the one whose last commit is newest (an uncommitted copy counts as no commit), and
-on a full tie the checkout. The checkpoint line names the copy read: `read
-docs/sdlc/<slug>/prd.md in worktree /…/wt-docs-<slug> (docs/<slug>)`. On a failure it says why
-(`not found in checkout, worktree …`, `does not validate: …`, `not handed off: review_decision is
-'escalate', not 'proceed'`). Before each attempt, `resolve_prompt` rewrites every
-`docs/sdlc/<slug>/<document>` the phase prompt names to that copy's absolute path, when the copy
-is somewhere else. So the next phase reads what its predecessor delivered, not a stale first
-attempt left in the checkout. ADRs are counted beside the design copy that was read.
+So for their documents, the six `LOOP_GATED_TYPES`, a checkpoint cannot read only
+`<checkout>/docs/sdlc/<slug>/`. For those types, `spine_e2e.locate_document` looks in the checkout
+and in every git worktree of it on `docs/<slug>`, and resolves the document's path in each through
+`artifact_home`. The worktrees come from `git worktree list --porcelain`; other branches, detached
+and prunable worktrees are ignored.
+
+When more than one copy exists, the **most recent** is read: the later of the last commit touching
+it and its modification time. A tracked copy edited since its commit keeps the old commit time, so
+the mtime counts too. On a tie, the checkout is read. The checkpoint then requires *that* copy to
+be ready, so an older ready copy never outvotes a newer escalated one.
+
+**Every other type** (`review`, `test-strategy`, `release`, `onboarding`, `deploy-status`,
+`incident`, the security review) comes from a phase that writes in the checkout. It is read from
+`<checkout>/docs/sdlc/<slug>/<file>` only, as before. Widening that search would be a false pass:
+an escalating doc phase persists a `type: review` round in its worktree
+([review-loop.md](../../plugin/patterns/review-loop.md)), and `check_code_review` must not accept
+it for a code review that wrote nothing.
+
+The checkpoint line names the copy read: `read docs/sdlc/<slug>/prd.md in worktree
+/…/wt-docs-<slug> (docs/<slug>)`. On a failure it says why (`not found in checkout, worktree …`,
+`does not validate: …`, `not handed off: review_decision is 'escalate', not 'proceed'`).
+
+Before each attempt, `resolve_prompt` rewrites every loop-gated `docs/sdlc/<slug>/<document>` the
+phase prompt names to the absolute path of the copy that would be read, when that copy is not at the
+checkout's `docs/sdlc/<slug>/`. A mention that is the tail of a longer path is left alone. So the
+next phase reads what its predecessor delivered, not a stale first attempt left in the checkout. On
+a retry, this also points the phase at its **own** document, the copy its first attempt left. That
+is deliberate: it is where the skill's doc-delivery would write again. ADRs are counted beside the
+design copy that was read.
+
+`prepare_scenario` removes a stale `wt-docs-<slug>` beside the repo when a run reuses a
+`--workspace`. The new repository does not register it, but `af.py doc-worktree` checks the
+directory and would report it as existing.
 
 **Readiness (ADR 0067).** All checkpoints go through one helper (`_document_checkpoint`). For the
 artifact types whose skill runs a review loop (`LOOP_GATED_TYPES`: `research-brief`, `prd`,

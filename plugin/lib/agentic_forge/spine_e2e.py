@@ -12,11 +12,12 @@ unit-tested with stubs; the real run drives each phase with the `claude` CLI. Ch
 call an LLM judge: each is a code comparison, a substring/location match on the model's artifact,
 or a schema-only validation of a handoff gated elsewhere.
 
-A checkpoint reads a document **where the phase delivered it** (:func:`locate_document`): the
-document phases write into the feature's shared docs worktree on ``docs/<slug>`` (doc-delivery),
-in the folder ``artifact-home`` resolves, so the checkout alone can hold a stale, escalated first
-attempt. A loop-gated document must also be **ready** (ADR 0067), and the next phase's prompt is
-pointed at the copy that was read (:func:`resolve_prompt`).
+A loop-gated document is read **where its doc phase delivered it** (:func:`locate_document`): those
+phases write into the feature's shared docs worktree on ``docs/<slug>`` (doc-delivery), in the
+folder ``artifact-home`` resolves, so the checkout alone can hold a stale, escalated first attempt.
+The most recent copy is read and must be **ready** (ADR 0067), and the next phase's prompt is
+pointed at it (:func:`resolve_prompt`). Every other document is read from the checkout's
+``docs/sdlc/<slug>/`` only.
 
 Fidelity note: in this environment the plugin's subagents are not registered, so each phase is
 approximated as a single CLI call seeded with the phase skill's body (rather than the skill
@@ -150,18 +151,22 @@ def _sdlc(repo: Path, slug: str) -> Path:
 
 # --- where a phase actually wrote its document ---------------------------------------------------
 
-# The artifact types whose producing phase runs a bounded review loop and records its exit in
-# `review_decision` (ADR 0067/0109): an escalated run leaves a schema-valid file on disk, so for
-# these a checkpoint requires readiness (`handoff.is_handoff_ready`). The other types come from
-# phases with no review loop (`qa-test-strategy`, `release`, `repo-onboarding`, the ops phases,
-# the reviews): their `status` (`draft`, `mitigating`) is the repository's lifecycle, not a
-# refusal, so only a `review_decision` written on them that is not `proceed` fails.
+# The artifact types whose producing phase runs a bounded review loop, records its exit in
+# `review_decision` (ADR 0067/0109) and delivers into the feature's docs worktree (doc-delivery).
+# For these a checkpoint requires readiness (`handoff.is_handoff_ready`), because an escalated run
+# leaves a schema-valid file on disk, and looks for the copy in the docs worktrees too. Every other
+# type (`test-strategy`, `release`, `onboarding`, `incident`, `deploy-status`, the reviews) comes
+# from a phase with no review loop that writes in the checkout: it is read from
+# `<checkout>/docs/sdlc/<slug>/` only — a doc phase's own `review-*.md`/`review.md` rounds in the
+# worktree must never stand in for a `code-review` that wrote nothing — and its `status` (`draft`,
+# `mitigating`) is the repository's lifecycle, so only a `review_decision` on it other than
+# `proceed` fails it.
 LOOP_GATED_TYPES = frozenset(
     {"research-brief", "prd", "tech-design", "plan", "ux-spec", "market-brief"}
 )
 
-# The documents a phase prompt may name under `docs/sdlc/<slug>/`, with the type each validates as
-# — what :func:`resolve_prompt` may point at the copy the phase really delivered.
+# The loop-gated documents a phase prompt may name under `docs/sdlc/<slug>/`, with their types —
+# the mentions :func:`resolve_prompt` may point at the copy the phase really delivered.
 _DOCUMENT_TYPES = {
     "research-brief.md": "research-brief",
     "prd.md": "prd",
@@ -169,16 +174,12 @@ _DOCUMENT_TYPES = {
     "plan.md": "plan",
     "ux-spec.md": "ux-spec",
     "market-brief.md": "market-brief",
-    "test-strategy.md": "test-strategy",
-    "release.md": "release",
-    "onboarding.md": "onboarding",
-    "deploy-status.md": "deploy-status",
-    "incident.md": "incident",
-    "review.md": "review",
-    "security-review.md": "review",
 }
 _KIND_OF_TYPE = {kind_type: kind for kind, kind_type in artifact_home.KIND_TYPES.items()}
-_SDLC_MENTION = re.compile(r"docs/sdlc/(?P<slug>[a-z0-9][a-z0-9-]*)/(?P<file>[A-Za-z0-9._-]+\.md)")
+# A `docs/sdlc/<slug>/<file>.md` mention that is not the tail of a longer path or word.
+_SDLC_MENTION = re.compile(
+    r"(?<![\w/.-])docs/sdlc/(?P<slug>[a-z0-9][a-z0-9-]*)/(?P<file>[A-Za-z0-9._-]+\.md)"
+)
 _GIT_TIMEOUT = 30.0
 
 
@@ -223,9 +224,30 @@ def _git_out(tree: Path, *args: str) -> str | None:
     return done.stdout if done.returncode == 0 else None
 
 
+def _branch_worktrees(listing: str, branch: str) -> list[Path]:
+    """The worktrees in ``git worktree list --porcelain`` output that have ``branch`` checked out,
+    sorted by path. A detached worktree has no branch; a ``prunable`` one has lost its directory, so
+    neither counts."""
+    found: list[Path] = []
+    for block in listing.split("\n\n"):
+        path = head = ""
+        prunable = False
+        for line in block.splitlines():
+            key, _, value = line.partition(" ")
+            if key == "worktree":
+                path = value
+            elif key == "branch":
+                head = value
+            elif key == "prunable":
+                prunable = True
+        if path and head == f"refs/heads/{branch}" and not prunable:
+            found.append(Path(path))
+    return sorted(found)
+
+
 def _working_trees(repo: Path, slug: str) -> list[tuple[Path, str]]:
-    """Where a phase may have delivered ``slug``'s documents: the checkout, then every worktree of
-    it on the feature's documentation branch ``docs/<slug>`` (doc-delivery: the document phases
+    """Where a doc phase may have delivered ``slug``'s documents: the checkout, then every worktree
+    of it on the feature's documentation branch ``docs/<slug>`` (doc-delivery: the document phases
     write into that shared worktree, ``../wt-docs-<slug>``, not the checkout), sorted by path."""
     trees = [(repo, "checkout")]
     if not (repo / ".git").exists() or not doc_delivery.SLUG_RE.fullmatch(slug):
@@ -235,18 +257,9 @@ def _working_trees(repo: Path, slug: str) -> list[tuple[Path, str]]:
         return trees
     branch = doc_delivery.branch_name(slug)
     here = repo.resolve()
-    found: list[Path] = []
-    for block in listing.split("\n\n"):
-        path = head = ""
-        for line in block.splitlines():
-            key, _, value = line.partition(" ")
-            if key == "worktree":
-                path = value
-            elif key == "branch":
-                head = value
-        if path and head == f"refs/heads/{branch}" and Path(path).resolve() != here:
-            found.append(Path(path))
-    trees += [(tree, f"worktree {tree} ({branch})") for tree in sorted(found)]
+    for tree in _branch_worktrees(listing, branch):
+        if tree.resolve() != here:
+            trees.append((tree, f"worktree {tree} ({branch})"))
     return trees
 
 
@@ -299,42 +312,59 @@ def _committed_at(tree: Path, path: Path) -> int:
         return 0
 
 
-def locate_document(repo: Path, slug: str, filename: str, artifact_type: str) -> Located:
-    """The copy of a feature document a checkpoint reads, among the checkout and the feature's
-    documentation worktrees (:func:`_working_trees`), each resolved by ``artifact-home``.
+def _recency(doc: Located) -> float:
+    """How recent a copy is: the later of the last commit touching it and its modification time —
+    a tracked file edited since its commit keeps the old commit time, so the mtime must count."""
+    return max(float(_committed_at(doc.tree, doc.path)), doc.path.stat().st_mtime)
 
-    One copy on disk is read as it is. With several, the order is: a copy that may be handed off
-    (ready) before one that may not, then one that validates, then the newest commit touching it (an
-    uncommitted copy counts as no commit), and on a full tie the earlier tree — the checkout first.
-    So a phase that escalated in the checkout and then converged in its worktree is read where it
-    converged, deterministically. With none, the checkout's path, reported missing."""
-    trees = _working_trees(repo, slug)
-    searched = tuple(where for _, where in trees)
+
+def locate_document(repo: Path, slug: str, filename: str, artifact_type: str) -> Located:
+    """The copy of a feature document a checkpoint reads.
+
+    A loop-gated type (:data:`LOOP_GATED_TYPES`) is looked for in the checkout and in the feature's
+    documentation worktrees (:func:`_working_trees`), each resolved by ``artifact-home``; of several
+    copies the **most recent** is read (:func:`_recency`; on a tie the earlier tree, the checkout
+    first), and the checkpoint then requires *that* copy to be ready — an older ready copy never
+    outvotes a newer escalated one. So a phase that escalated in the checkout and then converged in
+    its worktree is read where it converged. Any other type is read from
+    ``<checkout>/docs/sdlc/<slug>/<filename>`` only. With no copy, the first path, reported
+    missing."""
+    if artifact_type in LOOP_GATED_TYPES:
+        places = [
+            (tree, where, _document_path(tree, slug, filename, artifact_type))
+            for tree, where in _working_trees(repo, slug)
+        ]
+    else:
+        places = [(repo, "checkout", _sdlc(repo, slug) / filename)]
+    searched = tuple(where for _, where, _ in places)
     candidates: list[Located] = []
-    for tree, where in trees:
-        path = _document_path(tree, slug, filename, artifact_type)
+    for tree, where, path in places:
         art, ready, problem = _inspect(path, artifact_type)
         candidates.append(Located(path, tree, where, art, ready, problem, searched))
     existing = [c for c in candidates if c.exists]
     if not existing:
         return candidates[0]
-    if len(existing) == 1:
-        return existing[0]
     best = existing[0]
-    best_rank = (best.ready, best.artifact is not None, _committed_at(best.tree, best.path))
-    for cand in existing[1:]:
-        rank = (cand.ready, cand.artifact is not None, _committed_at(cand.tree, cand.path))
-        if rank > best_rank:
-            best, best_rank = cand, rank
+    if len(existing) > 1:
+        best_seen = _recency(best)
+        for cand in existing[1:]:
+            seen = _recency(cand)
+            if seen > best_seen:
+                best, best_seen = cand, seen
     return best
 
 
 def resolve_prompt(prompt: str, repo: Path, slug: str) -> str:
-    """``prompt`` with each ``docs/sdlc/<slug>/<document>`` it names pointed at the copy
-    :func:`locate_document` would read, as an absolute path, when that copy exists somewhere else
-    than the checkout's relative path — so a phase reads the upstream document its predecessor
-    really delivered (in the feature's docs worktree), not a stale copy left in the checkout.
-    Mentions of other slugs, unknown files, or documents not yet written stay as they are."""
+    """``prompt`` with each loop-gated ``docs/sdlc/<slug>/<document>`` it names pointed at the copy
+    :func:`locate_document` would read, as an absolute path, when that copy is not at the checkout's
+    ``docs/sdlc/<slug>/`` — so a phase reads the upstream document its predecessor really delivered
+    (in the feature's docs worktree), not a stale copy left in the checkout.
+
+    It also rewrites the phase's **own** document once a copy of it exists: on a retry, the
+    phase is pointed at the copy its first attempt left (in the docs worktree when it delivered
+    there), which is where its skill's doc-delivery would write again. Mentions of other slugs,
+    other files, or documents not yet written stay as they are."""
+    root = repo.resolve()
 
     def point(match: re.Match[str]) -> str:
         filename = match.group("file")
@@ -342,9 +372,10 @@ def resolve_prompt(prompt: str, repo: Path, slug: str) -> str:
         if match.group("slug") != slug or artifact_type is None:
             return match.group(0)
         doc = locate_document(repo, slug, filename, artifact_type)
-        if not doc.exists or doc.path == repo.joinpath(*match.group(0).split("/")):
+        target = doc.path.resolve()
+        if not doc.exists or target == root.joinpath(*match.group(0).split("/")):
             return match.group(0)
-        return str(doc.path)
+        return str(target)
 
     return _SDLC_MENTION.sub(point, prompt)
 
@@ -354,8 +385,8 @@ def _document_checkpoint(
 ) -> tuple[Checkpoint, handoff.Artifact | None]:
     """The shared checkpoint over one handoff document: it exists, validates, **and may be handed
     off** (ADR 0067) — for a loop-gated type its review loop reached ``proceed``; for any other, no
-    ``review_decision`` on it says otherwise. Read where the phase delivered it
-    (:func:`locate_document`); the detail names the copy read. Returns the artifact too (None when
+    ``review_decision`` on it says otherwise. Read as :func:`locate_document` finds it; the
+    detail names the copy read. Returns the artifact too (None when
     missing or invalid), so a domain checkpoint can assert its content."""
     doc = locate_document(repo, slug, filename, artifact_type)
     if name is None:
@@ -631,7 +662,7 @@ def _phase_prompt(phase: str) -> str:
             f"Read {sdlc}plan.md and {sdlc}tech-design.md. Implement the feature in taskstore.py "
             "(priority on add(); list() sorted by priority; preserve existing behavior) and add "
             "tests to test_taskstore.py. Run `python -m pytest -q` and make the whole suite green. "
-            "Stay within this working directory."
+            "Change files only within this working directory."
         ),
         "code-review": (
             f"Review the change to taskstore.py / test_taskstore.py (run `git diff`). Write a "
@@ -685,6 +716,13 @@ def prepare_scenario(plugin_dir: Path, dest: Path, scenario: Scenario) -> Path:
     baseline commit, optionally tag and replay conventional commits."""
     repo = dest / "repo"
     _copy_fixture(plugin_dir, repo, scenario.fixture)
+    if doc_delivery.SLUG_RE.fullmatch(scenario.slug):
+        # A re-run against the same --workspace: the previous run's docs worktree is not registered
+        # in the new repo, but `af.py doc-worktree` would report it as existing (it checks the
+        # directory), so a phase would write into a stale tree the new repo knows nothing of.
+        stale = dest / Path(doc_delivery.worktree_dir(scenario.slug)).name
+        if stale.exists():
+            shutil.rmtree(stale)
     for item in scenario.seed:
         target = repo / item.dest
         target.parent.mkdir(parents=True, exist_ok=True)
