@@ -124,13 +124,23 @@ def test_the_pattern_is_indexed_with_the_others(doc: str, needle: str) -> None:
     assert needle in _flat(_ROOT / doc)
 
 
-def test_the_pattern_waits_for_evals_before_roles_or_routing() -> None:
-    """Step 1 ships no role and no routing-note sentence: those need Tier-2 and Tier-1b runs."""
+def test_roles_wait_for_tier2_and_the_routing_sentence_came_with_its_tier1b() -> None:
+    """Step 1 shipped no role and no routing-note sentence. The sentence came with its own Tier-1b
+    run (ADR 0113, amendment 2026-11-27): it is the only place a hook names the pattern, inside
+    `session_start.DELEGATION_SENTENCE`/`_DELEGATION_PATTERN`. The roles still wait for Tier-2."""
     assert not (_AGENTS / "reader.md").exists()
     assert not (_AGENTS / "clerk.md").exists()
-    for path in (_PLUGIN / "hooks").rglob("*"):
-        if path.is_file() and path.suffix in {".py", ".json", ".md"}:
-            assert "cheap-delegation" not in path.read_text(encoding="utf-8"), path
+    naming = [
+        path for path in (_PLUGIN / "hooks").rglob("*")
+        if path.is_file() and path.suffix in {".py", ".json", ".md"}
+        and "cheap-delegation" in path.read_text(encoding="utf-8")
+    ]
+    assert naming == [_PLUGIN / "hooks" / "scripts" / "session_start.py"]
+    lines = [
+        line for line in naming[0].read_text(encoding="utf-8").splitlines()
+        if "cheap-delegation" in line
+    ]
+    assert lines and all("_DELEGATION_PATTERN = " in line for line in lines), lines
 
 
 # --- step 2: the grader omits CLAUDE.md -------------------------------------------------------

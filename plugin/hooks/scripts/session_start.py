@@ -26,7 +26,8 @@ from agentic_forge import diagnostics, observability, settings, vault  # noqa: E
 # `skill-factory` (no by-hand path; a maintainer skill since ADR 0105) fired 1.000, `code-review` /
 # `develop` fired 0.000. A skill's description makes it findable; nothing told the model that
 # finding it is the point. This line does, in the one channel that reaches every session, and its
-# whole cost is these two sentences. It used to add "*especially* when doing it directly looks
+# whole cost is these two sentences (the note's third, DELEGATION_SENTENCE below, adds ~240
+# characters). It used to add "*especially* when doing it directly looks
 # straightforward", which a fleet reported fighting `develop`'s own small-change path and project
 # rules like "subagents only when the work needs them": the skill sizes its process to the change,
 # so the note says that instead of pushing the full process onto a one-line fix. The hook runs on
@@ -48,7 +49,7 @@ SKILL_ROUTING_NOTE = (
 DELEGATION_SENTENCE = (
     "For large bulk reading (a log, diff or document read only for a few facts) or a mechanical "
     "multi-file edit, delegate to a low-cost subagent with a short brief and keep the judgement "
-    "yourself; when and how: {pattern}."
+    "yourself; when and how: `{pattern}`."
 )
 _DELEGATION_PATTERN = Path(__file__).resolve().parents[2] / "patterns" / "cheap-delegation.md"
 

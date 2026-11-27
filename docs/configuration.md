@@ -68,7 +68,7 @@ The `SessionStart` hook puts three sentences at the top of the session's context
 > the skill itself scales its process to the size of the change. For large bulk reading (a log, diff
 > or document read only for a few facts) or a mechanical multi-file edit, delegate to a low-cost
 > subagent with a short brief and keep the judgement yourself; when and how:
-> <plugin>/patterns/cheap-delegation.md.
+> `<plugin>/patterns/cheap-delegation.md`.
 
 It exists because a session left alone picked the matching skill for about a third of the requests
 squarely in its domain, and least often for the ones that looked easy to do by hand (ADR 0088). It
