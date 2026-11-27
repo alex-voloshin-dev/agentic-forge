@@ -313,9 +313,15 @@ def _committed_at(tree: Path, path: Path) -> int:
 
 
 def _recency(doc: Located) -> float:
-    """How recent a copy is: the later of the last commit touching it and its modification time —
-    a tracked file edited since its commit keeps the old commit time, so the mtime must count."""
-    return max(float(_committed_at(doc.tree, doc.path)), doc.path.stat().st_mtime)
+    """How recent a copy's **content** is. A clean tracked file: its last commit time only — a
+    `git checkout`/`restore` gives old content a fresh mtime, which must not make it look newest.
+    A file modified against HEAD or untracked (or one git cannot tell about): the later of its last
+    commit time and its mtime, since an edit since the commit keeps the old commit time."""
+    committed = _committed_at(doc.tree, doc.path)
+    status = _git_out(doc.tree, "status", "--porcelain", "--", doc.rel)
+    if committed and status is not None and not status.strip():
+        return float(committed)
+    return max(float(committed), doc.path.stat().st_mtime)
 
 
 def locate_document(repo: Path, slug: str, filename: str, artifact_type: str) -> Located:

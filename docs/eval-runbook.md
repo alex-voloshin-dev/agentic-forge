@@ -205,8 +205,9 @@ python dev/run_spine_e2e.py --runner claude --scenario product-inception     # l
 - **Where a checkpoint reads.** The document phases (research, product, architecture, plan,
   ux-design, marketing) deliver into the feature's docs worktree (`<workspace>/wt-docs-<slug>` on
   `docs/<slug>`), not the checkout. For their documents, a checkpoint looks in that worktree and in
-  the checkout, and reads the **most recent** copy: the later of its last commit and its mtime, the
-  checkout on a tie. Every other document (code review, security review, test strategy, release,
+  the checkout, and reads the copy with the **most recent content**: a clean tracked file by its
+  last commit, a modified or untracked one by the later of that and its mtime, the checkout on a
+  tie. Every other document (code review, security review, test strategy, release,
   onboarding, the ops artifacts) is read from `<checkout>/docs/sdlc/<slug>/` only, so a doc
   phase's own review round in the worktree never passes for a code review. The checkpoint line
   names the copy (`read docs/sdlc/<slug>/prd.md in worktree … (docs/<slug>)`), and the next

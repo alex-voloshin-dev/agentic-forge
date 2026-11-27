@@ -14,25 +14,26 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
   skills, and are fixed here; **the scenario is not yet re-validated by a live run.** One cause stays open as a
   separate follow-up: in several rounds the external codex lens alone held `changes` while the internal reviewer
   approved, and its prompt carries no severity rubric and no prior-round context. The four fixed causes:
-  1. **The checkpoint read the wrong copy.** `research` delivers into the feature's docs worktree
-     (`../wt-docs-<slug>` on `docs/<slug>`, doc-delivery). Its retry converged there (`review_decision: proceed`,
-     committed), but the checkpoint read only `<checkout>/docs/sdlc/<slug>/`, where the escalated first attempt was
-     still on disk. The `product` prompt pointed at that stale copy too, so `product` correctly refused it. Now a
-     checkpoint reads a document through `spine_e2e.locate_document`. For the six loop-gated types (the doc-delivery
-     phases' research brief, PRD, tech design, plan, ux-spec and market brief), it looks in the checkout and in every
-     worktree on `docs/<slug>`, each resolved by `artifact-home` (a repository's own feature folder, else
-     `docs/sdlc/<slug>/`). It reads the **most recent** copy, the later of its last commit and its modification time
-     (on a tie, the checkout's), and then requires *that* copy to be ready, so an older ready copy never outvotes a
-     newer escalated one. Every other type (`review`, `test-strategy`, `release`, `onboarding`, the ops artifacts) is
-     read from `<checkout>/docs/sdlc/<slug>/` only, as before. Otherwise a `type: review` round that an escalating
-     doc phase leaves in its worktree could pass `check_code_review` for a code review that wrote nothing. The
-     checkpoint line names the copy it read (`read docs/sdlc/<slug>/prd.md in worktree <path> (docs/<slug>)`) or
-     says why it failed. Before each attempt, `spine_e2e.resolve_prompt` points the phase prompt's loop-gated
-     documents at that copy, by absolute path. On a retry this includes the phase's own document, which is where its
-     skill's doc-delivery writes again. `check_architecture` counts ADRs beside the design it read. A re-run in the
-     same `--workspace` removes the previous run's `wt-docs-<slug>` directory, which the new repository does not
-     know but `af.py doc-worktree` would report as existing. The spine `develop` prompt now says "Change files only
-     within this working directory", since upstream documents may be read from the docs worktree.
+  1. **The checkpoint read the wrong copy.** `research` delivers into the feature's docs worktree (`../wt-docs-<slug>`
+     on `docs/<slug>`, doc-delivery). Its retry converged there (`review_decision: proceed`, committed), but the
+     checkpoint read only `<checkout>/docs/sdlc/<slug>/`, where the escalated first attempt was still on disk. The
+     `product` prompt pointed at that stale copy too, so `product` correctly refused it. Now a checkpoint reads a
+     document through `spine_e2e.locate_document`. For the six loop-gated types (the doc-delivery phases' research
+     brief, PRD, tech design, plan, ux-spec and market brief), it looks in the checkout and in every worktree on
+     `docs/<slug>`, each resolved by `artifact-home` (a repository's own feature folder, else `docs/sdlc/<slug>/`). It
+     reads the copy with the **most recent content**: a clean tracked file by its last commit time (a `git checkout`
+     gives old content a fresh mtime), a modified or untracked one by the later of that and its modification time, and
+     on a tie the checkout's. It then requires *that* copy to be ready, so an older ready copy never outvotes a newer
+     escalated one. Every other type (`review`, `test-strategy`, `release`, `onboarding`, the ops artifacts) is read
+     from `<checkout>/docs/sdlc/<slug>/` only, as before. Otherwise a `type: review` round that an escalating doc
+     phase leaves in its worktree could pass `check_code_review` for a code review that wrote nothing. The checkpoint
+     line names the copy it read (`read docs/sdlc/<slug>/prd.md in worktree <path> (docs/<slug>)`) or says why it
+     failed. Before each attempt, `spine_e2e.resolve_prompt` points the phase prompt's loop-gated documents at that
+     copy, by absolute path. On a retry this includes the phase's own document, which is where its skill's
+     doc-delivery writes again. `check_architecture` counts ADRs beside the design it read. A re-run in the same
+     `--workspace` removes the previous run's `wt-docs-<slug>` directory, which the new repository does not know but
+     `af.py doc-worktree` would report as existing. The spine `develop` prompt now says "Change files only within this
+     working directory", since upstream documents may be read from the docs worktree.
   2. **Escalated documents passed some checkpoints.** `check_ux_spec` and `check_market_brief` asserted only that the
      artifact validates, so an escalated ux-spec passed (it did in the investigated run). They now share
      `_artifact_checkpoint`'s readiness rule (ADR 0067), through one helper, `_document_checkpoint`. Readiness is

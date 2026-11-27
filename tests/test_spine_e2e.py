@@ -510,7 +510,7 @@ ESCALATED_BRIEF = RESEARCH_BRIEF.replace(
     "status: final\n", "status: draft\nreview_decision: escalate\n"
 )
 READY_BRIEF = RESEARCH_BRIEF.replace("status: final\n", "status: draft\nreview_decision: proceed\n")
-T0 = 1_700_000_000  # explicit times: recency is max(last commit, mtime), so a test must pin both
+T0 = 1_700_000_000  # explicit times: recency reads the last commit and the mtime, so pin both
 
 
 def _git_run(tree: Path, *args: str, when: int | None = None) -> str:
@@ -603,6 +603,25 @@ def test_a_tracked_copy_edited_after_its_commit_counts_by_its_mtime(tmp_path: Pa
     _put(repo, "research-brief.md", ESCALATED_BRIEF, T0 + 7200)  # dirty, not committed
     doc = spine_e2e.locate_document(repo, SLUG, "research-brief.md", "research-brief")
     assert doc.where == "checkout" and not doc.ready
+
+
+def test_a_restored_clean_copy_counts_by_its_commit_not_its_fresh_mtime(tmp_path: Path) -> None:
+    # An older committed ready copy re-materialised by git (fresh mtime) after a newer escalated
+    # copy exists in the other tree: its content is still the old commit's, so the escalated one
+    # is read and the checkpoint fails.
+    repo = prepare_scenario(PLUGIN, tmp_path, SPINE)
+    wt = _docs_worktree(repo)
+    ready = _put(wt, "research-brief.md", READY_BRIEF, T0, commit=True)
+    _put(repo, "research-brief.md", ESCALATED_BRIEF, T0 + 3600)
+    ready.unlink()
+    _git_run(wt, "checkout", "--", ready.relative_to(wt).as_posix())
+    assert ready.stat().st_mtime > T0 + 3600  # git gave the old content a fresh mtime
+    cp = check_research(repo)[0]
+    assert not cp.passed
+    assert cp.detail == (
+        f"docs/sdlc/{SLUG}/research-brief.md in checkout: "
+        "not handed off: review_decision is 'escalate', not 'proceed'"
+    )
 
 
 def test_a_newer_invalid_copy_is_read_and_fails(tmp_path: Path) -> None:
