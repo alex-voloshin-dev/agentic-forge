@@ -17,8 +17,9 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
   that a cheaper subagent model made each delegation cheaper but started none until something said when to delegate;
   the pattern alone reached a session only when it went looking for delegation advice. The sentence is about 240 characters
   of context at every session start and after every compaction, and the same switch (`routing_note.enabled`,
-  `AGENTIC_FORGE_ROUTING_NOTE=0`) turns it off with the rest of the note. Tier-1b was run before and after, so the
-  sentence is known not to cost skill activation (numbers in ADR 0113's amendment).
+  `AGENTIC_FORGE_ROUTING_NOTE=0`) turns it off with the rest of the note. Tier-1b on Opus 5.5 gave 0.975 pooled
+  (78/80) both before and after, with identical per-skill rates, so the sentence does not cost skill activation. Whether
+  sessions now delegate is not measured by any harness; the field fleet is asked to report it.
 
 ## [2026.11.19] - 2026-11-27
 
