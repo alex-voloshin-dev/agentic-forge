@@ -37,14 +37,14 @@ itself, with its maintainer skill `skill-factory` (not shipped in this plugin �
 | Path | What it is |
 | --- | --- |
 | `skills/<name>/` | The skills — each a `SKILL.md` + `references/`, `assets/`, `scripts/`, `evals/evals.json`. |
-| `agents/<name>.md` | Subagent roles skills delegate to (reviewer, software-engineer, architect, …), each with an eval contract. |
+| `agents/<name>.md` | Subagent roles skills and sessions delegate to (reviewer, software-engineer, architect, the low-cost reader, …), each with an eval contract. |
 | `patterns/` | Engine pattern references (review loop, fan-out/fan-in, adversarial/ multi-aspect review, handoff, worktree). |
 | `hooks/` | Guardrail + session-start hooks (`hooks.json` + Python scripts). |
 | `lib/agentic_forge/` | Shared, importable, tested Python used by scripts and hooks. |
 | `eval/` | Eval-harness docs + agent eval fixtures. |
 | `schemas/` | JSON Schema for the `evals.json` contract. |
 
-The read-only roles (`reviewer`, `security-engineer`, `grader`, `architect`) are held to their tool
+The read-only roles (`reviewer`, `security-engineer`, `grader`, `architect`, `reader`) are held to their tool
 scope by the `role_scope` hook in every permission mode, `bypassPermissions` included. An error inside
 the hook refuses the call for these roles; like every hook, one that fails to start (no `python3` on
 PATH, for one) fails open.

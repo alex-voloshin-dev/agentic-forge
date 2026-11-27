@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Protocol
 
-from agentic_forge import agent_eval, benchmark, diagnostics, gate, validation
+from agentic_forge import agent_eval, benchmark, diagnostics, evals, gate, validation
 
 # The variables a skill body may reference as `${VAR}` and expect a live session to resolve. The
 # harness PINS these for every Tier-2 and Tier-3 session — to the tree under test, never to whatever
@@ -140,6 +140,27 @@ def warn_if_api_key_set(runner: str) -> None:
     takes precedence over the subscription token, so the run would bill per token."""
     if runner == "claude" and os.environ.get("ANTHROPIC_API_KEY"):
         print(_API_KEY_WARNING, file=sys.stderr)
+
+
+def workspace_refusals(runner: str, contracts: dict[str, Path]) -> list[str]:
+    """Why this run must not start: under ``--runner api`` (one Messages call, no tools), a case
+    with a ``workspace`` names its files instead of pasting them, so the model would answer without
+    ever seeing them and the grade would measure nothing (ADR 0116). One line per component, keyed
+    by its label in ``contracts`` (label -> evals.json path); a missing contract is the wiring
+    check's to report. Empty for every other runner."""
+    if runner != "api":
+        return []
+    refusals: list[str] = []
+    for label, path in contracts.items():
+        if not path.is_file():
+            continue
+        ids = evals.workspace_case_ids(evals.load_evals(path).get("evals") or [])
+        if ids:
+            refusals.append(
+                f"{label}: cases {ids} run in a workspace whose files the role reads with its "
+                "tools; --runner api has no tools. Use --runner claude."
+            )
+    return refusals
 
 
 def build_runners(

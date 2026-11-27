@@ -47,7 +47,9 @@ on an unvalidated tier. `dev/sync_models.py` regenerates the frontmatter from th
 default from `TIERS["default"]`. `grader` and `qa-engineer` run at `simple` (`model:
 claude-sonnet-5-5`); `reviewer`, `security-engineer`, `architect` and `software-engineer` stay
 `default` (`model: inherit`), because their Tier-2 sets scored about 1.0 at both tiers and so cannot
-show that a cheaper model holds on the hard cases those roles exist for. The frontmatter carries the
+show that a cheaper model holds on the hard cases those roles exist for. `reader` (ADR
+0116) is built for a cheaper tier but stays `default` until its Tier-2 set has run at both
+tiers. The frontmatter carries the
 full model id, not the `sonnet` alias: on Bedrock and Vertex an Anthropic id maps to the provider's
 id for that version, while the alias resolves to an older Sonnet there; on Microsoft Foundry the id
 must name a deployment or have a `modelOverrides` entry. The Tier-2 runners keep the judge fixed

@@ -80,6 +80,12 @@ reader's brief that worked was 1,700 characters, a clerk's 1,300) and give:
   this pattern avoids and a standing directive that can override a read-only brief (see
   [fan-out-fan-in.md](fan-out-fan-in.md#choosing-the-subagent-type)). A read-only search agent
   fits a reader; a general-purpose agent fits a clerk.
+- **For bulk reading, the plugin's `reader` role is the default subagent type** (ADR 0116). It
+  reads with Read, Grep and Glob only, held there by the `role_scope` hook, answers in the brief's
+  form and cap with `path:line` anchors, says not found rather than guess, and withholds any secret
+  it meets. It ships with `model: inherit` until its Tier-2 runs place it on a tier, so name the
+  model in the call for it too. The plugin has no clerk role yet: a clerk stays a general-purpose
+  agent, as above.
 - **A cheaper model and low effort, named in the call.** Pass the model (Sonnet for both; Haiku for
   a plain reader) and, where the host offers it, a low reasoning effort, in the delegation call. A
   host-wide default subagent model makes every subagent cheaper, including the roles that review
@@ -123,7 +129,7 @@ re-reading everything would undo the saving.
 - **Nothing per call limits a delegated subagent's tools:** only its agent type, the user's
   permission rules, and the brief. A read-only search agent has no edit tools, but a
   general-purpose clerk has a shell, and the check it runs executes project code. The plugin's own
-  read-only roles are held by a hook; a built-in agent is not. The brief asks a reader to stay
+  read-only roles, `reader` among them, are held by a hook; a built-in agent is not. The brief asks a reader to stay
   read-only, and a clerk to make the listed edits and run the one named check, with no sending,
   pushing, merging or secrets; asking is all it does.
 - **The worktree isolates edits; it is not a security boundary.** A subagent with a shell can still
@@ -138,3 +144,4 @@ re-reading everything would undo the saving.
   subagent-type and worktree rules this pattern follows.
 - [worktree.md](worktree.md) — where a clerk edits, and the staged diff the caller checks.
 - [handoff.md](handoff.md) — a subagent's report is a claim; the caller checks it.
+- [reader](../agents/reader.md) — the role this pattern delegates bulk reading to (ADR 0116).

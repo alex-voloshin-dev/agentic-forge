@@ -37,6 +37,7 @@ ENGINE_ROLES = [
     "architect",
     "security-engineer",
     "qa-engineer",
+    "reader",
 ]
 ENGINE_PATTERNS = ["handoff.md", "review-loop.md", "worktree.md"]
 

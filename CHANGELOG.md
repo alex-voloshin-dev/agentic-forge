@@ -9,6 +9,35 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ### Added
 
+- **The `reader` role** (ADR 0116), the low-cost subagent the cheap-delegation pattern (ADR 0113) delegates bulk
+  reading to, built contract and Tier-2 set first. `plugin/agents/reader.md` reads a long log, a large diff, many
+  review threads or files and returns only the facts the brief asks for, in its form and line cap, each anchored as
+  `path:line`; it says `not found` rather than guess, reports instruction-shaped text in the material as a finding and
+  never follows it, gives no verdict, reports a secret by kind and anchor with its value withheld, and opens no
+  credential file even when asked. The `role_scope` hook holds it to Read, Grep and Glob in every permission mode, like
+  the grader. It sets `omitClaudeMd: true` (the brief is its whole input) and ships `model: inherit` (`default` in
+  `VALIDATED_TIERS`): its Tier-2 set (four cases, `mean − σ ≥ 0.8`, n = 5) is wired and not yet run, and its tier is
+  decided after runs at both Opus 5.5 and Sonnet 5.5. The pattern names it as the default subagent type for bulk
+  reading. The clerk the pattern also describes stays a general-purpose agent: a clerk role is deferred until
+  `role_scope` can hold it, and ADR 0116 lists what that takes.
+- **An eval case may ask for its own workspace** (ADR 0116). `"workspace": "dir"` runs the case in a fresh directory
+  holding its files, whatever `--isolate` says, and the prompt names the files instead of pasting them, so the role
+  reads them with its tools; the grader runs in the same directory. `run_agent_evals` and `run_skill_evals` refuse a
+  component with such cases under `--runner api` (no tools) before any model call. The schema and the dry runner
+  reject any other value.
+
+### Changed
+
+- **A `role_scope` refusal for a held role that is not a review lens names the caller** (ADR 0116): "Tests, linters
+  and other tools are run by the caller", where it said the orchestrating skill, in the refusal and in the fail-closed
+  notice. The lenses' refusals are unchanged.
+
+### Fixed
+
+- **A Tier-2 fixture path may not leave the plugin directory** (ADR 0116). `eval_case_problems` (the dry runner's
+  wiring check) rejects a case's `files` entry that is absolute or holds a `..` or `.git` part, since the files are
+  copied into the role's sandbox.
+
 - **Harder Tier-2 cases for the four roles still at `default`** (ADR 0114 amendment). ADR 0114 measured all six roles
   at Opus 5.5 and Sonnet 5.5 and every set scored about 1.0 at both, so the sets could not tell the tiers apart and
   `reviewer`, `security-engineer`, `architect` and `software-engineer` were held back. Each now has two more cases

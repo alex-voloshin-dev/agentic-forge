@@ -1,0 +1,12 @@
+# payments service: client settings for calls to its upstream
+name: payments
+owner: team-payments
+upstream:
+  url: http://payments.internal:8080
+client:
+  retries: 1
+  timeout_ms: 3000
+  pool_size: 10
+health:
+  path: /healthz
+  interval_s: 15

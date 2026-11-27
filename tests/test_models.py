@@ -34,7 +34,9 @@ def test_tiers_are_the_three_named_tiers() -> None:
 def test_validated_tiers_promote_only_measured_roles() -> None:
     # ADR 0114 replaced "all default": the unpromoted roles still resolve to inherit
     unpromoted = [r for r, tier in models.VALIDATED_TIERS.items() if tier == "default"]
-    assert sorted(unpromoted) == ["architect", "reviewer", "security-engineer", "software-engineer"]
+    assert sorted(unpromoted) == [
+        "architect", "reader", "reviewer", "security-engineer", "software-engineer"
+    ]
     assert all(models.frontmatter_model(r) == "inherit" for r in unpromoted)
 
 
@@ -87,3 +89,11 @@ def test_the_committed_policy_promotes_exactly_grader_and_qa_engineer() -> None:
     promoted = {role for role, tier in models.VALIDATED_TIERS.items() if tier != "default"}
     assert promoted == {"grader", "qa-engineer"}
     assert models.frontmatter_model("grader") == models.TIERS["simple"] == "claude-sonnet-5-5"
+
+
+def test_the_reader_ships_unmeasured_at_default() -> None:
+    """ADR 0116: `reader` is built for a cheaper tier, but the tier is decided only after Tier-2
+    at both tiers; until then it follows the session (`inherit`). No clerk role ships."""
+    assert models.VALIDATED_TIERS["reader"] == "default"
+    assert models.frontmatter_model("reader") == "inherit"
+    assert "clerk" not in models.VALIDATED_TIERS

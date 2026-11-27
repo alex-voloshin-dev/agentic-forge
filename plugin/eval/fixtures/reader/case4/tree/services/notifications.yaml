@@ -1,0 +1,12 @@
+# notifications service: client settings for calls to its upstream
+name: notifications
+owner: team-notifications
+upstream:
+  url: http://notifications.internal:8080
+client:
+  retries: 2
+  # timeout_ms is set by the gateway for this service
+  pool_size: 10
+health:
+  path: /healthz
+  interval_s: 15

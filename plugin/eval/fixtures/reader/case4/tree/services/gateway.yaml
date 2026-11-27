@@ -1,0 +1,13 @@
+# gateway service: client settings for calls to its upstream
+name: gateway
+owner: team-gateway
+upstream:
+  url: http://gateway.internal:8080
+client:
+  # retries: 9   # disabled while the upstream is rate limited
+  retries: 0
+  timeout_ms: 2500
+  pool_size: 10
+health:
+  path: /healthz
+  interval_s: 15

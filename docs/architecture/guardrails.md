@@ -288,7 +288,7 @@ crashed: … — failing open" — because a dead guardrail otherwise looks exac
 - **budgets** (`PreToolUse` / Task, `budget.py`) — a per-session subagent counter; **warns** over
   the soft cap and **blocks** over the hard cap (`AGENTIC_FORGE_SUBAGENT_SOFT` / `_HARD`).
 - **role scope** (`PreToolUse` / every tool but Read, Grep and Glob, `role_scope.py`) — holds the
-  read-only roles (`reviewer`, `security-engineer`, `grader`, `architect`) to their tool scope in
+  read-only roles (`reviewer`, `security-engineer`, `grader`, `architect`, `reader`) to their tool scope in
   every permission mode, by allowlist, and runs a lens's git call in a hardened form; silent for
   every other caller. See [Role scope](#role-scope) below (ADR 0106).
 - **logging** (`PostToolUse`, `audit_log.py`, gated by `logs.enabled` / `AGENTIC_FORGE_LOGS` — **on by default**, ADR 0078) — appends a secret-redacted JSONL audit line to
@@ -342,8 +342,11 @@ of it the interpreter's start, measured on WSL2 with CPython 3.12 (ADR 0106).
 | Role | Allowed | Bash |
 | --- | --- | --- |
 | `reviewer`, `security-engineer` | Read, Grep, Glob, Bash | one read-only git command (below) |
-| `grader` | Read, Grep, Glob | refused |
+| `grader`, `reader` | Read, Grep, Glob | refused |
 | `architect` | Read, Grep, Glob, Write (Markdown design documents under `docs/`, or in a feature folder or ADR directory the repository already keeps, below) | refused |
+
+`reader` joined the table with [ADR 0116](decisions/0116-the-reader-role-the-clerk-deferred.md). The pattern's clerk has no role:
+ADR 0116 defers it until this hook can hold it (Edit inside its own worktree, a hardened git allowlist).
 
 Any other tool is refused for these roles: Edit, MultiEdit, NotebookEdit, WebFetch, WebSearch,
 Agent/Task, Monitor, PowerShell, Skill, every MCP tool, and any tool added later. The matcher is the
@@ -484,7 +487,9 @@ back is checked as the plain one and rewritten to the same text.
 **The refusal** is the `PreToolUse` `deny` decision on stdout (`hookSpecificOutput.permissionDecision`
 with exit 0), which Claude Code applies in every permission mode. Its reason names the role, says what
 the role may run, and says that tests, linters and other tools are run by the orchestrating skill, not
-by a review lens, which verifies by reading (`git show <base>:<path>`, `git log`, `git blame`). The
+by a review lens, which verifies by reading (`git show <base>:<path>`, `git log`, `git blame`); for the
+other held roles it says they are run by the caller (ADR 0116: the `reader` is delegated to by a
+session, not only by a skill). The
 only parts of the command it repeats are a short, secret-redacted excerpt (`guardrails.redact_secrets`)
 of the word it refused. With diagnostics on, a refusal is recorded as a `block` with its rule id.
 

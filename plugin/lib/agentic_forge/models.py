@@ -37,6 +37,7 @@ VALIDATED_TIERS: dict[str, str] = {
     "architect": "default",
     "grader": "simple",  # Tier-2 1.000 at claude-sonnet-5-5, n=5 (ADR 0114)
     "qa-engineer": "simple",  # Tier-2 1.000 at claude-sonnet-5-5, n=5 (ADR 0114)
+    "reader": "default",  # built for a cheaper tier; not measured at any tier yet (ADR 0116)
     "reviewer": "default",
     "security-engineer": "default",
     "software-engineer": "default",

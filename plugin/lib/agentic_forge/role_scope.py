@@ -15,7 +15,7 @@ The allowlists, by role:
 
 - ``reviewer`` / ``security-engineer``: Read, Grep, Glob, and Bash for one read-only git command
   (:func:`parse_git`);
-- ``grader``: Read, Grep, Glob;
+- ``grader`` and ``reader``: Read, Grep, Glob (ADR 0116 adds ``reader``);
 - ``architect``: Read, Grep, Glob, and Write for Markdown design documents under ``docs/`` in the
   session's working tree, or in a feature folder or ADR directory the repository already keeps
   (:func:`_write_problem`).
@@ -90,6 +90,7 @@ ROLE_TOOLS: dict[str, frozenset[str]] = {
     f"{PLUGIN_NAMESPACE}:reviewer": _READ | {"Bash"},
     f"{PLUGIN_NAMESPACE}:security-engineer": _READ | {"Bash"},
     f"{PLUGIN_NAMESPACE}:grader": _READ,
+    f"{PLUGIN_NAMESPACE}:reader": _READ,
     f"{PLUGIN_NAMESPACE}:architect": _READ | {"Write"},
 }
 # The roles whose Bash is held to the read-only git rule.
@@ -681,13 +682,16 @@ _LENS_ADVICE = (
     f"{_ORCHESTRATOR} a review lens: verify by reading (git show <base>:<path>, git log, "
     "git blame) and report what still needs running."
 )
+# A role that is not a lens may be delegated to by a session rather than a skill (the reader is,
+# ADR 0116), so its refusal names whoever delegated: the caller.
+_CALLER = "Tests, linters and other tools are run by the caller, not by"
 
 
 def _deny(agent_type: str, refused: str, rule: str, evidence: str) -> Decision:
     role = _role_label(agent_type)
     advice = (
         _LENS_ADVICE if agent_type in GIT_ROLES
-        else f"{_ORCHESTRATOR} the {role} role: report what needs running."
+        else f"{_CALLER} the {role} role: report what needs running."
     )
     message = (
         f"agentic-forge role scope: the {role} role may use {_scope_text(agent_type)}. "

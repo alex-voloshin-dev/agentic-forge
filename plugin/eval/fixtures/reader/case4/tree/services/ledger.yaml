@@ -1,0 +1,12 @@
+# ledger service: client settings for calls to its upstream
+name: ledger
+owner: team-ledger
+upstream:
+  url: http://ledger.internal:8080
+client:
+  retries: 3
+  timeout_ms: 6000
+  pool_size: 10
+health:
+  path: /healthz
+  interval_s: 15
