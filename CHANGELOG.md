@@ -7,6 +7,25 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+### Fixed
+
+- **The merge gates read review threads past the first 100** (ADR 0110, second amendment). The merge gates (the
+  `merge_preflight` hook and the PR watcher) and `af.py pr-state` read `reviewThreads(first:100)`, which counts
+  resolved threads too, and held a PR as "truncated" for good once it had had more than 100. Since 2026.11.17 every
+  own-PR `changes` finding opens a thread, so a long review loop could reach that. Now `PR_QUERY` asks for the page's
+  `endCursor`, and `pr_watch.read_all_threads` follows the pages with `THREADS_QUERY`
+  (`reviewThreads(first:100,after:$after)`) through each caller's own `gh api graphql` call and time budget: the
+  hook's absolute `gh`, `--hostname` and 12-second deadline, one 120-second deadline in the watcher, one 60-second
+  deadline in `af.py pr-state`. At most `THREAD_PAGES = 10` pages, 1,000 threads. It stays fail-closed: past the cap,
+  or when a later page fails, runs out of time, is not about this PR or has no usable cursor, the list is truncated
+  and the PR is held, now with "review threads truncated (over 1000, or a page not read)". A failed first read in the
+  hook still fails open with a notice, as before. `latestOpinionatedReviews` is unchanged.
+- **The commit gate's narrowing runs git by absolute path** (ADR 0115, amendment). `gate_scope`'s own git reads ran
+  `git` by its bare name, which on Windows can resolve from the current directory, the repository. They now run the
+  path `guardrails.executable(["git"], PATH)` finds in the absolute `PATH` entries only (on Windows a `git.exe`/`.com`
+  only), looked up once per `PATH` and so once per hook run. No such git is a failed read: the whole gate runs, as on
+  any git failure.
+
 ## [2026.11.18] - 2026-11-27
 
 Field item 10 (thread e079ac53): a skill's `## Output` describes the artifact, not its guards again.

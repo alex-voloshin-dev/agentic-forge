@@ -382,6 +382,128 @@ def test_truncated_thread_list_blocks() -> None:
     assert decision.ready is False and any("truncated" in r for r in decision.reasons)
 
 
+def _threads_answer(
+    resolved: tuple[bool, ...], after: str | None, *, first: int = 0, top: bool = False
+) -> dict[str, Any]:
+    """A thread page: one thread per ``resolved``, more after the cursor ``after`` (None: last).
+    ``top``: a whole PR_QUERY answer, else a THREADS_QUERY one."""
+    nodes = [
+        {"id": f"T{first + i}", "isResolved": done,
+         "comments": {"nodes": [{"body": "fix", "path": "a.py", "line": 1,
+                                 "authorAssociation": "MEMBER",
+                                 "author": {"login": "rev", "__typename": "User"}}]}}
+        for i, done in enumerate(resolved)
+    ]
+    threads = {"pageInfo": {"hasNextPage": after is not None, "endCursor": after}, "nodes": nodes}
+    if top:
+        return _pr_json(reviewThreads=threads)
+    return {"data": {"repository": {"pullRequest": {"number": 7, "reviewThreads": threads}}}}
+
+
+class _Pages:
+    """``read_page`` over canned answers by cursor; a cursor it lacks raises, as a failed `gh`."""
+
+    def __init__(self, answers: dict[str, Any]) -> None:
+        self.answers = answers
+        self.asked: list[str] = []
+
+    def __call__(self, after: str) -> Any:
+        self.asked.append(after)
+        if after not in self.answers:
+            raise RuntimeError("gh api graphql exited 1")
+        return self.answers[after]
+
+
+def test_the_thread_pages_are_followed_and_all_resolved_is_not_held() -> None:
+    first = _threads_answer((True,) * 100, "c1", top=True)
+    pages = _Pages({"c1": _threads_answer((True,) * 100, "c2", first=100),
+                    "c2": _threads_answer((True,) * 5, None, first=200)})
+    state = pr_watch.parse_pr(pr_watch.read_all_threads(first, pages))
+    assert pages.asked == ["c1", "c2"]
+    assert len(state.threads) == 205 and len({t.id for t in state.threads}) == 205
+    assert state.threads_truncated is False
+    assert pr_watch.merge_readiness(state, bot=_BOT).ready is True
+    assert first["data"]["repository"]["pullRequest"]["reviewThreads"]["pageInfo"][
+        "hasNextPage"
+    ] is True  # the caller's answer is not changed
+
+
+def test_an_unresolved_thread_on_a_later_page_is_held() -> None:
+    first = _threads_answer((True,) * 100, "c1", top=True)
+    pages = _Pages({"c1": _threads_answer((True, False), None, first=100)})
+    state = pr_watch.parse_pr(pr_watch.read_all_threads(first, pages))
+    assert state.threads_truncated is False
+    assert [t.id for t in pr_watch.actionable_threads(state, bot=_BOT)] == ["T101"]
+    assert "1 unresolved review thread(s)" in pr_watch.merge_readiness(state, bot=_BOT).reasons
+
+
+@pytest.mark.parametrize(
+    "answers",
+    [
+        {},  # the second page fails
+        {"c1": {"errors": [{"message": "rate limited"}], "data": None}},
+        {"c1": {"data": {"repository": {"pullRequest": {"number": 8, "reviewThreads": {
+            "pageInfo": {"hasNextPage": False}, "nodes": []}}}}}},  # another PR
+        {"c1": {"data": {"repository": {"pullRequest": {"number": 7, "reviewThreads": {
+            "pageInfo": {"hasNextPage": False}, "nodes": [None]}}}}}},
+        {"c1": _threads_answer((True,), "c2", first=100)},  # and then c2 fails
+    ],
+    ids=["fails", "errors", "another-pr", "null-node", "third-fails"],
+)
+def test_a_thread_page_not_read_leaves_the_list_truncated(answers: dict[str, Any]) -> None:
+    first = _threads_answer((True,), "c1", top=True)
+    state = pr_watch.parse_pr(pr_watch.read_all_threads(first, _Pages(answers)))
+    assert state.threads_truncated is True
+    reasons = pr_watch.merge_readiness(state, bot=_BOT).reasons
+    assert any(r.startswith("review threads truncated (over 1000") for r in reasons)
+
+
+@pytest.mark.parametrize("cursor", [None, "", "a b", "x" * 513, 7])
+def test_a_missing_or_odd_cursor_reads_nothing_and_stays_truncated(cursor: Any) -> None:
+    first = _threads_answer((True,), "c1", top=True)
+    first["data"]["repository"]["pullRequest"]["reviewThreads"]["pageInfo"]["endCursor"] = cursor
+    pages = _Pages({})
+    assert pr_watch.parse_pr(pr_watch.read_all_threads(first, pages)).threads_truncated is True
+    assert pages.asked == []
+
+
+def test_past_the_page_cap_the_list_is_truncated() -> None:
+    assert pr_watch.THREAD_PAGES == 10  # 1,000 threads
+    first = _threads_answer((True,) * 100, "c1", top=True)
+    answers = {f"c{n}": _threads_answer((True,) * 100, f"c{n + 1}", first=100 * n)
+               for n in range(1, 20)}
+    pages = _Pages(answers)
+    state = pr_watch.parse_pr(pr_watch.read_all_threads(first, pages))
+    assert pages.asked == [f"c{n}" for n in range(1, 10)]  # the first answer is page one
+    assert len(state.threads) == 1000 and state.threads_truncated is True
+    small = _Pages(answers)
+    assert pr_watch.parse_pr(pr_watch.read_all_threads(first, small, pages=2)).threads_truncated
+    assert small.asked == ["c1"]
+    last = _Pages({**answers, "c9": _threads_answer((True,), None, first=900)})
+    exactly = pr_watch.parse_pr(pr_watch.read_all_threads(first, last))
+    assert exactly.threads_truncated is False and len(exactly.threads) == 901
+
+
+def test_an_answer_with_nothing_to_follow_is_returned_as_it_is() -> None:
+    complete = _threads_answer((True,), None, top=True)
+    never = _Pages({})
+    assert pr_watch.read_all_threads(complete, never) is complete
+    for odd in ({}, {"pullRequest": {"number": 7}}, _pr_json(), {"data": None}):
+        assert pr_watch.read_all_threads(odd, never) is odd
+    assert never.asked == []
+
+
+def test_the_thread_page_query_and_argv() -> None:
+    assert "reviewThreads(first:100){pageInfo{hasNextPage endCursor}" in pr_watch.PR_QUERY
+    assert "reviewThreads(first:100,after:$after){pageInfo{hasNextPage endCursor}" in (
+        pr_watch.THREADS_QUERY
+    )
+    argv = pr_watch.threads_page_argv("2048", "null", 7, "Y3Vyc29y==")
+    assert argv[:3] == ["gh", "api", "graphql"]
+    assert argv[argv.index("-F") + 1] == "number=7"  # typed: an Int
+    assert "-f" in argv and "after=Y3Vyc29y==" in argv and "owner=2048" in argv
+
+
 def test_a_closed_or_merged_pr_is_not_mergeable() -> None:
     for pr_state in ("CLOSED", "MERGED"):
         decision = pr_watch.merge_readiness(_state(state=pr_state), bot=_BOT)

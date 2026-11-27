@@ -162,7 +162,9 @@ there is deliberately no force builder. **Merging is the one reversal (ADR 0063)
 now carry a PR to done — triage each review comment (valid → fix through the `software-engineer` +
 bounded review loop; invalid → reasoned refutation, thread left open), resolve conflicts, and merge
 once the pure `merge_readiness` gate opens (not draft, checks green — *no CI at all blocks*, no
-unresolved threads, `MERGEABLE`). An external reviewer's window is the poll interval, not a separate
+unresolved threads, `MERGEABLE`). The threads are read in pages of 100, up to 1,000
+(`pr_watch.read_all_threads`, `THREAD_PAGES`); past that, or when a page is not read, the list is truncated and the gate
+holds (ADR 0110, second amendment). An external reviewer's window is the poll interval, not a separate
 timeout: a fresh PR has `PENDING` checks, so the earliest merge is one `poll_seconds` after opening.
 It is gated by
 the user-level `pr_watcher.auto_merge`, **off by default**, and never merges in the same pass that pushed a fix

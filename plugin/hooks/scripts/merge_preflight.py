@@ -6,7 +6,8 @@ and warn about local state that breaks its local half.
 ``UNSTABLE`` (a check that is not required is red) and does not look at review threads unless
 branch protection says so. The PR watcher refuses both; a session running `gh pr merge` itself got
 only the local warnings below. So on a merge this hook reads the PR once more — `gh pr view` to
-learn which PR the command names, then the watcher's own GraphQL query — and **blocks** (exit 2)
+learn which PR the command names, then the watcher's own GraphQL query, following the review
+threads past the first 100 (``pr_watch.read_all_threads``) — and **blocks** (exit 2)
 when :func:`pr_watch.session_merge_gate` holds it: a draft, checks pending or failing, or an
 unresolved review thread. A PR with no checks at all merges, with a notice. It is an accident
 guard, not a security boundary: it **fails open** with a one-line notice when it cannot tell — no
@@ -48,8 +49,10 @@ from agentic_forge import diagnostics, guardrails  # noqa: E402
 # instead of recorded by the hook. 12 s, plus the merge gate's 12 s, leaves room for the record
 # inside the hook's 30 s.
 _BUDGET_SECONDS = 12.0
-# One deadline for the merge gate's two `gh` reads. With the git reads' 12 s that is 24 s at worst,
-# inside the hook's 30 s in hooks.json, so a stalled `gh` is a fail-open notice, not a killed hook.
+# One deadline for the merge gate's `gh` reads: two, plus a page per further 100 review threads (a
+# page past it leaves the thread list truncated, which holds). With the git reads' 12 s that is 24 s
+# at worst, inside the hook's 30 s in hooks.json, so a stalled `gh` is a fail-open notice, not a
+# killed hook.
 _GATE_BUDGET_SECONDS = 12.0
 # What `gh pr view` is asked: which PR, and GitHub's own verdict for the block message. The rollup
 # comes from GraphQL, as one state, the field the watcher reads — `--json statusCheckRollup` is a
@@ -202,7 +205,9 @@ def merge_gate(
     """The watcher's merge gate for the PR ``command`` merges: a blocking Decision when it is held;
     ALLOW when it is open or the command merges nothing; a non-blocking Decision with a notice
     when it is open only because the PR has no checks at all. Raises :class:`GateUnavailable` when
-    the gate cannot be applied. Two `gh` reads within ``budget`` seconds together."""
+    the gate cannot be applied. Two `gh` reads, and one per further page of review threads, within
+    ``budget`` seconds together; a thread page that fails or runs out of time holds the PR as
+    truncated rather than failing open."""
     from agentic_forge import pr_watch, settings  # only a merge pays for these
 
     try:
@@ -278,7 +283,14 @@ def merge_gate(
         pr = ((data.get("data") or {}).get("repository") or {}).get("pullRequest")
     if not isinstance(pr, dict) or pr.get("number") != number:
         raise GateUnavailable(f"GitHub's answer does not describe PR #{number}")
-    state = pr_watch.parse_pr(data)
+
+    def thread_page(after: str) -> Any:
+        """The next page of review threads, by the same call: `gh`, host and deadline."""
+        page = [gh, *pr_watch.threads_page_argv(owner, name, number, after)[1:]]
+        page[3:3] = ["--hostname", host]
+        return _gh(page, cwd=target.cwd, deadline=deadline, host=target.host)
+
+    state = pr_watch.parse_pr(pr_watch.read_all_threads(data, thread_page))
     if state.state.upper() != "OPEN":
         # `gh` refuses a closed or merged PR itself — but a lookup that found the wrong PR must
         # not pass silently either.

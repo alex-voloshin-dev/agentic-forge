@@ -1538,6 +1538,88 @@ def test_the_reads_refuse_a_directory_merely_shaped_like_a_repo(mono: Mono) -> N
         gate_scope._git(str(shaped), time.monotonic() + 5, "rev-parse", "--git-dir")
 
 
+def _answering_git(directory: Path, record: Path) -> Path:
+    """A `git` that writes how it was invoked (`$0`, then its arguments) and answers `ok`."""
+    directory.mkdir(parents=True, exist_ok=True)
+    tool = directory / "git"
+    tool.write_text(f'#!/bin/sh\necho "$0" "$@" >> "{record}"\necho ok\n')
+    tool.chmod(0o755)
+    return tool
+
+
+def test_the_reads_run_git_by_absolute_path_never_from_the_repository(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADR 0115 for the narrowing's own reads: a relative or empty PATH entry names the directory
+    the hook runs in, and a `git` committed there must not run."""
+    root = tmp_path.resolve()
+    trusted = _answering_git(root / "abs", root / "trusted.txt")
+    _answering_git(root / "repo" / "rel", root / "planted.txt")
+    monkeypatch.chdir(root / "repo")
+    monkeypatch.setenv("PATH", os.pathsep.join(["rel", "", str(trusted.parent)]))
+    gate_scope._git_program.cache_clear()
+    out = gate_scope._git(str(root / "repo"), time.monotonic() + 5, "rev-parse", "--git-dir")
+    assert out == b"ok\n"
+    words = (root / "trusted.txt").read_text().split()
+    assert words[0] == str(trusted)
+    assert words[1:] == [*gate_scope._GIT[1:], "rev-parse", "--git-dir"]
+    assert not (root / "planted.txt").exists()
+
+
+def test_no_git_by_absolute_path_is_a_failed_read_and_leaves_the_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path.resolve()
+    _answering_git(root / "rel", root / "planted.txt")
+    monkeypatch.chdir(root)
+    monkeypatch.setenv("PATH", os.pathsep.join(["rel", ".", ""]))
+    gate_scope._git_program.cache_clear()
+    with pytest.raises(gate_scope._GitFailed):
+        gate_scope._git(str(root), time.monotonic() + 5, "rev-parse", "--show-prefix")
+    gate = ["ruff", "check", "."]
+    assert gate_scope.narrow(gate, "git commit -m x", str(root)) == gate  # as on any failed read
+    assert not (root / "planted.txt").exists()
+
+
+def test_the_reads_resolve_git_once_per_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path.resolve()
+    trusted = _answering_git(root / "abs", root / "trusted.txt")
+    monkeypatch.setenv("PATH", str(trusted.parent))
+    lookups: list[list[str]] = []
+    real = guardrails.executable
+
+    def counted(argv: list[str], path: str) -> list[str]:
+        lookups.append(argv)
+        return real(argv, path)
+
+    monkeypatch.setattr(guardrails, "executable", counted)
+    gate_scope._git_program.cache_clear()
+    for _ in range(3):
+        gate_scope._git(str(root), time.monotonic() + 5, "rev-parse", "--show-prefix")
+    assert lookups == [["git"]]
+    assert len((root / "trusted.txt").read_text().splitlines()) == 3
+
+
+def test_on_windows_the_reads_run_only_a_git_binary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A `git.cmd` would run through cmd.exe, which reads `& ^ %` in the pathspecs a read passes."""
+    monkeypatch.setattr(guardrails, "_WINDOWS", True)
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+    root = tmp_path.resolve()
+    (root / "cmd").mkdir()
+    (root / "cmd" / "git.cmd").write_text("")
+    (root / "exe").mkdir()
+    (root / "exe" / "git.EXE").write_text("")  # PATHEXT spelling: Linux is case-sensitive
+    gate_scope._git_program.cache_clear()
+    assert gate_scope._git_program(str(root / "cmd")) is None
+    both = os.pathsep.join([str(root / "cmd"), str(root / "exe")])
+    assert gate_scope._git_program(both) == str(root / "exe" / "git.EXE")
+    gate_scope._git_program.cache_clear()  # nothing resolved as on Windows outlives the test
+
+
 def test_a_diff_relative_config_does_not_hide_a_change(mono: Mono) -> None:
     """With it, `git diff` from `svc/` prints paths without the prefix and drops all outside."""
     mono.git("config", "diff.relative", "true")

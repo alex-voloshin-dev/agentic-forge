@@ -41,6 +41,8 @@ with open(os.environ["GH_STUB_LOG"], "a") as log:
 with open(os.environ["GH_STUB_CONFIG"]) as fh:
     config = json.load(fh)
 kind = {{("pr", "view"): "view", ("api", "graphql"): "graphql"}}.get(tuple(sys.argv[1:3]), "other")
+after = [arg[len("after="):] for arg in sys.argv if arg.startswith("after=")]
+kind = "page:" + after[0] if kind == "graphql" and after else kind  # a page of review threads
 answer = config.get(kind, {{"exit": 1, "stderr": "unexpected call"}})
 time.sleep(answer.get("sleep", 0))
 sys.stdout.write(answer.get("stdout", ""))
@@ -99,14 +101,18 @@ class GhStub:
         self.answer()
 
     def answer(
-        self, *, view: Any = None, graphql: Any = None, raw: dict[str, Any] | None = None
+        self, *, view: Any = None, graphql: Any = None, raw: dict[str, Any] | None = None,
+        pages: dict[str, Any] | None = None,
     ) -> None:
         """``view`` / ``graphql`` are the JSON each call answers; ``raw`` replaces a call's whole
-        answer (``stdout``, ``stderr``, ``exit``, ``sleep``)."""
+        answer (``stdout``, ``stderr``, ``exit``, ``sleep``). ``pages`` answers a review-thread
+        page by its cursor; a cursor it does not name fails, as an unexpected call does."""
         config = {
             "view": {"stdout": json.dumps(_view() if view is None else view)},
             "graphql": {"stdout": json.dumps(_pr() if graphql is None else graphql)},
         }
+        config.update({f"page:{cursor}": {"stdout": json.dumps(answer)}
+                       for cursor, answer in (pages or {}).items()})
         config.update(raw or {})
         self.config.write_text(json.dumps(config), encoding="utf-8")
 
@@ -164,6 +170,93 @@ def test_a_clean_pr_merges_silently(gh: GhStub, work: Path) -> None:
     assert {"owner=acme", "name=infra", "number=7"} <= set(graphql)
 
 
+def _paged(threads: dict[str, Any], *, number: int = 7) -> dict[str, Any]:
+    """A first answer whose thread list goes on: ``threads`` replaces its ``reviewThreads``."""
+    answer = _pr(number)
+    answer["data"]["repository"]["pullRequest"]["reviewThreads"] = threads
+    return answer
+
+
+def _page(
+    resolved: tuple[bool, ...], *, after: str | None, number: int = 7, first: int = 100
+) -> dict[str, Any]:
+    """A THREADS_QUERY answer: one thread per ``resolved``, then more after ``after`` (None: last).
+    """
+    nodes = [
+        {"id": f"T{first + i}", "isResolved": done,
+         "comments": {"nodes": [{"body": "fix", "path": "main.tf", "line": 1,
+                                 "authorAssociation": "MEMBER",
+                                 "author": {"login": "alice", "__typename": "User"}}]}}
+        for i, done in enumerate(resolved)
+    ]
+    info = {"hasNextPage": after is not None, "endCursor": after}
+    return {"data": {"repository": {"pullRequest": {
+        "number": number, "reviewThreads": {"pageInfo": info, "nodes": nodes}}}}}
+
+
+def _threads(resolved: tuple[bool, ...], after: str) -> dict[str, Any]:
+    return _page(resolved, after=after, first=0)["data"]["repository"]["pullRequest"][
+        "reviewThreads"
+    ]
+
+
+def test_threads_past_the_first_page_are_read_and_all_resolved_merge(
+    gh: GhStub, work: Path
+) -> None:
+    """More than 100 threads over a PR's life, resolved ones included, used to hold it for good."""
+    gh.answer(
+        graphql=_paged(_threads((True,) * 100, "c1")),
+        pages={"c1": _page((True,) * 100, after="c2"), "c2": _page((True, True), after=None)},
+    )
+    result = _run_hook("gh pr merge 7", work)
+    assert (result.returncode, result.stderr) == (0, "")
+    view, first, *pages = gh.calls()
+    assert [p[p.index("--hostname") + 1] for p in pages] == ["github.com", "github.com"]
+    assert [next(a for a in p if a.startswith("after=")) for p in pages] == [
+        "after=c1", "after=c2"
+    ]
+    assert all(f"query={pr_watch.THREADS_QUERY}" in p and "number=7" in p for p in pages)
+
+
+def test_an_unresolved_thread_on_a_later_page_holds_the_merge(gh: GhStub, work: Path) -> None:
+    gh.answer(
+        graphql=_paged(_threads((True,) * 100, "c1")),
+        pages={"c1": _page((True, False, True), after=None)},
+    )
+    result = _run_hook("gh pr merge 7", work)
+    assert result.returncode == 2
+    assert "#7: merge held: 1 unresolved review thread(s)." in result.stderr
+
+
+@pytest.mark.parametrize(
+    "pages",
+    [
+        {},  # the second page's `gh` call fails
+        {"c1": {"errors": [{"message": "x"}]}},
+        {"c1": _page((True,), after=None, number=8)},  # another PR
+        {"c1": {"data": {"repository": {"pullRequest": {"number": 7}}}}},  # no thread list
+    ],
+    ids=["fails", "errors", "another-pr", "no-threads"],
+)
+def test_a_thread_page_not_read_holds_the_merge_as_truncated(
+    gh: GhStub, work: Path, pages: dict[str, Any]
+) -> None:
+    """Fail closed, as before pagination: a missing thread must not read as an absent one."""
+    gh.answer(graphql=_paged(_threads((True,) * 100, "c1")), pages=pages)
+    result = _run_hook("gh pr merge 7", work)
+    assert result.returncode == 2
+    assert "review threads truncated (over 1000, or a page not read)" in result.stderr
+
+
+def test_a_thread_page_past_the_deadline_holds_the_merge(gh: GhStub, work: Path) -> None:
+    gh.answer(
+        graphql=_paged(_threads((True,), "c1")),
+        raw={"page:c1": {"stdout": json.dumps(_page((True,), after=None)), "sleep": 5}},
+    )
+    decision = merge_preflight.merge_gate("gh pr merge 7", str(work), budget=2.0)
+    assert decision.block and "review threads truncated" in decision.message
+
+
 def test_the_field_case_unstable_with_a_red_check_and_an_open_thread_is_blocked(
     gh: GhStub, work: Path
 ) -> None:
@@ -188,7 +281,7 @@ def test_the_field_case_unstable_with_a_red_check_and_an_open_thread_is_blocked(
         (_pr(draft=True), "draft PR"),
         (_pr(threads=((True, "bob"), (False, "alice"), (False, "carol"))),
          "2 unresolved review thread(s)"),
-        (_pr(truncated=True), "review threads truncated (>100)"),
+        (_pr(truncated=True), "review threads truncated (over 1000, or a page not read)"),
     ],
 )
 def test_each_held_condition_blocks(gh: GhStub, work: Path, graphql: Any, reason: str) -> None:

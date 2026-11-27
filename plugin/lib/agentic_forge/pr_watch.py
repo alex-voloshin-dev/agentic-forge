@@ -27,10 +27,14 @@ __all__ = [
     "WatchResult",
     "MergeDecision",
     "PR_QUERY",
+    "THREADS_QUERY",
+    "THREAD_PAGES",
     "CONFLICT_NOTICE",
     "MERGE_METHODS",
     "CHECKS_GREEN",
     "parse_pr",
+    "threads_page_argv",
+    "read_all_threads",
     "actionable_threads",
     "merge_readiness",
     "session_merge_gate",
@@ -72,17 +76,35 @@ CHECKS_GREEN = "SUCCESS"
 # Per-thread isResolved is GraphQL-only — `gh pr view --json` can't supply it. `isDraft`,
 # `createdAt`, `reviews` and the last commit's `statusCheckRollup` feed the merge gate (ADR 0063).
 # Adjust here if the `gh` / API shape changes.
+_THREAD_NODES = (
+    "pageInfo{hasNextPage endCursor} nodes{id isResolved "
+    "comments(first:1){nodes{body path line authorAssociation author{login __typename}}}}"
+)
 PR_QUERY = (
     "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name)"
     "{pullRequest(number:$number){number mergeable isDraft createdAt headRefName headRefOid "
     "baseRefName isCrossRepository "
     "state "
-    "reviewThreads(first:100){pageInfo{hasNextPage} nodes{id isResolved "
-    "comments(first:1){nodes{body path line authorAssociation author{login __typename}}}}} "
+    "reviewThreads(first:100){" + _THREAD_NODES + "} "
     "reviews(first:50){nodes{state author{login}}} "
     "latestOpinionatedReviews(first:100){pageInfo{hasNextPage} nodes{state author{login}}} "
     "commits(last:1){nodes{commit{statusCheckRollup{state}}}}}}}"
 )
+# The next page of review threads after ``$after`` (the previous page's ``endCursor``), read the
+# same way: :func:`read_all_threads` follows them.
+THREADS_QUERY = (
+    "query($owner:String!,$name:String!,$number:Int!,$after:String!)"
+    "{repository(owner:$owner,name:$name){pullRequest(number:$number){number "
+    "reviewThreads(first:100,after:$after){" + _THREAD_NODES + "}}}}"
+)
+# How many pages of 100 review threads are read, the first included: 1,000 threads. Resolved threads
+# count too, and an own-PR `changes` review opens one per finding (ADR 0110), so a long-lived PR
+# passes 100. Past this many, or on any page that is not read, the list is INCOMPLETE and the PR is
+# held as truncated: a missing thread must not read as an absent one.
+THREAD_PAGES = 10
+# A page cursor as GitHub gives it (base64 and the like). It reaches argv as a value, so any other
+# shape is a page that was not read.
+_CURSOR = re.compile(r"[A-Za-z0-9+/=_:.-]{1,512}")
 
 # Review states that must block a merge. A "request changes" review with only a summary body
 # creates NO review thread, so without this the gate would open over an explicit objection
@@ -154,7 +176,7 @@ class PrState:
     review_authors: list[str] = field(default_factory=list)  # logins that submitted a review
     review_states: list[str] = field(default_factory=list)  # latest review state per author
     state: str = "OPEN"  # OPEN | CLOSED | MERGED — the loop's terminal signal (ADR 0067)
-    threads_truncated: bool = False  # >100 review threads: the thread list is INCOMPLETE
+    threads_truncated: bool = False  # past THREAD_PAGES pages, or one unread: list INCOMPLETE
     head_oid: str = ""  # headRefOid: the commit this state describes, which a merge is pinned to
     reviews_truncated: bool = False  # past the page, or no answer: one may be requesting changes
 
@@ -205,6 +227,82 @@ def pr_query_argv(owner: str, name: str, number: int) -> list[str]:
         "gh", "api", "graphql", "-f", f"owner={owner}", "-f", f"name={name}",
         "-F", f"number={number}", "-f", f"query={PR_QUERY}",
     ]
+
+
+def threads_page_argv(owner: str, name: str, number: int, after: str) -> list[str]:
+    """argv reading the review threads after the cursor ``after`` (:data:`THREADS_QUERY`)."""
+    return [
+        "gh", "api", "graphql", "-f", f"owner={owner}", "-f", f"name={name}",
+        "-F", f"number={number}", "-f", f"after={after}", "-f", f"query={THREADS_QUERY}",
+    ]
+
+
+def _pull_request(answer: Any) -> dict[str, Any] | None:
+    """``data.repository.pullRequest`` of a `gh api graphql` answer, or None."""
+    data = answer.get("data") if isinstance(answer, dict) else None
+    repository = data.get("repository") if isinstance(data, dict) else None
+    pr = repository.get("pullRequest") if isinstance(repository, dict) else None
+    return pr if isinstance(pr, dict) else None
+
+
+def _thread_page(answer: Any, number: Any) -> dict[str, Any] | None:
+    """The ``reviewThreads`` object of a :data:`THREADS_QUERY` answer about PR ``number``, or None
+    when the answer is not one: GraphQL errors, another PR, nodes that are not a list of objects,
+    or no ``pageInfo``."""
+    if not isinstance(answer, dict) or answer.get("errors"):
+        return None
+    pr = _pull_request(answer)
+    if pr is None or pr.get("number") != number:
+        return None
+    threads = pr.get("reviewThreads")
+    if not isinstance(threads, dict) or not isinstance(threads.get("pageInfo"), dict):
+        return None
+    nodes = threads.get("nodes")
+    if not isinstance(nodes, list) or not all(isinstance(node, dict) for node in nodes):
+        return None
+    return threads
+
+
+def read_all_threads(
+    data: Any, read_page: Callable[[str], Any], *, pages: int = THREAD_PAGES
+) -> Any:
+    """``data``, a :data:`PR_QUERY` answer, with the rest of its review threads appended: while the
+    thread list has a next page, ``read_page(cursor)`` gives the :data:`THREADS_QUERY` answer for
+    it (the caller's own ``gh`` call, deadline and host). At most ``pages`` pages in all.
+
+    The list keeps ``hasNextPage`` true, so :func:`parse_pr` reads it as truncated and the merge
+    gates hold the PR exactly as before pagination, when: the cap is reached, ``read_page`` raises
+    (a failed or timed-out ``gh``), a page is not an answer about this PR, or a cursor is missing
+    or not cursor-shaped. ``data`` itself is not changed; an answer with nothing to follow is
+    returned as it is."""
+    pr = _pull_request(data)
+    first = pr.get("reviewThreads") if pr is not None else None
+    info = first.get("pageInfo") if isinstance(first, dict) else None
+    listed = first.get("nodes") if isinstance(first, dict) else None
+    if not (isinstance(info, dict) and info.get("hasNextPage") and isinstance(listed, list)):
+        return data  # complete, or no list to add to: parse_pr reads it as it is
+    assert pr is not None and isinstance(first, dict)  # for mypy: `info` is a dict only then
+    nodes = list(listed)
+    cursor = info.get("endCursor")
+    more = True
+    for _ in range(pages - 1):
+        if not (isinstance(cursor, str) and _CURSOR.fullmatch(cursor)):
+            break
+        try:
+            answer = read_page(cursor)
+        except Exception:  # noqa: BLE001 -- any page not read leaves the list truncated: held
+            break
+        page = _thread_page(answer, pr.get("number"))
+        if page is None:
+            break
+        nodes.extend(page["nodes"])
+        more = bool(page["pageInfo"].get("hasNextPage"))
+        cursor = page["pageInfo"].get("endCursor")
+        if not more:
+            break
+    threads = {**first, "nodes": nodes, "pageInfo": {**info, "hasNextPage": more}}
+    return {**data, "data": {**data["data"], "repository": {
+        **data["data"]["repository"], "pullRequest": {**pr, "reviewThreads": threads}}}}
 
 
 @dataclass(frozen=True)
@@ -414,7 +512,10 @@ def _hold_reasons(state: PrState, *, bot: str, no_checks_hold: bool = True) -> l
     if open_threads:
         reasons.append(f"{len(open_threads)} unresolved review thread(s)")
     if state.threads_truncated:
-        reasons.append("review threads truncated (>100) — cannot confirm all are resolved")
+        reasons.append(
+            f"review threads truncated (over {THREAD_PAGES * 100}, or a page not read) — cannot "
+            "confirm all are resolved"
+        )
     return reasons
 
 

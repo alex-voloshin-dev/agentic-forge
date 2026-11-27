@@ -22,6 +22,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -86,13 +87,30 @@ _SE_SYSTEM = (
 )
 
 
+_FETCH_SECONDS = 120  # the whole read of one PR's state, its review-thread pages included
+
+
 def _fetch(repo: Path, owner: str, name: str, number: int) -> dict[str, Any]:  # pragma: no cover
-    """Fetch the PR's review state via `gh api graphql` (real call; excluded from coverage)."""
-    out = subprocess.run(
-        pr_watch.pr_query_argv(owner, name, number),
-        cwd=str(repo), capture_output=True, text=True, check=True, timeout=120,
-    ).stdout
-    return json.loads(out)  # type: ignore[no-any-return]
+    """Fetch the PR's review state via `gh api graphql`, its review threads past the first 100
+    included (:func:`pr_watch.read_all_threads`), all within :data:`_FETCH_SECONDS`. A thread page
+    that fails or runs out of time leaves the list truncated, which holds the merge (real call;
+    excluded from coverage)."""
+    deadline = time.monotonic() + _FETCH_SECONDS
+
+    def read(argv: list[str]) -> Any:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise subprocess.TimeoutExpired(argv, _FETCH_SECONDS)
+        out = subprocess.run(
+            argv, cwd=str(repo), capture_output=True, text=True, check=True, timeout=left,
+        ).stdout
+        return json.loads(out)
+
+    data = read(pr_watch.pr_query_argv(owner, name, number))
+    complete: dict[str, Any] = pr_watch.read_all_threads(
+        data, lambda after: read(pr_watch.threads_page_argv(owner, name, number, after))
+    )
+    return complete
 
 
 def _gh_exec(repo: Path) -> pr_watch.GhExec:  # pragma: no cover

@@ -1681,6 +1681,61 @@ def test_pr_state_from_gh(tmp_path: Path) -> None:
     assert "owner=o" in logged and "number=7" in logged
 
 
+def _paging_gh(tmp_path: Path, first: object, pages: dict[str, object]) -> dict[str, str]:
+    """A ``gh`` that answers the PR query with ``first`` and a review-thread page by its cursor
+    (one it does not know fails); everyone may write."""
+    bin_dir = tmp_path / "fake-bin"
+    bin_dir.mkdir(exist_ok=True)
+    answers = tmp_path / "answers.json"
+    answers.write_text(json.dumps({"first": first, "pages": pages}), encoding="utf-8")
+    log = tmp_path / "gh.log"
+    gh = bin_dir / "gh"
+    gh.write_text(
+        f"#!{_python3()} -S\nimport json, sys\n"
+        f"open({str(log)!r}, 'a').write(json.dumps(sys.argv[1:]) + '\\n')\n"
+        f"answers = json.load(open({str(answers)!r}))\n"
+        "if any('/collaborators/' in arg for arg in sys.argv):\n"
+        "    print(json.dumps({'permission': 'write'}))\n"
+        "    sys.exit(0)\n"
+        "after = [arg[6:] for arg in sys.argv if arg.startswith('after=')]\n"
+        "if not after:\n"
+        "    print(json.dumps(answers['first']))\n"
+        "elif after[0] in answers['pages']:\n"
+        "    print(json.dumps(answers['pages'][after[0]]))\n"
+        "else:\n"
+        "    sys.exit(1)\n",
+        encoding="utf-8",
+    )
+    gh.chmod(gh.stat().st_mode | stat.S_IEXEC)
+    return _env(PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+
+
+def _more_threads(cursor: str, *threads: dict[str, object]) -> dict[str, object]:
+    return {"pageInfo": {"hasNextPage": True, "endCursor": cursor}, "nodes": list(threads)}
+
+
+def test_pr_state_follows_the_review_thread_pages(tmp_path: Path) -> None:
+    resolved = {**_thread("T1", "ann"), "isResolved": True}
+    last = {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [_thread("T2", "ann")]}
+    env = _paging_gh(
+        tmp_path, _pr_answer(reviewThreads=_more_threads("c1", resolved)),
+        {"c1": {"data": {"repository": {"pullRequest": {"number": 7, "reviewThreads": last}}}}},
+    )
+    result = _ok(*_LIVE, cwd=_github_repo(tmp_path), env=env)
+    assert [t["id"] for t in result["actionable_threads"]] == ["T2"]
+    assert result["merge_gate"]["reasons"] == ["1 unresolved review thread(s)"]
+    paged = [call for call in _gh_calls(tmp_path) if "after=c1" in call]
+    assert len(paged) == 1 and "number=7" in paged[0]
+
+
+def test_pr_state_holds_a_thread_list_whose_next_page_fails(tmp_path: Path) -> None:
+    resolved = {**_thread("T1", "ann"), "isResolved": True}
+    env = _paging_gh(tmp_path, _pr_answer(reviewThreads=_more_threads("c1", resolved)), {})
+    result = _ok(*_LIVE, cwd=_github_repo(tmp_path), env=env)
+    assert result["merge_gate"]["ready"] is False
+    assert any(r.startswith("review threads truncated") for r in result["merge_gate"]["reasons"])
+
+
 def test_a_person_needs_write_permission_not_just_an_association(tmp_path: Path) -> None:
     """ADR 0103: MEMBER and COLLABORATOR are where the question starts, not what answers it."""
     threads = [
