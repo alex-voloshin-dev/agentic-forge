@@ -202,20 +202,28 @@ python dev/run_spine_e2e.py --runner claude --scenario product-inception     # l
   because the `research` skill must cite external sources by URL. A live run therefore needs web
   access as well as the model API. Without it, the research phase cannot cite and its review loop
   escalates.
-- **Where a checkpoint reads.** The document phases deliver into the feature's docs worktree
-  (`<workspace>/wt-docs-<slug>` on `docs/<slug>`), not the checkout. A checkpoint reads the copy
-  there or in the checkout: the ready one first, then a valid one, then the newest commit, then the
-  checkout. Its line names the copy (`read docs/sdlc/<slug>/prd.md in worktree … (docs/<slug>)`).
-  The next phase's prompt is pointed at that copy. When a phase fails, read that line first: it
-  says whether the document was missing, invalid, or not handed off (`review_decision is
-  'escalate'`).
-- **Readiness.** A loop-gated document (research brief, PRD, tech design, plan, ux-spec,
-  market-brief) must be `review_decision: proceed`. An escalated one fails its checkpoint even
-  though it validates.
+- **Where a checkpoint reads.** The document phases (research, product, architecture, plan,
+  ux-design, marketing) deliver into the feature's docs worktree (`<workspace>/wt-docs-<slug>` on
+  `docs/<slug>`), not the checkout. For their documents, a checkpoint looks in that worktree and in
+  the checkout, and reads the **most recent** copy: the later of its last commit and its mtime, the
+  checkout on a tie. Every other document (code review, security review, test strategy, release,
+  onboarding, the ops artifacts) is read from `<checkout>/docs/sdlc/<slug>/` only, so a doc
+  phase's own review round in the worktree never passes for a code review. The checkpoint line
+  names the copy (`read docs/sdlc/<slug>/prd.md in worktree … (docs/<slug>)`), and the next
+  phase's prompt is pointed at that copy. On a retry, the phase's own document is pointed there
+  too. When a phase fails, read that line first: it says whether the document was missing,
+  invalid, or not handed off (`review_decision is 'escalate'`). A re-run in the same `--workspace`
+  removes the previous run's `wt-docs-<slug>`.
+- **Readiness.** The chosen copy of a loop-gated document (research brief, PRD, tech design, plan,
+  ux-spec, market-brief) must be `review_decision: proceed`. An escalated one fails its checkpoint
+  even though it validates, and an older ready copy elsewhere does not rescue it.
 - **`product-inception`** seeds a bounded `FEATURE_REQUEST.md` (goal, five acceptance criteria,
-  non-goals) over the onboarded Flask stub. It failed on 2026.11.17 and 2026.11.18 for harness
-  reasons: the checkpoint read a stale escalated copy in the checkout, the request had no scope,
-  and the sessions had no web tools. All three are fixed (ADR 0030 amendment).
+  non-goals) over the onboarded Flask stub. It failed on 2026.11.17 and 2026.11.18. Three harness
+  causes are fixed (ADR 0030 amendment): the checkpoint read a stale escalated copy in the
+  checkout, the request had no scope, and the sessions had no web tools. This is **not yet
+  re-validated by a live run**. One cause is still open as a separate follow-up: in several rounds
+  the external codex lens alone held `changes`. Its prompt has no severity rubric and no
+  prior-round context.
 - `--retries N` (default 1) re-runs a phase whose checkpoints fail, with a fresh model attempt.
   It never relaxes a checkpoint. A session that never ran is a named `session undetermined`
   checkpoint and is not retried.

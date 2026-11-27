@@ -11,15 +11,18 @@ would miss.
 
 ## Acceptance criteria
 
-1. `POST /todos` takes JSON `{"title": "<text>"}`, assigns the todo's id itself, keeps the todo in
-   memory, enqueues its indexing job and answers `201` with `{"id", "title", "index_status":
-   "queued"}`. A missing, empty or longer-than-200-character title answers `400` with an error
-   message and enqueues nothing.
-2. `GET /todos` returns every todo in creation order, each with its `index_status`: `queued`,
-   `indexed` or `failed`.
-3. `GET /` serves one server-rendered HTML page that lists the todos with their indexing status and
-   has a form to add one. It shows an empty state when there are no todos, and the error message
-   when a title is rejected.
+1. For API clients, `POST /todos` takes JSON `{"title": "<text>"}`, assigns the todo's id itself,
+   keeps the todo in memory, enqueues its indexing job and answers `201` with `{"id", "title",
+   "index_status": "queued"}`. A missing, empty or longer-than-200-character title answers `400`
+   with a JSON error message and enqueues nothing.
+2. `GET /todos` returns every todo in creation order as JSON, each with its `index_status`:
+   `queued`, `indexed` or `failed`.
+3. For people, `GET /` serves one server-rendered HTML page that lists the todos with their
+   indexing status and has a plain HTML form to add one. The form posts form-encoded data
+   (`title=<text>`) to `POST /`, which applies the same title rules as criterion 1: an accepted
+   title redirects back to `GET /`; a rejected one re-renders the page with status `400`, the
+   error message next to the field, and the typed title kept. With no todos, the page shows an
+   empty state.
 4. A failing indexing job is retried at most 3 times; after the last failure its todo reads
    `failed` instead of disappearing. A job that succeeds marks its todo `indexed`.
 5. `python app.py` still starts the service, with the worker running in the same process; no new
