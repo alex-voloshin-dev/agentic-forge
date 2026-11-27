@@ -145,9 +145,10 @@ no search, no edit or delete, no persistence or external queue, no visual design
 `product` read it. Before this, the research prompt was "research the app's domain", with nothing
 to bound it. Every phase designed from its own assumptions, and every review round attacked newly
 invented surface. That was one of the harness causes of the escalations on 2026.11.17 and
-2026.11.18. The fixes are not yet re-validated by a live run. One cause stays open as a separate
-follow-up: in several rounds the external codex lens alone held `changes`, and its prompt has no
-severity rubric and no prior-round context.
+2026.11.18. A live run on Opus 5.5 passed after the fixes (2026-11-27). One more cause seen in the
+failed runs is a watch item, not changed: in several rounds the external codex lens alone held
+`changes`, and its prompt has no severity rubric and no prior-round context. With a bounded request
+the loops converged, so the lens's gate was not softened.
 
 ### `market-brief` — `marketing` as a deterministic complement to its Tier-2
 
