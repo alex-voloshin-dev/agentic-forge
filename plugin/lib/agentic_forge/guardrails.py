@@ -19,7 +19,6 @@ import json
 import os
 import re
 import shlex
-import shutil
 import subprocess
 import time
 from collections.abc import Sequence
@@ -1674,8 +1673,8 @@ def commit_dir(command: str, cwd: str) -> str:
             return cwd
         if any(name in os.environ for name in gate_scope._GIT_STEERING):
             return cwd
-        git = shutil.which("git")
-        if not git or not os.path.isabs(git):  # a relative PATH entry could find a planted git
+        git = trusted_program("git")  # never a relative PATH entry, never a `git.cmd`
+        if git is None:
             return cwd
         deadline = time.monotonic() + _COMMIT_DIR_BUDGET
         ours = _work_tree(git, cwd, deadline)
@@ -1842,8 +1841,8 @@ def _bin_dir_doubt(
     in_root, in_real = _in_a_checkout(root), _in_a_checkout(real)
     if not in_root and not in_real:
         return "" if _spelled_as_named(root, parts) else BIN_DIR_UNCHECKED
-    git = shutil.which("git")
-    if not git or not os.path.isabs(git):  # a relative PATH entry could find a planted git
+    git = trusted_program("git")  # never a relative PATH entry, never a `git.cmd`
+    if git is None:
         return BIN_DIR_UNCHECKED
     if in_root:
         top = _top(git, root, deadline, {} if tops is None else tops)
@@ -2030,6 +2029,14 @@ def executable(argv: list[str], path: str) -> list[str]:
     if found is None:
         raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), argv[0])
     return [found, *argv[1:]]
+
+
+def trusted_program(name: str) -> str | None:
+    """The absolute path a hook runs ``name`` by, or None: :func:`_find_program` on the hook's own
+    ``PATH``, as the gate's program is found — absolute entries only, and on Windows an
+    `.exe`/`.com` only. Not ``shutil.which``, which on Windows searches the current directory first
+    and may choose a `git.cmd`, whose arguments cmd.exe reads (ADR 0115)."""
+    return _find_program(name, os.environ.get("PATH", ""))
 
 
 # Names that carry a credential, as words of an environment variable's name (ADR 0115). A name is

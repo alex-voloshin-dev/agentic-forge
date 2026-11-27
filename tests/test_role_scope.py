@@ -1395,6 +1395,17 @@ def test_attr_source_follows_the_git_version(
     assert (f"--attr-source={role_scope.EMPTY_TREE}" in words) is expected
 
 
+def _git_on_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """An executable `git` alone on the hook's PATH, by an absolute entry (never really run)."""
+    directory = tmp_path.resolve() / "abs-bin"
+    directory.mkdir()
+    git = directory / "git"
+    git.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
+    git.chmod(0o755)
+    monkeypatch.setenv("PATH", str(directory))
+    return git
+
+
 @pytest.mark.parametrize(
     ("stdout", "expected"),
     [("git version 2.43.0\n", (2, 43)), ("git version 2.39.5 (Apple Git-154)\n", (2, 39)),
@@ -1402,14 +1413,15 @@ def test_attr_source_follows_the_git_version(
      ("git version 2.45.1.windows.1\n", (2, 45)), ("nonsense", None), ("", None)],
 )
 def test_the_git_version_is_parsed(
-    stdout: str, expected: Any, monkeypatch: pytest.MonkeyPatch
+    stdout: str, expected: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    git = _git_on_path(tmp_path, monkeypatch)
+
     def fake_run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         assert kwargs["timeout"] <= 5
-        assert os.path.isabs(argv[0]) and argv[1:] == ["--version"]
+        assert argv == [str(git), "--version"]
         return subprocess.CompletedProcess(argv, 0, stdout, "")
 
-    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/git")
     real_cache = _REAL_GIT_VERSION
     monkeypatch.setattr(subprocess, "run", fake_run)
     real_cache.cache_clear()
@@ -1419,15 +1431,22 @@ def test_the_git_version_is_parsed(
         real_cache.cache_clear()
 
 
-@pytest.mark.parametrize("found", [None, "git", "bin/git", "./git"])
-def test_only_an_absolute_git_is_asked(found: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("path", ["", "empty", "bin", ".", f"bin{os.pathsep}"])
+def test_only_an_absolute_git_is_asked(
+    path: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """A relative PATH entry could find a `git` in the reviewed checkout: never run it. The
     version is then unknown, which adds --attr-source and so fails closed on an old git."""
     def must_not_run(*args: Any, **kwargs: Any) -> Any:
         raise AssertionError("ran a git that is not an absolute path")
 
+    for planted in (tmp_path / "git", tmp_path / "bin" / "git"):
+        planted.parent.mkdir(exist_ok=True)
+        planted.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
+        planted.chmod(0o755)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty") if path == "empty" else path)
     real_cache = _REAL_GIT_VERSION
-    monkeypatch.setattr(shutil, "which", lambda name: found)
     monkeypatch.setattr(subprocess, "run", must_not_run)
     real_cache.cache_clear()
     try:
@@ -1436,12 +1455,46 @@ def test_only_an_absolute_git_is_asked(found: Any, monkeypatch: pytest.MonkeyPat
         real_cache.cache_clear()
 
 
-def test_a_git_that_cannot_be_asked_counts_as_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_on_windows_only_a_git_binary_is_asked(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """As on Windows: a `git.cmd` on an absolute PATH entry is never run, so the version stays
+    unknown (--attr-source is added, as with no git); a later `git.exe` is the one asked."""
+    from agentic_forge import guardrails
+
+    monkeypatch.setattr(guardrails, "_WINDOWS", True)
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+    shims, binaries = tmp_path.resolve() / "win-cmd", tmp_path.resolve() / "win-exe"
+    for directory, name in ((shims, "git.cmd"), (binaries, "git.EXE")):
+        directory.mkdir()
+        (directory / name).write_text("")
+    asked: list[str] = []
+
+    def fake_run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        asked.append(argv[0])
+        return subprocess.CompletedProcess(argv, 0, "git version 2.45.1.windows.1\n", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    real_cache = _REAL_GIT_VERSION
+    try:
+        monkeypatch.setenv("PATH", str(shims))
+        real_cache.cache_clear()
+        assert real_cache() is None and asked == []
+        monkeypatch.setenv("PATH", os.pathsep.join([str(shims), str(binaries)]))
+        real_cache.cache_clear()
+        assert real_cache() == (2, 45) and asked == [str(binaries / "git.EXE")]
+    finally:
+        real_cache.cache_clear()
+
+
+def test_a_git_that_cannot_be_asked_counts_as_unknown(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     def no_git(*args: Any, **kwargs: Any) -> Any:
         raise FileNotFoundError("git")
 
     real_cache = _REAL_GIT_VERSION
-    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/git")
+    _git_on_path(tmp_path, monkeypatch)
     monkeypatch.setattr(subprocess, "run", no_git)
     real_cache.cache_clear()
     try:

@@ -1681,9 +1681,11 @@ def test_pr_state_from_gh(tmp_path: Path) -> None:
     assert "owner=o" in logged and "number=7" in logged
 
 
-def _paging_gh(tmp_path: Path, first: object, pages: dict[str, object]) -> dict[str, str]:
+def _paging_gh(
+    tmp_path: Path, first: object, pages: dict[str, object], *, slow: str = ""
+) -> dict[str, str]:
     """A ``gh`` that answers the PR query with ``first`` and a review-thread page by its cursor
-    (one it does not know fails); everyone may write."""
+    (one it does not know fails); everyone may write. The page at cursor ``slow`` takes 60 s."""
     bin_dir = tmp_path / "fake-bin"
     bin_dir.mkdir(exist_ok=True)
     answers = tmp_path / "answers.json"
@@ -1698,6 +1700,9 @@ def _paging_gh(tmp_path: Path, first: object, pages: dict[str, object]) -> dict[
         "    print(json.dumps({'permission': 'write'}))\n"
         "    sys.exit(0)\n"
         "after = [arg[6:] for arg in sys.argv if arg.startswith('after=')]\n"
+        f"if after and after[0] == {slow!r}:\n"
+        "    import time\n"
+        "    time.sleep(60)\n"
         "if not after:\n"
         "    print(json.dumps(answers['first']))\n"
         "elif after[0] in answers['pages']:\n"
@@ -1734,6 +1739,103 @@ def test_pr_state_holds_a_thread_list_whose_next_page_fails(tmp_path: Path) -> N
     result = _ok(*_LIVE, cwd=_github_repo(tmp_path), env=env)
     assert result["merge_gate"]["ready"] is False
     assert any(r.startswith("review threads truncated") for r in result["merge_gate"]["reasons"])
+
+
+def test_pr_state_holds_a_slow_later_page_as_truncated_without_waiting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The PR query and its review-thread pages share one read's time (`_READ_TIMEOUT_SECONDS`,
+    read at call time; 2 s here): a later page that would outlive it is not waited on — the
+    process is stopped at the budget — and the list it leaves is held as truncated."""
+    resolved = {**_thread("T1", "ann"), "isResolved": True}
+    last = {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": []}
+    env = _paging_gh(
+        tmp_path, _pr_answer(reviewThreads=_more_threads("c1", resolved)),
+        {"c1": {"data": {"repository": {"pullRequest": {"number": 7, "reviewThreads": last}}}}},
+        slow="c1",
+    )
+    repo = _github_repo(tmp_path)
+    af = _load_af()
+    monkeypatch.setattr(af, "_READ_TIMEOUT_SECONDS", 2)
+    monkeypatch.setenv("PATH", env["PATH"])
+    monkeypatch.chdir(repo)
+    args = af.build_parser().parse_args(list(_LIVE))
+    started = time.monotonic()
+    assert af._pr_state(args) == af.EXIT_OK
+    assert time.monotonic() - started < 30  # the 60 s page was not waited out
+    result = json.loads(capsys.readouterr().out)
+    assert result["merge_gate"]["ready"] is False
+    assert any(r.startswith("review threads truncated") for r in result["merge_gate"]["reasons"])
+    assert [call for call in _gh_calls(tmp_path) if "after=c1" in call]  # the page was asked
+
+
+def _windows_gh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
+    """As on Windows: ``win-cmd/{gh,git}.cmd`` (shims cmd.exe would run) and
+    ``win-exe/{gh,git}.EXE``, both absolute PATH entries."""
+    monkeypatch.setattr(guardrails, "_WINDOWS", True)
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+    shims, binaries = tmp_path.resolve() / "win-cmd", tmp_path.resolve() / "win-exe"
+    for directory, ext in ((shims, ".cmd"), (binaries, ".EXE")):
+        directory.mkdir()
+        for name in ("gh", "git"):
+            (directory / f"{name}{ext}").write_text("")
+    return shims, binaries
+
+
+@pytest.mark.parametrize("seam", ["read_process", "read_raw", "git_answers"])
+def test_af_runs_gh_and_git_only_as_a_binary_on_an_absolute_path_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, seam: str
+) -> None:
+    """As on Windows, where a bare name searches the current directory (the repository) first: a
+    `gh.cmd`/`git.cmd` on an absolute PATH entry is never chosen, and with nothing else each seam
+    fails as it did with no program on PATH; a later `.exe` is run by its absolute path."""
+    af = _load_af()
+    shims, binaries = _windows_gh(tmp_path, monkeypatch)
+    started: list[list[str]] = []
+
+    def spy(argv: list[str], **kwargs: Any) -> Any:
+        started.append(argv)
+        return subprocess.CompletedProcess(argv, 0, b"{}" if seam == "read_raw" else "{}", "")
+
+    monkeypatch.setattr(af.subprocess, "run", spy)
+
+    def call() -> object:
+        if seam == "read_process":
+            return af._read_process(["gh", "api", "x"])
+        if seam == "read_raw":
+            return af._read_raw(["gh", "pr", "diff", "7"])
+        return af._git_answers(str(tmp_path), "rev-parse", "HEAD")
+
+    program = "git" if seam == "git_answers" else "gh"
+    monkeypatch.setenv("PATH", str(shims))
+    if seam == "git_answers":
+        assert call() == (127, "")  # as a missing git always answered
+    else:
+        with pytest.raises(ValueError, match=f"^{program} is not on PATH$"):
+            call()
+    assert started == []
+    monkeypatch.setenv("PATH", os.pathsep.join([str(shims), str(binaries)]))
+    call()
+    assert [argv[0] for argv in started] == [str(binaries / f"{program}.EXE")]
+    expected = {"read_process": ["api", "x"], "read_raw": ["pr", "diff"],
+                "git_answers": ["-C", str(tmp_path)]}  # fmt: skip
+    assert started[0][1:3] == expected[seam]  # the rest of the argv as given
+
+
+def test_af_never_runs_a_gh_a_relative_path_entry_finds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A repository can commit a `gh`; a relative PATH entry would find it from the checkout."""
+    af = _load_af()
+    ran = tmp_path / "planted-gh-ran"
+    (tmp_path / "bin").mkdir()
+    (tmp_path / "bin" / "gh").write_text(f"#!/bin/sh\ntouch '{ran}'\n", encoding="utf-8")
+    (tmp_path / "bin" / "gh").chmod(0o755)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PATH", f"bin{os.pathsep}.")
+    with pytest.raises(ValueError, match="^gh is not on PATH$"):
+        af._read_process(["gh", "api", "x"])
+    assert not ran.exists()
 
 
 def test_a_person_needs_write_permission_not_just_an_association(tmp_path: Path) -> None:

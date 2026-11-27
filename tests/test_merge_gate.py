@@ -478,20 +478,58 @@ def test_a_closed_pr_in_process(gh: GhStub, work: Path) -> None:
         merge_preflight.merge_gate("gh pr merge 7", str(work))
 
 
+@pytest.mark.parametrize("then_absolute", [False, True], ids=["relative-only", "relative-first"])
 def test_a_gh_found_through_a_relative_path_entry_is_never_run(
-    gh: GhStub, work: Path, monkeypatch
+    gh: GhStub, work: Path, monkeypatch, then_absolute: bool
 ) -> None:
-    """A repo can commit a `gh`; a relative PATH entry would find it in the session's directory."""
+    """A repo can commit a `gh`; a relative PATH entry would find it in the session's directory.
+    The lookup skips that entry (ADR 0115): with no `gh` on an absolute one the gate is unavailable,
+    as with no `gh` at all; with one after it, that one is asked."""
     planted = work / "bin"
     planted.mkdir()
     ran = work / "planted-gh-ran"
     (planted / "gh").write_text(f"#!/bin/sh\ntouch '{ran}'\n", encoding="utf-8")
     (planted / "gh").chmod(0o755)
     monkeypatch.chdir(work)
-    monkeypatch.setenv("PATH", f"bin{os.pathsep}{gh.bin}")
-    with pytest.raises(merge_preflight.GateUnavailable, match="relative PATH entry"):
-        merge_preflight.merge_gate("gh pr merge 7", str(work))
-    assert not ran.exists() and gh.calls() == []
+    if then_absolute:
+        monkeypatch.setenv("PATH", f"bin{os.pathsep}{os.environ['PATH']}")
+        assert merge_preflight.merge_gate("gh pr merge 7", str(work)) == guardrails.ALLOW
+        assert [r["argv0"] for r in gh.records()] == [str(gh.bin / "gh")] * 2
+    else:
+        monkeypatch.setenv("PATH", "bin")
+        with pytest.raises(merge_preflight.GateUnavailable, match="not installed or not on PATH"):
+            merge_preflight.merge_gate("gh pr merge 7", str(work))
+        assert gh.calls() == []
+    assert not ran.exists()
+
+
+def test_on_windows_the_gate_runs_only_a_gh_binary(
+    gh: GhStub, work: Path, monkeypatch, tmp_path: Path
+) -> None:
+    """As on Windows: a `gh.cmd` on an absolute PATH entry is never chosen (cmd.exe would read
+    `& ^ %` in its arguments), so with nothing else the gate is unavailable, as with no `gh`; a
+    later `gh.exe` is the one run."""
+    monkeypatch.setattr(guardrails, "_WINDOWS", True)
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+    shims, binaries = tmp_path / "win-cmd", tmp_path / "win-exe"
+    for directory, name in ((shims, "gh.cmd"), (binaries, "gh.EXE")):
+        directory.mkdir()
+        (directory / name).write_text("")
+    started: list[str] = []  # `-R`: no git read of the remotes, so only gh can start
+
+    def spy(argv: list[str], **kwargs: Any) -> Any:
+        started.append(argv[0])
+        raise OSError("not a program this host can run")
+
+    monkeypatch.setattr(merge_preflight.subprocess, "run", spy)
+    monkeypatch.setenv("PATH", str(shims))
+    with pytest.raises(merge_preflight.GateUnavailable, match="not installed or not on PATH"):
+        merge_preflight.merge_gate("gh pr merge 7 -R o/n", str(work))
+    assert started == []
+    monkeypatch.setenv("PATH", os.pathsep.join([str(shims), str(binaries)]))
+    with pytest.raises(merge_preflight.GateUnavailable, match="could not run"):
+        merge_preflight.merge_gate("gh pr merge 7 -R o/n", str(work))
+    assert started == [str(binaries / "gh.EXE")]
 
 
 def test_gh_is_run_by_its_absolute_path(gh: GhStub, work: Path) -> None:

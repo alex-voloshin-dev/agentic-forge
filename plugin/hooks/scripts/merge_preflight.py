@@ -32,7 +32,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import time
@@ -71,11 +70,12 @@ class GateUnavailable(Exception):
 
 
 def _git_path() -> str | None:
-    """The `git` to run, by the absolute path PATH gives, or None: a relative or empty PATH entry
-    resolves against the session's directory, where a repo could have committed a `git` of its own
-    (the same rule as for `gh`, and as ``role_scope._git_version``)."""
-    git = shutil.which("git")
-    return git if git and os.path.isabs(git) else None
+    """The `git` to run, by absolute path, or None: ``guardrails.trusted_program`` reads only the
+    absolute PATH entries (a relative or empty one resolves against the session's directory, where a
+    repo could have committed a `git` of its own) and, on Windows, only a `git.exe`/`git.com` (a
+    `git.cmd` runs through cmd.exe). The same rule as for `gh`, and as ``role_scope._git_version``
+    (ADR 0115)."""
+    return guardrails.trusted_program("git")
 
 
 def _git(git: str, cwd: str, *args: str, deadline: float) -> str:
@@ -122,14 +122,13 @@ def preflight(cwd: str, *, budget: float = _BUDGET_SECONDS) -> guardrails.Decisi
 
 
 def _gh_path() -> str:
-    """The `gh` to run: the one on PATH, by its absolute path only. A relative or empty PATH entry
-    resolves against the session's directory, where a repo could have committed a `gh` of its own
-    (``role_scope._git_version`` does the same for git)."""
-    gh = shutil.which("gh")
+    """The `gh` to run, by absolute path: ``guardrails.trusted_program`` reads only the absolute
+    PATH entries, since a relative or empty one resolves against the session's directory, where a
+    repo could have committed a `gh` of its own, and on Windows takes only a `gh.exe`/`gh.com`
+    (ADR 0115). None found: the gate is unavailable and the merge goes through with the notice."""
+    gh = guardrails.trusted_program("gh")
     if gh is None:
-        raise GateUnavailable("gh is not installed or not on PATH")
-    if not os.path.isabs(gh):
-        raise GateUnavailable("the gh on PATH is found through a relative PATH entry, not run")
+        raise GateUnavailable("gh is not installed or not on PATH by an absolute path")
     return gh
 
 

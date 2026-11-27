@@ -258,6 +258,35 @@ def test_no_git_by_an_absolute_path_skips_the_local_checks_with_a_notice(
     assert not ran.exists()
 
 
+def test_on_windows_the_local_checks_run_only_a_git_binary(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """As on Windows: a `git.cmd` on an absolute PATH entry is never chosen, so the local checks
+    are skipped with the same notice as with no git; a later `git.exe` is the one run."""
+    monkeypatch.setattr(guardrails, "_WINDOWS", True)
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+    shims, binaries = tmp_path / "win-cmd", tmp_path / "win-exe"
+    for directory, name in ((shims, "git.cmd"), (binaries, "git.EXE")):
+        directory.mkdir()
+        (directory / name).write_text("")
+    started: list[str] = []
+
+    def spy(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        started.append(argv[0])
+        return subprocess.CompletedProcess(argv, 1, "", "")  # no origin/HEAD: nothing to compare
+
+    monkeypatch.setattr(merge_preflight.subprocess, "run", spy)
+    monkeypatch.setenv("PATH", str(shims))
+    decision = merge_preflight.preflight(str(tmp_path))
+    assert decision.message == (
+        "pre-merge: the local checks were skipped: no git on PATH by an absolute path"
+    )
+    assert started == []
+    monkeypatch.setenv("PATH", os.pathsep.join([str(shims), str(binaries)]))
+    assert merge_preflight.preflight(str(tmp_path)) == guardrails.ALLOW
+    assert started == [str(binaries / "git.EXE")]
+
+
 def test_exhausted_budget_is_recorded_not_killed(monkeypatch, tmp_path: Path, capsys) -> None:
     """Past the deadline the hook raises TimeoutExpired itself — inside its 15 s cap, so the crash
     path still runs: fail open, record it (diagnostics OFF), announce it."""

@@ -254,8 +254,43 @@ hook run looks git up once, not once per read. No git found is a read that did n
 `narrow` already turns into the gate as it is: the whole gate runs, as on any other git failure. `_GIT` keeps its
 leading `git` as a placeholder; `guardrails._git_bytes` already drops it and passes its own absolute git.
 
-The other hook-reachable git runs already use an absolute path, found with `shutil.which` and refused when it is
+The other hook-reachable git runs already used an absolute path, found with `shutil.which` and refused when it was
 relative: `guardrails.commit_dir`, the tool-directory check (`guardrails._bin_dir_doubt`),
-`role_scope._git_version` and `merge_preflight._git_path`. They are not moved to this lookup here. On Windows
-`shutil.which` may still choose a `git.cmd` from an absolute entry; that is recorded as a follow-up, not changed.
+`role_scope._git_version` and `merge_preflight._git_path`. On Windows `shutil.which` could still choose a `git.cmd`
+from an absolute entry. That was recorded here as a follow-up; it is closed by the second amendment below.
+
+## Amendment 2026-11-27 (2): every hook-reachable git and gh, and the PR CLIs, use the same lookup
+
+The four sites above, and `merge_preflight._gh_path`, now call `guardrails.trusted_program(name)`: `_find_program`
+on the hook's own `PATH`, the lookup `executable` uses, so absolute entries only and on Windows an `.exe`/`.com` only.
+Not cached: each site looks up once per call, a few `stat`s, and `_git_version` is already cached per process.
+`role_scope` already imported `guardrails`, so no import cycle or new module was needed. Nothing found keeps each
+site's answer from before:
+
+| Site | Nothing found |
+| --- | --- |
+| `guardrails.commit_dir` | the start directory |
+| `guardrails._bin_dir_doubt` | `BIN_DIR_UNCHECKED`: the tool directory is skipped |
+| `role_scope._git_version` | unknown, so `--attr-source` is added and an old git fails closed |
+| `merge_preflight._git_path` | the local checks skipped, with their notice |
+| `merge_preflight._gh_path` | the gate unavailable, failing open with its notice |
+
+One behaviour changes on purpose. `shutil.which` stopped at the first entry holding the name, so a relative entry
+ahead of an absolute one ended the lookup in a refusal. Now the relative entry is skipped, as the gate's own lookup
+skips it, and a program on a later absolute entry is run. For the merge gate that means `gh` on a later absolute entry
+is asked instead of the merge failing open. The relative-only case still fails open, now with "gh is not installed or
+not on PATH by an absolute path". The separate "found through a relative PATH entry" message is gone.
+
+The shipped CLIs that read GitHub from the repository directory, `af.py` (`_read_process`, `_read_raw`,
+`_git_answers`) and `plugin/bin/pr_watch.py` (`_fetch`, the reply/resolve, permission, merge, merge-check, comment and
+push calls and `_git`, all through one `_run`), ran `gh` and `git` by their bare names. There Windows searches the
+current directory, which is the repository or the PR's tree, before `PATH`. They now run the absolute path
+`guardrails.executable(argv, PATH)` returns, resolved when each command runs. The argv builders in
+`agentic_forge.pr_watch` are unchanged, and so are the commands `af.py` prints for the session to run. Nothing found
+raises the `FileNotFoundError` the bare name raised when missing, before any process starts, so every caller's handling
+stays the same: `af.py` says "gh is not on PATH", a permission read is a no, unread comments are unknown.
+
+Tested on Linux in the same Windows simulation as the gate (`_WINDOWS` patched, a `PATHEXT`). At each site a `.cmd`
+on an absolute entry is never chosen and gets the nothing-found answer, and a later `.EXE` is the one started. A
+relative entry is never run.
 

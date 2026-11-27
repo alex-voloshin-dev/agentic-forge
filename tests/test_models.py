@@ -41,7 +41,9 @@ def test_validated_tiers_promote_only_measured_roles() -> None:
 
 
 def test_frontmatter_model_default_is_inherit() -> None:
-    assert models.frontmatter_model("reviewer") == "inherit"  # policy default -> inherit
+    # derived, so promoting a role does not break it; the test above pins the committed policy
+    unpromoted = next(r for r, tier in models.VALIDATED_TIERS.items() if tier == "default")
+    assert models.frontmatter_model(unpromoted) == "inherit"  # policy default -> inherit
     assert models.frontmatter_model("unknown-role") == "inherit"  # unknown -> default -> inherit
 
 

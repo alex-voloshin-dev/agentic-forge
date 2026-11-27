@@ -5,6 +5,7 @@ import os
 import subprocess
 import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -1156,13 +1157,53 @@ def test_commit_dir_reads_git_without_the_sessions_steering(
     assert guardrails.commit_dir("cd .. && git commit", sub) == sub
 
 
-@pytest.mark.parametrize("found", [None, "git"])
+@pytest.mark.parametrize("where", ["nowhere", "relative"])
 def test_commit_dir_needs_git_by_an_absolute_path(
-    layout: dict[str, Path], monkeypatch, found: str | None
+    layout: dict[str, Path], monkeypatch, tmp_path: Path, where: str
 ) -> None:
-    monkeypatch.setattr(guardrails.shutil, "which", lambda name: found)
+    """No git on an absolute PATH entry keeps the start directory; a `git` that a relative entry
+    finds in the session's directory is never run."""
+    ran = tmp_path / "planted-git-ran"
+    planted = tmp_path / "planted-bin"
+    planted.mkdir()
+    (planted / "git").write_text(f"#!/bin/sh\ntouch '{ran}'\n", encoding="utf-8")
+    (planted / "git").chmod(0o755)
+    if where == "relative":
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("PATH", "planted-bin")
+    else:
+        monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     sub = str(layout["sub"])
     assert guardrails.commit_dir("cd .. && git commit", sub) == sub
+    assert not ran.exists()
+
+
+def test_commit_dir_on_windows_runs_only_a_git_binary(
+    layout: dict[str, Path], monkeypatch, tmp_path: Path
+) -> None:
+    """As on Windows: a `git.cmd` on an absolute PATH entry is never chosen (cmd.exe would read
+    `& ^ %` in its arguments); with nothing else the start directory is kept, as with no git; a
+    later `git.exe` is the one run."""
+    monkeypatch.setattr(guardrails, "_WINDOWS", True)
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+    shims, binaries = tmp_path / "win-cmd", tmp_path / "win-exe"
+    for directory, name in ((shims, "git.cmd"), (binaries, "git.EXE")):
+        directory.mkdir()
+        (directory / name).write_text("")
+    started: list[str] = []
+
+    def spy(argv: list[str], **kwargs: Any) -> Any:
+        started.append(argv[0])
+        raise OSError("not a program this host can run")
+
+    monkeypatch.setattr(guardrails.subprocess, "run", spy)
+    sub = str(layout["sub"])
+    monkeypatch.setenv("PATH", str(shims))
+    assert guardrails.commit_dir("cd .. && git commit", sub) == sub
+    assert started == []
+    monkeypatch.setenv("PATH", os.pathsep.join([str(shims), str(binaries)]))
+    assert guardrails.commit_dir("cd .. && git commit", sub) == sub  # the spy's OSError
+    assert started == [str(binaries / "git.EXE")]
 
 
 @pytest.mark.parametrize(
