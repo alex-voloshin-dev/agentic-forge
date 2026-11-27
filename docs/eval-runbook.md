@@ -221,10 +221,10 @@ python dev/run_spine_e2e.py --runner claude --scenario product-inception     # l
 - **`product-inception`** seeds a bounded `FEATURE_REQUEST.md` (goal, five acceptance criteria,
   non-goals) over the onboarded Flask stub. It failed on 2026.11.17 and 2026.11.18. Three harness
   causes are fixed (ADR 0030 amendment): the checkpoint read a stale escalated copy in the
-  checkout, the request had no scope, and the sessions had no web tools. This is **not yet
-  re-validated by a live run**. One cause is still open as a separate follow-up: in several rounds
-  the external codex lens alone held `changes`. Its prompt has no severity rubric and no
-  prior-round context.
+  checkout, the request had no scope, and the sessions had no web tools. A live run on Opus 5.5
+  passed after the fixes (2026-11-27). A watch item, not changed: in several rounds of the failed
+  runs the external codex lens alone held `changes` (its prompt has no severity rubric and no
+  prior-round context); with a bounded request the loops converged.
 - `--retries N` (default 1) re-runs a phase whose checkpoints fail, with a fresh model attempt.
   It never relaxes a checkpoint. A session that never ran is a named `session undetermined`
   checkpoint and is not retried.

@@ -11,9 +11,11 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 - **Eval harness: four harness defects behind the Tier-3 `product-inception` failures fixed (ADR 0030,
   amendment).** The scenario failed on 2026.11.17 and 2026.11.18. Four of the causes were in the harness, not the
-  skills, and are fixed here; **the scenario is not yet re-validated by a live run.** One cause stays open as a
-  separate follow-up: in several rounds the external codex lens alone held `changes` while the internal reviewer
-  approved, and its prompt carries no severity rubric and no prior-round context. The four fixed causes:
+  skills, and are fixed here. **A live run on Opus 5.5 then passed** (2026-11-27): every phase handed off ready, the
+  research brief from the checkout and the tech design (with 7 ADRs) from its docs worktree. One more cause seen in
+  the failed runs is left as a watch item, not changed: in several rounds the external codex lens alone held
+  `changes` while the internal reviewer approved, and its prompt carries no severity rubric and no prior-round
+  context. With a bounded request the loops converged, so the lens's gate is not softened. The four fixed causes:
   1. **The checkpoint read the wrong copy.** `research` delivers into the feature's docs worktree (`../wt-docs-<slug>`
      on `docs/<slug>`, doc-delivery). Its retry converged there (`review_decision: proceed`, committed), but the
      checkpoint read only `<checkout>/docs/sdlc/<slug>/`, where the escalated first attempt was still on disk. The

@@ -4,7 +4,7 @@ Status: Accepted — **Implemented** (all five scenarios: spine + quality-gate, 
 product-inception, market-brief). Revised after a deep multi-reviewer review.
 
 > **Amended 2026-11-27 (`product-inception` failed on 2026.11.17 and 2026.11.18):** four harness defects, fixed
-> without touching a skill or a threshold. The scenario is not yet re-validated by a live run. (1) A loop-gated
+> without touching a skill or a threshold. A live run on Opus 5.5 passed after the fix (2026-11-27). (1) A loop-gated
 > document is read where its doc phase delivered it: the checkout and every worktree on `docs/<slug>`, each resolved
 > by `artifact-home`. The copy with the most recent content is read (a clean tracked file by its last commit, a
 > modified or untracked one by the later of that and its mtime), and that copy must be ready; the checkpoint line
@@ -15,8 +15,9 @@ product-inception, market-brief). Revised after a deep multi-reviewer review.
 > only a written `review_decision` other than `proceed` fails. (3) The scenario seeds a bounded `FEATURE_REQUEST.md`
 > (goal, five acceptance criteria, explicit non-goals) instead of "research the app's domain". (4) Tier-3 sessions
 > get `WebSearch`/`WebFetch`, which the `research` contract needs to cite sources, so a live run needs web access.
-> One cause stays open as a separate follow-up: in several rounds the external codex lens alone held `changes`, and
-> its prompt has no severity rubric and no prior-round context. Details: [domain-e2e.md](../domain-e2e.md),
+> A watch item, not changed: in several rounds of the failed runs the external codex lens alone held `changes`, and
+> its prompt has no severity rubric and no prior-round context; with a bounded request the loops converged, so the
+> lens's gate is not softened. Details: [domain-e2e.md](../domain-e2e.md),
 > [eval-runbook.md](../../eval-runbook.md).
 
 ## Context
