@@ -7,6 +7,12 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
 
 ## [Unreleased]
 
+## [2026.11.21] - 2026-11-27
+
+Field item 6, the rest: harder Tier-2 cases for four roles (no tier moves), the `reader` role (the `clerk` deferred),
+the `omitClaudeMd` A/B (the security lens drops CLAUDE.md), and every hook and shipped CLI finds git and gh by the gate's
+trusted lookup.
+
 ### Changed
 
 - **The `security-engineer` lens no longer loads the project's CLAUDE.md** (`omitClaudeMd: true`; field item 6,
@@ -18,6 +24,11 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
     that arm measured nothing; it scored 0.986 against 1.000, at 13 % lower cost.
   - **Your project's rules.** A project rule the security lens needs now reaches it through the delegation prompt,
     or the lens reads the file.
+- **A `role_scope` refusal for a held role that is not a review lens names the caller** (ADR 0116): "Tests, linters
+  and other tools are run by the caller", where it said the orchestrating skill, in the refusal and in the fail-closed
+  notice. The lenses' refusals are unchanged.
+- **CLAUDE.md and the eval workflow's comments count seven roles with a Tier-2 set** (the `reader` joins them), and the
+  on-demand quality suite is about 420 agent sessions (155 role sessions, about 265 skill sessions), not 360.
 
 ### Added
 
@@ -122,12 +133,6 @@ earlier predate the scheme). Breaking changes are flagged in the entries, not th
   majors would hold review loops, so `security-engineer` stays at the session model too, although it clears the
   numeric gate (mean − σ = 0.85). All four keep `model:
   inherit`.
-
-### Changed
-
-- **A `role_scope` refusal for a held role that is not a review lens names the caller** (ADR 0116): "Tests, linters
-  and other tools are run by the caller", where it said the orchestrating skill, in the refusal and in the fail-closed
-  notice. The lenses' refusals are unchanged.
 
 ### Fixed
 
