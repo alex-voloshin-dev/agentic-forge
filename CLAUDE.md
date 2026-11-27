@@ -41,7 +41,7 @@ This file is the project constitution. Every contributor (human or agent) MUST f
    secrets**: without it the model-backed step is skipped and the run goes green having measured
    nothing. It did exactly that for months (ADR 0082), so the weekly job now fails when the token
    is missing, and every job says on its summary which tiers it measured. Tier-2/Tier-3 are **not**
-   weekly — ~360 agent sessions do not fit a 6-hour job; run them on demand (`workflow_dispatch`,
+   weekly — ~420 agent sessions do not fit a 6-hour job; run them on demand (`workflow_dispatch`,
    or the `eval` label on a PR) before a release or after touching a role (ADR 0083).
 
 3. **Eval-driven, contract-first** (ADR 0008)**.** No component is built before its contract and its
@@ -61,7 +61,7 @@ This file is the project constitution. Every contributor (human or agent) MUST f
    - Tier 1b (activation, on demand): a live session with the plugin loaded invokes the skill
      unprompted; the rate pooled over the run >= 0.80 (ADR 0088/0093).
    - Tier 2 (quality, LLM-judge, N >= 5 runs): (mean - sigma) pass-rate >= 0.8. Tier-2 is
-     declared by self-contained skills and all six roles; the SDLC-spine skills carry only
+     declared by self-contained skills and all seven roles; the SDLC-spine skills carry only
      Tier-1 and inherit quality from their delegated roles' Tier-2 plus the Tier-3 spine
      scenario (ADR 0017; see eval-runbook.md). The opt-in
      `--baseline` skill run also gates the with/without A/B pass-rate lift (`min_lift`), the
