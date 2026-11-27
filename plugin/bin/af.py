@@ -220,7 +220,7 @@ def _trusted(argv: list[str]) -> list[str]:
     (ADR 0115). Nothing found raises ``FileNotFoundError``, as running the bare name did."""
     from agentic_forge import guardrails
 
-    return guardrails.executable(argv, os.environ.get("PATH", ""))
+    return guardrails.trusted_argv(argv)
 
 
 def _read_process(argv: list[str], timeout: float | None = None) -> str:

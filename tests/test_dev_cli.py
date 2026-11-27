@@ -4,6 +4,7 @@ import os
 import sys
 import types
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -2833,6 +2834,62 @@ def test_pr_watch_fetch_runs_the_gh_binary(tmp_path: Path, monkeypatch: pytest.M
     assert started[0][1:3] == ["api", "graphql"]
 
 
+# The scheduled driver runs gh/git from the operator's checkout and a PR's tree: by absolute path
+# only, as the hooks do (ADR 0115).
+
+
+def _scheduled_spy(monkeypatch: pytest.MonkeyPatch, stdout: str = "") -> list[list[str]]:
+    started: list[list[str]] = []
+
+    def run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        started.append(argv)
+        return subprocess.CompletedProcess(argv, 0, stdout, "")
+
+    monkeypatch.setattr(run_scheduled.subprocess, "run", run)
+    return started
+
+
+def test_scheduled_gh_and_git_run_only_as_binaries_on_windows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, windows_programs: Any
+) -> None:
+    """A `gh.cmd`/`git.cmd` on an absolute entry is never chosen: every seam raises the
+    `FileNotFoundError` a missing program raised, before anything starts — `_pr_finished` keeps
+    watching, as on any other failure to read; a later `.exe` is run by its absolute path."""
+    started = _scheduled_spy(monkeypatch, "7\n")
+    entry = pr_watch.WatchEntry("o", "r", 7)
+    windows_programs.use(windows_programs.shims)
+    with pytest.raises(FileNotFoundError):
+        run_scheduled._pr_list(tmp_path)("o", "r")
+    with pytest.raises(FileNotFoundError):
+        run_scheduled._git(tmp_path, "status")
+    with pytest.raises(FileNotFoundError):
+        run_scheduled._read_head(tmp_path, "o", "r", 7)
+    with pytest.raises(FileNotFoundError):
+        run_scheduled._pr_finished(tmp_path, entry)
+    assert started == []
+    windows_programs.use(windows_programs.shims, windows_programs.binaries)
+    assert run_scheduled._pr_list(tmp_path)("o", "r") == [7]
+    run_scheduled._git(tmp_path, "status")
+    assert [argv[0] for argv in started] == [
+        windows_programs.binary("gh"), windows_programs.binary("git")
+    ]
+
+
+def test_scheduled_never_runs_a_gh_or_git_a_relative_path_entry_finds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, plant_program: Any
+) -> None:
+    """The checkout's own `gh`/`git`, found from its directory, never runs: as with none at all."""
+    for name in ("gh", "git"):
+        plant_program(tmp_path / "bin", name)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PATH", f"bin{os.pathsep}.")
+    with pytest.raises(FileNotFoundError):
+        run_scheduled._pr_list(tmp_path)("o", "r")
+    with pytest.raises(FileNotFoundError):
+        run_scheduled._git(tmp_path, "status")
+    assert not list((tmp_path / "bin").glob("*-ran"))
+
+
 # F12: an errored `gh pr list` is an error, not "no open PRs".
 
 
@@ -3059,12 +3116,14 @@ def test_watch_one_pr_removes_the_tree_when_the_watcher_raises(tmp_path: Path) -
 
 
 def test_read_head_raises_when_gh_fails_and_reads_the_answer(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, plant_program: Any
 ) -> None:
     answers = iter([
         _completed("", returncode=4),
         _completed('{"data": {"repository": {"pullRequest": {"isCrossRepository": true}}}}'),
     ])
+    gh = plant_program(tmp_path.resolve() / "abs-bin", "gh")  # never run: subprocess is faked
+    monkeypatch.setenv("PATH", str(gh.parent))
     monkeypatch.setattr(run_scheduled.subprocess, "run", lambda *a, **k: next(answers))
     with pytest.raises(RuntimeError, match="exited 4"):
         run_scheduled._read_head(tmp_path, "o", "r", 1)

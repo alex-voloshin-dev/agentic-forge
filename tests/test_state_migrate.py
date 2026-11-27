@@ -9,8 +9,11 @@ to a real user with 16,676 records.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -240,3 +243,33 @@ def test_an_error_quotes_nothing_from_the_file(tmp_path: Path, capsys) -> None: 
     _legacy(tmp_path, "audit.jsonl", []).write_text("SENTINEL-FROM-THE-REPO\n", encoding="utf-8")
     assert state_migrate.main(["x", "--repo", str(tmp_path), "--apply"]) == 1
     assert "SENTINEL" not in capsys.readouterr().err
+
+
+def test_tracked_asks_only_a_git_by_an_absolute_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, plant_program: Any
+) -> None:
+    """The repository's own `git`, found through a relative PATH entry, never runs: tracked is
+    unknown, which reads as False, as with no git (ADR 0115)."""
+    planted = plant_program(tmp_path / "bin", "git")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PATH", f"bin{os.pathsep}.")
+    assert state_migrate._tracked(tmp_path, tmp_path / "x") is False
+    assert not (planted.parent / "git-ran").exists()
+
+
+def test_tracked_on_windows_runs_only_a_git_binary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, windows_programs: Any
+) -> None:
+    started: list[str] = []
+
+    def run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        started.append(argv[0])
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
+
+    monkeypatch.setattr(state_migrate.subprocess, "run", run)
+    windows_programs.use(windows_programs.shims)
+    assert state_migrate._tracked(tmp_path, tmp_path / "x") is False  # as with no git
+    assert started == []
+    windows_programs.use(windows_programs.shims, windows_programs.binaries)
+    assert state_migrate._tracked(tmp_path, tmp_path / "x") is True
+    assert started == [windows_programs.binary("git")]

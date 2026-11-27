@@ -14,7 +14,6 @@ that phases are joined only by committed handoff artifacts.
 from __future__ import annotations
 
 import re
-import shutil
 from dataclasses import dataclass
 
 __all__ = [
@@ -135,8 +134,12 @@ def remote_argv(worktree: str) -> list[str]:
 
 def gh_on_path() -> bool:
     """Whether the ``gh`` CLI is installed — a PATH lookup, not a process, so the module's
-    "never runs it" stance holds. Without ``gh`` the PR steps are skipped, not failed."""
-    return shutil.which("gh") is not None
+    "never runs it" stance holds. Without ``gh`` the PR steps are skipped, not failed. Found as
+    the hooks find it (``guardrails.trusted_program``: absolute entries only, on Windows a
+    `gh.exe`/`gh.com` only, ADR 0115)."""
+    from . import guardrails
+
+    return guardrails.trusted_program("gh") is not None
 
 
 @dataclass(frozen=True)

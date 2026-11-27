@@ -45,7 +45,7 @@ _HERE = Path(__file__).resolve().parent
 _PLUGIN_ROOT = _HERE.parent
 sys.path.insert(0, str(_PLUGIN_ROOT / "lib"))
 
-from agentic_forge import diagnostics, state_io  # noqa: E402
+from agentic_forge import diagnostics, guardrails, state_io  # noqa: E402
 
 # Runtime state files, by what happens to them: the line-oriented logs are merged, and the rest are
 # deleted. The markers hold nothing to keep; the other two a repo could have committed (ADR 0103).
@@ -87,10 +87,13 @@ def plan(repo: Path) -> tuple[Path, Path, list[str]]:
 
 
 def _tracked(root: Path, path: Path) -> bool:
-    """True if git tracks ``path``. Unknown is False: this only decides whether to say more."""
+    """True if git tracks ``path``. Unknown is False: this only decides whether to say more. git
+    runs by the absolute path ``guardrails.trusted_argv`` finds (ADR 0115); none is unknown."""
     try:
         done = subprocess.run(
-            ["git", "-C", str(root), "ls-files", "--error-unmatch", "--", str(path)],
+            guardrails.trusted_argv(
+                ["git", "-C", str(root), "ls-files", "--error-unmatch", "--", str(path)]
+            ),
             capture_output=True, timeout=30,
         )
     except (subprocess.SubprocessError, OSError):
